@@ -130,4 +130,37 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   inherit it (that is how the skill upload leaked to Anthropic once). Launch services with
   `env -u ANTHROPIC_API_KEY` — only `.env` values are lab credentials.
 
-Jaeger/Colima (observability) not yet up.
+## Observability (Foundry observability analogue; traces double as the audit trail)
+
+**Jaeger v2 runs as a native binary** (`tools/jaeger/jaeger`, downloaded from the GitHub release,
+sha-verified, ~50 MB RAM) — NOT in a Colima VM; the docx's 2 GB VM is unnecessary and the 8 GB
+budget is better spent elsewhere. Default config: OTLP/HTTP `:4318`, gRPC `:4317`, UI
+`http://127.0.0.1:16686`, in-memory storage (traces vanish on restart — fine for a lab; switch
+to the badger backend if retention is needed). `lab.sh up` starts it before the gateway.
+
+Three hops emit into ONE trace per workflow run, joined by W3C `traceparent`:
+- **Workflow/agent process** — root span `ea-modeling-run`, `service.name=process-ea-modelling`
+  (`architecture/run_via_gateway.py` is the reference: one distinct service name per business
+  process, `propagate.inject()` into the MCP transport headers). Agent Framework hosts will
+  emit natively.
+- **Gateway** — `litellm_settings.callbacks: ["otel"]` + `OTEL_EXPORTER=otlp_http`,
+  `OTEL_ENDPOINT`, `OTEL_SERVICE_NAME=litellm-gateway` in `.env`; one span per LLM/MCP call
+  carrying key/team/model/cost.
+- **adoit-mcp** — ASGI middleware (inbound request spans, traceparent extraction) + a span per
+  tool with `archimate.*` attributes (elements, relations, views, violations, warnings) +
+  auto-instrumented urllib so ADOIT REST calls appear as children. `OTEL_EXPORTER_OTLP_ENDPOINT`
+  unset ⇒ no-op tracer, no behaviour change. **Every MCP server entry in `litellm-config.yaml`
+  needs `extra_headers: ["traceparent", "tracestate"]`** — without it the gateway drops trace
+  context and the server's spans land in a separate trace (verified both ways).
+
+Viewing: http://127.0.0.1:16686 → Search → Service `process-ea-modelling` → Find Traces, or
+paste the trace id that `run_via_gateway.py` prints. Verified shape of one run: ~200 spans —
+agent root + per-tool spans, gateway auth/redis/postgres/request spans, adoit-mcp request +
+tool spans with `archimate.*` attributes and the ADOIT `GET`. Known noise: LiteLLM logs
+"OpenTelemetry logging error … standard_logging_object" for `/mcp` routes — a LiteLLM logger
+quirk; the spans are still emitted.
+
+LiteLLM's Logs page (`LiteLLM_SpendLogs`) is the *ledger* (who spent what); Jaeger is the
+*trace* (what happened, in what order, where time went, including hops outside the gateway).
+Keep both; never store prompt/response bodies in the ledger until Presidio redaction is in
+front of the gateway (`store_prompts_in_spend_logs` stays off).

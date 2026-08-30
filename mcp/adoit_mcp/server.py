@@ -5,11 +5,16 @@ governance plane): agents connect to ONE gateway endpoint; this server holds the
 credentials (injected from the environment, never given to agents) and imports the same
 engine library the archimate-adoit skill uses — one implementation, two access paths.
 
+Observability: OTel spans (service.name=adoit-mcp) — one per inbound MCP request via ASGI
+middleware (joins the caller's trace through the traceparent header) plus one per tool with
+domain attributes (elements, relations, violations) and auto-instrumented urllib calls to
+ADOIT. Exported over OTLP/HTTP when OTEL_EXPORTER_OTLP_ENDPOINT is set; silent otherwise.
+
 Tools:
-  archimate_validate(spec)        -> ArchiMate legality warnings for a model spec
-  archimate_render(spec, outdir)  -> .archimate.xml + per-view SVGs + layout report
-  adoit_repos()                   -> repositories visible to the lab's ADOIT account (REST, read)
-  adoit_import_instructions()     -> the governed write path (ADOIT:CE = UI import)
+  archimate_validate(spec)                  -> ArchiMate legality warnings for a model spec
+  archimate_render(spec, outdir, basename)  -> .archimate.xml + per-view SVGs + layout report
+  adoit_repos()                             -> repositories visible to the lab's ADOIT account
+  adoit_import_instructions()               -> the governed write path (ADOIT:CE = UI import)
 
 Model spec (JSON): {
   "name": str, "id": str?,
@@ -34,7 +39,30 @@ SKILL_SCRIPTS = os.path.join(
 sys.path.insert(0, os.path.abspath(SKILL_SCRIPTS))
 from archimate_engine import Model  # noqa: E402
 
-mcp = FastMCP("adoit-mcp")
+SERVICE = "adoit-mcp"
+
+
+def _setup_otel():
+    """Tracer provider + OTLP exporter; returns a tracer (no-op tracer if OTel is unset)."""
+    from opentelemetry import trace
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not endpoint:
+        return trace.get_tracer(SERVICE)
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.urllib import URLLibInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    provider = TracerProvider(resource=Resource.create({"service.name": SERVICE}))
+    provider.add_span_processor(BatchSpanProcessor(
+        OTLPSpanExporter(endpoint=endpoint.rstrip("/") + "/v1/traces")))
+    trace.set_tracer_provider(provider)
+    URLLibInstrumentor().instrument()          # ADOIT REST calls become child spans
+    return trace.get_tracer(SERVICE)
+
+
+tracer = _setup_otel()
+mcp = FastMCP(SERVICE)
 
 
 def _build(spec):
@@ -56,9 +84,13 @@ def _build(spec):
 def archimate_validate(spec: dict) -> dict:
     """Check a model spec against ArchiMate legality rules (no rendering).
     Returns warnings (semantic) — an empty list means the model is clean."""
-    m = _build(spec)
-    return {"elements": len(m.elements), "relations": len(m.relations),
-            "warnings": m.validate_relations()}
+    with tracer.start_as_current_span("archimate_validate") as span:
+        m = _build(spec)
+        warnings = m.validate_relations()
+        span.set_attributes({"archimate.elements": len(m.elements),
+                             "archimate.relations": len(m.relations),
+                             "archimate.warnings": len(warnings)})
+        return {"elements": len(m.elements), "relations": len(m.relations), "warnings": warnings}
 
 
 @mcp.tool()
@@ -66,22 +98,29 @@ def archimate_render(spec: dict, outdir: str, basename: str) -> dict:
     """Validate, lay out and render a model spec to ADOIT-importable Model Exchange XML
     plus one SVG preview per view. Fails on layout-invariant violations; returns the
     written file paths, per-view canvas sizes and any ArchiMate legality warnings."""
-    m = _build(spec)
-    report = m.render(outdir, basename, strict=True)
-    return report
+    with tracer.start_as_current_span("archimate_render") as span:
+        m = _build(spec)
+        report = m.render(outdir, basename, strict=True)
+        span.set_attributes({"archimate.elements": len(m.elements),
+                             "archimate.relations": len(m.relations),
+                             "archimate.views": len(report["views"]),
+                             "archimate.violations": len(report["violations"]),
+                             "archimate.warnings": len(report["warnings"])})
+        return report
 
 
 @mcp.tool()
 def adoit_repos() -> dict:
     """List ADOIT repositories visible to the lab's service account (read-only REST call;
     credentials are injected by this server — agents never see them)."""
-    base = os.environ["ADOIT_BASE_URL"]
-    cred = base64.b64encode(
-        f'{os.environ["ADOIT_USERNAME"]}:{os.environ["ADOIT_PASSWORD"]}'.encode()).decode()
-    req = urllib.request.Request(f"{base}/rest/2.0/repos",
-                                 headers={"Authorization": f"Basic {cred}"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    with tracer.start_as_current_span("adoit_repos"):
+        base = os.environ["ADOIT_BASE_URL"]
+        cred = base64.b64encode(
+            f'{os.environ["ADOIT_USERNAME"]}:{os.environ["ADOIT_PASSWORD"]}'.encode()).decode()
+        req = urllib.request.Request(f"{base}/rest/2.0/repos",
+                                     headers={"Authorization": f"Basic {cred}"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
 
 
 @mcp.tool()
@@ -100,8 +139,11 @@ def adoit_import_instructions() -> str:
 
 
 if __name__ == "__main__":
-    # .env is loaded by the launcher; fail fast if credentials are missing
     for k in ("ADOIT_BASE_URL", "ADOIT_USERNAME", "ADOIT_PASSWORD"):
         if k not in os.environ:
             sys.exit(f"missing env var {k} — source .env before starting")
-    mcp.run(transport="http", host="127.0.0.1", port=9100, path="/mcp")
+    import uvicorn
+    from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
+    app = mcp.http_app(path="/mcp")
+    app.add_middleware(OpenTelemetryMiddleware)   # inbound request spans + traceparent extraction
+    uvicorn.run(app, host="127.0.0.1", port=9100, log_level="info")

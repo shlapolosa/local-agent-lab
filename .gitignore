@@ -29,3 +29,6 @@ logs/
 architecture/out/
 architecture/lab_model.json
 .claude/skills/archimate-adoit-workspace/
+
+# third-party binaries
+tools/

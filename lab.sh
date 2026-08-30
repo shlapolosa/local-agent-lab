@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # lab.sh — bring the local agent lab up/down in one command.
-#   ./lab.sh up      start redis (brew), adoit-mcp (:9100), litellm gateway (:4000); wait for health
+#   ./lab.sh up      start redis (brew), jaeger (:4318 OTLP, :16686 UI), adoit-mcp (:9100), gateway (:4000)
 #   ./lab.sh down    stop adoit-mcp + gateway (redis is left to brew services)
 #   ./lab.sh status  what is running, what the gateway sees
 # Every service is launched with `env -u ANTHROPIC_API_KEY`: only .env holds lab credentials —
@@ -23,6 +23,12 @@ up() {
   if redis-cli -h "${REDIS_HOST:-127.0.0.1}" -p "${REDIS_PORT:-6379}" ping 2>/dev/null | /usr/bin/grep -q PONG; then
     echo "redis        ok  ${REDIS_HOST:-127.0.0.1}:${REDIS_PORT:-6379}"
   else brew services start redis >/dev/null && sleep 2 && echo "redis        started (brew services)"; fi
+  # jaeger: native v2 all-in-one binary (tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail
+  if alive jaeger; then echo "jaeger       ok  already running (pid $(cat $RUN/jaeger.pid))"; else
+    need tools/jaeger/jaeger "download jaeger-2.x-darwin-arm64 from github.com/jaegertracing/jaeger/releases into tools/jaeger/"
+    nohup ./tools/jaeger/jaeger >"$LOGS/jaeger.log" 2>&1 & echo $! >"$RUN/jaeger.pid"
+    wait_http "http://127.0.0.1:16686/api/services" "data" 20 && echo "jaeger       started  http://127.0.0.1:16686 (OTLP :4318)" \
+      || { echo "jaeger       FAILED — see logs/jaeger.log"; exit 1; }; fi
   # adoit-mcp: ArchiMate engine + ADOIT facade, registered with the gateway's MCP registry
   if alive adoit-mcp; then echo "adoit-mcp    ok  already running (pid $(cat $RUN/adoit-mcp.pid))"; else
     env -u ANTHROPIC_API_KEY nohup "$PY" mcp/adoit_mcp/server.py >"$LOGS/adoit-mcp.log" 2>&1 & echo $! >"$RUN/adoit-mcp.pid"
@@ -45,17 +51,18 @@ PYEOF
 )"
   echo "skills       $(curl -s "http://127.0.0.1:4000/v1/skills?beta=true&custom_llm_provider=litellm_proxy" -H "$auth" | $PY -c 'import json,sys; print(", ".join(s["display_title"] for s in json.load(sys.stdin).get("data",[])) or "none")' 2>/dev/null || echo '?')"
   echo "registry ui  http://127.0.0.1:4000/ui  (admin / master key)"
+  echo "traces ui    http://127.0.0.1:16686  services: $(curl -s --max-time 3 http://127.0.0.1:16686/api/services | $PY -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("data") or []) or "none yet")' 2>/dev/null || echo '?')"
 }
 
 down() {
-  for s in litellm adoit-mcp; do
+  for s in litellm adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   pkill -f "litellm --config gateway/litellm-config.yaml" 2>/dev/null || true
   pkill -f "mcp/adoit_mcp/server.py" 2>/dev/null || true
 }
 
 status() {
-  for s in adoit-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in jaeger adoit-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running" || echo "redis        stopped"
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
 }
