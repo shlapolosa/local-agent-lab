@@ -234,7 +234,9 @@ localhost, so `deploy/jaeger-railway.yaml` (0.0.0.0 receivers, memstore) is inje
 storage. **Both endpoints are public and unauthenticated** — acceptable for a lab whose spans
 carry no PII, not for anything else; front them with auth before workflow hosts emit real data.
 The native binary in `tools/jaeger/` is the local fallback: `lab.sh` starts it only when
-`OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost. Topology view: Jaeger → System Architecture
+`OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost. **Railway is metered (trial credit): stop it
+when not in use** — `deploy/railway-jaeger.sh down|up|status` (spans sent while it is down are
+simply dropped by the exporters; nothing else breaks). Topology view: Jaeger → System Architecture
 (from traces); on Azure, Application Insights → Application Map from the same spans.
 
 Three hops emit into ONE trace per workflow run, joined by W3C `traceparent`:
