@@ -1,0 +1,41 @@
+{
+ "skill_name": "archimate-adoit",
+ "evals": [
+  {
+   "id": 0,
+   "eval_name": "three-tier-webapp",
+   "prompt": "I need an ArchiMate diagram of our patient portal for the EA repository (we use ADOIT). It's a React SPA that talks to a FastAPI backend over a REST API, backend stores data in Postgres. The backend exposes the API, and there's a patient (actor) using the portal. Application and technology layers please, with the interfaces shown. Give me a file I can import into ADOIT.",
+   "expected_output": "A .archimate.xml Model Exchange file with app + tech layer elements, interfaces as icon-sized nodes, orthogonal laid-out view, importable into ADOIT; ideally an SVG preview too.",
+   "files": [],
+   "assertions": [
+    "An ArchiMate model XML file exists and parses",
+    "Model uses the Open Group ArchiMate 3.x exchange namespace",
+    "Every element carries identifier, xsi:type and name (ADOIT minimum fields)",
+    "Every relationship carries identifier, source, target, xsi:type",
+    "At least one view exists with full node geometry (x/y/w/h) and connections",
+    "Connections are explicitly routed with orthogonal bendpoints",
+    "Interface elements exist and their view nodes are icon-sized (<=40px)",
+    "No two view nodes overlap (nesting excluded)",
+    "An SVG (or image) preview is provided"
+   ]
+  },
+  {
+   "id": 1,
+   "eval_name": "lab-governance-plane",
+   "prompt": "Model the governance plane of our local agent lab as ArchiMate for ADOIT import: a LiteLLM Proxy gateway (exposes /v1 OpenAI-compatible and /mcp interfaces), several Python workflow hosts that consume model routing through the gateway, Presidio PII middleware inside the hosts, Ollama Cloud as the model backend node, and Jaeger receiving OTel traces. Create the view and give me the import file.",
+   "expected_output": "A .archimate.xml with governance-plane elements across application/technology layers, gateway interfaces as icons, serving/realization directions correct (consumers above providers), plus SVG preview.",
+   "files": [],
+   "assertions": [
+    "An ArchiMate model XML file exists and parses",
+    "Model uses the Open Group ArchiMate 3.x exchange namespace",
+    "Every element carries identifier, xsi:type and name (ADOIT minimum fields)",
+    "Every relationship carries identifier, source, target, xsi:type",
+    "At least one view exists with full node geometry (x/y/w/h) and connections",
+    "Connections are explicitly routed with orthogonal bendpoints",
+    "Interface elements exist and their view nodes are icon-sized (<=40px)",
+    "No two view nodes overlap (nesting excluded)",
+    "An SVG (or image) preview is provided"
+   ]
+  }
+ ]
+}

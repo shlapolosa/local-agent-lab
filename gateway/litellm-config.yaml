@@ -1,0 +1,44 @@
+# LiteLLM gateway — the lab's governance plane (APIM analogue).
+# All three traffic classes converge here: /v1 (LLM), /mcp (tools), A2A (later).
+# Key store: Neon Postgres (DATABASE_URL in .env). Teams/virtual keys/budgets are live —
+# bootstrap with gateway/bootstrap_registry.py; grant MCP access per team via /team/update
+# object_permission.mcp_servers. Master key = admin plane only; agents use virtual keys.
+# Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
+
+model_list:
+  - model_name: gpt-oss-120b            # lab default reasoning model
+    litellm_params:
+      model: openai/gpt-oss:120b        # Ollama Cloud is OpenAI-compatible
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000015   # nominal USD/token so budgets meter (Ollama Cloud is flat-rate)
+      output_cost_per_token: 0.00000060
+  - model_name: glm-flash               # cheap/fast utility model
+    litellm_params:
+      model: openai/glm-5.3-flash
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000005
+      output_cost_per_token: 0.00000020
+
+mcp_servers:
+  adoit_mcp:
+    url: http://127.0.0.1:9100/mcp
+    transport: http
+    description: ArchiMate engine + ADOIT:CE facade (reads via REST, writes via governed UI import)
+
+router_settings:                      # Redis: shared state for rate limits, budgets, router
+  redis_host: os.environ/REDIS_HOST   # (Homebrew redis, already resident on the machine)
+  redis_port: os.environ/REDIS_PORT
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
+  cache: true                         # Redis backs limiter/budget/router state ...
+  cache_params:
+    type: redis
+    host: os.environ/REDIS_HOST
+    port: os.environ/REDIS_PORT
+    supported_call_types: []          # ... but never caches LLM responses
