@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # lab.sh — bring the local agent lab up/down in one command.
-#   ./lab.sh up      start redis (brew), jaeger (:4318 OTLP, :16686 UI), adoit-mcp (:9100), semantic-mcp (:9200),
-#                    gateway (:4000) and the review app (:8501) — the whole lab, approval channel included
+#   ./lab.sh up      start redis (brew, or check the cloud one), jaeger (native, or DEPLOY the Railway one when
+#                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), gateway (:4000), review app (:8501)
+#   ./lab.sh down    stop everything — including the metered Railway Jaeger deployment
 #   ./lab.sh down    stop adoit-mcp + gateway (redis is left to brew services)
 #   ./lab.sh status  what is running, what the gateway sees, pending approvals
 #   ./lab.sh review  (re)start only the architecture review app (streamlit :8501) — the approval channel
@@ -22,6 +23,43 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+remote_tracing() { [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; }
+
+# Jaeger on Railway is metered (trial credit): `up` deploys it, `down` removes the deployment
+# (config, variables, domains are kept), `status` reports it. Railway's API needs a browser
+# User-Agent and the Project-Access-Token header.
+railway_jaeger() {  # up | down | status
+  [ -n "${RAILWAY_TOKEN:-}" ] || { echo "jaeger       remote  (no RAILWAY_TOKEN — not managed here)"; return 0; }
+  "$PY" - "$1" <<'PY'
+import json, os, sys, time, urllib.request
+TOKEN, ENV, PROJECT = os.environ["RAILWAY_TOKEN"], os.environ["RAILWAY_ENVIRONMENT_ID"], os.environ["RAILWAY_PROJECT_ID"]
+H = {"User-Agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/128 Safari/537.36",
+     "Content-Type": "application/json", "Accept": "application/json", "Project-Access-Token": TOKEN}
+def gql(q, v=None):
+    r = json.load(urllib.request.urlopen(urllib.request.Request("https://backboard.railway.com/graphql/v2",
+        data=json.dumps({"query": q, "variables": v or {}}).encode(), headers=H), timeout=60))
+    if r.get("errors"): sys.exit(f"jaeger       railway error {[e.get('message') for e in r['errors']]}")
+    return r["data"]
+SID = gql('query($p:String!){ project(id:$p){ services{ edges{ node{ id } } } } }', {"p": PROJECT})["project"]["services"]["edges"][0]["node"]["id"]
+def latest():
+    e = gql('query($s:String!,$e:String!){ deployments(first:1, input:{serviceId:$s, environmentId:$e}){ edges{ node{ id status } } } }', {"s": SID, "e": ENV})["deployments"]["edges"]
+    return e[0]["node"] if e else {"id": None, "status": "NONE"}
+cmd, d, ui = sys.argv[1], latest(), os.environ.get("JAEGER_UI_URL", "?")
+if cmd == "status":
+    print(f"jaeger       railway {d['status'].lower():8} {ui}")
+elif cmd == "up":
+    if d["status"] == "SUCCESS": print(f"jaeger       railway ok  {ui}"); sys.exit()
+    gql('mutation($s:String!,$e:String!){ serviceInstanceDeploy(serviceId:$s, environmentId:$e) }', {"s": SID, "e": ENV})
+    for _ in range(24):
+        time.sleep(10); d = latest()
+        if d["status"] in ("SUCCESS", "FAILED", "CRASHED"): break
+    print(f"jaeger       railway {d['status'].lower()}  {ui}")
+    if d["status"] != "SUCCESS": sys.exit(1)
+elif cmd == "down":
+    if d["status"] != "SUCCESS": print(f"jaeger       railway already {d['status'].lower()}"); sys.exit()
+    gql('mutation($id:String!){ deploymentRemove(id:$id) }', {"id": d["id"]}); print("jaeger       railway stopped (config, variables, domains kept)")
+PY
+}
 
 up() {
   load_env; need "$PY" "python3.12 -m venv .venv && .venv/bin/pip install 'litellm[proxy]' fastmcp prisma"
@@ -35,8 +73,8 @@ up() {
   else brew services start redis >/dev/null && sleep 2 && echo "redis        started (brew services)"; fi
   # jaeger: native v2 all-in-one binary (tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail.
   # A remote OTEL_EXPORTER_OTLP_ENDPOINT (e.g. Jaeger on Railway, App Insights) means no local jaeger.
-  if [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; then
-    echo "jaeger       remote  traces -> $OTEL_EXPORTER_OTLP_ENDPOINT (ui ${JAEGER_UI_URL:-?})"
+  if remote_tracing; then
+    railway_jaeger up || { echo "jaeger       remote tracing endpoint down — stopping"; exit 1; }
   elif alive jaeger; then echo "jaeger       ok  already running (pid $(cat $RUN/jaeger.pid))"; else
     need tools/jaeger/jaeger "download jaeger-2.x-darwin-arm64 from github.com/jaegertracing/jaeger/releases into tools/jaeger/"
     nohup ./tools/jaeger/jaeger >"$LOGS/jaeger.log" 2>&1 & echo $! >"$RUN/jaeger.pid"
@@ -85,13 +123,16 @@ review() {
 down() {
   for s in review litellm semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
+  load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config gateway/litellm-config.yaml" 2>/dev/null || true
   pkill -f "mcp/adoit_mcp/server.py" 2>/dev/null || true
   pkill -f "mcp/semantic_mcp/server.py" 2>/dev/null || true
 }
 
 status() {
-  for s in jaeger adoit-mcp semantic-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  load_env 2>/dev/null || true
+  if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
+  for s in adoit-mcp semantic-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   load_env 2>/dev/null || true
   if [ -n "${REDIS_URL:-}" ]; then redis-cli -u "$REDIS_URL" --no-auth-warning ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        cloud ok (${REDIS_HOST:-})" || echo "redis        cloud UNREACHABLE";
   else redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running (local)" || echo "redis        stopped"; fi
