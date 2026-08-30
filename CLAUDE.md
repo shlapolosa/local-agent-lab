@@ -224,12 +224,18 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
 **Jaeger v2 runs on Railway** (project `elegant-peace`, service `local-agent-lab`, image
 `jaegertracing/jaeger:2.20.0`, deployed via the Railway GraphQL API with the project token in
 `.env` — note Railway's API needs a browser User-Agent and the `Project-Access-Token` header).
-UI: `https://local-agent-lab-production.up.railway.app` (`JAEGER_UI_URL`); OTLP/HTTP ingest via
-Railway TCP proxy `http://altaria.proxy.rlwy.net:50325` → container port 4318 (`OTEL_*` in
-`.env`). In-memory storage. **Both endpoints are public and unauthenticated** — acceptable for a
-lab whose spans carry no PII, not for anything else; put Railway private networking or an auth
-proxy in front before workflow hosts emit real data. The native binary in `tools/jaeger/` is the
-local fallback: `lab.sh` starts it only when `OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost.
+UI: `https://local-agent-lab-production.up.railway.app` (`JAEGER_UI_URL`, domain targetPort
+16686); OTLP/HTTP ingest over HTTPS on a second service domain
+`https://local-agent-lab-production-522c.up.railway.app` (targetPort 4318 — Railway's TCP proxy
+resets HTTP, so domains-with-targetPort is the pattern). The stock image binds receivers to
+localhost, so `deploy/jaeger-railway.yaml` (0.0.0.0 receivers, memstore) is injected as the
+`JAEGER_CONFIG` variable with start command `/cmd/jaeger/jaeger-linux --config env:JAEGER_CONFIG`
+(Railway replaces the entrypoint; the binary path comes from the image config). In-memory
+storage. **Both endpoints are public and unauthenticated** — acceptable for a lab whose spans
+carry no PII, not for anything else; front them with auth before workflow hosts emit real data.
+The native binary in `tools/jaeger/` is the local fallback: `lab.sh` starts it only when
+`OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost. Topology view: Jaeger → System Architecture
+(from traces); on Azure, Application Insights → Application Map from the same spans.
 
 Three hops emit into ONE trace per workflow run, joined by W3C `traceparent`:
 - **Workflow/agent process** — root span `ea-modeling-run`, `service.name=process-ea-modelling`
