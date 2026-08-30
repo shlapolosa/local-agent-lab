@@ -72,14 +72,15 @@ el("ss-python", "SystemSoftware", "Python 3.12 (.venv)")
 el("ss-uvicorn", "SystemSoftware", "Uvicorn")
 el("ss-fastmcp", "SystemSoftware", "FastMCP 3")
 el("ss-prisma", "SystemSoftware", "Prisma Client",
-   "LiteLLM key/team store; awaiting Postgres for virtual keys and budgets")
+   "LiteLLM ORM to the Neon key/spend store")
 el("node-ollama", "Node", "Ollama Cloud")
 el("tsvc-infer", "TechnologyService", "Model Inference",
    "gpt-oss:120b primary, glm-5.3-flash utility; OpenAI-compatible")
 el("node-entra", "Node", "Entra ID Tenant (free)")
 el("tsvc-id", "TechnologyService", "Identity & OAuth2",
    "One app registration per agent; MSAL locally; OAuth2 for MCP flows")
-el("node-jaeger", "Node", "Jaeger (Colima VM)")
+el("node-jaeger", "SystemSoftware", "Jaeger v2 (native binary)",
+   "Trace store + UI; in-memory storage; ~50 MB RSS instead of a 2 GB Colima VM")
 el("if-otlp", "TechnologyInterface", "OTLP")
 el("tsvc-trace", "TechnologyService", "Trace Collection",
    "Trace tree per workflow run; doubles as audit trail")
@@ -87,6 +88,22 @@ el("node-adoit", "Node", "ADOIT:CE (BOC Cloud)")
 el("if-rest", "TechnologyInterface", "REST API (read-only)",
    "Only /rest/2.0/repos works on CE; writes go through governed UI import")
 el("tsvc-repo", "TechnologyService", "EA Repository")
+
+el("ss-redis", "SystemSoftware", "Redis (Homebrew)",
+   "Gateway limiter/budget/router state and the approval event streams")
+el("node-neon", "Node", "Neon Postgres (cloud)")
+el("tsvc-keystore", "TechnologyService", "Key & Spend Store",
+   "LiteLLM teams, virtual keys, budgets, spend logs, skills")
+el("tsvc-events", "TechnologyService", "Approval Event Bus",
+   "Redis Streams approvals:requests / approvals:decisions; consumer group per channel")
+el("comp-review", "ApplicationComponent", "Architecture Review App (Streamlit)",
+   "Approval channel with diagrams, model contents, trace link")
+el("comp-telegram", "ApplicationComponent", "Telegram Approval Channel",
+   "Same contract as the review app; plumbing only until a bot token is configured")
+el("svc-approval", "ApplicationService", "Import Approval",
+   "approve / decline / changes-requested from any channel")
+el("data-approvals", "DataObject", "Approval Events (requests, decisions)")
+el("proc-approve", "BusinessProcess", "Approve EA Repository Change")
 
 # ---------- Implementation & Migration ----------
 el("wp1", "WorkPackage", "Scaffold Lab Repository")
@@ -159,6 +176,24 @@ rel("Serving", "ss-uvicorn", "comp-gw")
 rel("Serving", "ss-uvicorn", "comp-adoitmcp")
 rel("Serving", "ss-fastmcp", "comp-adoitmcp")
 rel("Serving", "ss-prisma", "comp-gw")
+# approval gate + runtime state
+rel("Composition", "node-mac", "ss-redis")
+rel("Composition", "node-mac", "node-jaeger")
+rel("Serving", "ss-redis", "comp-gw")
+rel("Realization", "ss-redis", "tsvc-events")
+rel("Serving", "tsvc-events", "comp-adoitmcp")
+rel("Serving", "tsvc-events", "comp-review")
+rel("Serving", "tsvc-events", "comp-telegram")
+rel("Realization", "node-neon", "tsvc-keystore")
+rel("Serving", "tsvc-keystore", "comp-gw")
+rel("Realization", "comp-review", "svc-approval")
+rel("Realization", "comp-telegram", "svc-approval")
+rel("Serving", "svc-approval", "comp-adoitmcp")
+rel("Serving", "svc-approval", "proc-approve")
+rel("Assignment", "actor-ea", "proc-approve")
+rel("Access", "comp-adoitmcp", "data-approvals", accessType="Write")
+rel("Access", "comp-review", "data-approvals", accessType="ReadWrite")
+rel("Access", "comp-telegram", "data-approvals", accessType="ReadWrite")
 # implementation & roadmap
 rel("Triggering", "wp1", "wp2")
 rel("Triggering", "wp2", "wp3")
@@ -183,8 +218,12 @@ SPEC = {
          "elements": ["actor-ea", "svc-ea", "comp-adoitmcp", "svc-tools", "comp-gw",
                       "data-model", "node-adoit", "if-rest", "tsvc-repo"]},
         {"id": "runtime-stack", "title": "Local Runtime Stack (scoped)",
-         "elements": ["comp-gw", "comp-host", "comp-adoitmcp", "node-mac", "ss-python",
-                      "ss-uvicorn", "ss-fastmcp", "ss-prisma"]},
+         "elements": ["comp-gw", "comp-host", "comp-adoitmcp", "comp-review", "node-mac", "ss-python",
+                      "ss-uvicorn", "ss-fastmcp", "ss-prisma", "ss-redis", "node-jaeger",
+                      "node-neon", "tsvc-keystore"]},
+        {"id": "approval-loop", "title": "Approval Gate — EA Repository Writes (scoped)",
+         "elements": ["actor-ea", "proc-approve", "svc-approval", "comp-review", "comp-telegram",
+                      "data-approvals", "comp-adoitmcp", "tsvc-events", "ss-redis"]},
     ],
     "standard_views": True,
 }

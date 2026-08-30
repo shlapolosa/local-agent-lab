@@ -130,6 +130,27 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   inherit it (that is how the skill upload leaked to Anthropic once). Launch services with
   `env -u ANTHROPIC_API_KEY` — only `.env` values are lab credentials.
 
+## Approval Gate (human-in-the-loop for EA repository writes)
+
+Event-based over the Redis already running — **Redis Streams**, not pub/sub, because approvals
+must be durable and acknowledged. `shared/approvals.py` is the only API:
+`request()` publishes to `approvals:requests` (one consumer group per channel:
+`review-app`, `telegram` — each channel sees every request); `decide()` appends to
+`approvals:decisions` (the audit log) with `approve | decline | update` (= changes requested,
+stays open), actor, channel, comment; `status()/await_decision()` for the requester.
+
+- **Write path is two MCP tools**: `adoit_request_import` (publishes the event, returns id,
+  writes nothing) → human decision → `adoit_import_status` (decision + next step). On
+  ADOIT:CE "approve" releases the XML for the UI import; on a full tenant the REST write runs
+  inside that tool after approval. The tool never writes without a decision.
+- **Channels**: `review/app.py` (Streamlit, `./lab.sh review`, :8501) shows views, model
+  contents, trace link, and takes the decision; `channels/telegram.py` is the same contract
+  as plumbing only (enabled by `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`; no diagrams — summary
+  + link to the review app); `python shared/approvals.py approve|decline|update <id>` is the
+  CLI channel. Adding a channel = a new consumer group name in `CHANNELS` + a consumer.
+- Requests carry the OTel `trace_id` of the run that produced the model, so a reviewer can
+  open the exact trace from the review app.
+
 ## Observability (Foundry observability analogue; traces double as the audit trail)
 
 **Jaeger v2 runs as a native binary** (`tools/jaeger/jaeger`, downloaded from the GitHub release,

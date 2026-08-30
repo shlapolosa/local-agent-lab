@@ -14,7 +14,9 @@ Tools:
   archimate_validate(spec)                  -> ArchiMate legality warnings for a model spec
   archimate_render(spec, outdir, basename)  -> .archimate.xml + per-view SVGs + layout report
   adoit_repos()                             -> repositories visible to the lab's ADOIT account
-  adoit_import_instructions()               -> the governed write path (ADOIT:CE = UI import)
+  adoit_request_import(xml_path, ...)       -> WRITE PATH step 1: publish an approval event, get id
+  adoit_import_status(request_id)           -> WRITE PATH step 2: decision + what happens next
+  adoit_import_instructions()               -> the ADOIT:CE UI import procedure (no REST writes)
 
 Model spec (JSON): {
   "name": str, "id": str?,
@@ -37,7 +39,9 @@ from fastmcp import FastMCP
 SKILL_SCRIPTS = os.path.join(
     os.path.dirname(__file__), "..", "..", ".claude", "skills", "archimate-adoit", "scripts")
 sys.path.insert(0, os.path.abspath(SKILL_SCRIPTS))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from archimate_engine import Model  # noqa: E402
+from shared import approvals  # noqa: E402  (Redis Streams approval gate)
 
 SERVICE = "adoit-mcp"
 
@@ -121,6 +125,50 @@ def adoit_repos() -> dict:
                                      headers={"Authorization": f"Basic {cred}"})
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
+
+
+@mcp.tool()
+def adoit_request_import(xml_path: str, model_name: str, summary: dict,
+                         requester: str = "ea-modeling-agent") -> dict:
+    """WRITE PATH, step 1. Stage a rendered model for import into the EA repository by
+    publishing an approval request (Redis Streams). Nothing is written to ADOIT here — a
+    human must approve via the review app or Telegram. Returns the request id to poll with
+    adoit_import_status. summary = the render report counts (elements, relations, views,
+    violations, warnings)."""
+    import glob
+    from opentelemetry import trace
+    with tracer.start_as_current_span("adoit_request_import") as span:
+        if not os.path.exists(xml_path):
+            raise FileNotFoundError(xml_path)
+        base = xml_path[:-len(".archimate.xml")] if xml_path.endswith(".archimate.xml") else xml_path
+        svgs = sorted(glob.glob(base + "-*.svg"))
+        ctx = trace.get_current_span().get_span_context()
+        trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
+        rid = approvals.request(kind="adoit-import", subject=model_name,
+                                payload={"xml_path": xml_path, "svgs": svgs, "summary": summary},
+                                requester=requester, trace_id=trace_id)
+        span.set_attributes({"approval.request_id": rid, "approval.kind": "adoit-import"})
+        return {"request_id": rid, "status": "pending", "channels": list(approvals.CHANNELS),
+                "review_app": "http://127.0.0.1:8501"}
+
+
+@mcp.tool()
+def adoit_import_status(request_id: str) -> dict:
+    """WRITE PATH, step 2. Current decision on an import request and what happens next.
+    approve -> the model is released for import (on ADOIT:CE the import itself is the UI
+    procedure from adoit_import_instructions; on a full tenant this is where the REST write
+    will run). decline -> stop. update -> changes requested, see comment; re-render and
+    re-request."""
+    st = approvals.status(request_id)
+    if not st:
+        raise KeyError(f"unknown request {request_id}")
+    nxt = {"pending": "awaiting a human decision (review app / Telegram / CLI)",
+           "approve": "released for import — run the ADOIT:CE UI import (adoit_import_instructions); "
+                      "REST write will execute here once a full ADOIT tenant is available",
+           "decline": "declined — do not import",
+           "update": "changes requested — address the comment, re-render, re-request"}
+    st["next"] = nxt.get(st.get("status"), "")
+    return st
 
 
 @mcp.tool()

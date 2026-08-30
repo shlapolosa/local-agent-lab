@@ -82,6 +82,19 @@ async def _run(tracer, spec, headers):
         for f in res.data["files"]:
             print("  ", f)
 
+        # governed write path: stage for human approval (review app / Telegram / CLI)
+        with tracer.start_as_current_span("tool adoit_request_import"):
+            xml = next(f for f in res.data["files"] if f.endswith(".archimate.xml"))
+            summary = {"elements": val.data["elements"], "relations": val.data["relations"],
+                       "views": len(res.data["views"]), "violations": len(res.data["violations"]),
+                       "warnings": len(res.data["warnings"])}
+            req = await c.call_tool(pick("adoit_request_import"), {
+                "xml_path": xml, "model_name": spec["name"], "summary": summary})
+        print(f"approval requested: {req.data['request_id']} -> status {req.data['status']} "
+              f"(review at {req.data['review_app']})")
+        st = await c.call_tool(pick("adoit_import_status"), {"request_id": req.data["request_id"]})
+        print("import status:", st.data["status"], "—", st.data["next"])
+
 
 if __name__ == "__main__":
     asyncio.run(main())

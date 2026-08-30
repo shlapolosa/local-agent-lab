@@ -2,7 +2,8 @@
 # lab.sh — bring the local agent lab up/down in one command.
 #   ./lab.sh up      start redis (brew), jaeger (:4318 OTLP, :16686 UI), adoit-mcp (:9100), gateway (:4000)
 #   ./lab.sh down    stop adoit-mcp + gateway (redis is left to brew services)
-#   ./lab.sh status  what is running, what the gateway sees
+#   ./lab.sh status  what is running, what the gateway sees, pending approvals
+#   ./lab.sh review  open the architecture review app (streamlit :8501) — the approval channel
 # Every service is launched with `env -u ANTHROPIC_API_KEY`: only .env holds lab credentials —
 # ambient shell keys must never reach the governance plane (see CLAUDE.md, Gateway Registry).
 set -euo pipefail
@@ -50,12 +51,22 @@ import yaml; print(", ".join(yaml.safe_load(open("gateway/litellm-config.yaml"))
 PYEOF
 )"
   echo "skills       $(curl -s "http://127.0.0.1:4000/v1/skills?beta=true&custom_llm_provider=litellm_proxy" -H "$auth" | $PY -c 'import json,sys; print(", ".join(s["display_title"] for s in json.load(sys.stdin).get("data",[])) or "none")' 2>/dev/null || echo '?')"
+  echo "approvals    pending: $(env -u ANTHROPIC_API_KEY $PY shared/approvals.py count 2>/dev/null || echo '?')  (./lab.sh review | python shared/approvals.py list)"
   echo "registry ui  http://127.0.0.1:4000/ui  (admin / master key)"
   echo "traces ui    http://127.0.0.1:16686  services: $(curl -s --max-time 3 http://127.0.0.1:16686/api/services | $PY -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("data") or []) or "none yet")' 2>/dev/null || echo '?')"
 }
 
+review() {
+  load_env
+  if alive review; then echo "review app   ok  http://127.0.0.1:8501 (pid $(cat $RUN/review.pid))"; else
+    env -u ANTHROPIC_API_KEY nohup "$ROOT/.venv/bin/streamlit" run review/app.py --server.port 8501 --server.headless true \
+      >"$LOGS/review.log" 2>&1 & echo $! >"$RUN/review.pid"
+    wait_http "http://127.0.0.1:8501/healthz" "ok" 30 && echo "review app   started  http://127.0.0.1:8501" \
+      || { echo "review app   FAILED — see logs/review.log"; exit 1; }; fi
+}
+
 down() {
-  for s in litellm adoit-mcp jaeger; do
+  for s in review litellm adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   pkill -f "litellm --config gateway/litellm-config.yaml" 2>/dev/null || true
   pkill -f "mcp/adoit_mcp/server.py" 2>/dev/null || true
@@ -67,4 +78,4 @@ status() {
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
 }
 
-case "${1:-}" in up) up;; down) down;; status) status;; *) echo "usage: $0 up|down|status"; exit 2;; esac
+case "${1:-}" in up) up;; down) down;; status) status;; review) review;; *) echo "usage: $0 up|down|status|review"; exit 2;; esac
