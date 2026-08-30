@@ -33,8 +33,11 @@ up() {
   elif redis-cli -h "${REDIS_HOST:-127.0.0.1}" -p "${REDIS_PORT:-6379}" ping 2>/dev/null | /usr/bin/grep -q PONG; then
     echo "redis        ok  ${REDIS_HOST:-127.0.0.1}:${REDIS_PORT:-6379}"
   else brew services start redis >/dev/null && sleep 2 && echo "redis        started (brew services)"; fi
-  # jaeger: native v2 all-in-one binary (tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail
-  if alive jaeger; then echo "jaeger       ok  already running (pid $(cat $RUN/jaeger.pid))"; else
+  # jaeger: native v2 all-in-one binary (tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail.
+  # A remote OTEL_EXPORTER_OTLP_ENDPOINT (e.g. Jaeger on Railway, App Insights) means no local jaeger.
+  if [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; then
+    echo "jaeger       remote  traces -> $OTEL_EXPORTER_OTLP_ENDPOINT (ui ${JAEGER_UI_URL:-?})"
+  elif alive jaeger; then echo "jaeger       ok  already running (pid $(cat $RUN/jaeger.pid))"; else
     need tools/jaeger/jaeger "download jaeger-2.x-darwin-arm64 from github.com/jaegertracing/jaeger/releases into tools/jaeger/"
     nohup ./tools/jaeger/jaeger >"$LOGS/jaeger.log" 2>&1 & echo $! >"$RUN/jaeger.pid"
     wait_http "http://127.0.0.1:16686/api/services" "data" 20 && echo "jaeger       started  http://127.0.0.1:16686 (OTLP :4318)" \
@@ -67,7 +70,7 @@ PYEOF
   echo "skills       $(curl -s "http://127.0.0.1:4000/v1/skills?beta=true&custom_llm_provider=litellm_proxy" -H "$auth" | $PY -c 'import json,sys; print(", ".join(s["display_title"] for s in json.load(sys.stdin).get("data",[])) or "none")' 2>/dev/null || echo '?')"
   echo "approvals    pending: $(env -u ANTHROPIC_API_KEY $PY shared/approvals.py count 2>/dev/null || echo '?')  (./lab.sh review | python shared/approvals.py list)"
   echo "registry ui  http://127.0.0.1:4000/ui  (admin / master key)"
-  echo "traces ui    http://127.0.0.1:16686  services: $(curl -s --max-time 3 http://127.0.0.1:16686/api/services | $PY -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("data") or []) or "none yet")' 2>/dev/null || echo '?')"
+  echo "traces ui    ${JAEGER_UI_URL:-http://127.0.0.1:16686}  services: $(curl -s --max-time 5 "${JAEGER_UI_URL:-http://127.0.0.1:16686}/api/services" | $PY -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("data") or []) or "none yet")' 2>/dev/null || echo '?')"
 }
 
 review() {

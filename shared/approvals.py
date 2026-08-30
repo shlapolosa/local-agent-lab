@@ -29,9 +29,18 @@ CHANNELS = ("review-app", "telegram")
 DECISIONS = ("approve", "decline", "update")
 
 
+def _config():
+    """Works both as package module (from shared import approvals) and as a CLI script."""
+    try:
+        from . import config
+    except ImportError:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from shared import config
+    return config
+
+
 def _r():
-    from . import config
-    return redis.Redis.from_url(config.REDIS_URL, decode_responses=True)
+    return redis.Redis.from_url(_config().REDIS_URL, decode_responses=True)
 
 
 def _now():
