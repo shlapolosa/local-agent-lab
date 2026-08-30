@@ -221,11 +221,15 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
 
 ## Observability (Foundry observability analogue; traces double as the audit trail)
 
-**Jaeger v2 runs as a native binary** (`tools/jaeger/jaeger`, downloaded from the GitHub release,
-sha-verified, ~50 MB RAM) — NOT in a Colima VM; the docx's 2 GB VM is unnecessary and the 8 GB
-budget is better spent elsewhere. Default config: OTLP/HTTP `:4318`, gRPC `:4317`, UI
-`http://127.0.0.1:16686`, in-memory storage (traces vanish on restart — fine for a lab; switch
-to the badger backend if retention is needed). `lab.sh up` starts it before the gateway.
+**Jaeger v2 runs on Railway** (project `elegant-peace`, service `local-agent-lab`, image
+`jaegertracing/jaeger:2.20.0`, deployed via the Railway GraphQL API with the project token in
+`.env` — note Railway's API needs a browser User-Agent and the `Project-Access-Token` header).
+UI: `https://local-agent-lab-production.up.railway.app` (`JAEGER_UI_URL`); OTLP/HTTP ingest via
+Railway TCP proxy `http://altaria.proxy.rlwy.net:50325` → container port 4318 (`OTEL_*` in
+`.env`). In-memory storage. **Both endpoints are public and unauthenticated** — acceptable for a
+lab whose spans carry no PII, not for anything else; put Railway private networking or an auth
+proxy in front before workflow hosts emit real data. The native binary in `tools/jaeger/` is the
+local fallback: `lab.sh` starts it only when `OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost.
 
 Three hops emit into ONE trace per workflow run, joined by W3C `traceparent`:
 - **Workflow/agent process** — root span `ea-modeling-run`, `service.name=process-ea-modelling`
