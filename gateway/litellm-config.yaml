@@ -21,15 +21,19 @@ model_list:
       input_cost_per_token: 0.00000005
       output_cost_per_token: 0.00000020
 
-mcp_servers:
+mcp_servers:                          # addresses + trust come from the environment (cloud shape)
   adoit_mcp:
-    url: http://127.0.0.1:9100/mcp
+    url: os.environ/ADOIT_MCP_URL      # default http://127.0.0.1:9100/mcp (shared/config.py)
     transport: http
+    auth_type: bearer_token
+    authentication_token: os.environ/MCP_SHARED_SECRET
     description: ArchiMate engine + ADOIT:CE facade (reads via REST, writes via governed UI import)
     extra_headers: ["traceparent", "tracestate"]   # forward W3C trace context -> one trace across all hops
   semantic_mcp:
-    url: http://127.0.0.1:9200/mcp
+    url: os.environ/SEMANTIC_MCP_URL
     transport: http
+    auth_type: bearer_token
+    authentication_token: os.environ/MCP_SHARED_SECRET
     description: Semantic layer — vocabularies as data (ArchiMate 3.1 first), classification, exact relationship legality, SPARQL over models
     extra_headers: ["traceparent", "tracestate"]
 

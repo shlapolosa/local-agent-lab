@@ -10,7 +10,7 @@ import json
 import os
 import urllib.request
 
-GW = "http://127.0.0.1:4000"
+GW = os.environ.get("GATEWAY_URL", "http://127.0.0.1:4000")
 MASTER = os.environ["LITELLM_MASTER_KEY"]
 
 

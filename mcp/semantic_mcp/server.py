@@ -23,6 +23,8 @@ from fastmcp import FastMCP
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from semantic.service import SemanticService  # noqa: E402
+from shared import artifacts, config  # noqa: E402
+from shared.mcpauth import BearerAuthMiddleware  # noqa: E402
 
 SERVICE = "semantic-mcp"
 
@@ -123,14 +125,15 @@ def semantic_concepts(scheme: str, root_label: str | None = None, depth: int | N
 @mcp.tool()
 def semantic_export_archimate(scheme: str, root_label: str | None = None, depth: int | None = None,
                               kind: str = "capability", views: str = "overview,branches",
-                              out_path: str | None = None) -> dict:
+                              out_path: str | None = None, by_ref: bool = True) -> dict:
     """Project a reference scheme (or subtree) to an ArchiMate model spec — Capability /
     ValueStream elements with Composition, plus an L1 overview view and one nested view per
     top concept. Feed the result to adoit-mcp's archimate_render + adoit_request_import: that
     is the governed way to write reference capabilities into ADOIT.
-    Large maps (a full L1–L4 map is 1,600+ elements) should pass by REFERENCE: give out_path
-    and the spec is written there; the return carries counts + spec_path instead of the payload
-    — the gateway meters tool payloads as tokens, and adoit-mcp accepts spec_path."""
+    By default the spec is stored as an artifact and only counts + spec_ref (art://…) are
+    returned — the gateway meters tool payloads as tokens and adoit-mcp accepts spec_ref from
+    any host. by_ref=False returns the payload inline (small subtrees); out_path also writes a
+    local copy (dev)."""
     import json
     with tracer.start_as_current_span("semantic_export_archimate") as span:
         spec = S.export_archimate(scheme, root_label, depth, kind, views)
@@ -138,7 +141,9 @@ def semantic_export_archimate(scheme: str, root_label: str | None = None, depth:
         if out_path:
             os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
             json.dump(spec, open(out_path, "w"), indent=0)
-            return {"spec_path": out_path, "name": spec["name"], "id": spec["id"],
+        if by_ref:
+            ref = artifacts.store().put(f'{spec["id"]}.spec.json', json.dumps(spec).encode(), "application/json")
+            return {"spec_ref": ref, "spec_path": out_path, "name": spec["name"], "id": spec["id"],
                     "elements": len(spec["elements"]), "relations": len(spec["relations"]),
                     "views": len(spec["views"])}
         return spec
@@ -164,4 +169,5 @@ if __name__ == "__main__":
     from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
     app = mcp.http_app(path="/mcp")
     app.add_middleware(OpenTelemetryMiddleware)
-    uvicorn.run(app, host="127.0.0.1", port=9200, log_level="info")
+    app.add_middleware(BearerAuthMiddleware)
+    uvicorn.run(app, host=config.BIND_HOST, port=config.SEMANTIC_MCP_PORT, log_level="info")

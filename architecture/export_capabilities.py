@@ -15,8 +15,11 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from opentelemetry import propagate, trace
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared import config  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-GATEWAY = "http://127.0.0.1:4000/mcp/"
+GATEWAY = config.GATEWAY_MCP_URL
 SERVICE = "process-ea-modelling"
 
 
@@ -30,20 +33,17 @@ async def main(scheme, root, depth):
         async with Client(StreamableHttpTransport(GATEWAY, headers=headers)) as c:
             names = [t.name for t in await c.list_tools()]
             pick = lambda suf: next(n for n in names if n.endswith(suf))
-            os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
-            out_path = os.path.join(HERE, "out", f"{scheme}-export.json")
             spec = (await c.call_tool(pick("semantic_export_archimate"), {
-                "scheme": scheme, "root_label": root, "depth": depth, "out_path": out_path})).data
+                "scheme": scheme, "root_label": root, "depth": depth})).data     # by reference (art://)
             print(f"exported: {spec['name']} — {spec['elements']} elements, "
-                  f"{spec['relations']} compositions, {spec['views']} views -> {spec['spec_path']}")
+                  f"{spec['relations']} compositions, {spec['views']} views -> {spec['spec_ref']}")
             base = spec["id"]
-            res = (await c.call_tool(pick("archimate_render"), {          # by reference: no payload
-                "spec_path": spec["spec_path"], "outdir": os.path.join(HERE, "out"), "basename": base})).data
+            res = (await c.call_tool(pick("archimate_render"), {          # no payload crosses the gateway
+                "spec_ref": spec["spec_ref"], "basename": base})).data
             print("violations:", len(res["violations"]), "| warnings:", len(res["warnings"]),
-                  "| views:", len(res["views"]))
-            xml = next(f for f in res["files"] if f.endswith(".archimate.xml"))
+                  "| views:", len(res["views"]), "| xml:", res["xml_ref"])
             req = (await c.call_tool(pick("adoit_request_import"), {
-                "xml_path": xml, "model_name": spec["name"],
+                "xml_ref": res["xml_ref"], "svg_refs": res["svg_refs"], "model_name": spec["name"],
                 "summary": {"elements": spec["elements"], "relations": spec["relations"],
                             "views": len(res["views"]), "violations": len(res["violations"]),
                             "warnings": len(res["warnings"])}})).data

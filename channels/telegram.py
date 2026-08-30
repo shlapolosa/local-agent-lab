@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from shared import approvals  # noqa: E402
+from shared import approvals, config  # noqa: E402
 
 API = "https://api.telegram.org/bot{token}/{method}"
 
@@ -38,7 +38,7 @@ class TelegramChannel:
                 f'id {f["request_id"]} from {f["requester"]}\n'
                 f'{s.get("elements","?")} elements, {s.get("relations","?")} relationships, '
                 f'{s.get("views","?")} views, {s.get("violations","?")} violations, {s.get("warnings","?")} warnings\n'
-                f'Diagrams: http://127.0.0.1:8501\n'
+                f'Diagrams: {config.REVIEW_APP_URL}\n'
                 f'Reply: /approve {f["request_id"]}  |  /decline {f["request_id"]} <reason>  |  /update {f["request_id"]} <changes>')
         if not self.enabled:
             print("[telegram not configured] would send:\n" + text); return

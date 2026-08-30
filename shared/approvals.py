@@ -30,9 +30,8 @@ DECISIONS = ("approve", "decline", "update")
 
 
 def _r():
-    url = os.environ.get("REDIS_URL") or (
-        f"redis://{os.environ.get('REDIS_HOST', '127.0.0.1')}:{os.environ.get('REDIS_PORT', '6379')}/0")
-    return redis.Redis.from_url(url, decode_responses=True)
+    from . import config
+    return redis.Redis.from_url(config.REDIS_URL, decode_responses=True)
 
 
 def _now():

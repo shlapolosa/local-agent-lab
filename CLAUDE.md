@@ -50,6 +50,26 @@ The ADOIT EA integration wraps the ADOIT REST API (Community Edition has no buil
 
 Verified against the live CE tenant (Aug 2026): Basic auth works against `GET {ADOIT_BASE_URL}/rest/2.0/repos` (returns the user's repository), but deeper REST 2.0 endpoints (`/objects` search, `/models`) return 403/"service not present" — the full REST module appears disabled on Community Edition. Expect to work within this limited surface or via the browser-facing API until a full ADOIT 18 tenant is available.
 
+## Cloud Shape (no same-machine assumptions)
+
+Everything stateful is managed: Neon (keys, spend, skills, **artifact store**), Redis Cloud
+(limiter state, approval streams), Ollama Cloud, ADOIT, GitHub. The five Python processes are
+stateless and address each other only through `shared/config.py` env vars:
+`GATEWAY_URL`, `ADOIT_MCP_URL`, `SEMANTIC_MCP_URL`, `REVIEW_APP_URL`, `JAEGER_UI_URL`,
+`BIND_HOST` (0.0.0.0 in containers), `REDIS_URL`, `ARTIFACTS_URL`.
+- **Trust**: `MCP_SHARED_SECRET` — both MCP servers enforce `Authorization: Bearer` via
+  `shared/mcpauth.py`; the gateway sends it (`auth_type: bearer_token`). Never run with
+  `BIND_HOST=0.0.0.0` and no secret. The review app has a `REVIEW_APP_PASSWORD` gate; on Azure
+  put Container Apps Entra auth in front instead.
+- **Artifacts by reference, never by path**: `shared/artifacts.py` stores export specs, XML and
+  SVGs in a Postgres `lab_artifacts` table and hands out `art://<id>/<name>` refs. Tool contract:
+  `semantic_export_archimate` → `spec_ref`; `archimate_render(spec|spec_ref)` → `xml_ref`,
+  `svg_refs`; `adoit_request_import(xml_ref, svg_refs)`; the review app reads refs. `outdir` /
+  `spec_path` remain as local-dev conveniences only.
+- `deploy/Dockerfile` (one image, role by command), `deploy/docker-compose.yml` (the cloud
+  topology on any Docker host — unbuilt here: no daemon), `deploy/README.md` (Azure Container
+  Apps mapping). `lab.sh` stays the single-machine runner with the same env contract.
+
 ## Architecture Modelling
 
 Use the project skill `archimate-adoit` (`.claude/skills/archimate-adoit/`) for all ArchiMate

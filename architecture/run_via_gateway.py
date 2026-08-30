@@ -14,8 +14,11 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from opentelemetry import propagate, trace
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared import config  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-GATEWAY = "http://127.0.0.1:4000/mcp/"
+GATEWAY = config.GATEWAY_MCP_URL
 SERVICE = "process-ea-modelling"      # one distinct service name per business process (docx §7)
 
 
@@ -89,23 +92,21 @@ async def _run(tracer, spec, headers):
 
         with tracer.start_as_current_span("tool archimate_render"):
             res = await c.call_tool(pick("archimate_render"), {
-                "spec": spec, "outdir": os.path.join(HERE, "out"), "basename": "lab-architecture"})
+                "spec": spec, "basename": "lab-architecture", "outdir": os.path.join(HERE, "out")})
         print("violations:", res.data["violations"])
         print("warnings:", len(res.data["warnings"]))
         for vid, canvas in res.data["views"].items():
             print(f"  view {vid}: {canvas[0]}x{canvas[1]}")
-        print("files:")
-        for f in res.data["files"]:
-            print("  ", f)
+        print("artifacts:", res.data["xml_ref"], f'+ {len(res.data["svg_refs"])} svg refs')
 
         # governed write path: stage for human approval (review app / Telegram / CLI)
         with tracer.start_as_current_span("tool adoit_request_import"):
-            xml = next(f for f in res.data["files"] if f.endswith(".archimate.xml"))
             summary = {"elements": val.data["elements"], "relations": val.data["relations"],
                        "views": len(res.data["views"]), "violations": len(res.data["violations"]),
                        "warnings": len(res.data["warnings"])}
             req = await c.call_tool(pick("adoit_request_import"), {
-                "xml_path": xml, "model_name": spec["name"], "summary": summary})
+                "xml_ref": res.data["xml_ref"], "svg_refs": res.data["svg_refs"],
+                "model_name": spec["name"], "summary": summary})
         print(f"approval requested: {req.data['request_id']} -> status {req.data['status']} "
               f"(review at {req.data['review_app']})")
         st = await c.call_tool(pick("adoit_import_status"), {"request_id": req.data["request_id"]})

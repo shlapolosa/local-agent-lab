@@ -14,7 +14,11 @@ PY="$ROOT/.venv/bin/python"; LITELLM="$ROOT/.venv/bin/litellm"
 export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 
 need() { [ -e "$1" ] || { echo "missing $1 — $2"; exit 1; }; }
-load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; source .env; set +a; }
+load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; source .env; set +a
+  # resolve $DATABASE_URL references (ARTIFACTS_URL=$DATABASE_URL) and pin local defaults
+  [ "${ARTIFACTS_URL:-}" = '$DATABASE_URL' ] && export ARTIFACTS_URL="$DATABASE_URL"
+  export BIND_HOST="${BIND_HOST:-127.0.0.1}"
+  export ADOIT_MCP_URL="${ADOIT_MCP_URL:-http://127.0.0.1:9100/mcp}" SEMANTIC_MCP_URL="${SEMANTIC_MCP_URL:-http://127.0.0.1:9200/mcp}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }

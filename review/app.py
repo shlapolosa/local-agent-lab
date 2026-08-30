@@ -15,12 +15,19 @@ import xml.etree.ElementTree as ET
 import streamlit as st
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from shared import approvals  # noqa: E402
+from shared import approvals, artifacts, config  # noqa: E402
 
-JAEGER = "http://127.0.0.1:16686/trace/"
+JAEGER = config.JAEGER_UI_URL.rstrip("/") + "/trace/"
 NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
 
 st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
+
+if config.REVIEW_APP_PASSWORD:      # minimal gate; production fronts this app with Entra / an identity-aware proxy
+    if st.session_state.get("authed") is not True:
+        pw = st.text_input("Review app password", type="password")
+        if pw == config.REVIEW_APP_PASSWORD:
+            st.session_state["authed"] = True; st.rerun()
+        st.stop()
 
 # drain this channel's unseen events (mark delivered) — the pending set drives the UI
 for eid, _ in approvals.channel_events("review-app", block_ms=0):
@@ -55,10 +62,16 @@ m = st.columns(5)
 for col, k in zip(m, ("elements", "relations", "views", "violations", "warnings")):
     col.metric(k, summ.get(k, "—"))
 
-# --- what changed vs the model as it is in the XML: element/relationship listing ---
-xml_path = p["xml_path"]
-if os.path.exists(xml_path):
-    root = ET.parse(xml_path).getroot()
+# --- model contents (from the artifact store; legacy requests carried local paths) ---
+def _xml_bytes():
+    if p.get("xml_ref"):
+        return artifacts.store().get(p["xml_ref"]), p["xml_ref"].split("/")[-1]
+    if p.get("xml_path") and os.path.exists(p["xml_path"]):
+        return open(p["xml_path"], "rb").read(), os.path.basename(p["xml_path"])
+    return None, None
+xml_bytes, xml_name = _xml_bytes()
+if xml_bytes:
+    root = ET.fromstring(xml_bytes)
     els = root.findall(".//a:elements/a:element", NS)
     rels = root.findall(".//a:relationships/a:relationship", NS)
     with st.expander(f"Model contents — {len(els)} elements, {len(rels)} relationships"):
@@ -68,18 +81,25 @@ if os.path.exists(xml_path):
                 e.find("a:name", NS).text)
         for t in sorted(by_type):
             st.write(f"**{t}**: " + ", ".join(sorted(by_type[t])))
-    st.download_button("Download .archimate.xml", open(xml_path, "rb").read(),
-                       file_name=os.path.basename(xml_path), mime="application/xml")
+    st.download_button("Download .archimate.xml", xml_bytes, file_name=xml_name, mime="application/xml")
 else:
-    st.error(f"XML not found at {xml_path}")
+    st.error(f"model artifact not available: {p.get('xml_ref') or p.get('xml_path')}")
 
 # --- views ---
-svgs = [s for s in p.get("svgs", []) if os.path.exists(s)]
-if svgs:
-    tabs = st.tabs([os.path.basename(s).split("-", 1)[-1][:-4] for s in svgs])
-    for tab, svg in zip(tabs, svgs):
+views = []                                   # [(label, bytes)]
+for label, ref in (p.get("svg_refs") or {}).items():
+    try:
+        views.append((label, artifacts.store().get(ref)))
+    except Exception as e:                   # noqa: BLE001
+        st.warning(f"view {label}: {e}")
+for spath in p.get("svgs", []):              # legacy: local paths
+    if os.path.exists(spath):
+        views.append((os.path.basename(spath).split("-", 1)[-1][:-4], open(spath, "rb").read()))
+if views:
+    tabs = st.tabs([v[0] for v in views])
+    for tab, (_, svg_bytes) in zip(tabs, views):
         with tab:
-            data = base64.b64encode(open(svg, "rb").read()).decode()
+            data = base64.b64encode(svg_bytes).decode()
             st.markdown(f'<div style="overflow:auto;max-height:75vh;border:1px solid #ccc">'
                         f'<img src="data:image/svg+xml;base64,{data}"/></div>', unsafe_allow_html=True)
 

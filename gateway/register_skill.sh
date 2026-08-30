@@ -9,11 +9,11 @@ TEAM="${1:?team_id required}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ZIP=/tmp/archimate-adoit.zip; rm -f "$ZIP"
 (cd "$ROOT/.claude/skills" && zip -qr "$ZIP" archimate-adoit -x "*/__pycache__/*" "*.pyc")
 PREV=$(sed -n 's/^ARCHIMATE_SKILL_ID=//p' "$ROOT/.env")
-ID=$(curl -sf -X POST "http://127.0.0.1:4000/v1/skills?beta=true" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+ID=$(curl -sf -X POST "${GATEWAY_URL:-http://127.0.0.1:4000}/v1/skills?beta=true" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -F "custom_llm_provider=litellm_proxy" -F "display_title=archimate-adoit" -F "files[]=@$ZIP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 PATH="/opt/homebrew/opt/libpq/bin:$PATH" psql "$DATABASE_URL" -qtAc "update \"LiteLLM_SkillsTable\" set created_by='team:$TEAM' where skill_id='$ID';"
 sed -i '' "s/^ARCHIMATE_SKILL_ID=.*/ARCHIMATE_SKILL_ID=$ID/" "$ROOT/.env"
-[ -n "$PREV" ] && [ "$PREV" != "$ID" ] && curl -sf -o /dev/null -X DELETE "http://127.0.0.1:4000/v1/skills/$PREV?beta=true&custom_llm_provider=litellm_proxy" \
+[ -n "$PREV" ] && [ "$PREV" != "$ID" ] && curl -sf -o /dev/null -X DELETE "${GATEWAY_URL:-http://127.0.0.1:4000}/v1/skills/$PREV?beta=true&custom_llm_provider=litellm_proxy" \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" && echo "removed previous skill $PREV"
 echo "registered $ID (owner team:$TEAM) — restart the gateway to clear the skill cache"
 
@@ -28,8 +28,8 @@ HUB='{"name":"archimate-adoit","version":"0.1.0","category":"architecture",
  "description":"ArchiMate 3.1 architecture views as ADOIT-importable Model Exchange XML, with a deterministic layout engine (orthogonal parallel routing, layer bands, interfaces as icons) and the ADOIT:CE import procedure.",
  "author":{"name":"DOH Abu Dhabi Enterprise Architecture"},
  "keywords":["archimate","adoit","enterprise-architecture","views","model-exchange"]}'
-curl -sf -X PUT "http://127.0.0.1:4000/claude-code/plugins/archimate-adoit" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+curl -sf -X PUT "${GATEWAY_URL:-http://127.0.0.1:4000}/claude-code/plugins/archimate-adoit" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" -d "$HUB" >/dev/null \
-  || curl -sf -X POST "http://127.0.0.1:4000/claude-code/plugins" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  || curl -sf -X POST "${GATEWAY_URL:-http://127.0.0.1:4000}/claude-code/plugins" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" -d "$HUB" >/dev/null
 echo "skill hub entry archimate-adoit up to date"

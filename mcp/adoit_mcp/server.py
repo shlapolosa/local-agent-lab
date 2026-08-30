@@ -41,7 +41,8 @@ SKILL_SCRIPTS = os.path.join(
 sys.path.insert(0, os.path.abspath(SKILL_SCRIPTS))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from archimate_engine import Model  # noqa: E402
-from shared import approvals  # noqa: E402  (Redis Streams approval gate)
+from shared import approvals, artifacts, config  # noqa: E402  (approval gate, artifact store, addresses)
+from shared.mcpauth import BearerAuthMiddleware  # noqa: E402
 
 SERVICE = "adoit-mcp"
 
@@ -69,8 +70,11 @@ tracer = _setup_otel()
 mcp = FastMCP(SERVICE)
 
 
-def _load_spec(spec, spec_path):
-    """Specs may arrive by value (small) or by reference (large maps) — see semantic-mcp."""
+def _load_spec(spec, spec_path=None, spec_ref=None):
+    """Specs arrive by value (small), by artifact reference art://… (any host), or — local
+    dev only — by file path."""
+    if spec_ref:
+        return json.loads(artifacts.store().get(spec_ref))
     if spec_path:
         return json.load(open(spec_path))
     if not spec:
@@ -100,12 +104,13 @@ def _build(spec):
 
 
 @mcp.tool()
-def archimate_validate(spec: dict | None = None, spec_path: str | None = None) -> dict:
+def archimate_validate(spec: dict | None = None, spec_path: str | None = None,
+                       spec_ref: str | None = None) -> dict:
     """Check a model spec against ArchiMate legality rules (no rendering). Pass spec by
-    value, or spec_path for large specs written by semantic_export_archimate.
+    value, spec_ref (art://… from semantic_export_archimate) or, locally, spec_path.
     Returns warnings (semantic) — an empty list means the model is clean."""
     with tracer.start_as_current_span("archimate_validate") as span:
-        m = _build(_load_spec(spec, spec_path))
+        m = _build(_load_spec(spec, spec_path, spec_ref))
         warnings = m.validate_relations()
         span.set_attributes({"archimate.elements": len(m.elements),
                              "archimate.relations": len(m.relations),
@@ -114,15 +119,23 @@ def archimate_validate(spec: dict | None = None, spec_path: str | None = None) -
 
 
 @mcp.tool()
-def archimate_render(outdir: str, basename: str, spec: dict | None = None,
-                     spec_path: str | None = None) -> dict:
-    """Validate, lay out and render a model spec to ADOIT-importable Model Exchange XML
-    plus one SVG preview per view. Pass spec by value, or spec_path for large specs (e.g. a
-    full reference capability map). Fails on layout-invariant violations; returns the
-    written file paths, per-view canvas sizes and any ArchiMate legality warnings."""
+def archimate_render(basename: str, spec: dict | None = None, spec_path: str | None = None,
+                     spec_ref: str | None = None, outdir: str | None = None) -> dict:
+    """Validate, lay out and render a model spec to ADOIT-importable Model Exchange XML plus
+    one SVG preview per view. Pass spec by value, spec_ref (art://…) or, locally, spec_path.
+    Outputs go to the artifact store: returns xml_ref + svg_refs (usable from any host),
+    per-view canvas sizes, legality warnings. outdir additionally keeps local copies (dev)."""
+    import tempfile
     with tracer.start_as_current_span("archimate_render") as span:
-        m = _build(_load_spec(spec, spec_path))
-        report = m.render(outdir, basename, strict=True)
+        m = _build(_load_spec(spec, spec_path, spec_ref))
+        work = outdir or tempfile.mkdtemp(prefix="archimate-")
+        report = m.render(work, basename, strict=True)
+        xml = next(f for f in report["files"] if f.endswith(".archimate.xml"))
+        report["xml_ref"] = artifacts.put_file(xml)
+        report["svg_refs"] = {os.path.basename(f)[len(basename) + 1:-4]: artifacts.put_file(f)
+                              for f in report["files"] if f.endswith(".svg")}
+        if not outdir:
+            report["files"] = []          # nothing durable on this host; use the refs
         span.set_attributes({"archimate.elements": len(m.elements),
                              "archimate.relations": len(m.relations),
                              "archimate.views": len(report["views"]),
@@ -146,28 +159,24 @@ def adoit_repos() -> dict:
 
 
 @mcp.tool()
-def adoit_request_import(xml_path: str, model_name: str, summary: dict,
+def adoit_request_import(xml_ref: str, model_name: str, summary: dict, svg_refs: dict | None = None,
                          requester: str = "ea-modeling-agent") -> dict:
     """WRITE PATH, step 1. Stage a rendered model for import into the EA repository by
     publishing an approval request (Redis Streams). Nothing is written to ADOIT here — a
-    human must approve via the review app or Telegram. Returns the request id to poll with
-    adoit_import_status. summary = the render report counts (elements, relations, views,
-    violations, warnings)."""
-    import glob
+    human must approve via the review app or Telegram. xml_ref / svg_refs are the artifact
+    references returned by archimate_render (reachable from any host). Returns the request id
+    to poll with adoit_import_status."""
     from opentelemetry import trace
     with tracer.start_as_current_span("adoit_request_import") as span:
-        if not os.path.exists(xml_path):
-            raise FileNotFoundError(xml_path)
-        base = xml_path[:-len(".archimate.xml")] if xml_path.endswith(".archimate.xml") else xml_path
-        svgs = sorted(glob.glob(base + "-*.svg"))
+        artifacts.store().info(xml_ref)          # fail fast if the reference is unknown
         ctx = trace.get_current_span().get_span_context()
         trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
         rid = approvals.request(kind="adoit-import", subject=model_name,
-                                payload={"xml_path": xml_path, "svgs": svgs, "summary": summary},
+                                payload={"xml_ref": xml_ref, "svg_refs": svg_refs or {}, "summary": summary},
                                 requester=requester, trace_id=trace_id)
         span.set_attributes({"approval.request_id": rid, "approval.kind": "adoit-import"})
         return {"request_id": rid, "status": "pending", "channels": list(approvals.CHANNELS),
-                "review_app": "http://127.0.0.1:8501"}
+                "review_app": config.REVIEW_APP_URL}
 
 
 @mcp.tool()
@@ -212,4 +221,5 @@ if __name__ == "__main__":
     from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
     app = mcp.http_app(path="/mcp")
     app.add_middleware(OpenTelemetryMiddleware)   # inbound request spans + traceparent extraction
-    uvicorn.run(app, host="127.0.0.1", port=9100, log_level="info")
+    app.add_middleware(BearerAuthMiddleware)      # gateway must present MCP_SHARED_SECRET (if set)
+    uvicorn.run(app, host=config.BIND_HOST, port=config.ADOIT_MCP_PORT, log_level="info")

@@ -1,0 +1,13 @@
+litellm[proxy]==1.98.0
+prisma
+fastmcp>=3.4,<4
+rdflib>=7.6
+owlrl
+openpyxl
+streamlit>=1.60
+redis>=5
+psycopg[binary]>=3.2
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-instrumentation-asgi
+opentelemetry-instrumentation-urllib
