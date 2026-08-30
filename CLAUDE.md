@@ -102,10 +102,15 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   sees zero tools (verified). Per-tool ACLs use `mcp_tool_permissions` on the same object.
 - **Metering**: Ollama Cloud is flat-rate, so `litellm-config.yaml` carries nominal per-token
   prices; every call returns `x-litellm-response-cost` and spend rolls up key → team.
-- **Redis** (Homebrew, already resident on `127.0.0.1:6379`, `REDIS_HOST/PORT` in `.env`) backs
-  limiter/budget/router state via `litellm_settings.cache` with `supported_call_types: []` —
-  LLM responses are never cached. Verify with `redis-cli --scan` (keys `spend:team:*`,
-  `{api_key:...}:window`) and `GET /cache/ping`.
+- **Redis** backs limiter/budget/router state (via `litellm_settings.cache` with
+  `supported_call_types: []` — LLM responses are never cached) and the approval streams.
+  **Since Aug 30 2026 it is Redis Cloud (Azure East US)** — `REDIS_URL/HOST/PORT/PASSWORD` in
+  `.env`; `lab.sh` checks it instead of starting brew redis when `REDIS_URL` is set. Measured
+  cost from the UAE: ~180 ms RTT × ~20 sequential gateway Redis calls ≈ **+3.8 s per gateway
+  request** (4.75 s vs 0.95 s direct). That is geography, not Redis: it vanishes once the gateway
+  itself runs in the same Azure region. Until then, the local brew redis is a one-line fallback
+  (comment in `.env`) or a hybrid (approvals on cloud, gateway state local). Verify with
+  `redis-cli -u "$REDIS_URL" --scan` (keys `spend:team:*`, `{api_key:...}:window`) and `GET /cache/ping`.
 - **Registry UI**: http://127.0.0.1:4000/ui (user `admin`, password = master key) — teams,
   keys, spend, models, MCP servers. API: `/team/info`, `/key/info`, `/key/list`.
 

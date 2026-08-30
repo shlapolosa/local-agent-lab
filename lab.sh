@@ -21,8 +21,12 @@ alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
 
 up() {
   load_env; need "$PY" "python3.12 -m venv .venv && .venv/bin/pip install 'litellm[proxy]' fastmcp prisma"
-  # redis: governance state (rate limits, budgets, router) — Homebrew service
-  if redis-cli -h "${REDIS_HOST:-127.0.0.1}" -p "${REDIS_PORT:-6379}" ping 2>/dev/null | /usr/bin/grep -q PONG; then
+  # redis: governance state (rate limits, budgets, router) + approval streams.
+  # REDIS_URL set -> managed/cloud instance (just check it); unset -> local Homebrew service
+  if [ -n "${REDIS_URL:-}" ]; then
+    redis-cli -u "$REDIS_URL" --no-auth-warning ping 2>/dev/null | /usr/bin/grep -q PONG \
+      && echo "redis        ok  ${REDIS_HOST:-cloud}:${REDIS_PORT:-}" || { echo "redis        UNREACHABLE at REDIS_URL"; exit 1; }
+  elif redis-cli -h "${REDIS_HOST:-127.0.0.1}" -p "${REDIS_PORT:-6379}" ping 2>/dev/null | /usr/bin/grep -q PONG; then
     echo "redis        ok  ${REDIS_HOST:-127.0.0.1}:${REDIS_PORT:-6379}"
   else brew services start redis >/dev/null && sleep 2 && echo "redis        started (brew services)"; fi
   # jaeger: native v2 all-in-one binary (tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail
@@ -81,7 +85,9 @@ down() {
 
 status() {
   for s in jaeger adoit-mcp semantic-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
-  redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running" || echo "redis        stopped"
+  load_env 2>/dev/null || true
+  if [ -n "${REDIS_URL:-}" ]; then redis-cli -u "$REDIS_URL" --no-auth-warning ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        cloud ok (${REDIS_HOST:-})" || echo "redis        cloud UNREACHABLE";
+  else redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running (local)" || echo "redis        stopped"; fi
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
 }
 

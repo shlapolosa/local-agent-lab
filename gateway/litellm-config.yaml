@@ -34,8 +34,9 @@ mcp_servers:
     extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router
-  redis_host: os.environ/REDIS_HOST   # (Homebrew redis, already resident on the machine)
+  redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)
   redis_port: os.environ/REDIS_PORT
+  redis_password: os.environ/REDIS_PASSWORD
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -48,4 +49,5 @@ litellm_settings:
     type: redis
     host: os.environ/REDIS_HOST
     port: os.environ/REDIS_PORT
+    password: os.environ/REDIS_PASSWORD
     supported_call_types: []          # ... but never caches LLM responses
