@@ -124,8 +124,9 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   `/claude-code/marketplace.json`, API `/claude-code/plugins`) — discovery for people and
   Claude Code clients. `register_skill.sh` maintains both. The Hub needs a git source with a
   dot-free path, hence the `skills/archimate-adoit -> .claude/skills/archimate-adoit` symlink;
-  the source is the local repo (`file://…`) until a GitHub remote exists — repoint then. Clients
-  add it with `claude plugin marketplace add http://127.0.0.1:4000/claude-code/marketplace.json`.
+  the source is the GitHub remote (`https://github.com/shlapolosa/local-agent-lab.git`,
+  derived from `origin` by `register_skill.sh`; local `file://` only when no remote). Clients add
+  it with `claude plugin marketplace add http://127.0.0.1:4000/claude-code/marketplace.json`.
 - **Ambient credentials**: the user's shell exports `ANTHROPIC_API_KEY`; the gateway must NOT
   inherit it (that is how the skill upload leaked to Anthropic once). Launch services with
   `env -u ANTHROPIC_API_KEY` — only `.env` values are lab credentials.

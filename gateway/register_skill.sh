@@ -19,9 +19,12 @@ echo "registered $ID (owner team:$TEAM) — restart the gateway to clear the ski
 
 # --- Skill Hub (Claude Code marketplace) entry: discoverable on the UI Skills page and by
 # Claude Code clients via /claude-code/marketplace.json. Path must not start with a dot,
-# hence the skills/ symlink -> .claude/skills. Re-runs update in place (PUT).
+# hence the skills/ symlink -> .claude/skills. Source = the GitHub remote when one exists
+# (installable from any machine), else the local repo. Re-runs update in place (PUT).
+REMOTE=$(git -C "$ROOT" remote get-url origin 2>/dev/null | sed -E 's#^git@github.com:#https://github.com/#')
+SRC_URL=${REMOTE:-file://$ROOT}
 HUB='{"name":"archimate-adoit","version":"0.1.0","category":"architecture",
- "source":{"source":"git-subdir","url":"file://'"$ROOT"'","path":"skills/archimate-adoit"},
+ "source":{"source":"git-subdir","url":"'"$SRC_URL"'","path":"skills/archimate-adoit"},
  "description":"ArchiMate 3.1 architecture views as ADOIT-importable Model Exchange XML, with a deterministic layout engine (orthogonal parallel routing, layer bands, interfaces as icons) and the ADOIT:CE import procedure.",
  "author":{"name":"DOH Abu Dhabi Enterprise Architecture"},
  "keywords":["archimate","adoit","enterprise-architecture","views","model-exchange"]}'
