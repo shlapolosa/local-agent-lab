@@ -8,10 +8,13 @@ set -euo pipefail
 TEAM="${1:?team_id required}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ZIP=/tmp/archimate-adoit.zip; rm -f "$ZIP"
 (cd "$ROOT/.claude/skills" && zip -qr "$ZIP" archimate-adoit -x "*/__pycache__/*" "*.pyc")
+PREV=$(sed -n 's/^ARCHIMATE_SKILL_ID=//p' "$ROOT/.env")
 ID=$(curl -sf -X POST "http://127.0.0.1:4000/v1/skills?beta=true" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -F "custom_llm_provider=litellm_proxy" -F "display_title=archimate-adoit" -F "files[]=@$ZIP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 PATH="/opt/homebrew/opt/libpq/bin:$PATH" psql "$DATABASE_URL" -qtAc "update \"LiteLLM_SkillsTable\" set created_by='team:$TEAM' where skill_id='$ID';"
 sed -i '' "s/^ARCHIMATE_SKILL_ID=.*/ARCHIMATE_SKILL_ID=$ID/" "$ROOT/.env"
+[ -n "$PREV" ] && [ "$PREV" != "$ID" ] && curl -sf -o /dev/null -X DELETE "http://127.0.0.1:4000/v1/skills/$PREV?beta=true&custom_llm_provider=litellm_proxy" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" && echo "removed previous skill $PREV"
 echo "registered $ID (owner team:$TEAM) — restart the gateway to clear the skill cache"
 
 # --- Skill Hub (Claude Code marketplace) entry: discoverable on the UI Skills page and by
