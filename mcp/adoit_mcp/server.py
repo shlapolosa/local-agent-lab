@@ -22,7 +22,7 @@ Model spec (JSON): {
   "name": str, "id": str?,
   "elements":  [{"id","type","name","doc"?}],
   "relations": [{"type","src","tgt","id"?,"accessType"?}],
-  "views":     [{"id","title","elements":[...]}],   # scoped views; auto_edges applied
+  "views":     [{"id","title","elements":[...]} | {"id","title","rows":[[...],...],"containers":[...]}],
   "standard_views": bool                            # add the mapping-view catalogue
 }
 
@@ -69,6 +69,15 @@ tracer = _setup_otel()
 mcp = FastMCP(SERVICE)
 
 
+def _load_spec(spec, spec_path):
+    """Specs may arrive by value (small) or by reference (large maps) — see semantic-mcp."""
+    if spec_path:
+        return json.load(open(spec_path))
+    if not spec:
+        raise ValueError("give spec (by value) or spec_path (by reference)")
+    return spec
+
+
 def _build(spec):
     m = Model(spec["name"], spec.get("id", "model"))
     for e in spec.get("elements", []):
@@ -77,7 +86,13 @@ def _build(spec):
         m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
     for v in spec.get("views", []):
         vw = m.view(v["id"], v["title"])
-        vw.place(*v["elements"])
+        if v.get("rows"):                       # explicit rows (e.g. capability-map overview grids)
+            for i, row in enumerate(v["rows"]):
+                vw.place(*row, rank=i)
+        else:
+            vw.place(*v["elements"])
+        for c in v.get("containers", []):       # nesting where the notation calls for it (capability maps)
+            vw.container(c["id"], children=c["children"])
         vw.auto_edges()
     if spec.get("standard_views"):
         m.standard_views()
@@ -85,11 +100,12 @@ def _build(spec):
 
 
 @mcp.tool()
-def archimate_validate(spec: dict) -> dict:
-    """Check a model spec against ArchiMate legality rules (no rendering).
+def archimate_validate(spec: dict | None = None, spec_path: str | None = None) -> dict:
+    """Check a model spec against ArchiMate legality rules (no rendering). Pass spec by
+    value, or spec_path for large specs written by semantic_export_archimate.
     Returns warnings (semantic) — an empty list means the model is clean."""
     with tracer.start_as_current_span("archimate_validate") as span:
-        m = _build(spec)
+        m = _build(_load_spec(spec, spec_path))
         warnings = m.validate_relations()
         span.set_attributes({"archimate.elements": len(m.elements),
                              "archimate.relations": len(m.relations),
@@ -98,12 +114,14 @@ def archimate_validate(spec: dict) -> dict:
 
 
 @mcp.tool()
-def archimate_render(spec: dict, outdir: str, basename: str) -> dict:
+def archimate_render(outdir: str, basename: str, spec: dict | None = None,
+                     spec_path: str | None = None) -> dict:
     """Validate, lay out and render a model spec to ADOIT-importable Model Exchange XML
-    plus one SVG preview per view. Fails on layout-invariant violations; returns the
+    plus one SVG preview per view. Pass spec by value, or spec_path for large specs (e.g. a
+    full reference capability map). Fails on layout-invariant violations; returns the
     written file paths, per-view canvas sizes and any ArchiMate legality warnings."""
     with tracer.start_as_current_span("archimate_render") as span:
-        m = _build(spec)
+        m = _build(_load_spec(spec, spec_path))
         report = m.render(outdir, basename, strict=True)
         span.set_attributes({"archimate.elements": len(m.elements),
                              "archimate.relations": len(m.relations),

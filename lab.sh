@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # lab.sh — bring the local agent lab up/down in one command.
-#   ./lab.sh up      start redis (brew), jaeger (:4318 OTLP, :16686 UI), adoit-mcp (:9100), gateway (:4000)
+#   ./lab.sh up      start redis (brew), jaeger (:4318 OTLP, :16686 UI), adoit-mcp (:9100), semantic-mcp (:9200),
+#                    gateway (:4000) and the review app (:8501) — the whole lab, approval channel included
 #   ./lab.sh down    stop adoit-mcp + gateway (redis is left to brew services)
 #   ./lab.sh status  what is running, what the gateway sees, pending approvals
-#   ./lab.sh review  open the architecture review app (streamlit :8501) — the approval channel
+#   ./lab.sh review  (re)start only the architecture review app (streamlit :8501) — the approval channel
 # Every service is launched with `env -u ANTHROPIC_API_KEY`: only .env holds lab credentials —
 # ambient shell keys must never reach the governance plane (see CLAUDE.md, Gateway Registry).
 set -euo pipefail
@@ -43,6 +44,7 @@ up() {
     env -u ANTHROPIC_API_KEY nohup "$LITELLM" --config gateway/litellm-config.yaml --port 4000 >"$LOGS/litellm.log" 2>&1 & echo $! >"$RUN/litellm.pid"
     printf "gateway      starting"; wait_http "http://127.0.0.1:4000/health/readiness" '"connected"' 90 \
       && echo "  http://127.0.0.1:4000  (db connected)" || { echo "  FAILED — see logs/litellm.log"; exit 1; }; fi
+  review
   status_gateway
 }
 

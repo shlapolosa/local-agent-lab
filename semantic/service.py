@@ -14,6 +14,8 @@ import os
 from .archimate import build as build_archimate
 from .model_rdf import model_iri, spec_to_triples
 from .ontology import Registry, SemanticStore
+from .reference import load_all as load_reference_models
+from .skos import SKOS
 
 QUESTIONS = {
     "goals_realized_by_components_on_node": {
@@ -49,6 +51,25 @@ QUESTIONS = {
               FILTER NOT EXISTS { ?i am:assignment ?s . ?i a ?it . FILTER(STRENDS(STR(?it), "Interface")) }
               BIND(REPLACE(STR(?t), ".*#", "") AS ?type)
             } ORDER BY ?service"""},
+    "concepts_under": {
+        "params": ["label"],
+        "doc": "Reference-model concepts under <label> (any scheme), with level and definition.",
+        "sparql": """
+            PREFIX skos: <http://www.w3.org/2004/02/skos/core#>  PREFIX meta: <urn:lab:semantic:meta#>
+            SELECT ?scheme ?level ?concept ?definition WHERE {
+              ?root skos:prefLabel ?rl . FILTER(LCASE(STR(?rl)) = LCASE("%(label)s"))
+              ?c skos:broader+ ?root ; skos:prefLabel ?concept ; skos:inScheme ?s ; meta:level ?level .
+              OPTIONAL { ?c skos:definition ?definition } ?s rdfs:label ?scheme .
+            } ORDER BY ?scheme ?level ?concept"""},
+    "shared_reference_concepts": {
+        "params": [],
+        "doc": "Top-level concepts that appear in more than one reference scheme (linked by skos:exactMatch).",
+        "sparql": """
+            PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+            SELECT ?concept ?schemeA ?schemeB WHERE {
+              ?a skos:exactMatch ?b ; skos:prefLabel ?concept ; skos:inScheme ?sa . ?b skos:inScheme ?sb .
+              ?sa rdfs:label ?schemeA . ?sb rdfs:label ?schemeB . FILTER(STR(?sa) < STR(?sb))
+            } ORDER BY ?concept"""},
     "elements_by_layer_aspect": {
         "params": [],
         "doc": "Every model element with its layer and aspect from the vocabulary — the classification audit.",
@@ -62,19 +83,75 @@ QUESTIONS = {
 
 
 class SemanticService:
-    def __init__(self):
+    def __init__(self, reference_dir=None):
         self.registry = Registry()
         self.registry.add(build_archimate())
+        self.schemes_ = {}
+        for sc in load_reference_models(reference_dir):
+            self.registry.add(sc); self.schemes_[sc.name] = sc
         self.store = SemanticStore(self.registry)
+        self._link_shared_top_concepts()
         self.default = "archimate-3.1"
+
+    # ---- reference schemes (SKOS) ----
+    def _link_shared_top_concepts(self):
+        """Same-label top concepts across schemes -> skos:exactMatch (both ways), in a
+        dedicated mapping graph, so the schemes stay separate but queryable together."""
+        from rdflib import URIRef
+        g = self.store.ds.graph(URIRef("urn:lab:semantic:mappings"))
+        names = sorted(self.schemes_)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                A, B = self.schemes_[a], self.schemes_[b]
+                for ca in A.subtree(depth=1) if False else [A.concepts[c] for c in A.roots("capability")]:
+                    for cb in B.find(ca["label"]):
+                        if cb["kind"] == "capability" and cb.get("parent") is None:
+                            g.add((A.uri(ca["id"]), SKOS.exactMatch, B.uri(cb["id"])))
+                            g.add((B.uri(cb["id"]), SKOS.exactMatch, A.uri(ca["id"])))
+
+    def schemes(self):
+        return [{"name": n, "title": sc.title, "source": sc.source, "counts": sc.stats()}
+                for n, sc in self.schemes_.items()]
+
+    def scheme(self, name):
+        if name not in self.schemes_:
+            raise KeyError(f"unknown scheme {name}; have {sorted(self.schemes_)}")
+        return self.schemes_[name]
+
+    def concepts(self, scheme, root_label=None, depth=None, kind="capability"):
+        sc = self.scheme(scheme)
+        root = None
+        if root_label:
+            hits = [c for c in sc.find(root_label) if c["kind"] == kind]
+            if not hits:
+                raise KeyError(f"no {kind} named '{root_label}' in {scheme}")
+            root = hits[0]["id"]
+        return [{k: c.get(k) for k in ("id", "label", "level", "tier", "parent", "definition")}
+                for c in sc.subtree(root, depth, kind)]
+
+    def export_archimate(self, scheme, root_label=None, depth=None, kind="capability", views="overview,branches"):
+        sc = self.scheme(scheme)
+        root = None
+        if root_label:
+            hits = [c for c in sc.find(root_label) if c["kind"] == kind]
+            if not hits:
+                raise KeyError(f"no {kind} named '{root_label}' in {scheme}")
+            root = hits[0]["id"]
+        return sc.to_archimate_spec(root, depth, kind, views)
 
     def vocab(self, name=None):
         return self.registry.get(name or self.default)
 
     def ontologies(self):
-        return [{"name": n, "classes": len(self.registry.get(n).classes),
-                 "relations": len(self.registry.get(n).relations),
-                 "permitted_pairs": len(self.registry.get(n).permitted)} for n in self.registry.names()]
+        out = []
+        for n in self.registry.names():
+            v = self.registry.get(n)
+            if hasattr(v, "classes"):
+                out.append({"name": n, "kind": "metamodel", "classes": len(v.classes),
+                            "relations": len(v.relations), "permitted_pairs": len(v.permitted)})
+            else:
+                out.append({"name": n, "kind": "skos-scheme", "concepts": len(v.concepts)})
+        return out
 
     def describe(self, t, vocab=None):
         return self.vocab(vocab).describe(t)

@@ -155,6 +155,20 @@ a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
   an assigned interface is a warning. Functions are the decomposition unit (component assigned
   to function, function realizes service); business channels are `BusinessInterface`s realized by
   the `ApplicationInterface` that implements them.
+- **Reference models are a second KIND of vocabulary — SKOS concept schemes** (`semantic/skos.py`,
+  `semantic/reference/baguild.py`): the BA Guild Healthcare Provider v2.0 and Insurance v5.0
+  models are loaded from their ORIGIN workbooks (capability map L1–L4 with tiers, value streams,
+  and — insurance — organisation, stakeholder and information maps). The workbooks are licensed:
+  they live in `semantic/reference/sources/` (git-ignored) or `REFERENCE_MODELS_DIR`; only derived
+  RDF exists at runtime. Same-label top capabilities across schemes are linked by
+  `skos:exactMatch` in a mappings graph — schemes are never merged. Stable concept ids are
+  hashes of the full label path (the workbooks carry no ids).
+- **Writing reference capabilities into ADOIT is a two-server operation**: `semantic-mcp`
+  `semantic_export_archimate(scheme, root_label, depth)` projects a subtree to an ArchiMate spec
+  (Capability + Composition, an L1 overview view in rows, one nested view per top concept —
+  capability maps nest by convention, the one sanctioned use of containers); then `adoit-mcp`
+  `archimate_render` + `adoit_request_import` render and stage it for approval like any model.
+  `architecture/export_capabilities.py <scheme> [root] [depth]` runs that chain via the gateway.
 - **Placement**: `semantic-mcp` is a separate, credential-free, read-only server granted to every
   team; `adoit-mcp` stays the governed EA-repository facade. Both import the same package.
 

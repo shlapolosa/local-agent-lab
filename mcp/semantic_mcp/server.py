@@ -105,6 +105,46 @@ def semantic_query(sparql: str, limit: int = 200) -> dict:
 
 
 @mcp.tool()
+def semantic_schemes() -> list:
+    """Reference models loaded as SKOS concept schemes (capability maps, value streams,
+    organisation / stakeholder / information maps) with per-kind, per-level counts."""
+    return S.schemes()
+
+
+@mcp.tool()
+def semantic_concepts(scheme: str, root_label: str | None = None, depth: int | None = None,
+                      kind: str = "capability") -> list:
+    """Concepts of a reference scheme: the whole map, or the subtree under `root_label`
+    (e.g. 'Patient Management') to `depth` levels. kinds: capability, value-stream, org-unit,
+    stakeholder, information."""
+    return S.concepts(scheme, root_label, depth, kind)
+
+
+@mcp.tool()
+def semantic_export_archimate(scheme: str, root_label: str | None = None, depth: int | None = None,
+                              kind: str = "capability", views: str = "overview,branches",
+                              out_path: str | None = None) -> dict:
+    """Project a reference scheme (or subtree) to an ArchiMate model spec — Capability /
+    ValueStream elements with Composition, plus an L1 overview view and one nested view per
+    top concept. Feed the result to adoit-mcp's archimate_render + adoit_request_import: that
+    is the governed way to write reference capabilities into ADOIT.
+    Large maps (a full L1–L4 map is 1,600+ elements) should pass by REFERENCE: give out_path
+    and the spec is written there; the return carries counts + spec_path instead of the payload
+    — the gateway meters tool payloads as tokens, and adoit-mcp accepts spec_path."""
+    import json
+    with tracer.start_as_current_span("semantic_export_archimate") as span:
+        spec = S.export_archimate(scheme, root_label, depth, kind, views)
+        span.set_attributes({"semantic.scheme": scheme, "semantic.elements": len(spec["elements"])})
+        if out_path:
+            os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+            json.dump(spec, open(out_path, "w"), indent=0)
+            return {"spec_path": out_path, "name": spec["name"], "id": spec["id"],
+                    "elements": len(spec["elements"]), "relations": len(spec["relations"]),
+                    "views": len(spec["views"])}
+        return spec
+
+
+@mcp.tool()
 def semantic_questions() -> dict:
     """Named traceability questions available to semantic_ask, with their parameters."""
     return S.questions()

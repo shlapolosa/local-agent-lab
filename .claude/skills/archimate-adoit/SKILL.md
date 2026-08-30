@@ -79,6 +79,15 @@ roadmap, and the all-in-one `full` view. Empty/relationship-free views are skipp
 always safe to call. Use catalogue views for coverage, hand-built scoped views for
 storytelling. `m.layer_view(vid, title, layers, expand=)` builds a custom slice.
 
+## Reference capability maps
+
+The lab's semantic layer holds industry reference models (BA Guild Healthcare Provider v2.0,
+Insurance v5.0) as SKOS schemes. Use `semantic_concepts(scheme, root_label, depth)` to browse
+them, map a model's `Capability` elements to reference concepts rather than inventing names, and
+`semantic_export_archimate(...)` to project any subtree to an ArchiMate spec for the governed
+ADOIT write path (`archimate_render` → `adoit_request_import`). Capability maps are the one place
+nesting is the correct notation (L1 containing L2); the export spec uses `containers` for that.
+
 ## Building an architecture from scratch
 
 When starting from requirements (not an existing description), the *decomposition* — identifying

@@ -32,3 +32,7 @@ architecture/lab_model.json
 
 # third-party binaries
 tools/
+
+# licensed reference models (BA Guild) — never commit
+semantic/reference/sources/
+semantic/store/
