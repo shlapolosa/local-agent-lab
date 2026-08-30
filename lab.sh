@@ -34,6 +34,10 @@ up() {
   if alive adoit-mcp; then echo "adoit-mcp    ok  already running (pid $(cat $RUN/adoit-mcp.pid))"; else
     env -u ANTHROPIC_API_KEY nohup "$PY" mcp/adoit_mcp/server.py >"$LOGS/adoit-mcp.log" 2>&1 & echo $! >"$RUN/adoit-mcp.pid"
     wait_http "http://127.0.0.1:9100/mcp" "" 20 || true; echo "adoit-mcp    started  http://127.0.0.1:9100/mcp"; fi
+  # semantic-mcp: vocabularies / classification / legality / SPARQL (read-only, granted to all teams)
+  if alive semantic-mcp; then echo "semantic-mcp ok  already running (pid $(cat $RUN/semantic-mcp.pid))"; else
+    env -u ANTHROPIC_API_KEY nohup "$PY" mcp/semantic_mcp/server.py >"$LOGS/semantic-mcp.log" 2>&1 & echo $! >"$RUN/semantic-mcp.pid"
+    wait_http "http://127.0.0.1:9200/mcp" "" 20 || true; echo "semantic-mcp started  http://127.0.0.1:9200/mcp"; fi
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     env -u ANTHROPIC_API_KEY nohup "$LITELLM" --config gateway/litellm-config.yaml --port 4000 >"$LOGS/litellm.log" 2>&1 & echo $! >"$RUN/litellm.pid"
@@ -66,14 +70,15 @@ review() {
 }
 
 down() {
-  for s in review litellm adoit-mcp jaeger; do
+  for s in review litellm semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   pkill -f "litellm --config gateway/litellm-config.yaml" 2>/dev/null || true
   pkill -f "mcp/adoit_mcp/server.py" 2>/dev/null || true
+  pkill -f "mcp/semantic_mcp/server.py" 2>/dev/null || true
 }
 
 status() {
-  for s in jaeger adoit-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in jaeger adoit-mcp semantic-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running" || echo "redis        stopped"
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
 }

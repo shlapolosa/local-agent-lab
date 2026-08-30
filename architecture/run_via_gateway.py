@@ -64,6 +64,22 @@ async def _run(tracer, spec, headers):
             repos = await c.call_tool(pick("adoit_repos"), {})
         print("ADOIT repos (read via governed facade):", json.dumps(repos.data)[:160])
 
+        # semantic layer first: exact ArchiMate legality + interface semantics, then load for questions
+        with tracer.start_as_current_span("tool semantic_validate_model"):
+            sem = await c.call_tool(pick("semantic_validate_model"), {"spec": spec})
+        print(f"semantic: {len(sem.data['illegal'])} illegal relationships, {len(sem.data['warnings'])} warnings")
+        for i in sem.data["illegal"]:
+            print("  ILLEGAL", i)
+        with tracer.start_as_current_span("tool semantic_load_model"):
+            ld = await c.call_tool(pick("semantic_load_model"), {"spec": spec, "model_id": spec["id"]})
+        print(f"semantic store: {ld.data['triples']} triples, {ld.data['derived_relations']} derived relations")
+        with tracer.start_as_current_span("tool semantic_ask"):
+            ans = await c.call_tool(pick("semantic_ask"), {
+                "question": "goals_realized_by_components_on_node", "params": {"node": "M1"}})
+        print("ask:", ans.data["question"])
+        for row in ans.data["rows"]:
+            print("   ", " -> ".join(row))
+
         with tracer.start_as_current_span("tool archimate_validate"):
             val = await c.call_tool(pick("archimate_validate"), {"spec": spec})
         print(f"validate: {val.data['elements']} elements, {val.data['relations']} relations, "

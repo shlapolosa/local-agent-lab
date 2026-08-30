@@ -49,6 +49,14 @@ report = m.render("architecture/out", "lab")   # XML + SVG per view; raises if i
    ADOIT. **Avoid nesting/containers by default** — embedding hides the relationship it stands
    for; draw the line instead. `v.container()` exists only for genuine co-location boxes.
 
+   Before rendering, when the lab's semantic layer is reachable (`semantic_*` MCP tools via the
+   gateway, or `semantic/` importable), **classify with it and validate with it**:
+   `semantic_classify("<concept in words>")` gives candidate types with definitions;
+   `semantic_check(src, rel, tgt)` / `semantic_validate_model(spec)` apply the exact ArchiMate
+   relationship matrix and the interface rule (every consumed service needs an interface
+   assigned to it). Load the model (`semantic_load_model`) to answer traceability questions
+   (`semantic_ask`). Previews render real ArchiMate notation per type — if everything looks
+   like the same box, the classification is wrong, not the renderer.
 3. **Render and self-check.** `render()` enforces the layout invariants (orthogonal-only,
    no overlaps/crossings, equal lane spacing, Serving/Realization pointing upward). On an
    AssertionError, fix the *model* (usually a reversed relationship), not coordinates — see

@@ -130,6 +130,34 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   inherit it (that is how the skill upload leaked to Anthropic once). Launch services with
   `env -u ANTHROPIC_API_KEY` — only `.env` values are lab credentials.
 
+## Semantic Layer (`semantic/`, served by `semantic-mcp` :9200)
+
+Vocabularies as **data**, not prose: a `Vocabulary` (classes with layer/aspect facets and
+definitions, relation types, the permitted source→relation→target matrix, modelling rules)
+renders to RDF; a `Registry` holds many; a `SemanticStore` (rdflib, in-process, named graphs)
+holds vocabularies + instance models and answers SPARQL over all of them. ArchiMate 3.1 is the
+first vocabulary: `semantic/archimate/taxonomy.json` (classification, distilled from the cheat
+sheet) + `archi-relationships.xml` (Archi's machine-readable complete Appendix B matrix, 62
+concepts / 3,844 pairs, letter key in `vocab.py`). Add a vocabulary = a JSON/XML data file +
+a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
+
+- **Why not vector search**: the cheat sheet is a taxonomy + a relationship matrix — tables and
+  rules, not prose at scale. Deterministic lookup/validation beats retrieval, and Ollama Cloud has
+  no embedding models anyway. Vector stores stay reserved for large text corpora later.
+- **Derivation** (`model_rdf.py`): structural chains derive the weakest relation; structural
+  chain + dependency derives that dependency (`am:derivedRealization`, `am:derivedServing`…).
+  This is what makes "which goals are realized by components on node X" answerable.
+- **The skill engine uses it**: `validate_relations()` is exact (full matrix + interface-exposure
+  semantics) when `semantic/` is importable, coarse otherwise; every exported element's
+  documentation is prefixed with its `[Layer · aspect — Type]` classification.
+- **Interfaces have their strict meaning**: an interface is the access point of a service —
+  `Composition owner→interface` plus **`Assignment interface→service`**; a consumed service without
+  an assigned interface is a warning. Functions are the decomposition unit (component assigned
+  to function, function realizes service); business channels are `BusinessInterface`s realized by
+  the `ApplicationInterface` that implements them.
+- **Placement**: `semantic-mcp` is a separate, credential-free, read-only server granted to every
+  team; `adoit-mcp` stays the governed EA-repository facade. Both import the same package.
+
 ## Approval Gate (human-in-the-loop for EA repository writes)
 
 Event-based over the Redis already running — **Redis Streams**, not pub/sub, because approvals

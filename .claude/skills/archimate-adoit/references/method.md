@@ -57,6 +57,22 @@ stands for, and mapping views live off visible relationships. Draw the line inst
 drawn alternative would be pure clutter — and even then the model still carries the explicit
 relationship.
 
+## Interfaces, functions and services — the strict reading
+
+- An **interface** is the access point where a service is made available: `Composition`
+  from its owner (component / role / node) and **`Assignment` to the service it exposes**.
+  Business interfaces are channels (portal, chat, counter); application interfaces are APIs,
+  UIs, protocol endpoints; technology interfaces are ports/protocols. The application
+  interface that implements a business channel `Realization`s the business interface.
+- A **function** is the internal unit of work (verb + object) — the functional decomposition:
+  `Assignment` component/role → function, `Realization` function → service. A component may
+  realize a service directly only when no decomposition is modelled.
+- A **service** is the externally visible outcome (noun phrase). Consumed services without an
+  assigned interface are flagged by the semantic layer.
+- Every type has its own notation (see `archimate-classification.json` and the cheat sheet);
+  classification is checked against the semantic layer's taxonomy and the complete
+  relationship matrix, not by intuition.
+
 ## Standard view catalogue
 
 `Model.standard_views()` derives these automatically from the finished model (views whose

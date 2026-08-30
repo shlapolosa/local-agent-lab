@@ -33,6 +33,44 @@ API sketch (see the skill's SKILL.md for the workflow):
 from collections import defaultdict
 from xml.sax.saxutils import escape
 
+try:                                   # ArchiMate graphical notation for previews (same dir)
+    from archimate_notation import icon as _nicon, shape as _nshape, label_dy as _nlabel_dy
+except ImportError:                    # pragma: no cover - keeps the engine importable standalone
+    _nicon = lambda t, x, y: ""
+    _nshape = lambda t, x, y, w, h, fill: f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{fill}" stroke="#5c6e82"/>'
+    _nlabel_dy = lambda t: 0
+
+import json as _json
+import os as _os
+import sys as _sys
+
+# Taxonomy (layer/aspect/definitions) shipped with the skill: used to ANNOTATE every element's
+# documentation with its classification so the model itself says why each type was chosen.
+_TAX_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "references",
+                          "archimate-classification.json")
+try:
+    _TAXONOMY = _json.load(open(_TAX_PATH))["elements"]
+except (OSError, ValueError, KeyError):
+    _TAXONOMY = {}
+
+
+def _semantic():
+    """The repo's semantic layer (exact ArchiMate relationship matrix), if present —
+    found by walking up from the skill directory. None -> fall back to coarse rules."""
+    d = _os.path.dirname(_os.path.abspath(__file__))
+    for _ in range(6):
+        if _os.path.isdir(_os.path.join(d, "semantic")):
+            if d not in _sys.path:
+                _sys.path.insert(0, d)
+            try:
+                from semantic.service import SemanticService
+                return SemanticService()
+            except Exception:
+                return None
+        d = _os.path.dirname(d)
+    return None
+
+
 # ---------------------------------------------------------------- element taxonomy
 # layer -> standard ArchiMate fill
 FILL = {"Motivation": "#E6E6FA", "Strategy": "#F5DEAA", "Business": "#FFFFB5",
@@ -156,12 +194,24 @@ class Model:
         return made
 
     # ---------------- semantic validation ----------------
+    def to_spec(self):
+        """The JSON shape the MCP tools and the semantic layer accept."""
+        return {"name": self.name, "id": self.mid,
+                "elements": [{"id": e, "type": t, "name": n, **({"doc": d} if d else {})}
+                             for e, (t, n, d) in self.elements.items()],
+                "relations": [{"id": r, "type": t, "src": s, "tgt": g, **x}
+                              for r, (t, s, g, x) in self.relations.items()]}
+
     def validate_relations(self):
-        """Category-level legality checks from the ArchiMate 3.x relationship rules.
-        Coarse on purpose: it flags the errors that are always wrong (Access into a
-        service, Influence at a component, a passive element serving something) without
-        second-guessing legitimate edge cases. Returned as warnings, not failures —
-        the modeller decides; ADOIT will apply its own full matrix on import anyway."""
+        """Legality of every relationship. Exact (full ArchiMate relationship matrix +
+        interface-exposure semantics) when the repo's semantic layer is importable;
+        otherwise the coarse category rules below. Warnings, not failures — the
+        modeller decides; ADOIT applies its own matrix on import anyway."""
+        sem = _semantic()
+        if sem is not None:
+            r = sem.validate_model(self.to_spec())
+            return [f"{i['id']} ({i['relation']} {i['source']}->{i['target']}): not permitted for "
+                    f"{i['types']} — allowed: {', '.join(i['allowed']) or 'nothing'}" for i in r["illegal"]]                 + [f"semantic: {w}" for w in r["warnings"]]
         warns = []
         for rid, (rt, s, g, _) in self.relations.items():
             ts, tg = self.elements[s][0], self.elements[g][0]
@@ -209,8 +259,11 @@ class Model:
                f'identifier="id-{self.mid}">',
                f'<name xml:lang="en">{escape(self.name)}</name>', '<elements>']
         for eid, (t, n, doc) in self.elements.items():
+            tax = _TAXONOMY.get(t)
+            ann = (f"[{tax['layer']} layer · {tax['aspect']} structure — {t}] " if tax else "")
+            text = ann + (doc or (tax["definition"] if tax else ""))
             out.append(f'<element identifier="id-{eid}" xsi:type="{t}"><name xml:lang="en">{escape(n)}</name>'
-                       + (f'<documentation xml:lang="en">{escape(doc)}</documentation>' if doc else '')
+                       + (f'<documentation xml:lang="en">{escape(text)}</documentation>' if text else '')
                        + '</element>')
         out.append('</elements>')
         if self.relations:
@@ -618,10 +671,13 @@ class View:
                 s.append(f'<text x="{x + n["w"]/2}" y="{y - 4}" text-anchor="middle" font-size="8">'
                          f'{escape(name)}</text>')
             else:
-                dash = ' stroke-dasharray="4 3"' if n["container"] else ""
-                s.append(f'<rect x="{x}" y="{y}" width="{n["w"]}" height="{n["h"]}" fill="{fill}" '
-                         f'stroke="#5c6e82"{dash}/>')
-                ty = y + 16 if n["container"] else y + n["h"] / 2 + 3
+                if n["container"]:
+                    s.append(f'<rect x="{x}" y="{y}" width="{n["w"]}" height="{n["h"]}" fill="{fill}" '
+                             f'stroke="#5c6e82" stroke-dasharray="4 3"/>')
+                else:                       # ArchiMate notation: type-specific body + corner icon
+                    s.append(_nshape(t, x, y, n["w"], n["h"], fill))
+                    s.append(_nicon(t, x + n["w"] - 20, y + 4))
+                ty = y + 16 if n["container"] else y + n["h"] / 2 + 3 + _nlabel_dy(t)
                 anch = x + 8 if n["container"] else x + n["w"] / 2
                 mid = "" if n["container"] else ' text-anchor="middle"'
                 wt = "bold" if n["container"] else "normal"

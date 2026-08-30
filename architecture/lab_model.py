@@ -104,6 +104,36 @@ el("svc-approval", "ApplicationService", "Import Approval",
    "approve / decline / changes-requested from any channel")
 el("data-approvals", "DataObject", "Approval Events (requests, decisions)")
 el("proc-approve", "BusinessProcess", "Approve EA Repository Change")
+el("role-reviewer", "BusinessRole", "Architecture Reviewer")
+el("bsvc-approval", "BusinessService", "Architecture Change Approval")
+el("bif-web", "BusinessInterface", "Web Review Channel", "Channel: the review portal")
+el("bif-chat", "BusinessInterface", "Chat Channel (Telegram)", "Channel: mobile chat; summary only, no diagrams")
+el("ev-change", "BusinessEvent", "Change Requested")
+el("ev-approved", "BusinessEvent", "Import Approved")
+# application interfaces (access points) and functions (the decomposition unit)
+el("if-adoitmcp", "ApplicationInterface", "MCP endpoint (:9100/mcp)")
+el("if-review-ui", "ApplicationInterface", "Review Web UI (:8501)")
+el("if-bot", "ApplicationInterface", "Telegram Bot API")
+el("if-admin", "ApplicationInterface", "Admin UI & API (/ui, /key, /team)")
+el("svc-registry", "ApplicationService", "Agent Registry",
+   "Teams, virtual keys, budgets, tool ACLs, skill catalogue (Agent 365 analogue)")
+el("fn-route", "ApplicationFunction", "Route Model Requests")
+el("fn-govern", "ApplicationFunction", "Enforce Budgets, Rate Limits & Tool ACLs")
+el("fn-inject", "ApplicationFunction", "Inject Upstream Credentials")
+el("fn-registry", "ApplicationFunction", "Manage Teams, Keys & Skills")
+el("fn-layout", "ApplicationFunction", "Lay Out Views")
+el("fn-validate", "ApplicationFunction", "Validate ArchiMate Rules")
+el("fn-emit", "ApplicationFunction", "Emit Exchange XML")
+el("fn-stage", "ApplicationFunction", "Stage Import for Approval")
+el("fn-redact", "ApplicationFunction", "Detect & Redact PII")
+el("fn-present", "ApplicationFunction", "Present Views for Review")
+el("fn-decide", "ApplicationFunction", "Record Decision")
+# technology interfaces (ports/protocols) as access points of technology services
+el("if-redis", "TechnologyInterface", "RESP :6379")
+el("if-neon", "TechnologyInterface", "Postgres wire (TLS)")
+el("if-ollama", "TechnologyInterface", "OpenAI-compatible API")
+el("if-entra", "TechnologyInterface", "OAuth2 / OIDC endpoints")
+el("if-jaeger-ui", "TechnologyInterface", "Jaeger Query UI/API :16686")
 
 # ---------- Implementation & Migration ----------
 el("wp1", "WorkPackage", "Scaffold Lab Repository")
@@ -129,8 +159,19 @@ rel("Realization", "svc-auto", "cap-apa")
 rel("Composition", "comp-gw", "if-v1")
 rel("Composition", "comp-gw", "if-mcp")
 rel("Composition", "comp-gw", "if-a2a")
-rel("Realization", "comp-gw", "svc-route")
-rel("Realization", "comp-gw", "svc-tools")
+rel("Assignment", "comp-gw", "fn-route")
+rel("Assignment", "comp-gw", "fn-govern")
+rel("Assignment", "comp-gw", "fn-inject")
+rel("Assignment", "comp-gw", "fn-registry")
+rel("Realization", "fn-route", "svc-route")
+rel("Realization", "fn-govern", "svc-tools")
+rel("Realization", "fn-inject", "svc-tools")
+rel("Realization", "fn-registry", "svc-registry")
+rel("Composition", "comp-gw", "if-admin")
+rel("Assignment", "if-v1", "svc-route")
+rel("Assignment", "if-mcp", "svc-tools")
+rel("Assignment", "if-a2a", "svc-a2a")
+rel("Assignment", "if-admin", "svc-registry")
 rel("Realization", "comp-gw", "svc-a2a")
 rel("Realization", "comp-gw", "principle-gw")
 rel("Serving", "svc-route", "comp-host")
@@ -141,13 +182,23 @@ rel("Access", "comp-gw", "data-cards", accessType="Read")
 # workflow host + middleware (drawn, not nested — D0)
 rel("Composition", "comp-host", "comp-presidio")
 rel("Composition", "comp-host", "comp-guard")
-rel("Realization", "comp-presidio", "svc-redact")
+rel("Assignment", "comp-presidio", "fn-redact")
+rel("Realization", "fn-redact", "svc-redact")
 rel("Serving", "svc-redact", "comp-host")
 rel("Realization", "svc-redact", "req-pii")
 rel("Realization", "comp-host", "svc-exec")
 rel("Serving", "svc-exec", "proc-biz")
 # EA tooling
-rel("Realization", "comp-adoitmcp", "svc-ea")
+rel("Assignment", "comp-adoitmcp", "fn-layout")
+rel("Assignment", "comp-adoitmcp", "fn-validate")
+rel("Assignment", "comp-adoitmcp", "fn-emit")
+rel("Assignment", "comp-adoitmcp", "fn-stage")
+rel("Realization", "fn-layout", "svc-ea")
+rel("Realization", "fn-validate", "svc-ea")
+rel("Realization", "fn-emit", "svc-ea")
+rel("Realization", "fn-stage", "svc-approval")
+rel("Composition", "comp-adoitmcp", "if-adoitmcp")
+rel("Assignment", "if-adoitmcp", "svc-ea")
 rel("Serving", "svc-ea", "actor-ea")
 rel("Serving", "comp-adoitmcp", "comp-gw")
 rel("Access", "comp-adoitmcp", "data-model", accessType="Write")
@@ -158,10 +209,22 @@ rel("Realization", "node-entra", "tsvc-id")
 rel("Serving", "tsvc-id", "comp-gw")
 rel("Serving", "tsvc-id", "comp-host")
 rel("Composition", "node-jaeger", "if-otlp")
+rel("Composition", "node-jaeger", "if-jaeger-ui")
+rel("Assignment", "if-otlp", "tsvc-trace")
+rel("Assignment", "if-jaeger-ui", "tsvc-trace")
 rel("Realization", "node-jaeger", "tsvc-trace")
 rel("Serving", "tsvc-trace", "comp-host")
 rel("Flow", "comp-host", "node-jaeger")
 rel("Composition", "node-adoit", "if-rest")
+rel("Assignment", "if-rest", "tsvc-repo")
+rel("Composition", "node-ollama", "if-ollama")
+rel("Assignment", "if-ollama", "tsvc-infer")
+rel("Composition", "node-entra", "if-entra")
+rel("Assignment", "if-entra", "tsvc-id")
+rel("Composition", "node-neon", "if-neon")
+rel("Assignment", "if-neon", "tsvc-keystore")
+rel("Composition", "ss-redis", "if-redis")
+rel("Assignment", "if-redis", "tsvc-events")
 rel("Realization", "node-adoit", "tsvc-repo")
 rel("Serving", "tsvc-repo", "comp-adoitmcp")
 # technology — local runtime subcomponents (the honest deployed stack)
@@ -186,11 +249,29 @@ rel("Serving", "tsvc-events", "comp-review")
 rel("Serving", "tsvc-events", "comp-telegram")
 rel("Realization", "node-neon", "tsvc-keystore")
 rel("Serving", "tsvc-keystore", "comp-gw")
-rel("Realization", "comp-review", "svc-approval")
+rel("Assignment", "comp-review", "fn-present")
+rel("Assignment", "comp-review", "fn-decide")
+rel("Realization", "fn-present", "svc-approval")
+rel("Realization", "fn-decide", "svc-approval")
+rel("Composition", "comp-review", "if-review-ui")
+rel("Composition", "comp-telegram", "if-bot")
+rel("Assignment", "if-review-ui", "svc-approval")
+rel("Assignment", "if-bot", "svc-approval")
 rel("Realization", "comp-telegram", "svc-approval")
+# business side of the approval loop: role, channels, service, events
+rel("Assignment", "actor-ea", "role-reviewer")
+rel("Assignment", "role-reviewer", "proc-approve")
+rel("Realization", "proc-approve", "bsvc-approval")
+rel("Composition", "role-reviewer", "bif-web")
+rel("Composition", "role-reviewer", "bif-chat")
+rel("Assignment", "bif-web", "bsvc-approval")
+rel("Assignment", "bif-chat", "bsvc-approval")
+rel("Realization", "if-review-ui", "bif-web")
+rel("Realization", "if-bot", "bif-chat")
+rel("Triggering", "ev-change", "proc-approve")
+rel("Triggering", "proc-approve", "ev-approved")
 rel("Serving", "svc-approval", "comp-adoitmcp")
 rel("Serving", "svc-approval", "proc-approve")
-rel("Assignment", "actor-ea", "proc-approve")
 rel("Access", "comp-adoitmcp", "data-approvals", accessType="Write")
 rel("Access", "comp-review", "data-approvals", accessType="ReadWrite")
 rel("Access", "comp-telegram", "data-approvals", accessType="ReadWrite")
@@ -215,15 +296,21 @@ SPEC = {
                       "data-keys", "data-cards", "node-ollama", "tsvc-infer",
                       "node-entra", "tsvc-id", "node-jaeger", "if-otlp", "tsvc-trace"]},
         {"id": "tool-plane", "title": "Tool Plane — EA Modelling (scoped)",
-         "elements": ["actor-ea", "svc-ea", "comp-adoitmcp", "svc-tools", "comp-gw",
-                      "data-model", "node-adoit", "if-rest", "tsvc-repo"]},
+         "elements": ["actor-ea", "svc-ea", "if-adoitmcp", "fn-layout", "fn-validate", "fn-emit",
+                      "comp-adoitmcp", "svc-tools", "comp-gw", "data-model", "node-adoit", "if-rest", "tsvc-repo"]},
         {"id": "runtime-stack", "title": "Local Runtime Stack (scoped)",
          "elements": ["comp-gw", "comp-host", "comp-adoitmcp", "comp-review", "node-mac", "ss-python",
                       "ss-uvicorn", "ss-fastmcp", "ss-prisma", "ss-redis", "node-jaeger",
                       "node-neon", "tsvc-keystore"]},
         {"id": "approval-loop", "title": "Approval Gate — EA Repository Writes (scoped)",
-         "elements": ["actor-ea", "proc-approve", "svc-approval", "comp-review", "comp-telegram",
-                      "data-approvals", "comp-adoitmcp", "tsvc-events", "ss-redis"]},
+         "elements": ["actor-ea", "role-reviewer", "bif-web", "bif-chat", "bsvc-approval", "proc-approve",
+                      "ev-change", "ev-approved", "if-review-ui", "if-bot", "svc-approval", "fn-present",
+                      "fn-decide", "comp-review", "comp-telegram", "data-approvals", "fn-stage",
+                      "comp-adoitmcp", "tsvc-events", "if-redis", "ss-redis"]},
+        {"id": "gateway-decomposition", "title": "Gateway — Functional Decomposition (scoped)",
+         "elements": ["comp-gw", "if-v1", "if-mcp", "if-a2a", "if-admin", "fn-route", "fn-govern",
+                      "fn-inject", "fn-registry", "svc-route", "svc-tools", "svc-a2a", "svc-registry",
+                      "data-keys", "data-cards", "comp-host"]},
     ],
     "standard_views": True,
 }

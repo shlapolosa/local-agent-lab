@@ -27,6 +27,11 @@ mcp_servers:
     transport: http
     description: ArchiMate engine + ADOIT:CE facade (reads via REST, writes via governed UI import)
     extra_headers: ["traceparent", "tracestate"]   # forward W3C trace context -> one trace across all hops
+  semantic_mcp:
+    url: http://127.0.0.1:9200/mcp
+    transport: http
+    description: Semantic layer — vocabularies as data (ArchiMate 3.1 first), classification, exact relationship legality, SPARQL over models
+    extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router
   redis_host: os.environ/REDIS_HOST   # (Homebrew redis, already resident on the machine)
