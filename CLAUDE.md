@@ -157,7 +157,11 @@ credential, unlike the ambient key we strip), and `auto`.
   A developer opens `<gateway>/ui`, signs in with Entra, lands on a NON-admin self-serve view
   (`default_internal_user_params: user_role=internal_user` + developer model allowlist + budget;
   `ui_access_mode: all`), and copies a durable key to paste into any client. The master key stays
-  admin. This is the APIM Developer-Portal experience, one version early.
+  admin. This is the APIM Developer-Portal experience, one version early. Self-serve keys inherit
+  the developer model allowlist from `default_internal_user_params` (user-level restriction — a
+  new key with no explicit models inherits it and rejects anything off-list, verified); the
+  gateway adds SSO users to the `developers` team for spend rollup (team join is per-user today —
+  `POST /team/member_add` — Entra group→team mapping is the enterprise upgrade).
 - Agents (client-credentials, `roles` claim) unchanged.
 - **Any client, swappable harness**: Claude Code, OpenCode/Codex, IDE plugins, browser, OpenAI-
   standard tools all use the same `(base_url, credential)`. **Committed templates + per-client

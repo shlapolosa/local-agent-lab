@@ -23,6 +23,7 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+free_port() { local pids; pids=$(lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null); [ -n "$pids" ] && { kill -9 $pids 2>/dev/null; sleep 1; }; }
 remote_tracing() { [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; }
 
 # Jaeger on Railway is metered (trial credit): `up` deploys it, `down` removes the deployment
@@ -90,6 +91,7 @@ up() {
     wait_http "http://127.0.0.1:9200/mcp" "" 20 || true; echo "semantic-mcp started  http://127.0.0.1:9200/mcp"; fi
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
+    free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
     env -u ANTHROPIC_API_KEY nohup "$LITELLM" --config gateway/litellm-config.yaml --port 4000 >"$LOGS/litellm.log" 2>&1 & echo $! >"$RUN/litellm.pid"
     printf "gateway      starting"; wait_http "http://127.0.0.1:4000/health/readiness" '"connected"' 90 \
       && echo "  http://127.0.0.1:4000  (db connected)" || { echo "  FAILED — see logs/litellm.log"; exit 1; }; fi
