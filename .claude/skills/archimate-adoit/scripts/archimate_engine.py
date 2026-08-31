@@ -590,6 +590,23 @@ class View:
                 viol.append(f"H4 {rt} {ei['rid']} points downward (served/realized must sit above)")
         return viol
 
+    def _normalize(self, E):
+        """The Open Exchange schema requires nonNegativeInteger coordinates; gutter routing
+        can push x below zero. Shift the whole drawing right/down so every node AND every
+        bendpoint is >= 0 (with a small margin), and grow the canvas accordingly."""
+        xs = [x for x, _ in self.pos.values()] + [x for ei in E for x, _ in ei["pts"]]
+        ys = [y for _, y in self.pos.values()] + [y for ei in E for _, y in ei["pts"]]
+        dx = max(0, 10 - min(xs)) if xs else 0
+        dy = max(0, 10 - min(ys)) if ys else 0
+        if not dx and not dy:
+            return
+        for e in self.pos:
+            self.pos[e] = [self.pos[e][0] + dx, self.pos[e][1] + dy]
+        for ei in E:
+            ei["pts"] = [(x + dx, y + dy) for x, y in ei["pts"]]
+        self.canvas_w += dx
+        self.canvas_h += dy
+
     # ---------------- render ----------------
     def _build(self):
         self._layout()
@@ -597,6 +614,7 @@ class View:
         self._ports_runs(E)
         self._vertical(E)
         self._routes(E)
+        self._normalize(E)
         self._E = E
         return self._verify(E)
 

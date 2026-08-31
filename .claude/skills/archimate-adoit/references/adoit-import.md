@@ -26,7 +26,11 @@ The engine emits all of these; listed here so hand-edits don't break imports:
 | `<connection>` | `identifier`, `relationshipRef`, `source`, `target` (view-node ids, not element ids) |
 
 Identifiers must be XML NCNames — the engine prefixes everything with `id-`; keep your element
-ids alphanumeric/dash/underscore.
+ids alphanumeric/dash/underscore. View coordinates and bendpoints must be **nonNegativeInteger**
+(the engine normalizes automatically since Aug 2026). To validate before importing:
+`xmllint --noout --schema archimate3_Diagram.xsd <file>` with the three XSDs
+(`archimate3_Diagram/View/Model.xsd`) from opengroup.org/xsd/archimate/3.1/ — Archi enforces
+this schema strictly; ADOIT is more lenient.
 
 ## Import steps (ADOIT:CE web client)
 
