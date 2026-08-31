@@ -17,6 +17,7 @@ as it will in production. **Pattern parity, not feature parity.** Design: `Local
 | Architecture review app (Streamlit, :8501) + Telegram channel (plumbing) | approval workflow | Human-in-the-loop over Redis Streams events: approve / request changes / decline |
 | Jaeger v2 (native binary, :16686) + OpenTelemetry | Foundry observability / audit trail | One trace per workflow run across agent → gateway → MCP servers |
 | `archimate-adoit` skill (`.claude/skills/`) | agent capability | Deterministic ArchiMate layout engine (orthogonal parallel routing, layer bands, per-type notation) → ADOIT-importable Model Exchange XML; registered in LiteLLM's skill store and Skill Hub |
+| Developer model serving + Entra identity (`clients/`, `gateway/custom_auth.py`) | APIM + Developer Portal | Both API standards (OpenAI `/v1`, Anthropic `/v1/messages`), full catalogue + `auto` router, reversible-PII guardrail; sign-in with Entra as a short-lived JWT (`az`, → APIM `validate-jwt`) or a durable self-serve key (browser SSO, → APIM subscription key); per-developer keys and spend |
 
 ## Quick start
 
@@ -73,8 +74,33 @@ server and skill registered in LiteLLM · no unredacted PII past the egress boun
 · destructive/write tools require human approval · every process has its own OTel service name ·
 models validated against the full ArchiMate relationship matrix before they reach a reviewer.
 
+## Client support & limitations
+
+Any client reaches the gateway with an Entra credential — see `clients/`. Two shapes, both
+portable to APIM (`validate-jwt` / subscription key):
+
+| Client | How it authenticates | Notes |
+|---|---|---|
+| Claude Code CLI, Claude **VS Code** extension | Entra JWT via `az` (apiKeyHelper) or a durable key | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` lists the full catalogue in `/model`; non-Claude models are best-effort for agentic tool-use, first-class for chat |
+| Paste-only IDEs — Windsurf, Cline, Continue, JetBrains AI | durable key from browser SSO (`<gateway>/ui`) | no CLI, no `az`, no refresh |
+| OpenAI-standard tools (Cursor, Continue, SDKs), curl, CI | JWT or durable key | `OPENAI_BASE_URL=<gateway>/v1` |
+
+**Not supported:**
+- **Claude Desktop and Claude on the web (claude.ai)** cannot be pointed at a custom gateway —
+  they talk only to Anthropic's own endpoints, so they can't be routed through LiteLLM/APIM,
+  metered per developer, or PII-guarded. Use the Claude Code CLI/VS Code extension or an
+  OpenAI/Anthropic-compatible client instead.
+- Claude Code's `/login` cannot target a third-party OIDC provider; Entra login is via the
+  credential shapes above, not the `/login` menu.
+
 ## Status
 
-Scaffolded and working end to end (Aug 2026): governance plane with real keys/budgets/ACLs, both MCP
-servers, skill registries, approvals, observability, semantic layer with two reference models. Not yet:
-Presidio PII middleware, guardrails, Entra app registrations, Agent Framework workflow hosts, A2A.
+Working end to end (Aug 2026): governance plane with real keys/budgets/ACLs on Neon + Redis Cloud;
+both MCP servers; skill registries; approvals; observability (Jaeger on Railway); semantic layer with
+two reference models; **Entra identity** (app registrations, agents via MSAL client-credentials,
+developers via JWT/`az` and durable self-serve SSO keys, gateway JWT validation = APIM `validate-jwt`);
+**reversible PII pseudonymization** guardrail on both API standards; `auto` intent router.
+
+Not yet: LLM-judge output guardrails (Defender analogue), Presidio NER tier (names/free-text clinical
+PII, beyond the regex tier), Agent Framework workflow hosts, A2A, and the containerised cloud/APIM
+deployment (`deploy/`).
