@@ -71,12 +71,20 @@ async def user_api_key_auth(request: Request, api_key: str):
     return vkey
 
 
+_REDIS = None
+
+
 def _redis():
-    import redis
-    return redis.Redis.from_url(
-        os.environ.get("REDIS_URL")
-        or f"redis://{os.environ.get('REDIS_HOST', '127.0.0.1')}:{os.environ.get('REDIS_PORT', '6379')}/0",
-        decode_responses=True)
+    """Single shared client (one small connection pool) — NOT a new client per call, which
+    leaks connections and exhausts a capped Redis on the hot auth path."""
+    global _REDIS
+    if _REDIS is None:
+        import redis
+        _REDIS = redis.Redis.from_url(
+            os.environ.get("REDIS_URL")
+            or f"redis://{os.environ.get('REDIS_HOST', '127.0.0.1')}:{os.environ.get('REDIS_PORT', '6379')}/0",
+            decode_responses=True, max_connections=4, socket_timeout=5)
+    return _REDIS
 
 
 async def _developer_key(claims: dict) -> str:

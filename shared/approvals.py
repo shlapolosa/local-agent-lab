@@ -39,8 +39,17 @@ def _config():
     return config
 
 
+_POOL = None
+
+
 def _r():
-    return redis.Redis.from_url(_config().REDIS_URL, decode_responses=True)
+    """Shared client (small pool) — one per process, not one per call, to avoid leaking
+    connections against a capped Redis."""
+    global _POOL
+    if _POOL is None:
+        _POOL = redis.Redis.from_url(_config().REDIS_URL, decode_responses=True,
+                                     max_connections=4, socket_timeout=5)
+    return _POOL
 
 
 def _now():
