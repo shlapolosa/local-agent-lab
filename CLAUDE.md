@@ -190,12 +190,16 @@ Versioned in `gateway/litellm-config.yaml` `guardrails:` — built on LiteLLM's 
 so it fires for EVERY credential and BOTH API standards (OpenAI `/v1/chat/completions` and
 Anthropic `/v1/messages`) — covering the two use cases: developers consuming models (e.g.
 Claude Code via the gateway) and the agentic solutions.
-- **BLOCK** (request rejected, HTTP 400): `uae_emirates_id`, AWS/GitHub/Slack/generic API keys.
-- **MASK** (redacted to `[<pattern>_REDACTED]` before egress): cards (visa/mc/amex/discover/
-  generic), IBAN, email, `uae_phone`, `street_address`, `us_ssn`, ipv4.
-- 82 prebuilt patterns exist (incl. UAE, passports, self-harm/violence content categories) —
-  extend in config, not in the UI, so policy stays reviewable. The UI Policies page can still
-  scope per team/key when needed.
+- **Policy: REVERSIBLE PSEUDONYMIZATION, no blocking** (`gateway/pii_guardrail.py`, a custom
+  guardrail on LiteLLM's prebuilt pattern library): outbound text has every match replaced by
+  `[TYPE#n]` before egress — verified the model receives only the placeholder — and the gateway
+  restores originals in the response (mapping lives only in request metadata on this gateway).
+  Patterns: `uae_emirates_id`, `uae_phone`, `street_address`, cards, IBAN, email, `us_ssn`,
+  ipv4, AWS/GitHub/Slack/generic API keys. 82 prebuilt patterns available — extend
+  `DEFAULT_PATTERNS` / config, not the UI, so policy stays reviewable.
+- Known gaps: STREAMING responses keep placeholders (safe, just unrestored); models may refuse
+  to repeat card-like placeholders (their own safety, not ours); the metadata key differs per
+  route (`metadata` vs `litellm_metadata`) — the guardrail parks the map in both.
 - **Boundary**: regex cannot catch names or free-text clinical PII — that is the second,
   NER tier: Presidio in-process middleware in the workflow hosts (docx §6), still to build.
 

@@ -57,73 +57,14 @@ litellm_settings:
     password: os.environ/REDIS_PASSWORD
     supported_call_types: []          # ... but never caches LLM responses
 
-# PII / secret protection — versioned equivalent of the UI "Baseline PII Protection" policy,
-# built on the local litellm_content_filter (regex tier, ~1 ms, no external service).
-# default_on: fires for EVERY credential — developers (OpenAI or Anthropic standard) and agents.
-# NER-tier PII (names, addresses, clinical text) comes later via the Presidio layer (docx).
+# PII / secret protection — REVERSIBLE PSEUDONYMIZATION (agreed policy, no blocking):
+# outbound prompts have every match replaced by [TYPE#n] before egress (model never sees the
+# real value); the gateway restores originals in the response. Mapping lives only in request
+# metadata on this gateway. Patterns come from LiteLLM's prebuilt library incl. UAE ids.
+# Streaming responses keep placeholders (safe; restore-on-stream is a later refinement).
 guardrails:
-  - guardrail_name: credentials-and-keys
+  - guardrail_name: reversible-pii
     litellm_params:
-      guardrail: litellm_content_filter
-      mode: pre_call
+      guardrail: pii_guardrail.ReversiblePII
+      mode: [pre_call, post_call]
       default_on: true
-      pattern_redaction_format: "[{pattern_name}_REDACTED]"
-      patterns:
-      - pattern_type: prebuilt
-        pattern_name: uae_emirates_id        # high-severity for DOH: block outright
-        action: BLOCK
-      - pattern_type: prebuilt
-        pattern_name: aws_access_key
-        action: BLOCK
-      - pattern_type: prebuilt
-        pattern_name: aws_secret_key
-        action: BLOCK
-      - pattern_type: prebuilt
-        pattern_name: generic_api_key
-        action: BLOCK
-      - pattern_type: prebuilt
-        pattern_name: github_token
-        action: BLOCK
-      - pattern_type: prebuilt
-        pattern_name: slack_token
-        action: BLOCK
-  - guardrail_name: pii-identifiers
-    litellm_params:
-      guardrail: litellm_content_filter
-      mode: pre_call
-      default_on: true
-      pattern_redaction_format: "[{pattern_name}_REDACTED]"
-      patterns:
-      - pattern_type: prebuilt
-        pattern_name: amex
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: credit_card
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: discover
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: email
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: iban
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: ipv4
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: mastercard
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: us_ssn
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: visa
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: uae_phone
-        action: MASK
-      - pattern_type: prebuilt
-        pattern_name: street_address
-        action: MASK
