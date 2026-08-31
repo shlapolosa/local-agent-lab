@@ -130,6 +130,31 @@ in `.env` — JSON, must be single-quoted or `.env` sourcing breaks).
 - Migration: this is the docx pattern verbatim — swap tenant + client ids to the corporate
   tenant; APIM `validate-jwt` replaces `custom_auth.py`.
 
+## Serving Models to Developers
+
+Both API standards on the one gateway, PII-guarded and metered: OpenAI-style
+(`/v1/chat/completions`) and Anthropic-style (`/v1/messages` — point Claude Code at
+`ANTHROPIC_BASE_URL=http://127.0.0.1:4000`). Models: Ollama Cloud (`gpt-oss-120b`,
+`glm-flash`, `kimi-k3`), real Anthropic (`claude-sonnet-5`, `claude-haiku-4-5` — upstream
+key `ANTHROPIC_UPSTREAM_API_KEY` injected by the gateway, a deliberate configured
+credential, unlike the ambient key we strip), and `auto`.
+
+- **Developer login is Entra**: `gateway/dev_login.py` (device code, public client
+  `lab-developers`, delegated scope `access_as_user` on lab-gateway, pre-authorized — no
+  consent prompt). It prints `OPENAI_*` / `ANTHROPIC_*` exports; the token IS the API key.
+- **JIT keys**: `gateway/custom_auth.py` recognises user tokens (`scp` contains
+  `access_as_user`) and provisions a personal virtual key on first login (team `developers`,
+  $10/30d, oid→key mapping in Redis) — so `/model` (GET `/v1/models`) shows that person's
+  allowlist and spend is attributed per developer. Agents (client-credentials, `roles` claim)
+  keep their static mapping.
+- **`auto` routing** (`gateway/auto_router.py`, a pre-call hook): deterministic rules — code
+  fences or >6k chars → `gpt-oss-120b`; reasoning-heavy markers → `claude-sonnet-5`; else
+  `glm-flash`; caller hint via `metadata.x-auto-route` wins. Decisions land in request
+  metadata; verified via the spend log's resolved-model column. LiteLLM's native auto-router
+  is embedding-based and stays unavailable: Ollama Cloud has NO cloud-served embedding models
+  (library models exist for local pulls only; cloud `/v1/embeddings` is a "coming feature" —
+  github.com/ollama/ollama/issues/14496). Revisit semantic routing + vector stores when that ships.
+
 ## Gateway Registry (Agent 365 analogue)
 
 LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no Colima container;

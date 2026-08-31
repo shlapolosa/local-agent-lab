@@ -6,6 +6,30 @@
 # Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
 
 model_list:
+  # --- Anthropic models for developers (upstream credential injected by the gateway) ---
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_UPSTREAM_API_KEY
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_UPSTREAM_API_KEY
+  # --- more Ollama Cloud models for developers (OpenAI-compatible) ---
+  - model_name: kimi-k3
+    litellm_params:
+      model: openai/kimi-k3
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000015
+      output_cost_per_token: 0.00000060
+  # --- `auto` resolves via gateway/auto_router.py BEFORE routing; this entry makes it a
+  #     listable model and the fallback if the hook is ever disabled ---
+  - model_name: auto
+    litellm_params:
+      model: openai/glm-5.3-flash
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
   - model_name: gpt-oss-120b            # lab default reasoning model
     litellm_params:
       model: openai/gpt-oss:120b        # Ollama Cloud is OpenAI-compatible
@@ -63,6 +87,11 @@ litellm_settings:
 # metadata on this gateway. Patterns come from LiteLLM's prebuilt library incl. UAE ids.
 # Streaming responses keep placeholders (safe; restore-on-stream is a later refinement).
 guardrails:
+  - guardrail_name: auto-router
+    litellm_params:
+      guardrail: auto_router.AutoRouter
+      mode: pre_call
+      default_on: true
   - guardrail_name: reversible-pii
     litellm_params:
       guardrail: pii_guardrail.ReversiblePII
