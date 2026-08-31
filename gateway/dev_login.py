@@ -29,6 +29,8 @@ for acct in app.get_accounts():
     if result:
         break
 if not result:
+    if "--print-token" in sys.argv:      # helper mode must NEVER block on interactive login
+        sys.exit("no cached login — run gateway/dev_login.py interactively first")
     flow = app.initiate_device_flow(scopes=scopes)
     print(flow["message"], file=sys.stderr)
     result = app.acquire_token_by_device_flow(flow)
