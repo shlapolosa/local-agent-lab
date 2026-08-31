@@ -183,6 +183,22 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   inherit it (that is how the skill upload leaked to Anthropic once). Launch services with
   `env -u ANTHROPIC_API_KEY` — only `.env` values are lab credentials.
 
+## PII / Secret Guardrails (regex tier — LIVE; Purview/Defender analogue, first layer)
+
+Versioned in `gateway/litellm-config.yaml` `guardrails:` — built on LiteLLM's local
+`litellm_content_filter` (prebuilt regex patterns, ~1 ms, no external service), `default_on`
+so it fires for EVERY credential and BOTH API standards (OpenAI `/v1/chat/completions` and
+Anthropic `/v1/messages`) — covering the two use cases: developers consuming models (e.g.
+Claude Code via the gateway) and the agentic solutions.
+- **BLOCK** (request rejected, HTTP 400): `uae_emirates_id`, AWS/GitHub/Slack/generic API keys.
+- **MASK** (redacted to `[<pattern>_REDACTED]` before egress): cards (visa/mc/amex/discover/
+  generic), IBAN, email, `uae_phone`, `street_address`, `us_ssn`, ipv4.
+- 82 prebuilt patterns exist (incl. UAE, passports, self-harm/violence content categories) —
+  extend in config, not in the UI, so policy stays reviewable. The UI Policies page can still
+  scope per team/key when needed.
+- **Boundary**: regex cannot catch names or free-text clinical PII — that is the second,
+  NER tier: Presidio in-process middleware in the workflow hosts (docx §6), still to build.
+
 ## Semantic Layer (`semantic/`, served by `semantic-mcp` :9200)
 
 Vocabularies as **data**, not prose: a `Vocabulary` (classes with layer/aspect facets and
