@@ -281,12 +281,36 @@ class Model:
         self._report = report
         return "\n".join(out)
 
+    _XSD = None
+
+    @classmethod
+    def _schema(cls):
+        """Official ArchiMate 3.1 XSD, shipped with the skill — every render is validated
+        against it (Archi rejects schema-invalid files; ADOIT is merely lenient)."""
+        if cls._XSD is None:
+            import os
+            try:
+                import xmlschema
+                cls._XSD = xmlschema.XMLSchema(os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "..", "references", "xsd",
+                    "archimate3_Diagram.xsd"))
+            except Exception:
+                cls._XSD = False
+        return cls._XSD
+
     def render(self, outdir, basename, strict=True):
         import os
         xml = self.to_xml(strict=strict)
         os.makedirs(outdir, exist_ok=True)
         xp = os.path.join(outdir, f"{basename}.archimate.xml")
         open(xp, "w").write(xml)
+        schema = self._schema()
+        if schema:
+            errors = [f"XSD: {e.reason}" for e in schema.iter_errors(xp)]
+            if errors and strict:
+                raise AssertionError("schema-invalid export:\n  " + "\n  ".join(errors[:5]))
+            self._report["violations"] += errors
+        self._report["schema_validated"] = bool(schema)
         paths = [xp]
         for v in self.views:
             sp = os.path.join(outdir, f"{basename}-{v.vid}.svg")
