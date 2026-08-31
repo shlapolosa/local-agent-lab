@@ -30,6 +30,19 @@ CLASSIFIER_PROMPT = (
     "summaries). Answer with only the single word.")
 
 
+
+
+def _emit_event(kind: str, payload: dict):
+    """Fail-silent event feed for the Claude Code statusline (gateway-events.jsonl)."""
+    try:
+        import json as _json, os as _os, time as _time
+        path = _os.environ.get("GATEWAY_EVENTS_FILE") or _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "logs", "gateway-events.jsonl")
+        with open(path, "a") as f:
+            f.write(_json.dumps({"ts": _time.time(), "kind": kind, **payload}) + "\n")
+    except Exception:
+        pass
+
 class AutoRouter(CustomGuardrail):
     async def _classify_llm(self, text: str) -> str | None:
         import litellm
@@ -68,4 +81,5 @@ class AutoRouter(CustomGuardrail):
             choice = ROUTES[label]
         data["model"] = choice
         data.setdefault("metadata", {})["auto_route"] = {"model": choice, "method": how}
+        _emit_event("route", {"model": choice, "method": how})
         return data

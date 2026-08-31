@@ -139,14 +139,21 @@ Both API standards on the one gateway, PII-guarded and metered: OpenAI-style
 key `ANTHROPIC_UPSTREAM_API_KEY` injected by the gateway, a deliberate configured
 credential, unlike the ambient key we strip), and `auto`.
 
-- **Developer login is Entra**: `gateway/dev_login.py` (device code, public client
-  `lab-developers`, delegated scope `access_as_user` on lab-gateway, pre-authorized — no
-  consent prompt). It prints `OPENAI_*` / `ANTHROPIC_*` exports; the token IS the API key.
-- **JIT keys**: `gateway/custom_auth.py` recognises user tokens (`scp` contains
-  `access_as_user`) and provisions a personal virtual key on first login (team `developers`,
-  $10/30d, oid→key mapping in Redis) — so `/model` (GET `/v1/models`) shows that person's
-  allowlist and spend is attributed per developer. Agents (client-credentials, `roles` claim)
-  keep their static mapping.
+- **Two portable credential shapes** (both map 1:1 to APIM, so client config never changes on
+  migration): a **short-lived Entra JWT** (validated by `gateway/custom_auth.py` via Entra
+  JWKS/audience/issuer — the APIM `validate-jwt` equivalent) or a **durable per-user key**
+  (LiteLLM virtual key ↔ APIM subscription key). Client contract is always `(base_url, credential)`.
+- **JWT acquisition is Microsoft-standard `az`, no bespoke script**: `az login --tenant < id>`
+  once (browser), then `az account get-access-token --resource $ENTRA_GATEWAY_AUDIENCE`. The
+  Azure CLI public client is pre-authorized on lab-gateway for `access_as_user` (Graph). Claude
+  Code uses that as its `apiKeyHelper` one-liner; other clients pass the token as a bearer.
+  (`gateway/dev_login.py` device-code flow retired — az supersedes it and is APIM-faithful.)
+- **JIT keys**: `gateway/custom_auth.py` recognises user JWTs (`scp` contains `access_as_user`)
+  and provisions a personal virtual key on first use (team `developers`, $10/30d, oid→key in
+  Redis) — `/model` shows that person's allowlist, spend attributes per developer. Durable keys
+  are self-served from the gateway UI SSO. Agents (client-credentials, `roles` claim) unchanged.
+- **Any client, swappable harness**: Claude Code, OpenCode/Codex, IDE plugins, browser, OpenAI-
+  standard tools all use the same `(base_url, credential)`; see `~/Development/agent-lab-test`.
 - **`auto` routing** (`gateway/auto_router.py`): **LLM-classified** — glm-flash (called
   directly at Ollama Cloud, not via the proxy: no recursion, ~100 tokens, 2.5 s timeout) labels
   each prompt `code | reasoning | simple` → `kimi-k2.7-code | claude-sonnet-5 | glm-flash`.

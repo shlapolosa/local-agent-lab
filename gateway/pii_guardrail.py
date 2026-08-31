@@ -43,6 +43,19 @@ def _load_patterns(names):
     return out
 
 
+
+
+def _emit_event(kind: str, payload: dict):
+    """Fail-silent event feed for the Claude Code statusline (gateway-events.jsonl)."""
+    try:
+        import json as _json, os as _os, time as _time
+        path = _os.environ.get("GATEWAY_EVENTS_FILE") or _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "logs", "gateway-events.jsonl")
+        with open(path, "a") as f:
+            f.write(_json.dumps({"ts": _time.time(), "kind": kind, **payload}) + "\n")
+    except Exception:
+        pass
+
 class ReversiblePII(CustomGuardrail):
     def __init__(self, pattern_names=None, **kwargs):
         kwargs.pop("patterns", None)
@@ -79,6 +92,11 @@ class ReversiblePII(CustomGuardrail):
             if isinstance(msg, dict) and "content" in msg:
                 msg["content"] = self._walk(msg["content"], mapping)
         if mapping:
+            types = {}
+            for ph in mapping:
+                t = ph.split("#")[0].strip("[")
+                types[t] = types.get(t, 0) + 1
+            _emit_event("pii", {"masked": types, "model": data.get("model")})
             # metadata key differs per route (/v1/chat uses `metadata`, /v1/messages
             # `litellm_metadata`); park the map in every carrier the post hook can see.
             data[MAP_KEY] = mapping
