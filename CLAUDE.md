@@ -158,6 +158,9 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
 - **Registry UI**: http://127.0.0.1:4000/ui (user `admin`, password = master key) — teams,
   keys, spend, models, MCP servers. API: `/team/info`, `/key/info`, `/key/list`.
 
+- **MCP tool-call timeout**: `LITELLM_MCP_CLIENT_TIMEOUT=300` in `.env` (LiteLLM default 60 s
+  kills long renders such as the full capability map; per-server `timeout` in `mcp_servers`
+  also works).
 - **Skill catalogue**: the `archimate-adoit` skill is registered in LiteLLM's skills store
   (`ARCHIMATE_SKILL_ID` in `.env`; UI → Skills). Agents pull it by passing
   `container={"skills":[{"skill_id": ...}]}` — the gateway injects SKILL.md into the system
