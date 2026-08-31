@@ -17,6 +17,7 @@ from opentelemetry import propagate, trace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared import config  # noqa: E402
+from shared.identity import agent_headers  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GATEWAY = config.GATEWAY_MCP_URL
@@ -27,7 +28,7 @@ async def main(scheme, root, depth):
     from architecture.run_via_gateway import _setup_otel  # same service name / exporter
     tracer = _setup_otel()
     with tracer.start_as_current_span("capability-export-run") as span:
-        headers = {"Authorization": f"Bearer {os.environ['EA_AGENT_KEY']}"}
+        headers = agent_headers()   # Entra JWT via MSAL, or the static key fallback
         propagate.inject(headers)
         print("trace id:", format(span.get_span_context().trace_id, "032x"))
         async with Client(StreamableHttpTransport(GATEWAY, headers=headers)) as c:

@@ -44,6 +44,7 @@ router_settings:                      # Redis: shared state for rate limits, bud
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+  custom_auth: custom_auth.user_api_key_auth   # Entra JWTs (APIM validate-jwt analogue); static keys fall through
 
 litellm_settings:
   drop_params: true

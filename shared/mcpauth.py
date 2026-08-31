@@ -16,6 +16,8 @@ class BearerAuthMiddleware:
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         if headers.get("authorization", "") == f"Bearer {self.secret}":
             return await self.app(scope, receive, send)
+        got = headers.get("authorization", "<none>")
+        print(f"mcpauth DENY {scope.get('method')} {scope.get('path')} auth={got[:24]}…len{len(got)}", flush=True)
         await send({"type": "http.response.start", "status": 401,
                     "headers": [(b"content-type", b"application/json"), (b"www-authenticate", b"Bearer")]})
         await send({"type": "http.response.body", "body": b'{"error":"unauthorized"}'})

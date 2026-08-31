@@ -106,6 +106,30 @@ Outputs land in `architecture/out/` (`lab-architecture.archimate.xml` + one SVG 
 Element ids in `lab_model.py` are stable on purpose — changing them duplicates objects on
 ADOIT re-import.
 
+## Identity (Entra ID — real tenant, per the design doc)
+
+Tenant `socratesbusiness.onmicrosoft.com` (`ENTRA_TENANT_ID` in `.env`). Provisioned by
+`gateway/entra_provision.py` (Microsoft Graph; idempotent by display name; get a Graph token
+via device-code sign-in when re-running): app **lab-gateway** exposes `api://…`
+(`ENTRA_GATEWAY_AUDIENCE`) with app roles `EA.Model`, `Tools.ADOIT`; app **ea-modeling-agent**
+holds a client secret and is granted both roles (appRoleAssignment = admin consent). One app
+registration per agent, paired 1:1 with its virtual key (key metadata + `ENTRA_CLIENT_TO_KEY`
+in `.env` — JSON, must be single-quoted or `.env` sourcing breaks).
+
+- **Agents authenticate with MSAL** (`shared/identity.py: agent_headers()`), client-credentials
+  against `<audience>/.default`; falls back to the static virtual key when no client id is set.
+- **The gateway validates JWTs** in `gateway/custom_auth.py` (`general_settings.custom_auth`,
+  module resolved relative to the config file). **Contract: return None** (not a lab JWT →
+  normal key auth) **or a virtual-key string** (LiteLLM then runs its full key auth on it —
+  budgets/ACLs/spend intact). NEVER call the built-in `user_api_key_auth` from the hook: it
+  re-enters the hook (infinite recursion, 500s on every route).
+- **Gateway restarts must go through `lab.sh`** (or have the `ADOIT_MCP_URL`/`SEMANTIC_MCP_URL`
+  defaults now in `.env`): the config's `os.environ/` references resolve from the process env,
+  and a bare `source .env` restart once left the MCP URLs unresolved — symptom: 0 tools, no
+  requests reaching the servers.
+- Migration: this is the docx pattern verbatim — swap tenant + client ids to the corporate
+  tenant; APIM `validate-jwt` replaces `custom_auth.py`.
+
 ## Gateway Registry (Agent 365 analogue)
 
 LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no Colima container;

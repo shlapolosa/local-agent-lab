@@ -16,6 +16,7 @@ from opentelemetry import propagate, trace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared import config  # noqa: E402
+from shared.identity import agent_headers  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GATEWAY = config.GATEWAY_MCP_URL
@@ -39,10 +40,9 @@ def _setup_otel():
 
 async def main():
     tracer = _setup_otel()
-    key = os.environ["EA_AGENT_KEY"]   # agent identity, never the master key
     spec = json.load(open(os.path.join(HERE, "lab_model.json")))
     with tracer.start_as_current_span("ea-modeling-run") as root:   # the workflow-run span
-        headers = {"Authorization": f"Bearer {key}"}
+        headers = agent_headers()      # Entra JWT via MSAL (app registration), or static key fallback
         propagate.inject(headers)      # traceparent -> gateway -> adoit-mcp: one trace
         root.set_attribute("lab.trace_id", format(root.get_span_context().trace_id, "032x"))
         print("trace id:", format(root.get_span_context().trace_id, "032x"))

@@ -78,7 +78,7 @@ el("tsvc-infer", "TechnologyService", "Model Inference",
    "gpt-oss:120b primary, glm-5.3-flash utility; OpenAI-compatible")
 el("node-entra", "Node", "Entra ID Tenant (free)")
 el("tsvc-id", "TechnologyService", "Identity & OAuth2",
-   "One app registration per agent; MSAL locally; OAuth2 for MCP flows")
+   "LIVE: lab-gateway audience + app roles; ea-modeling-agent app registration; MSAL client-credentials; gateway validates JWTs and maps app -> virtual key")
 el("node-jaeger", "SystemSoftware", "Jaeger v2 (native binary)",
    "Trace store + UI; in-memory storage; ~50 MB RSS instead of a 2 GB Colima VM")
 el("if-otlp", "TechnologyInterface", "OTLP")
