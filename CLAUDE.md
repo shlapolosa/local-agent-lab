@@ -44,6 +44,41 @@ These rules define the lab; do not violate them when adding code:
 
 Business processes are Agent Framework **Workflows** — typed graphs orchestrating ChatAgents and deterministic functions (sequential, concurrent, handoff patterns; checkpointing; human-in-the-loop pauses). A shared services layer provides the workflow engine, the middleware chain (Presidio → approval gates → OTel emission), and MCP/A2A client integrations.
 
+## Business Processes (`processes/`) — Agent Framework Workflows
+
+Each business process is one host under `processes/<name>/` with a distinct OTel service name.
+The first, `processes/visio_to_archimate/` (see its README), is the reference:
+
+- **Runtime = a Microsoft Agent Framework `WorkflowBuilder` graph** (`agent-framework` on PyPI,
+  package `agent_framework`; `OpenAIChatClient(base_url=<gw>/v1, api_key=<agent credential>)` +
+  `Agent(...)`). Typed `@executor` nodes, `add_chain`, `wf.run(input)` → `get_outputs()`. One host
+  process (`host.py`), root span, credential wiring; `agents.py`/`workflow.py` hold the agents/graph.
+- **Agents are PURE STRUCTURED-OUTPUT (text→JSON); tool I/O lives in deterministic nodes, never as
+  in-agent tools.** Verified: in-agent tool-calling returns an EMPTY final answer on every Ollama
+  Cloud model through the gateway (harmony/tool-loop quirk), and Anthropic-via-`/v1` trips an
+  agent-framework join bug. Structured JSON output is reliable. This is also more docx-faithful
+  (determinism; governed egress unchanged). Model: **kimi-k3**.
+- **Agents never call each other directly — the workflow mediates via a typed contract.** The
+  producing agent emits schema-validated JSON (`jsonschema`); the graph hands it to the next agent.
+  A schema/legality failure loops back **once inside the owning node** (keeps the graph linear).
+  A2A-through-the-gateway is the future upgrade when processes split into separate hosts.
+- **Identity per agent (docx model):** one Entra app registration ↔ one virtual key ↔ one agent,
+  all in one team per process. `gateway/provision_visio_agents.py` is the pattern (extends
+  `entra_provision.py` + `bootstrap_registry.py`, auto-refreshes `.lab/graph_token.json`, patches
+  `.env` incl. the single-quoted `ENTRA_CLIENT_TO_KEY`). Agents authenticate with
+  `shared/identity.agent_headers("<PREFIX>")` — MSAL client-credentials JWT (gateway maps it to the
+  key), else the durable key. LLM calls use each agent's own credential (spend attributes per key);
+  tool nodes use the identity that holds the MCP grants (here the Architect: `Tools.ADOIT`).
+- **One trace per run** joins process→gateway→MCP: `propagate.inject(headers)` under the root span,
+  the traceparent passed as the fastmcp `Client` headers AND as the ChatAgent `default_headers`
+  (so gateway LLM spans join too). Verified: ~400 spans in one trace across
+  `process-visio-to-archimate` + `litellm-gateway` + `semantic-mcp` + `adoit-mcp`.
+- **Skills are consumed by composing the local `SKILL.md` into the system prompt** (the same file
+  registered in LiteLLM — single source of truth) rather than gateway `container.skills` injection,
+  because injection is team-scoped and these agents need no in-agent tool execution. Registration in
+  LiteLLM is still mandatory (governance/discoverability) — `gateway/register_skill.sh <team_id>
+  [skill] [env_var]` is now generalized (default `archimate-adoit`; also registers `visio-reader`).
+
 ## ADOIT MCP Server (own-built)
 
 The ADOIT EA integration wraps the ADOIT REST API (Community Edition has no built-in MCP), built on the existing internal Python ArchiMate library (61 element types, role-based architect agents). FastMCP exposes typed create/read/update tools; validation runs against the library before any repository write. Read/query tools may be shared across processes; write tools are ACL-restricted to a dedicated EA Modeling Agent. ADOIT credentials live in `.env` (`ADOIT_USERNAME`/`ADOIT_PASSWORD`, plus `ADOIT_BASE_URL` and `ADOIT_REPO_ID`), alongside `OLLAMA_API_KEY`.

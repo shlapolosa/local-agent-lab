@@ -11,3 +11,7 @@ opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-http
 opentelemetry-instrumentation-asgi
 opentelemetry-instrumentation-urllib
+agent-framework>=1.16           # Microsoft Agent Framework (ChatAgent + typed Workflows)
+vsdx>=0.6                        # read Visio .vsdx diagrams (visio-to-archimate BA ingest)
+jsonschema>=4                   # validate the BA-output contract
+msal>=1.31                      # agent identity: Entra client-credentials (shared/identity.py)

@@ -39,3 +39,5 @@ semantic/store/
 
 # Rendered (env-specific) client settings — regenerate with ./lab.sh clients
 clients/**/settings.json
+processes/**/visio-in/*.vsdx
+processes/**/out/
