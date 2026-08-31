@@ -23,6 +23,13 @@ model_list:
       api_key: os.environ/OLLAMA_API_KEY
       input_cost_per_token: 0.00000015
       output_cost_per_token: 0.00000060
+  - model_name: kimi-k2.7-code          # coding-focused, ~30% lower thinking-token usage
+    litellm_params:
+      model: openai/kimi-k2.7-code
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000015
+      output_cost_per_token: 0.00000060
   # --- `auto` resolves via gateway/auto_router.py BEFORE routing; this entry makes it a
   #     listable model and the fallback if the hook is ever disabled ---
   - model_name: auto

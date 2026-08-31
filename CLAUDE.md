@@ -147,13 +147,15 @@ credential, unlike the ambient key we strip), and `auto`.
   $10/30d, oid→key mapping in Redis) — so `/model` (GET `/v1/models`) shows that person's
   allowlist and spend is attributed per developer. Agents (client-credentials, `roles` claim)
   keep their static mapping.
-- **`auto` routing** (`gateway/auto_router.py`, a pre-call hook): deterministic rules — code
-  fences or >6k chars → `gpt-oss-120b`; reasoning-heavy markers → `claude-sonnet-5`; else
-  `glm-flash`; caller hint via `metadata.x-auto-route` wins. Decisions land in request
-  metadata; verified via the spend log's resolved-model column. LiteLLM's native auto-router
-  is embedding-based and stays unavailable: Ollama Cloud has NO cloud-served embedding models
-  (library models exist for local pulls only; cloud `/v1/embeddings` is a "coming feature" —
-  github.com/ollama/ollama/issues/14496). Revisit semantic routing + vector stores when that ships.
+- **`auto` routing** (`gateway/auto_router.py`): **LLM-classified** — glm-flash (called
+  directly at Ollama Cloud, not via the proxy: no recursion, ~100 tokens, 2.5 s timeout) labels
+  each prompt `code | reasoning | simple` → `kimi-k2.7-code | claude-sonnet-5 | glm-flash`.
+  Regex heuristics are the fallback when the classifier errs — `auto` never fails because
+  routing failed. Caller hint `metadata.x-auto-route` wins; decision + method recorded in
+  request metadata; verify via the spend log's resolved-model column. (LiteLLM's native
+  embedding-based router stays unavailable: cloud-badged embedding models don't exist on
+  Ollama Cloud yet — github.com/ollama/ollama/issues/14496; the classifier calls are direct
+  SDK calls, so they appear in traces but not the proxy spend ledger — flat-rate anyway.)
 
 ## Gateway Registry (Agent 365 analogue)
 

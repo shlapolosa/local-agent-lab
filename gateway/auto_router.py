@@ -1,40 +1,71 @@
-"""`model: auto` — deterministic heuristic router (a pre-call hook, like the PII guardrail).
+"""`model: auto` — LLM-classified routing with deterministic fallback.
 
-Why not LiteLLM's native auto-router: that one is EMBEDDING-based (semantic-router: you give
-example utterances per target model, incoming prompts are embedded and matched by cosine
-similarity) — and Ollama Cloud offers no embedding models, so its brain has nowhere to run.
-This router is rules-based instead: transparent, free, and each decision is attached to the
-request metadata so it shows up in logs/traces.
+How it knows: a small, fast model (glm-flash on Ollama Cloud, called directly — not through
+the proxy, so no recursion) reads the prompt and answers with one route label. That replaces
+the embedding-based semantic router LiteLLM ships (unusable here: Ollama Cloud serves no
+embedding models yet). If the classifier errors, times out (2.5 s) or answers nonsense, the
+regex heuristics below decide instead — `auto` never fails because routing failed.
 
-Rules (first match wins):
-  1. explicit override        x-auto-route hint in metadata           -> honored
-  2. code or long context     code fences / >6k chars total           -> gpt-oss-120b
-  3. hard-reasoning markers   "prove", "step by step", "architect",
-                              "design", "analyze deeply", math-ish    -> claude-sonnet-5 (if configured)
-  4. everything else          short chat, summaries, quick answers    -> glm-flash
+Routes:
+  code       writing/fixing/reviewing code, shell, configs        -> kimi-k2.7-code
+  reasoning  architecture, analysis, proofs, multi-step planning  -> claude-sonnet-5 (if key set)
+  simple     everything else: chat, lookups, summaries            -> glm-flash
+Caller override: metadata.x-auto-route = <model_name> wins outright. The decision + method
+("llm" or "rules") is recorded in request metadata (visible in logs/traces).
 """
+import asyncio
 import os
 import re
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
 
-HEAVY = re.compile(r"prove|step[- ]by[- ]step|architect|design a|analy[sz]e|theorem|derive|refactor|trade-?offs", re.I)
+HEAVY = re.compile(r"prove|step[- ]by[- ]step|architect|design a|analy[sz]e|theorem|derive|trade-?offs", re.I)
+CODEY = re.compile(r"```|def |class |import |SELECT |function\s*\(|#!/|Traceback|error:|stack ?trace", re.I)
+
+ROUTES = {"code": "kimi-k2.7-code", "reasoning": "claude-sonnet-5", "simple": "glm-flash"}
+CLASSIFIER_PROMPT = (
+    "Classify the user request into exactly one word: code (writing, fixing, reviewing or "
+    "explaining code, shell commands, configs), reasoning (architecture, deep analysis, "
+    "math, multi-step planning), or simple (everything else: chat, lookups, short answers, "
+    "summaries). Answer with only the single word.")
 
 
 class AutoRouter(CustomGuardrail):
+    async def _classify_llm(self, text: str) -> str | None:
+        import litellm
+        try:
+            r = await asyncio.wait_for(litellm.acompletion(
+                model="openai/glm-5.3-flash", api_base="https://ollama.com/v1",
+                api_key=os.environ["OLLAMA_API_KEY"], temperature=0, max_tokens=200,
+                messages=[{"role": "system", "content": CLASSIFIER_PROMPT},
+                          {"role": "user", "content": text[:1500]}]), timeout=2.5)
+            word = (r.choices[0].message.content or "").strip().lower().split()[-1].strip(".")
+            return word if word in ROUTES else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _classify_rules(text: str) -> str:
+        if CODEY.search(text) or len(text) > 6000:
+            return "code"
+        if HEAVY.search(text):
+            return "reasoning"
+        return "simple"
+
     async def async_pre_call_hook(self, user_api_key_dict, cache, data: dict, call_type):
         if data.get("model") != "auto":
             return data
-        text = " ".join(str(m.get("content", "")) for m in data.get("messages", []) if isinstance(m, dict))
         hint = (data.get("metadata") or {}).get("x-auto-route")
+        text = " ".join(str(m.get("content", "")) for m in data.get("messages", []) if isinstance(m, dict))
         if hint:
-            choice, why = hint, "caller hint"
-        elif "```" in text or len(text) > 6000:
-            choice, why = "gpt-oss-120b", "code or long context"
-        elif HEAVY.search(text) and os.environ.get("ANTHROPIC_UPSTREAM_API_KEY"):
-            choice, why = "claude-sonnet-5", "reasoning-heavy markers"
+            choice, how = hint, "caller hint"
         else:
-            choice, why = "glm-flash", "default: short/simple"
+            label = await self._classify_llm(text)
+            how = "llm" if label else "rules"
+            label = label or self._classify_rules(text)
+            if label == "reasoning" and not os.environ.get("ANTHROPIC_UPSTREAM_API_KEY"):
+                label = "code"
+            choice = ROUTES[label]
         data["model"] = choice
-        data.setdefault("metadata", {})["auto_route"] = {"model": choice, "reason": why}
+        data.setdefault("metadata", {})["auto_route"] = {"model": choice, "method": how}
         return data
