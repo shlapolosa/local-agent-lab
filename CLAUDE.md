@@ -157,7 +157,10 @@ credential, unlike the ambient key we strip), and `auto`.
   setup live in `clients/`** (`clients/claude-code/settings.json` copies into any project's
   `.claude/settings.json`). Claude Code enumerates the full gateway catalogue in `/model` via
   `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; `ANTHROPIC_MODEL=auto` uses the intent router.
-  The two per-deployment values are the base URL (local → APIM) and `ENTRA_GATEWAY_AUDIENCE`.
+  The two per-deployment values live only in `.env` (`GATEWAY_URL`, `ENTRA_GATEWAY_AUDIENCE`);
+  `./lab.sh clients` (also run on `up`) renders `clients/*/settings.template.json` →
+  git-ignored `settings.json` — so moving the gateway to a cloud host or APIM is an `.env` edit,
+  never a template change.
 - **`auto` routing** (`gateway/auto_router.py`): **LLM-classified** — glm-flash (called
   directly at Ollama Cloud, not via the proxy: no recursion, ~100 tokens, 2.5 s timeout) labels
   each prompt `code | reasoning | simple` → `kimi-k2.7-code | claude-sonnet-5 | glm-flash`.

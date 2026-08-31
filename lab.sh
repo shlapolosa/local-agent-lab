@@ -94,6 +94,7 @@ up() {
     printf "gateway      starting"; wait_http "http://127.0.0.1:4000/health/readiness" '"connected"' 90 \
       && echo "  http://127.0.0.1:4000  (db connected)" || { echo "  FAILED — see logs/litellm.log"; exit 1; }; fi
   review
+  render_clients
   status_gateway
 }
 
@@ -109,6 +110,23 @@ PYEOF
   echo "approvals    pending: $(env -u ANTHROPIC_API_KEY $PY shared/approvals.py count 2>/dev/null || echo '?')  (./lab.sh review | python shared/approvals.py list)"
   echo "registry ui  http://127.0.0.1:4000/ui  (admin / master key)"
   echo "traces ui    ${JAEGER_UI_URL:-http://127.0.0.1:16686}  services: $(curl -s --max-time 5 "${JAEGER_UI_URL:-http://127.0.0.1:16686}/api/services" | $PY -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("data") or []) or "none yet")' 2>/dev/null || echo '?')"
+}
+
+# Render env-specific client settings from templates (values from .env: GATEWAY_URL,
+# ENTRA_GATEWAY_AUDIENCE). Regenerate whenever the gateway moves (localhost -> cloud/APIM)
+# or the audience changes. Rendered files are git-ignored; templates are committed.
+render_clients() {
+  load_env
+  local n=0
+  for tpl in clients/*/settings.template.json; do
+    [ -e "$tpl" ] || continue
+    out="${tpl%.template.json}.json"
+    sed -e "s#\${GATEWAY_URL}#${GATEWAY_URL:-http://127.0.0.1:4000}#g" \
+        -e "s#\${ENTRA_GATEWAY_AUDIENCE}#${ENTRA_GATEWAY_AUDIENCE:-}#g" "$tpl" > "$out"
+    n=$((n+1))
+  done
+  echo "clients      rendered $n settings from templates (GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:4000})"
+  echo "             copy clients/claude-code/settings.json -> your project's .claude/settings.json"
 }
 
 review() {
@@ -139,4 +157,4 @@ status() {
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
 }
 
-case "${1:-}" in up) up;; down) down;; status) status;; review) review;; *) echo "usage: $0 up|down|status|review"; exit 2;; esac
+case "${1:-}" in up) up;; down) down;; status) status;; review) review;; clients) render_clients;; *) echo "usage: $0 up|down|status|review|clients"; exit 2;; esac

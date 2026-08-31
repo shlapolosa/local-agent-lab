@@ -1,0 +1,12 @@
+{
+  "//": "TEMPLATE — rendered to settings.json by `./lab.sh clients` (values from .env: GATEWAY_URL, ENTRA_GATEWAY_AUDIENCE). Do not hardcode host/audience here; they change per deployment (localhost -> cloud/APIM).",
+  "env": {
+    "ANTHROPIC_BASE_URL": "${GATEWAY_URL}",
+    "ANTHROPIC_MODEL": "claude-sonnet-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "glm-flash",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "128000",
+    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "1800000"
+  },
+  "apiKeyHelper": "az account get-access-token --resource ${ENTRA_GATEWAY_AUDIENCE} --query accessToken -o tsv"
+}

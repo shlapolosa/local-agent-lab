@@ -36,3 +36,6 @@ tools/
 # licensed reference models (BA Guild) — never commit
 semantic/reference/sources/
 semantic/store/
+
+# Rendered (env-specific) client settings — regenerate with ./lab.sh clients
+clients/**/settings.json
