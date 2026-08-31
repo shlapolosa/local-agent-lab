@@ -50,6 +50,20 @@ The ADOIT EA integration wraps the ADOIT REST API (Community Edition has no buil
 
 Verified against the live CE tenant (Aug 2026): Basic auth works against `GET {ADOIT_BASE_URL}/rest/2.0/repos` (returns the user's repository), but deeper REST 2.0 endpoints (`/objects` search, `/models`) return 403/"service not present" — the full REST module appears disabled on Community Edition. Expect to work within this limited surface or via the browser-facing API until a full ADOIT 18 tenant is available.
 
+## Local-first vs cloud toggles
+
+The stack runs **fully local by default** except where the design forbids it. Each dependency is
+one `.env` switch (cloud values kept as `# CLOUD:` comments for flip-back):
+- **Redis** — local Homebrew (`REDIS_URL=redis://127.0.0.1:6379/0`, no password) or a managed
+  instance (set `REDIS_URL`/`REDIS_PASSWORD`; `lab.sh` checks it instead of starting brew redis).
+- **Tracing/Jaeger** — local native binary (`OTEL_* → 127.0.0.1:4318`, `JAEGER_UI_URL → :16686`;
+  `lab.sh` starts `tools/jaeger`) or remote (Railway/App Insights: point `OTEL_*` at it; `lab.sh`
+  skips the local binary and manages the Railway deployment if `RAILWAY_*` are set).
+- **Postgres** — Neon (serverless, free-tier) stays cloud: no local server is installed and the
+  key/team/spend data lives there. Going fully offline would need `brew install postgresql`, a
+  `prisma db push`, and re-running `gateway/bootstrap_registry.py`.
+- **Ollama Cloud, ADOIT:CE, Entra, GitHub** — external by nature; no local equivalent.
+
 ## Cloud Shape (no same-machine assumptions)
 
 Everything stateful is managed: Neon (keys, spend, skills, **artifact store**), Redis Cloud
