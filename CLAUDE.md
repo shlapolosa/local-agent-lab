@@ -153,7 +153,11 @@ credential, unlike the ambient key we strip), and `auto`.
   Redis) — `/model` shows that person's allowlist, spend attributes per developer. Durable keys
   are self-served from the gateway UI SSO. Agents (client-credentials, `roles` claim) unchanged.
 - **Any client, swappable harness**: Claude Code, OpenCode/Codex, IDE plugins, browser, OpenAI-
-  standard tools all use the same `(base_url, credential)`; see `~/Development/agent-lab-test`.
+  standard tools all use the same `(base_url, credential)`. **Committed templates + per-client
+  setup live in `clients/`** (`clients/claude-code/settings.json` copies into any project's
+  `.claude/settings.json`). Claude Code enumerates the full gateway catalogue in `/model` via
+  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; `ANTHROPIC_MODEL=auto` uses the intent router.
+  The two per-deployment values are the base URL (local → APIM) and `ENTRA_GATEWAY_AUDIENCE`.
 - **`auto` routing** (`gateway/auto_router.py`): **LLM-classified** — glm-flash (called
   directly at Ollama Cloud, not via the proxy: no recursion, ~100 tokens, 2.5 s timeout) labels
   each prompt `code | reasoning | simple` → `kimi-k2.7-code | claude-sonnet-5 | glm-flash`.
