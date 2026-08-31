@@ -81,6 +81,11 @@ general_settings:
 
 litellm_settings:
   drop_params: true
+  default_internal_user_params:        # SSO (Entra) sign-ins: non-admin devs, self-serve a durable key
+    user_role: "internal_user"
+    max_budget: 10.0
+    budget_duration: "30d"
+    models: ["gpt-oss-120b", "glm-flash", "kimi-k3", "kimi-k2.7-code", "claude-sonnet-5", "claude-haiku-4-5", "auto"]
   callbacks: ["otel"]                 # every gateway call -> OTLP span (joins the caller's trace)
   cache: true                         # Redis backs limiter/budget/router state ...
   cache_params:

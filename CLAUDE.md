@@ -148,10 +148,17 @@ credential, unlike the ambient key we strip), and `auto`.
   Azure CLI public client is pre-authorized on lab-gateway for `access_as_user` (Graph). Claude
   Code uses that as its `apiKeyHelper` one-liner; other clients pass the token as a bearer.
   (`gateway/dev_login.py` device-code flow retired — az supersedes it and is APIM-faithful.)
-- **JIT keys**: `gateway/custom_auth.py` recognises user JWTs (`scp` contains `access_as_user`)
-  and provisions a personal virtual key on first use (team `developers`, $10/30d, oid→key in
-  Redis) — `/model` shows that person's allowlist, spend attributes per developer. Durable keys
-  are self-served from the gateway UI SSO. Agents (client-credentials, `roles` claim) unchanged.
+- **JIT keys (JWT path)**: `gateway/custom_auth.py` recognises user JWTs (`scp` contains
+  `access_as_user`) and provisions a personal virtual key on first use (team `developers`,
+  $10/30d, oid→key in Redis, via the internal `generate_key_helper_fn` — never a self-HTTP call).
+- **Durable keys (self-serve SSO — for GUI/paste-only clients without `az`)**: LiteLLM UI SSO is
+  Entra (`MICROSOFT_CLIENT_ID/SECRET/TENANT`, `PROXY_BASE_URL` in `.env`; app `lab-gateway-ui`
+  registered by `gateway/entra_ui_sso_provision.py`, redirect `<PROXY_BASE_URL>/sso/callback`).
+  A developer opens `<gateway>/ui`, signs in with Entra, lands on a NON-admin self-serve view
+  (`default_internal_user_params: user_role=internal_user` + developer model allowlist + budget;
+  `ui_access_mode: all`), and copies a durable key to paste into any client. The master key stays
+  admin. This is the APIM Developer-Portal experience, one version early.
+- Agents (client-credentials, `roles` claim) unchanged.
 - **Any client, swappable harness**: Claude Code, OpenCode/Codex, IDE plugins, browser, OpenAI-
   standard tools all use the same `(base_url, credential)`. **Committed templates + per-client
   setup live in `clients/`** (`clients/claude-code/settings.json` copies into any project's
