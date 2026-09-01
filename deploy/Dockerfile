@@ -8,12 +8,16 @@
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 BIND_HOST=0.0.0.0
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends git zip && rm -rf /var/lib/apt/lists/*
+# ca-certificates + openssl: prisma downloads its query-engine binary over HTTPS at generate time
+# (slim lacks them, so the download fails and the gateway can't start).
+RUN apt-get update && apt-get install -y --no-install-recommends git zip ca-certificates openssl \
+ && rm -rf /var/lib/apt/lists/*
 COPY deploy/requirements.txt /app/deploy/requirements.txt
 RUN pip install --no-cache-dir -r deploy/requirements.txt
 COPY . /app
-# prisma client for the gateway role (schema ships with litellm_proxy_extras)
+# prisma client for the gateway role (schema ships with litellm_proxy_extras). No `|| true`: a
+# failure here means a broken gateway, so fail the build loudly instead of shipping it silently.
 RUN python -c "import litellm_proxy_extras, os; print(os.path.dirname(litellm_proxy_extras.__file__))" > /tmp/lpe \
- && prisma generate --schema "$(cat /tmp/lpe)/schema.prisma" || true
+ && prisma generate --schema "$(cat /tmp/lpe)/schema.prisma"
 EXPOSE 4000 9100 9200 8501
 CMD ["python", "mcp/adoit_mcp/server.py"]
