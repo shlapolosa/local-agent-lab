@@ -5,12 +5,13 @@
 #   semantic-mcp python mcp/semantic_mcp/server.py
 #   review      streamlit run review/app.py --server.port 8501 --server.headless true
 #   telegram    python channels/telegram.py
-FROM python:3.12-slim
+# Full python:3.12 (NOT -slim): prisma generate downloads a prebuilt Node.js whose binary needs
+# several runtime libs (libatomic.so.1, …) that slim omits — the full image ships them, killing a
+# whole class of "cannot open shared object file" build failures. ca-certificates is already present.
+FROM python:3.12
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 BIND_HOST=0.0.0.0
 WORKDIR /app
-# prisma generate downloads a prebuilt Node.js to run its CLI; that Node needs libatomic.so.1
-# (libatomic1), and the engine download needs ca-certificates — neither is in python:3.12-slim.
-RUN apt-get update && apt-get install -y --no-install-recommends git zip ca-certificates openssl libatomic1 \
+RUN apt-get update && apt-get install -y --no-install-recommends git zip \
  && rm -rf /var/lib/apt/lists/*
 COPY deploy/requirements.txt /app/deploy/requirements.txt
 RUN pip install --no-cache-dir -r deploy/requirements.txt
