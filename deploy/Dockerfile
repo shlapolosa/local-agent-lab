@@ -8,9 +8,9 @@
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 BIND_HOST=0.0.0.0
 WORKDIR /app
-# ca-certificates + openssl: prisma downloads its query-engine binary over HTTPS at generate time
-# (slim lacks them, so the download fails and the gateway can't start).
-RUN apt-get update && apt-get install -y --no-install-recommends git zip ca-certificates openssl \
+# prisma generate downloads a prebuilt Node.js to run its CLI; that Node needs libatomic.so.1
+# (libatomic1), and the engine download needs ca-certificates — neither is in python:3.12-slim.
+RUN apt-get update && apt-get install -y --no-install-recommends git zip ca-certificates openssl libatomic1 \
  && rm -rf /var/lib/apt/lists/*
 COPY deploy/requirements.txt /app/deploy/requirements.txt
 RUN pip install --no-cache-dir -r deploy/requirements.txt
