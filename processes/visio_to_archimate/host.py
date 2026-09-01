@@ -58,10 +58,11 @@ async def main(path: str):
 
         ba_cred, ar_cred = _cred("BA_AGENT"), _cred("ARCHITECT_AGENT")
         cfg = {
-            "ba_agent": A.make_agent("ba-agent", A.ba_instructions(), ba_cred, traceparent),
-            "architect_agent": A.make_agent("architect-agent", A.architect_instructions(), ar_cred, traceparent),
-            # tool nodes call the gateway MCP with the Architect's identity (holds ADOIT/semantic grants)
-            "mcp_headers": {"Authorization": f"Bearer {ar_cred}", **traceparent},
+            "ba_cred": ba_cred, "ar_cred": ar_cred,
+            "traceparent": traceparent,          # W3C headers for the agents' LLM calls (join the trace)
+            # tool nodes + the Architect's in-agent tools call the gateway MCP with the Architect's
+            # identity (its key holds the ADOIT/semantic grants) + traceparent
+            "ar_headers": {"Authorization": f"Bearer {ar_cred}", **traceparent},
             "mcp_url": GATEWAY_MCP,
             "schema": _load_schema(),
             "tracer": tracer, "root_ctx": root_ctx,

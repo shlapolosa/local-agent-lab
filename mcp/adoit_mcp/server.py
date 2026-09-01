@@ -79,6 +79,8 @@ def _load_spec(spec, spec_path=None, spec_ref=None):
         return json.load(open(spec_path))
     if not spec:
         raise ValueError("give spec (by value) or spec_path (by reference)")
+    if isinstance(spec, str):
+        return json.loads(spec)   # agents often serialize the nested object as a JSON string
     return spec
 
 

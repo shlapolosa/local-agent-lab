@@ -9,20 +9,25 @@ and are traced as one run — exactly the docx operating model.
 ## Shape
 
 ```
-ingest ──▶ BA agent ──▶ Architect agent ──▶ finalize
-(read_vsdx)  (describe)     (formalise)     (render + stage import)
+ba ──▶ architect_design ──▶ store ──▶ architect_finalize ──▶ stage_import
+(reads Visio    (BA desc ->     (spec+views    (agent calls validate     (human-gated
+ via read_vsdx   engine spec)    -> art:// ref)  + render BY REF)          ADOIT import)
+ TOOL)
 ```
 
 - A Microsoft Agent Framework **`WorkflowBuilder` graph** (`workflow.py`) — typed nodes, one host
   process, distinct OTel service name `process-visio-to-archimate`.
-- **Agents are pure structured-output** (text → JSON). In-agent tool-calling is unreliable through
-  the gateway (empty final answer on Ollama Cloud models — see the spike / CLAUDE.md), so *all*
-  tool I/O runs in **deterministic nodes**: `read_vsdx` (local), `semantic_validate_model`,
-  `archimate_render`, `adoit_request_import` (gateway MCP). This is also more docx-faithful
-  (determinism; governed egress unchanged).
-- **Contracts:** the BA emits `schemas/ba_output.schema.json` (validated before handoff; one
-  corrective retry); the Architect emits the engine spec (semantic-legality checked; one retry on
-  illegal relations). Agents never call each other directly — the workflow mediates.
+- **Agents call tools, but BY REFERENCE.** The BA calls a `read_vsdx(path)` tool; the Architect
+  emits its spec as structured output, a deterministic node stores it (`art://` ref), and the
+  Architect calls the gateway-MCP `semantic_validate_model` + `archimate_render` **by `spec_ref`**.
+  Small-arg tool calls are reliable; a large spec passed *inline* as a tool argument is emitted only
+  stochastically (AF #2747), so we always pass the ref. A **deterministic fallback** guarantees the
+  pipeline completes if a model skips a call. The final ADOIT write stays deterministic + human-gated.
+  Client is `OpenAIChatClient` (Responses API) forced stateless via `store=False` (Ollama Cloud's
+  Responses store is non-persistent — see CLAUDE.md / [[agent-framework-tool-calling]]).
+- **Contracts:** the BA emits `schemas/ba_output.schema.json`; a **deterministic gate rejects
+  incomplete output** (one BA retry) before the Architect sees it. Agents never call each other
+  directly — the workflow mediates.
 - **Identity:** `ba-agent` (role `EA.Model`) and `architect-agent` (`EA.Model` + `Tools.ADOIT`),
   one Entra app registration ↔ one virtual key each, both in team `visio-conversion`. LLM calls use
   each agent's own credential (spend attributes per key); the tool nodes use the Architect's

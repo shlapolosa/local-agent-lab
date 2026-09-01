@@ -16,6 +16,7 @@ Tools
   semantic_query(sparql)                      SPARQL over vocabularies + loaded models
   semantic_ask(question, params)              named traceability questions; semantic_questions() lists them
 """
+import json
 import os
 import sys
 
@@ -79,11 +80,17 @@ def semantic_check(source: str, relation: str, target: str, vocab: str = "archim
 
 
 @mcp.tool()
-def semantic_validate_model(spec: dict, vocab: str = "archimate-3.1") -> dict:
+def semantic_validate_model(spec: dict | None = None, vocab: str = "archimate-3.1",
+                            spec_ref: str | None = None) -> dict:
     """Validate a model spec (same JSON as archimate_render): every illegal relationship with
     the allowed alternatives, plus semantic warnings such as services consumed without an
-    interface assigned to them."""
+    interface assigned to them. Pass the spec by value (`spec`) or by artifact reference
+    (`spec_ref`, art://…) — the reference keeps the tool argument small for agent callers."""
     with tracer.start_as_current_span("semantic_validate_model") as span:
+        if spec_ref:
+            spec = json.loads(artifacts.store().get(spec_ref))
+        elif isinstance(spec, str):
+            spec = json.loads(spec)   # agents often serialize the nested object as a JSON string
         r = S.validate_model(spec, vocab)
         span.set_attributes({"semantic.illegal": len(r["illegal"]), "semantic.warnings": len(r["warnings"])})
         return r

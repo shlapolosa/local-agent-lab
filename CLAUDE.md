@@ -53,15 +53,29 @@ The first, `processes/visio_to_archimate/` (see its README), is the reference:
   package `agent_framework`; `OpenAIChatClient(base_url=<gw>/v1, api_key=<agent credential>)` +
   `Agent(...)`). Typed `@executor` nodes, `add_chain`, `wf.run(input)` → `get_outputs()`. One host
   process (`host.py`), root span, credential wiring; `agents.py`/`workflow.py` hold the agents/graph.
-- **Agents are PURE STRUCTURED-OUTPUT (text→JSON); tool I/O lives in deterministic nodes, never as
-  in-agent tools.** Verified: in-agent tool-calling returns an EMPTY final answer on every Ollama
-  Cloud model through the gateway (harmony/tool-loop quirk), and Anthropic-via-`/v1` trips an
-  agent-framework join bug. Structured JSON output is reliable. This is also more docx-faithful
-  (determinism; governed egress unchanged). Model: **kimi-k3**.
-- **Agents never call each other directly — the workflow mediates via a typed contract.** The
-  producing agent emits schema-validated JSON (`jsonschema`); the graph hands it to the next agent.
-  A schema/legality failure loops back **once inside the owning node** (keeps the graph linear).
-  A2A-through-the-gateway is the future upgrade when processes split into separate hosts.
+- **Client = `OpenAIChatClient` (the modern OpenAI *Responses* API, `/responses`, per AF ADR 0021)
+  but forced STATELESS via `default_options=ChatOptions(store=False)`** (toggle `AGENT_RESPONSES_STORE`
+  in `.env`, default false). Why: the gateway's Ollama Cloud upstream implements only the
+  NON-stateful flavor of `/v1/responses` (verified — `store`/`previous_response_id`/`conversation`
+  are inert), so AF's default stateful turn (previous_response_id + delta) makes the post-tool
+  message come back EMPTY; `store=False` resends full context each turn and works. `base_url` ends
+  in `/v1/`. Set `AGENT_RESPONSES_STORE=true` only against a Responses-stateful backend
+  (Azure/Foundry). (`OpenAIChatCompletionClient` — Chat Completions — is the stateless alternative
+  and also works; the native `agent_framework.ollama.OllamaChatClient` bypasses the gateway, off-limits.)
+- **Agents ARE agentic — they call governed tools, but BY REFERENCE (small args).** BA calls a
+  `read_vsdx(path)` tool; the Architect emits its spec as structured output, a deterministic node
+  stores it (`art://` ref), and the Architect calls the gateway-MCP `semantic_validate_model` +
+  `archimate_render` **by `spec_ref`**. This is the crux: small-arg tool calls are reliable
+  (measured 5/5), but a large nested object passed INLINE as a tool argument is emitted only
+  stochastically (AF #2747 flattens nested MCP params to bare `{"type":"object"}`), so never pass
+  a spec inline — pass the ref. MCP results arrive as JSON strings and can be incomplete (AF #3313);
+  a **deterministic fallback** (`_call_tools` by ref) guarantees the pipeline completes if a model
+  skips a call on a given run. Both `archimate_render` and `semantic_validate_model` accept
+  `spec`|`spec_ref` (and coerce a JSON-string spec → dict). Model: **kimi-k3**.
+- **Agents never call each other directly — the workflow mediates via a typed contract.** The BA
+  emits schema-validated JSON (`jsonschema`); a **deterministic gate rejects incomplete output**
+  (one BA retry) before the Architect sees it. A2A-through-the-gateway is the future upgrade when
+  processes split into separate hosts.
 - **Identity per agent (docx model):** one Entra app registration ↔ one virtual key ↔ one agent,
   all in one team per process. `gateway/provision_visio_agents.py` is the pattern (extends
   `entra_provision.py` + `bootstrap_registry.py`, auto-refreshes `.lab/graph_token.json`, patches
