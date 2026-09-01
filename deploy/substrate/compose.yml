@@ -1,0 +1,61 @@
+# SUBSTRATE — the shared platform plane, deployed ONCE and referenced by every workload.
+# Governance (gateway), shared tools (semantic-mcp, adoit-mcp), the human approval gate (review),
+# and local tracing. All durable state lives OUTSIDE this compose (Neon, Redis Cloud, artifact
+# store in Postgres); on Railway, tracing is the remote Jaeger instead of the local one here.
+#
+# The gateway is the ONLY public door a workload uses. The two MCP servers are internal to the
+# substrate network — workloads reach their tools only THROUGH the gateway (/mcp), never directly.
+#
+# Usage (local, needs a Docker engine):
+#   docker compose --env-file ../../.env -f deploy/substrate/compose.yml up --build
+# Workloads then join this network (see processes/<name>/deploy/compose.yml).
+x-sub: &sub
+  build: { context: ../.., dockerfile: deploy/Dockerfile }
+  env_file: [../../.env]
+  environment:
+    BIND_HOST: 0.0.0.0
+    GATEWAY_URL: http://gateway:4000
+    ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
+    SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
+    REVIEW_APP_URL: ${REVIEW_APP_URL:-http://review:8501}
+    JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+    OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+  restart: unless-stopped
+  networks: [substrate]
+
+networks:
+  substrate:
+    name: substrate            # a stable, external-joinable name so workloads can attach
+
+services:
+  jaeger:                      # local tracing; on Railway this is the remote Jaeger (OTEL_* point at it)
+    image: jaegertracing/jaeger:2.20.0
+    ports: ["16686:16686", "4318:4318"]
+    networks: [substrate]
+    restart: unless-stopped
+  semantic-mcp:               # shared read-only vocabulary/validation — internal only
+    <<: *sub
+    command: ["python", "mcp/semantic_mcp/server.py"]
+    volumes: ["../../semantic/reference/sources:/app/semantic/reference/sources:ro"]
+  adoit-mcp:                  # shared governed EA-repository facade — internal only
+    <<: *sub
+    command: ["python", "mcp/adoit_mcp/server.py"]
+    volumes: ["../../semantic/reference/sources:/app/semantic/reference/sources:ro"]
+  gateway:                    # the single governance plane — the only public door
+    <<: *sub
+    command: ["litellm", "--config", "gateway/litellm-config.yaml", "--port", "4000"]
+    environment:
+      BIND_HOST: 0.0.0.0
+      GATEWAY_URL: http://gateway:4000
+      ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
+      SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+      OTEL_SERVICE_NAME: litellm-gateway
+    ports: ["4000:4000"]
+    depends_on: [adoit-mcp, semantic-mcp]
+  review:                     # human approval gate (cross-cutting) — public, password-gated
+    <<: *sub
+    command: ["streamlit", "run", "review/app.py", "--server.port", "8501", "--server.headless", "true"]
+    ports: ["8501:8501"]

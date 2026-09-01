@@ -1,0 +1,31 @@
+# WORKLOAD — the Visio->ArchiMate business process, deployed INDEPENDENTLY of other workloads.
+# It references the shared SUBSTRATE (deploy/substrate/compose.yml) and talks to it ONLY through
+# the governance gateway (LLM + MCP tools via GATEWAY_URL/mcp) plus the shared managed backends
+# (Neon, Redis Cloud, tracing). It never reaches the MCP servers or another workload directly;
+# cross-workflow dependencies go via events (Redis Streams) or A2A through the gateway.
+#
+# Usage (local; the substrate must already be up):
+#   docker compose --env-file ../../../.env -f processes/visio_to_archimate/deploy/compose.yml up --build
+# On Railway: a separate service; set GATEWAY_URL to the substrate gateway's public domain.
+networks:
+  substrate:
+    external: true            # join the running substrate network (name: substrate)
+
+services:
+  visio-host:
+    build: { context: ../../.., dockerfile: deploy/Dockerfile }
+    env_file: [../../../.env]
+    environment:
+      BIND_HOST: 0.0.0.0
+      # the ONLY substrate coordinates this workload needs: the gateway + shared backends + tracing.
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:4000}          # substrate gateway (public domain on Railway)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+      AGENT_RESPONSES_STORE: ${AGENT_RESPONSES_STORE:-false}
+      # DATABASE_URL / REDIS_URL / ENTRA_* / *_AGENT_* creds come from the shared .env (env_file).
+    command: ["python", "-m", "processes.visio_to_archimate.host"]
+    volumes:
+      # the test fixture (generate first: python -m processes.visio_to_archimate.make_sample_vsdx)
+      - ../visio-in:/app/processes/visio_to_archimate/visio-in:ro
+    networks: [substrate]
+    restart: "no"             # run-to-completion: reads Visio, stages the ADOIT import for approval, exits

@@ -41,7 +41,8 @@ def gql(q, v=None):
         data=json.dumps({"query": q, "variables": v or {}}).encode(), headers=H), timeout=60))
     if r.get("errors"): sys.exit(f"jaeger       railway error {[e.get('message') for e in r['errors']]}")
     return r["data"]
-SID = gql('query($p:String!){ project(id:$p){ services{ edges{ node{ id } } } } }', {"p": PROJECT})["project"]["services"]["edges"][0]["node"]["id"]
+_svcs = gql('query($p:String!){ project(id:$p){ services{ edges{ node{ id name } } } } }', {"p": PROJECT})["project"]["services"]["edges"]
+SID = next(e["node"]["id"] for e in _svcs if e["node"]["name"] == "local-agent-lab")  # Jaeger by NAME (the project now holds substrate services too)
 def latest():
     e = gql('query($s:String!,$e:String!){ deployments(first:1, input:{serviceId:$s, environmentId:$e}){ edges{ node{ id status } } } }', {"s": SID, "e": ENV})["deployments"]["edges"]
     return e[0]["node"] if e else {"id": None, "status": "NONE"}
@@ -159,4 +160,12 @@ status() {
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
 }
 
-case "${1:-}" in up) up;; down) down;; status) status;; review) review;; clients) render_clients;; *) echo "usage: $0 up|down|status|review|clients"; exit 2;; esac
+# Cloud tiers on Railway — the substrate (shared plane) and workloads deploy/tear down
+# INDEPENDENTLY (deploy/railway.py). Metered: bring a tier up for a demo, down when idle.
+cloud() { load_env; env -u ANTHROPIC_API_KEY "$PY" deploy/railway.py "$@"; }
+
+case "${1:-}" in
+  up) up;; down) down;; status) status;; review) review;; clients) render_clients;;
+  cloud) shift; cloud "$@";;
+  *) echo "usage: $0 up|down|status|review|clients | cloud substrate up|down|status"; exit 2;;
+esac

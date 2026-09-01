@@ -1,31 +1,70 @@
-# Deploying the lab off the laptop
+# Deploying the lab off the laptop — Substrate + Workloads
 
-Everything stateful is already a managed service: **Neon Postgres** (keys, spend, skills, and the
-artifact store), **Redis Cloud** (limiter state, approval streams), **Ollama Cloud** (inference),
-**ADOIT** (EA repository), **GitHub** (skill source). What remains are five stateless Python
-processes plus tracing.
+Two tiers, deployed and torn down **independently** (mirrors the Azure org split: a platform team
+runs the shared plane once; each product team ships its workload onto it):
 
-## Same-machine assumptions removed (Aug 2026)
+- **Substrate** = the shared platform plane: `gateway` (governance, public), `semantic-mcp` +
+  `adoit-mcp` (shared tools, internal), `review` (approval gate, public). Deployed once.
+- **Workloads** = business processes (`processes/<name>/`), each its own container set, referencing
+  the substrate ONLY through the gateway's public domain + the shared managed backends. Spin up/down
+  on their own. Cross-workflow deps go via **events (Redis Streams)** or **A2A through the gateway** —
+  never direct container coupling — and degrade gracefully.
 
-| Assumption | Replacement |
-|---|---|
-| Services on `127.0.0.1` | `shared/config.py` — `GATEWAY_URL`, `ADOIT_MCP_URL`, `SEMANTIC_MCP_URL`, `REVIEW_APP_URL`, `JAEGER_UI_URL`, `BIND_HOST` |
-| Gateway trusts MCP servers because they're loopback | `MCP_SHARED_SECRET` bearer token: servers enforce it (`shared/mcpauth.py`), gateway sends it (`auth_type: bearer_token`) |
-| Files handed between services by path | `shared/artifacts.py` — `art://` references in a Postgres `lab_artifacts` table (`ARTIFACTS_URL`, defaults to `DATABASE_URL`); tool results and approval events carry refs, the review app reads them |
-| Review app open to anyone who can reach it | `REVIEW_APP_PASSWORD` gate locally; on Azure, Container Apps built-in Entra authentication in front |
-| Redis on `localhost` | `REDIS_URL` |
+Everything stateful is a managed service: **Neon** (keys/spend/skills/artifacts), **Redis Cloud**
+(limiter + approval streams), **Ollama Cloud** (inference), **ADOIT** (EA repo), **Jaeger on
+Railway** (tracing). The tiers are stateless containers over that.
 
-## Topology
+## Compose (local, needs a Docker engine)
 
-`deploy/docker-compose.yml` runs the exact cloud shape locally (each service its own host name).
-On **Azure Container Apps** (the target): one Container App per service from `deploy/Dockerfile`,
-internal ingress for the two MCP servers (only the gateway talks to them), external ingress with
-Entra auth for the gateway UI and the review app, secrets from Key Vault, OTLP to Application
-Insights (`OTEL_*`), Azure Cache for Redis or the existing Redis Cloud, Azure Files or Blob
-only if you outgrow the Postgres artifact store. Put the gateway in the same region as Redis —
-the limiter's ~20 round trips per request are the latency-sensitive path.
+```bash
+# substrate first (shared network `substrate`)
+docker compose --env-file .env -f deploy/substrate/compose.yml up --build
+# then any workload, independently, joining the substrate network
+docker compose --env-file .env -f processes/visio_to_archimate/deploy/compose.yml up --build
+```
+One image, role-by-command: `deploy/Dockerfile`.
 
-## Not yet done here
+## Railway (no local Docker needed — builds the public repo)
 
-Image builds are unverified on this machine (no Docker daemon); the compose file mirrors `lab.sh`
-one-to-one and is the first thing to run on a machine with Docker.
+`deploy/railway.py` (wrapped by `./lab.sh cloud …`) deploys each tier via the Railway GraphQL API.
+Config comes from `.env`: active `KEY=value` lines, with `# CLOUD: KEY=value` comments overriding the
+machine-local ones (Redis Cloud, Railway Jaeger) — secrets never leave `.env`.
+
+```bash
+./lab.sh cloud substrate up        # create/deploy gateway + 2 MCP + review; prints public URLs
+./lab.sh cloud substrate status    # build/deploy state per service
+./lab.sh cloud substrate down      # stop (metered) — config/variables/domain kept
+```
+
+- **Networking:** the substrate lives in one Railway project/environment, so the gateway reaches the
+  MCP servers over private DNS (`adoit-mcp.railway.internal:9100`, `semantic-mcp…:9200`). The MCP
+  servers get **no public domain**; only `gateway` (targetPort 4000) and `review` (8501) do.
+  Services bind `::` (`BIND_HOST=::`) — Railway private networking is IPv6.
+- **Trust:** `MCP_SHARED_SECRET` is mandatory (servers enforce it, gateway sends it) since
+  `BIND_HOST` is not loopback. Review app behind `REVIEW_APP_PASSWORD` (Azure equivalent: Container
+  Apps Entra auth in front).
+- **Cost:** metered (~$5 credit) → `down` each tier when idle, same discipline as the Railway Jaeger.
+
+## Running a workload against the cloud substrate
+
+Point any client/host at the substrate gateway's public domain — the workload references the plane,
+it doesn't embed it:
+```bash
+GATEWAY_URL=https://<gateway-domain> .venv/bin/python -m processes.visio_to_archimate.host
+```
+Agents authenticate (Entra JWT / per-agent key), tools run via the substrate MCP servers through the
+gateway, the approval stages into the substrate review app, and the run traces to Railway Jaeger —
+exactly the local behaviour, now off-laptop.
+
+## Azure target (unchanged)
+
+One Container App per service from `deploy/Dockerfile`: internal ingress for the two MCP servers,
+external + Entra auth for the gateway UI and review app, secrets from Key Vault, OTLP to Application
+Insights, Azure Cache for Redis or the existing Redis Cloud. Put the gateway in the same region as
+Redis (the limiter's ~20 round trips per request are the latency-sensitive path).
+
+## Known limitation
+
+Licensed BA Guild reference workbooks (git-ignored `semantic/reference/sources/`) aren't in the repo
+and there's no Railway volume, so `semantic-mcp`'s **capability-export** is degraded in the cloud.
+Classification / validation / render and the Visio→ArchiMate workflow are unaffected.
