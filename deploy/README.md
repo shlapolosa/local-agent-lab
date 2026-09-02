@@ -68,11 +68,20 @@ gateway and both MCP servers). Railway job gotchas, all verified the hard way:
   reads the run's own log markers (`approval requested:` / `Traceback`) instead of trusting it;
 - **no volume mounts**, so git-ignored generated inputs (`architecture/lab_model.json`, then the
   `.vsdx` fixture) are generated at container start; re-run = redeploy (or set `cronSchedule`).
-- **Inputs go in by reference.** `python -m processes.visio_to_archimate.inputs upload <diagram>
-  <docs...>` stores them in the shared artifact store and prints `art://` refs; a cloud run takes
-  them via `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=` in `.env`. The diagram may be a `.vsdx`
-  (parsed deterministically) or an image (read with vision); requirements docs (docx/pdf/md/txt)
-  are parsed locally and their embedded figures attached for the BA to read too.
+- **Inputs go in by reference, and a person starts the run.** The review app's **Submit** mode
+  uploads a diagram (`.vsdx` or image) + requirements docs straight into the **upload store**
+  (`UPLOADS_URL` — a Railway **Bucket** via `python deploy/railway.py bucket up`, which writes the
+  `# CLOUD: S3_*` lines; locally the Postgres artifact store, no S3 needed) and an explicit **Run**
+  publishes a `workflow:requests` event (`shared/workflows.py`, Redis Streams). The long-lived
+  `wf-visio` service (`processes/visio_to_archimate/consumer.py`, `restart=ALWAYS`) consumes it and
+  writes status → trace → approval back, which the Submit page shows. **The workload never holds
+  store credentials**: refs are read through the gateway's read-only **storage-mcp** (`:9300`;
+  `storage_read_vsdx` / `storage_read_document` for the BA, `storage_get` /
+  `storage_extract_figures` for the images the workflow attaches, normalised server-side to
+  ≤1600 px), and its spec is stored via `semantic_store_spec`. CLI alternatives stay:
+  `python -m processes.visio_to_archimate.inputs upload <files>` → refs, `python
+  shared/workflows.py request visio_to_archimate <refs…>`, or the one-shot `workload visio-job` with
+  `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=`.
 - **Large workloads span containers by decomposition, not by splitting one graph**: one AF host per
   sub-process/agent (own container, OTel service name, key), coupled via A2A through the gateway or
   Redis Streams; throughput is replicas of a stateless host.

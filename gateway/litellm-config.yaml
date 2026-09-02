@@ -74,6 +74,13 @@ mcp_servers:                          # addresses + trust come from the environm
     authentication_token: os.environ/MCP_SHARED_SECRET
     description: Semantic layer — vocabularies as data (ArchiMate 3.1 first), classification, exact relationship legality, SPARQL over models
     extra_headers: ["traceparent", "tracestate"]
+  storage_mcp:                        # READ-ONLY governed access to the upload store (bucket): the
+    url: os.environ/STORAGE_MCP_URL   # only way an agent/workload reaches an input object — the
+    transport: http                   # bucket credentials live in storage-mcp, never in a workload
+    auth_type: bearer_token
+    authentication_token: os.environ/MCP_SHARED_SECRET
+    description: Governed read-only object store — list/info/get(normalised image)/read_document/read_vsdx/extract_figures over art:// refs
+    extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router
   redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)

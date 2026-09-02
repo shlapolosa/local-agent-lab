@@ -22,3 +22,5 @@ jsonschema>=4                   # validate the BA-output contract
 msal>=1.31                      # agent identity: Entra client-credentials (shared/identity.py)
 python-docx>=1.1                # BA reads requirements .docx (processes/visio_to_archimate/inputs.py)
 pypdf>=4                        # BA reads requirements .pdf
+boto3>=1.40,<2                  # S3-compatible upload store (Railway Bucket / Azure Blob): shared/artifacts.py S3Store
+Pillow>=10                      # storage-mcp image normalisation (shared/docparse.py)

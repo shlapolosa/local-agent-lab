@@ -17,6 +17,7 @@ x-sub: &sub
     GATEWAY_URL: http://gateway:4000
     ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
     SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
+    STORAGE_MCP_URL: http://storage-mcp:9300/mcp
     REVIEW_APP_URL: ${REVIEW_APP_URL:-http://review:8501}
     JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
     # the substrate's own Redis (service above) — overrides the machine-local .env value, which
@@ -65,6 +66,9 @@ services:
     <<: *sub
     command: ["python", "mcp/adoit_mcp/server.py"]
     volumes: ["../../semantic/reference/sources:/app/semantic/reference/sources:ro"]
+  storage-mcp:                # READ-ONLY governed object store (uploads) — internal only. Holds the
+    <<: *sub                  # bucket credentials (S3_*/UPLOADS_URL from .env); workloads never do.
+    command: ["python", "mcp/storage_mcp/server.py"]
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "gateway/litellm-config.yaml", "--port", "4000"]
@@ -73,6 +77,7 @@ services:
       GATEWAY_URL: http://gateway:4000
       ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
       SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
+      STORAGE_MCP_URL: http://storage-mcp:9300/mcp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
       OTEL_SERVICE_NAME: litellm-gateway
@@ -82,7 +87,7 @@ services:
       # verified). Skip schema management in containers; migrate the DB once, natively.
       DISABLE_SCHEMA_UPDATE: "true"
     ports: ["4000:4000"]
-    depends_on: [adoit-mcp, semantic-mcp]
+    depends_on: [adoit-mcp, semantic-mcp, storage-mcp]
   review:                     # human approval gate (cross-cutting) — public, password-gated
     <<: *sub
     command: ["streamlit", "run", "review/app.py", "--server.port", "8501", "--server.headless", "true"]

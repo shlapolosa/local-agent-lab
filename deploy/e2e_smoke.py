@@ -113,11 +113,11 @@ check("guardrail non-blocking (call succeeds)", s == 200, f"HTTP {s}, reply={gtx
 section("MCP registry")
 s, d = http("/v1/mcp/server", MASTER)
 srv = [x.get("server_name") for x in d] if isinstance(d, list) else []
-check("MCP servers registered", set(["adoit_mcp", "semantic_mcp"]).issubset(set(srv)), f"{srv}")
+check("MCP servers registered", set(["adoit_mcp", "semantic_mcp", "storage_mcp"]).issubset(set(srv)), f"{srv}")
 s, d = http("/v1/mcp/tools", MASTER)
 tools = d if isinstance(d, list) else d.get("tools", d.get("data", [])) if isinstance(d, dict) else []
 tnames = [t.get("name") if isinstance(t, dict) else t for t in tools]
-check("MCP tools listed (master)", len(tnames) >= 15, f"{len(tnames)} tools")
+check("MCP tools listed (master)", len(tnames) >= 20, f"{len(tnames)} tools")
 
 # ---- 7 & 8. MCP round-trip with the AGENT key (the real governance path) ----
 async def mcp_roundtrip():
@@ -128,7 +128,7 @@ async def mcp_roundtrip():
     async with Client(transport) as c:
         tools = await c.list_tools()
         names = [t.name for t in tools]
-        check("agent key sees granted MCP tools (per-team ACL)", len(names) >= 15, f"{len(names)} tools")
+        check("agent key sees granted MCP tools (per-team ACL)", len(names) >= 20, f"{len(names)} tools")
         # read-only call to the semantic server
         sem = next((n for n in names if n.endswith("semantic_ontologies") or n.endswith("semantic_questions")), None)
         if sem:
@@ -147,6 +147,23 @@ async def mcp_roundtrip():
                   "returned data" if ok else "empty")
         else:
             check("gateway->adoit-mcp round-trip", False, "no adoit_repos tool")
+        # governed object store: list through the gateway (read-only), then info on the first ref
+        lst = next((n for n in names if n.endswith("storage_list")), None)
+        if lst:
+            r = await c.call_tool(lst, {"limit": 5})
+            items = r.data if isinstance(r.data, list) else []
+            if not items and r.content:
+                try:
+                    items = json.loads(r.content[0].text)
+                except Exception:
+                    items = []
+            check("gateway->storage-mcp round-trip (storage_list)", isinstance(items, list), f"{len(items)} object(s)")
+            if items:
+                info_t = next((n for n in names if n.endswith("storage_info")), None)
+                ri = await c.call_tool(info_t, {"ref": items[0]["ref"]}) if info_t else None
+                check("storage_info by ref", bool(ri and (ri.data or ri.content)), items[0]["ref"])
+        else:
+            check("gateway->storage-mcp round-trip", False, "no storage_list tool (grant storage_mcp to the team)")
         # artifact store: render a known-valid spec -> art:// refs in Postgres
         spec_path = os.path.join(ROOT, "architecture", "lab_model.json")
         rnd = next((n for n in names if n.endswith("archimate_render")), None)

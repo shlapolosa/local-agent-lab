@@ -1,9 +1,15 @@
-"""Architecture Review — the human approval channel for EA repository writes.
+"""Architecture Review — the human channel for the lab's business processes.
 
-Reads approval requests from Redis Streams (consumer group "review-app"), renders the
-model's views + summary, and records approve / request changes / decline. The decision
-flows back on approvals:decisions where the requesting workflow/tool picks it up. Telegram
-is the other channel on the same streams (channels/telegram.py).
+Two modes (sidebar):
+  Review  — the approval gate for EA repository writes: reads approval requests from Redis Streams
+            (consumer group "review-app"), renders the model's views + summary, records approve /
+            request changes / decline; the decision flows back on approvals:decisions.
+  Submit  — start a run: upload a system diagram (.vsdx or image) plus requirements documents;
+            they are stored in the UPLOAD store (a bucket in the cloud) as art:// refs and an
+            explicit Run publishes a durable workflow:requests event that the long-lived workload
+            host consumes (shared/workflows.py). The run's trace, approval and outputs are shown
+            here as the consumer writes them back. Only refs cross into the workload — it reads
+            them through the gateway's storage-mcp tools, never with store credentials.
 
 Run: ./lab.sh review   (streamlit, http://127.0.0.1:8501)
 """
@@ -15,10 +21,12 @@ import xml.etree.ElementTree as ET
 import streamlit as st
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from shared import approvals, artifacts, config  # noqa: E402
+from shared import approvals, artifacts, config, workflows  # noqa: E402
 
 JAEGER = config.JAEGER_UI_URL.rstrip("/") + "/trace/"
 NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
+DIAGRAM_TYPES = ["vsdx", "png", "jpg", "jpeg", "gif", "webp"]
+REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
 
 st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
 
@@ -29,16 +37,103 @@ if config.REVIEW_APP_PASSWORD:      # minimal gate; production fronts this app w
             st.session_state["authed"] = True; st.rerun()
         st.stop()
 
+reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer"))
+mode = st.sidebar.radio("Mode", ["Review", "Submit"], horizontal=True)
+
+
+# ============================================================================ Submit mode
+def _submit_page():
+    st.title("Submit a diagram for conversion")
+    st.caption("Upload a system diagram and its requirements. Files are stored by reference; the "
+               "workflow reads them through the governed gateway. Nothing runs until you press Run.")
+    refs = st.session_state.setdefault("submit_refs", {"diagram": None, "requirements": []})
+
+    c1, c2 = st.columns(2)
+    diagram = c1.file_uploader("System diagram (.vsdx or image)", type=DIAGRAM_TYPES, key="up_diagram")
+    reqs = c2.file_uploader("Requirements documents", type=REQUIREMENT_TYPES,
+                            accept_multiple_files=True, key="up_reqs")
+    if st.button("⬆️ Upload", disabled=not diagram) and diagram is not None:
+        store = artifacts.uploads()
+        # keep the original filename: the workflow decides vsdx/image/document from its suffix
+        refs["diagram"] = store.put(diagram.name, diagram.getvalue(), artifacts.content_type_for(diagram.name))
+        refs["requirements"] = [store.put(f.name, f.getvalue(), artifacts.content_type_for(f.name))
+                                for f in (reqs or [])]
+        st.session_state["submit_rid"] = None
+        st.success("Stored. Review the references below, then press Run.")
+
+    if refs["diagram"]:
+        st.write("**Diagram**", f'`{refs["diagram"]}`')
+        for r in refs["requirements"]:
+            st.write("**Requirements**", f"`{r}`")
+        if st.button("▶️ Run visio_to_archimate", type="primary"):
+            rid = workflows.request("visio_to_archimate",
+                                    {"diagram": refs["diagram"], "requirements": refs["requirements"]},
+                                    requester=reviewer)
+            st.session_state["submit_rid"] = rid
+            st.rerun()
+
+    rid = st.session_state.get("submit_rid")
+    if rid:
+        _run_status(rid)
+
+    st.divider()
+    st.subheader("Recent submissions")
+    for s in workflows.recent(10):
+        inp = s.get("inputs") or {}
+        line = (f'`{s.get("request_id")}` **{s.get("status", "?")}** — {os.path.basename(inp.get("diagram", "") or "")} '
+                f'+ {len(inp.get("requirements") or [])} doc(s) ({s.get("requester")}, {s.get("created_at")})')
+        if s.get("approval_id"):
+            line += f' → approval `{s["approval_id"]}`'
+        st.write(line)
+
+
+@st.fragment(run_every=5)
+def _run_status(rid):
+    s = workflows.status(rid)
+    if not s:
+        st.warning(f"unknown request {rid}"); return
+    status = s.get("status", "pending")
+    icon = {"pending": "⏳", "running": "🏃", "done": "✅", "failed": "⛔"}.get(status, "•")
+    st.subheader(f"{icon} Run `{rid}` — {status}")
+    cols = st.columns(4)
+    cols[0].write(f'**Requested** {s.get("created_at", "")}')
+    cols[1].write(f'**Started** {s.get("started_at", "—")}')
+    cols[2].write(f'**Finished** {s.get("finished_at", "—")}')
+    cols[3].write(f'**Consumer** {s.get("consumer", "—")}')
+    if s.get("trace_id"):
+        st.write(f'**Trace** [{s["trace_id"][:16]}…]({JAEGER}{s["trace_id"]})')
+    if status == "pending":
+        st.info("Waiting for a workload host to pick this up (the wf-visio consumer).")
+    elif status == "running":
+        st.info("BA → Architect → validate/render in progress…")
+    elif status == "done":
+        summ = s.get("summary") or {}
+        m = st.columns(4)
+        for col, k in zip(m, ("elements", "relations", "views", "semantic_warnings")):
+            col.metric(k, summ.get(k, "—"))
+        st.success(f'Model staged for approval `{s.get("approval_id")}` — switch to **Review** mode to decide.')
+        if s.get("xml_ref"):
+            st.write(f'Artifact `{s["xml_ref"]}`')
+    elif status == "failed":
+        st.error(s.get("error", "failed"))
+
+
+if mode == "Submit":
+    _submit_page()
+    st.stop()
+
+
+# ============================================================================ Review mode
 # drain this channel's unseen events (mark delivered) — the pending set drives the UI
 for eid, _ in approvals.channel_events("review-app", block_ms=0):
     approvals.ack("review-app", eid)
 
 st.title("Architecture Review")
-reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer"))
 items = approvals.pending()
 st.sidebar.metric("Pending", len(items))
 if not items:
-    st.info("No models awaiting review. Runs that call `adoit_request_import` will appear here.")
+    st.info("No models awaiting review. Runs that call `adoit_request_import` will appear here "
+            "(start one from **Submit** mode).")
     st.subheader("Recent decisions")
     for h in approvals.history(20):
         st.write(f'`{h["request_id"]}` **{h["decision"]}** by {h["actor"]} via {h["channel"]} — {h["comment"]} ({h["decided_at"]})')

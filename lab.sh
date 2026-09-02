@@ -19,7 +19,8 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
   # resolve $DATABASE_URL references (ARTIFACTS_URL=$DATABASE_URL) and pin local defaults
   [ "${ARTIFACTS_URL:-}" = '$DATABASE_URL' ] && export ARTIFACTS_URL="$DATABASE_URL"
   export BIND_HOST="${BIND_HOST:-127.0.0.1}"
-  export ADOIT_MCP_URL="${ADOIT_MCP_URL:-http://127.0.0.1:9100/mcp}" SEMANTIC_MCP_URL="${SEMANTIC_MCP_URL:-http://127.0.0.1:9200/mcp}"; }
+  export ADOIT_MCP_URL="${ADOIT_MCP_URL:-http://127.0.0.1:9100/mcp}" SEMANTIC_MCP_URL="${SEMANTIC_MCP_URL:-http://127.0.0.1:9200/mcp}" \
+         STORAGE_MCP_URL="${STORAGE_MCP_URL:-http://127.0.0.1:9300/mcp}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
@@ -90,6 +91,10 @@ up() {
   if alive semantic-mcp; then echo "semantic-mcp ok  already running (pid $(cat $RUN/semantic-mcp.pid))"; else
     env -u ANTHROPIC_API_KEY nohup "$PY" mcp/semantic_mcp/server.py >"$LOGS/semantic-mcp.log" 2>&1 & echo $! >"$RUN/semantic-mcp.pid"
     wait_http "http://127.0.0.1:9200/mcp" "" 20 || true; echo "semantic-mcp started  http://127.0.0.1:9200/mcp"; fi
+  # storage-mcp: READ-ONLY governed access to the upload store — the only way a workload reads an input object
+  if alive storage-mcp; then echo "storage-mcp ok  already running (pid $(cat $RUN/storage-mcp.pid))"; else
+    env -u ANTHROPIC_API_KEY nohup "$PY" mcp/storage_mcp/server.py >"$LOGS/storage-mcp.log" 2>&1 & echo $! >"$RUN/storage-mcp.pid"
+    wait_http "http://127.0.0.1:9300/mcp" "" 20 || true; echo "storage-mcp started  http://127.0.0.1:9300/mcp"; fi
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
@@ -142,18 +147,20 @@ review() {
 }
 
 down() {
-  for s in review litellm semantic-mcp adoit-mcp jaeger; do
+  for s in wf-visio review litellm storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config gateway/litellm-config.yaml" 2>/dev/null || true
   pkill -f "mcp/adoit_mcp/server.py" 2>/dev/null || true
   pkill -f "mcp/semantic_mcp/server.py" 2>/dev/null || true
+  pkill -f "mcp/storage_mcp/server.py" 2>/dev/null || true
+  pkill -f "processes.visio_to_archimate.consumer" 2>/dev/null || true
 }
 
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   load_env 2>/dev/null || true
   if [ -n "${REDIS_URL:-}" ]; then redis-cli -u "$REDIS_URL" --no-auth-warning ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        cloud ok (${REDIS_HOST:-})" || echo "redis        cloud UNREACHABLE";
   else redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running (local)" || echo "redis        stopped"; fi
@@ -164,8 +171,15 @@ status() {
 # INDEPENDENTLY (deploy/railway.py). Metered: bring a tier up for a demo, down when idle.
 cloud() { load_env; env -u ANTHROPIC_API_KEY "$PY" deploy/railway.py "$@"; }
 
+consumer() {   # the long-lived visio workload host: consumes workflow:requests (Submit page -> run)
+  load_env
+  if alive wf-visio; then echo "wf-visio ok  already running (pid $(cat $RUN/wf-visio.pid))"; return; fi
+  env -u ANTHROPIC_API_KEY nohup "$PY" -m processes.visio_to_archimate.consumer >"$LOGS/wf-visio.log" 2>&1 & echo $! >"$RUN/wf-visio.pid"
+  echo "wf-visio started  (consumer of workflow:requests; log: $LOGS/wf-visio.log)"
+}
+
 case "${1:-}" in
-  up) up;; down) down;; status) status;; review) review;; clients) render_clients;;
+  up) up;; down) down;; status) status;; review) review;; clients) render_clients;; consumer) consumer;;
   cloud) shift; cloud "$@";;
-  *) echo "usage: $0 up|down|status|review|clients | cloud substrate up|down|status"; exit 2;;
+  *) echo "usage: $0 up|down|status|review|consumer|clients | cloud substrate up|down|status"; exit 2;;
 esac

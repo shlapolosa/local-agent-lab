@@ -54,6 +54,10 @@ These rules define the lab; do not violate them when adding code:
 - **Cloud-only inference.** All inference goes to Ollama Cloud — no local models at all (decision Aug 2026, superseding the doc's ~2B offline-fallback idea). The 8 GB budget depends on this. Keep local components in the ~100–300 MB range each.
 - **Shared tools are MCP servers over streamable HTTP, registered with the gateway.** Stdio MCP servers are allowed only as local dev sandboxes — they bypass governance and must never migrate.
 - **Destructive/write tools require human approval** via the workflow engine's approval gate.
+- **Workloads hold no store credentials.** Inputs reach a workload as `art://` refs and are read
+  ONLY through the gateway's read-only **storage-mcp**; its own spec goes to `semantic_store_spec`.
+  Bucket/DB credentials live in the substrate (storage-mcp, the review app that uploads) and
+  `deploy/railway.py configure_workload()` strips them from every workload service.
 - **Every workflow host sets a distinct OTel service name** (e.g. `process-1-intake`) so concurrent processes can be traced and audited independently.
 - **Every MCP server and every skill is registered in LiteLLM — no exceptions.** An MCP server
   goes into `gateway/litellm-config.yaml` `mcp_servers` (and is granted to teams via
@@ -95,19 +99,31 @@ The first, `processes/visio_to_archimate/` (see its README), is the reference:
   a **deterministic fallback** (`_call_tools` by ref) guarantees the pipeline completes if a model
   skips a call on a given run. Both `archimate_render` and `semantic_validate_model` accept
   `spec`|`spec_ref` (and coerce a JSON-string spec → dict). Model: **kimi-k3**.
-- **BA inputs = a diagram + optional requirements documents, BY REFERENCE** (`processes/
-  visio_to_archimate/inputs.py`). Every input is a path or an `art://` ref in the shared artifact
-  store (`inputs upload <files>` → refs; a cloud job takes them via `# CLOUD: VISIO_DIAGRAM` /
-  `VISIO_REQUIREMENTS`). Three input kinds, three mechanisms — do not conflate them: a **`.vsdx`**
-  is structured OOXML and is parsed deterministically by the `read_vsdx` tool (vision would only
-  degrade it); a **diagram IMAGE** (png/jpg — no XML to parse) is attached inline to the BA's
-  message and read with vision (kimi-k3 / kimi-k2.7-code / glm-flash all declare `vision` on
-  Ollama Cloud and image parts pass through the gateway — verified; `supports_vision` is set in
-  `litellm-config.yaml`); a **requirements document** (docx/pdf/md/txt) is parsed locally by the
-  `read_document` tool into text, and its **embedded figures** are extracted (python-docx image
-  parts / pypdf page images, decorations dropped, big ones downscaled) and attached alongside as
-  "figure N embedded in <doc>" so the BA reads them too. Requirements are evidence, not new boxes:
-  a requirements-only element is added only if plainly part of THIS system (marked
+- **BA inputs = a diagram + optional requirements documents, BY REFERENCE, read ONLY through the
+  gateway.** A person submits them on the review app's **Submit** mode (or `python -m
+  processes.visio_to_archimate.inputs upload <files>`): files land in the **upload store**
+  (`UPLOADS_URL` — a Railway Bucket in the cloud, the Postgres artifact store locally; refs are
+  `art://<id>/<name>`) and an explicit **Run** publishes a durable `workflow:requests` event
+  (`shared/workflows.py`, Redis Streams) that the long-lived `wf-visio` host
+  (`processes/visio_to_archimate/consumer.py`) consumes, writing status/trace/approval back.
+  **A workload holds NO object-store credentials**: refs are read through the gateway's
+  **storage-mcp** (`mcp/storage_mcp/server.py`, read-only: `storage_read_vsdx`,
+  `storage_read_document`, `storage_get`, `storage_extract_figures`, `storage_list/info`), granted
+  per team and metered/traced like any tool; the BA's spec is stored via `semantic_store_spec`.
+  Three input kinds, three mechanisms — do not conflate them: a **`.vsdx`** is structured OOXML
+  and is parsed deterministically (vision would only degrade it); a **diagram IMAGE** (png/jpg —
+  no XML) is fetched by the deterministic BA node via `storage_get` and attached inline to the
+  BA's message, read with vision (kimi-k3 / kimi-k2.7-code / glm-flash declare `vision` on Ollama
+  Cloud; image parts pass through the gateway both as message content and as MCP ImageContent —
+  verified; `supports_vision` is set in `litellm-config.yaml`); a **requirements document**
+  (docx/pdf/md/txt) becomes text via `storage_read_document`, and its **embedded figures** are
+  extracted server-side (`storage_extract_figures`) and attached as "figure N embedded in <doc>".
+  Image sizing is enforced in ONE place (`shared/docparse.py`: ≤1600 px edge, PNG/JPEG, <2 KB /
+  <64 px decorations dropped, ≤8 figures/doc) and documented in the `visio-reader` skill. Local
+  paths still work for dev (parsed by the same helpers). Gotcha: fastmcp derives an outputSchema
+  from a tool's return annotation — image-returning tools must have NONE, or clients fail with
+  "outputSchema defined but no structured output returned". Requirements are evidence, not new
+  boxes: a requirements-only element is added only if plainly part of THIS system (marked
   `source: requirements`), otherwise it is an `openQuestion`; the BA output schema is unchanged.
 - **Agents never call each other directly — the workflow mediates via a typed contract.** The BA
   emits schema-validated JSON (`jsonschema`); a **deterministic gate rejects incomplete output**
@@ -171,9 +187,13 @@ stateless and address each other only through `shared/config.py` env vars:
   Apps mapping). `lab.sh` stays the single-machine runner with the same env contract.
 - **Railway is the live cloud host (Hobby plan), two tiers, each deployed/torn down on its own**
   via `deploy/railway.py` (reads `.env`, `# CLOUD:` lines win, `$VAR` refs expanded):
-  `substrate up|down|status` (redis → semantic-mcp, adoit-mcp, gateway, review, + Jaeger) and
-  `workload visio up|down|status` (service `wf-visio`). A workload references the substrate ONLY
-  via the gateway's PUBLIC domain + the shared backends. Railway job gotchas, all verified:
+  `substrate up|down|status` (redis → semantic-mcp, adoit-mcp, **storage-mcp**, gateway, review,
+  + Jaeger), `bucket up|status` (the upload store: a Railway **Bucket**, S3-compatible; creates it
+  once and writes `# CLOUD: S3_*` + `UPLOADS_URL` — which `configure()` hands ONLY to review +
+  storage-mcp), `workload visio up|down|status` (service `wf-visio`, the long-lived consumer of
+  `workflow:requests`, `restart=ALWAYS`) and `workload visio-job …` (the one-shot job). A workload
+  references the substrate ONLY via the gateway's PUBLIC domain + Redis + tracing; it gets NO
+  `DATABASE_URL/ARTIFACTS_URL/UPLOADS_URL/S3_*/STORAGE_MCP_URL`. Railway job gotchas, all verified:
   (1) a Dockerfile start command is exec'd WITHOUT a shell — `a && b` runs only `a`, so chains
   must be `sh -c '…'`; (2) a `restartPolicyType=NEVER` job reports SUCCESS whether it finished
   or crashed — `workload status` reads the run's log markers instead; (3) no volume mounts, so
@@ -209,6 +229,9 @@ Everything runs from the project venv (Python 3.12 — litellm needs ≥3.11; ne
 # individual pieces, if ever needed:
 set -a && source .env && set +a                  # all services need the env
 .venv/bin/python mcp/adoit_mcp/server.py         # adoit-mcp (port 9100, /mcp)
+.venv/bin/python mcp/storage_mcp/server.py       # storage-mcp (port 9300, /mcp) — read-only upload store
+./lab.sh consumer                                # wf-visio: long-lived host consuming workflow:requests (Submit -> run)
+.venv/bin/python shared/workflows.py list        # run requests + status (request <process> <refs…> to publish one)
 env -u ANTHROPIC_API_KEY .venv/bin/litellm --config gateway/litellm-config.yaml --port 4000   # gateway (no ambient creds)
 .venv/bin/python architecture/lab_model.py       # regenerate lab_model.json spec
 .venv/bin/python architecture/run_via_gateway.py # agent path: validate+render via gateway
@@ -417,7 +440,11 @@ a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
 ## Approval Gate (human-in-the-loop for EA repository writes)
 
 Event-based over the Redis already running — **Redis Streams**, not pub/sub, because approvals
-must be durable and acknowledged. `shared/approvals.py` is the only API:
+must be durable and acknowledged. The same mechanism runs the OTHER direction too:
+`shared/workflows.py` publishes **run requests** (`workflow:requests`, one consumer group per
+workload host, hash `workflow:req:<id>` with status pending|running|done|failed + trace/approval
+ids written back by the consumer) — what the review app's Submit mode emits and
+`processes/visio_to_archimate/consumer.py` consumes. `shared/approvals.py` is the approval API:
 `request()` publishes to `approvals:requests` (one consumer group per channel:
 `review-app`, `telegram` — each channel sees every request); `decide()` appends to
 `approvals:decisions` (the audit log) with `approve | decline | update` (= changes requested,

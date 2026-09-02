@@ -73,9 +73,16 @@ response is rejected and you are asked to correct it.
 ## Diagram images and requirements documents
 
 The same method applies when the diagram is a **raster image** instead of a `.vsdx`, and when
-**requirements documents** accompany it. Inputs are named by an exact *source* (a path or an
-`art://` artifact reference); a `.vsdx` is loaded with `read_vsdx`, a document with
-`read_document`, and an image is simply attached to the message for you to read directly.
+**requirements documents** accompany it. Inputs are named by an exact *source*: normally an
+`art://` reference into the upload store, which you read ONLY through the gateway's governed
+tools — `storage_read_vsdx` for a Visio file, `storage_read_document` for a document — or, in
+local development, a file path read with `read_vsdx` / `read_document`. The message names the
+tool for each source; call exactly that one with the source unchanged. Images are never a tool
+for you: the diagram image and every figure embedded in a document are fetched (through the same
+gateway, `storage_get` / `storage_extract_figures`) and **attached to the message** for you to
+read directly. Sizing contract you can rely on: every attached image is at most 1600 px on its
+longest edge, PNG or JPEG, with decorations (under 2 KB or 64 px) already dropped and at most 8
+figures per document — so read them as-is, nothing is hidden behind a download.
 
 **Reading an image diagram.** Every box (or icon with a caption) is a shape whose `text` is its
 caption; every arrow is a connector `from → to` with the arrow-head giving direction and any text

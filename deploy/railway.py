@@ -37,6 +37,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUBSTRATE = {
     "semantic-mcp": {"cmd": "python mcp/semantic_mcp/server.py", "port": None},
     "adoit-mcp":    {"cmd": "python mcp/adoit_mcp/server.py", "port": None},
+    # READ-ONLY governed object store. "s3": True = this service (and only such services) receives the
+    # bucket credentials (S3_* + UPLOADS_URL); every other service — and every workload — gets none.
+    "storage-mcp":  {"cmd": "python mcp/storage_mcp/server.py", "port": None, "s3": True},
     "gateway":      {"cmd": "litellm --config gateway/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
@@ -55,8 +58,10 @@ SUBSTRATE = {
                      # replay a fresh container otherwise runs against remote Neon.
                      "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
     "review":       {"cmd": "streamlit run review/app.py --server.port 8501 "
-                            "--server.address :: --server.headless true", "port": 8501},
+                            "--server.address :: --server.headless true", "port": 8501,
+                     "s3": True},   # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
 }
+S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
 
 
 JAEGER_NAME = "local-agent-lab"   # pre-existing Jaeger service (Docker image; NOT built from our repo)
@@ -172,12 +177,74 @@ def ensure_redis():
     return sid
 
 
+# --- the upload store: a Railway Bucket (S3-compatible; Azure Blob on the target) ---
+BUCKET_NAME = "lab-uploads"
+
+
+def _patch_env_cloud(pairs):
+    """Write/replace `# CLOUD: KEY=value` lines in .env (the loader honours them for every service;
+    configure() then hands S3_* only to services flagged "s3")."""
+    p = os.path.join(ROOT, ".env")
+    s = open(p).read()
+    for k, v in pairs:
+        line = f"# CLOUD: {k}={v}"
+        if re.search(rf"^# CLOUD: {k}=", s, re.M):
+            s = re.sub(rf"^# CLOUD: {k}=.*$", line, s, flags=re.M)
+        else:
+            s = s.rstrip("\n") + "\n" + line + "\n"
+    open(p, "w").write(s)
+
+
+def ensure_bucket():
+    """Create the project's upload bucket once and record its S3 credentials as # CLOUD: lines.
+    Railway API (verified by introspection): bucketCreate(projectId, environmentId, name) and
+    query bucketS3Credentials(bucketId) -> endpoint/region/bucketName/accessKeyId/secretAccessKey/
+    urlStyle. Manual fallback: dashboard -> Bucket -> copy the credentials into the same lines."""
+    d = gql('query($p:String!){ project(id:$p){ buckets{ edges{ node{ id name } } } } }', {"p": PROJECT})
+    have = {e["node"]["name"]: e["node"]["id"] for e in d["project"]["buckets"]["edges"]}
+    bid = have.get(BUCKET_NAME)
+    if not bid:
+        bid = gql('mutation($in:BucketCreateInput!){ bucketCreate(input:$in){ id } }',
+                  {"in": {"projectId": PROJECT, "environmentId": ENV, "name": BUCKET_NAME}})["bucketCreate"]["id"]
+        print(f"  bucket {BUCKET_NAME} created {bid[:8]}")
+    else:
+        print(f"  bucket {BUCKET_NAME} exists  {bid[:8]}")
+    c = gql('query($b:String!){ bucketS3Credentials(bucketId:$b){ endpoint region bucketName accessKeyId secretAccessKey urlStyle } }',
+            {"b": bid})["bucketS3Credentials"]
+    _patch_env_cloud([("RAILWAY_BUCKET_ID", bid),
+                      ("S3_ENDPOINT", c["endpoint"]), ("S3_REGION", c.get("region") or ""),
+                      ("S3_ACCESS_KEY_ID", c["accessKeyId"]), ("S3_SECRET_ACCESS_KEY", c["secretAccessKey"]),
+                      ("S3_URL_STYLE", (c.get("urlStyle") or "path").lower()),
+                      ("UPLOADS_URL", f"s3://{c['bucketName']}/uploads")])
+    print(f"  .env: # CLOUD: S3_* + UPLOADS_URL=s3://{c['bucketName']}/uploads written "
+          f"(endpoint {c['endpoint']}); applies to review + storage-mcp on the next `substrate up`")
+    return bid
+
+
+def bucket_status():
+    d = gql('query($p:String!){ project(id:$p){ buckets{ edges{ node{ id name } } } } }', {"p": PROJECT})
+    for e in d["project"]["buckets"]["edges"]:
+        n = e["node"]
+        try:
+            i = gql('query($b:String!){ bucketInstanceDetails(bucketId:$b){ objectCount sizeBytes } }',
+                    {"b": n["id"]})["bucketInstanceDetails"]
+            print(f"  {n['name']:13} {n['id'][:8]}  objects={i.get('objectCount')} bytes={i.get('sizeBytes')}")
+        except SystemExit as ex:
+            print(f"  {n['name']:13} {n['id'][:8]}  ({ex})")
+    if not d["project"]["buckets"]["edges"]:
+        print("  (no buckets — run: railway.py bucket up)")
+
+
 def configure(sid, spec, base_env):
     env = dict(base_env)
     env["BIND_HOST"] = "::"                                 # IPv6 for Railway private networking
     env["ADOIT_MCP_URL"] = "http://adoit-mcp.railway.internal:9100/mcp"
     env["SEMANTIC_MCP_URL"] = "http://semantic-mcp.railway.internal:9200/mcp"
+    env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
+    if not spec.get("s3"):                                  # bucket credentials: review + storage-mcp ONLY
+        for k in S3_KEYS:
+            env.pop(k, None)
     env.update(spec.get("env", {}))
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
@@ -292,24 +359,28 @@ def substrate_down():
 # (Redis Streams) or A2A through the gateway. The public URL is the door by design (and the gateway
 # binds IPv4 — see SUBSTRATE — so its *.railway.internal name would not be reachable anyway).
 WORKLOADS = {
+    # The normal cloud shape: a LONG-LIVED host that consumes `workflow:requests` (published by the
+    # review app's Submit page) and runs the workflow per event. Inputs arrive as art:// refs and are
+    # read through the gateway's storage-mcp; this container holds no store credentials.
     "visio": {
         "service": "wf-visio",
-        # Railway has no volume mounts and both inputs are git-ignored GENERATED files
-        # (architecture/lab_model.json, then the .vsdx fixture built from it): generate both at
-        # start, then run the host to completion (Visio -> BA -> Architect -> ADOIT import staged
-        # for approval). Verified: skipping lab_model.py fails with FileNotFoundError.
-        # `sh -c` is REQUIRED: Railway execs a Dockerfile start command without a shell, so a bare
-        # `a && b && c` runs only `a` (the rest arrives as ignored argv) and exits 0 — verified
-        # twice (only the first step's output ever appeared). The wrapper restores shell semantics.
+        "cmd": "python -m processes.visio_to_archimate.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),   # what workload_status reads from the logs
+    },
+    # The one-shot job (demo / smoke): run to completion on the generated fixture, or on real
+    # uploaded refs via `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=` in .env.
+    # Railway has no volume mounts and both fixture inputs are git-ignored GENERATED files
+    # (architecture/lab_model.json, then the .vsdx built from it): generate both at start.
+    # `sh -c` is REQUIRED: Railway execs a Dockerfile start command without a shell, so a bare
+    # `a && b && c` runs only `a` (the rest arrives as ignored argv) and exits 0 — verified twice.
+    "visio-job": {
+        "service": "wf-visio-job",
         "cmd": "sh -c 'python architecture/lab_model.py && "
                "python -m processes.visio_to_archimate.make_sample_vsdx && "
                "python -m processes.visio_to_archimate.host'",
-        "restart": "NEVER",   # run-to-completion job: exit 0 means done, not crashed; re-run = redeploy
-        # Real inputs instead of the fixture: upload them once (`python -m
-        # processes.visio_to_archimate.inputs upload <diagram> <docs...>` -> art:// refs) and add
-        # `# CLOUD: VISIO_DIAGRAM=art://...` / `# CLOUD: VISIO_REQUIREMENTS=art://... art://...`
-        # to .env; host.py honours them when it has no CLI args (a .png/.jpg diagram is read with
-        # vision; .docx/.pdf text AND their embedded figures reach the BA too).
+        "restart": "NEVER",   # exit 0 means done, not crashed; re-run = redeploy
         "env": {"AGENT_RESPONSES_STORE": "false"},
     },
 }
@@ -327,8 +398,12 @@ def configure_workload(sid, spec, base_env, ids):
         raise SystemExit("substrate gateway has no public domain — deploy the substrate first")
     env["GATEWAY_URL"] = gw                                     # the ONLY substrate coordinate
     env["REVIEW_APP_URL"] = _public(ids, "review") or env.get("REVIEW_APP_URL", "")
-    for k in ("ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "BIND_HOST"):
-        env.pop(k, None)                                      # workloads never see the MCP servers
+    # The two-tier isolation invariant, enforced: a workload never sees the MCP servers (it reaches
+    # them only via the gateway) and holds NO store credentials — its inputs are art:// refs read
+    # through storage-mcp, its spec goes to semantic-mcp, both via the gateway.
+    for k in ("ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "BIND_HOST",
+              "DATABASE_URL", "ARTIFACTS_URL", *S3_KEYS):
+        env.pop(k, None)
     env.update(spec.get("env", {}))
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
@@ -362,13 +437,18 @@ def workload_status(name):
         return
     d = latest(sid)
     # Railway reports a NEVER-restart job as SUCCESS whether it exited 0 or crashed (verified), so
-    # the deployment status is NOT the result — the run's own log markers are authoritative.
+    # the deployment status is NOT the result — the run's own log markers are authoritative. A
+    # long-lived consumer is judged the same way: "consumer ready" + its last "request … done|failed".
     verdict = "no logs yet"
     try:
-        lg = gql('query($d:String!){ deploymentLogs(deploymentId:$d, limit:200){ message } }', {"d": d["id"]})
+        lg = gql('query($d:String!){ deploymentLogs(deploymentId:$d, limit:300){ message } }', {"d": d["id"]})
         msgs = [l["message"] for l in lg["deploymentLogs"]]
         blob = "\n".join(msgs)
-        if "approval requested:" in blob:
+        if spec.get("restart") == "ALWAYS":
+            last = next((m for m in reversed(msgs) if m.startswith("request ") and
+                         (" done" in m or " failed" in m)), None)
+            verdict = ("READY — " if "consumer ready" in blob else "starting — ") + (last.strip() if last else "no runs yet")
+        elif "approval requested:" in blob:
             verdict = "RAN TO COMPLETION — " + next(m for m in msgs if "approval requested:" in m).strip()
         elif "Traceback" in blob:
             err = next((m for m in reversed(msgs) if m.strip() and not m.startswith(" ")), "see logs")
@@ -395,11 +475,15 @@ def workload_down(name):
 
 if __name__ == "__main__":
     usage = ("usage: railway.py substrate up|down|status\n"
-             "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status")
+             "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status\n"
+             "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)")
     tier = sys.argv[1] if len(sys.argv) > 1 else ""
     if tier == "substrate":
         cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
         {"up": substrate_up, "down": substrate_down, "status": substrate_status}[cmd]()
+    elif tier == "bucket":
+        cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
+        {"up": ensure_bucket, "status": bucket_status}[cmd]()
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:
         cmd = sys.argv[3] if len(sys.argv) > 3 else "status"
         {"up": workload_up, "down": workload_down, "status": workload_status}[cmd](sys.argv[2])

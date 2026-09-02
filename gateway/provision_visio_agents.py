@@ -121,7 +121,7 @@ def main():
         team = litellm("/team/new", {
             "team_alias": "visio-conversion", "max_budget": 5.0, "budget_duration": "30d",
             "models": ["kimi-k3", "gpt-oss-120b", "glm-flash"],
-            "object_permission": {"mcp_servers": ["adoit_mcp", "semantic_mcp"]},
+            "object_permission": {"mcp_servers": ["adoit_mcp", "semantic_mcp", "storage_mcp"]},
         })
         team_id = team["team_id"]
         print("created team visio-conversion:", team_id)

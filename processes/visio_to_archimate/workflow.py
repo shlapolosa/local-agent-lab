@@ -2,38 +2,41 @@
 agentic edition:
 
   ba ──▶ architect_design ──▶ store ──▶ architect_finalize ──▶ stage_import
- (reads Visio     (BA desc ->    (spec+views ->  (agent calls validate    (human-gated
-  via read_vsdx    engine spec)   art:// ref)     + render BY REF)          ADOIT import)
-  TOOL)
+ (reads inputs     (BA desc ->    (spec ->        (agent calls validate    (human-gated
+  via gateway       engine spec)   art:// ref via  + render BY REF)          ADOIT import)
+  storage tools)                   semantic-mcp)
 
 Design rationale (see [[agent-framework-tool-calling]] / CLAUDE.md): agents DO call tools, but
-only with SMALL arguments — a file path or an `art://` spec reference — because a large nested
-object passed inline as a tool argument is emitted only stochastically (AF #2747 schema-loss),
-while small-arg tool calls are reliable (measured 5/5). So the Architect emits its spec as
-structured output, a deterministic node stores it (getting a short `spec_ref`), and the Architect
-then calls the governed gateway-MCP `semantic_validate_model` + `archimate_render` by that ref.
-A deterministic render fallback guarantees the pipeline completes even if the model skips the call
-on a given run. The final ADOIT write stays deterministic + human-gated. Governed egress is
-unchanged: every LLM and tool call goes through the gateway with each agent's own identity.
+only with SMALL arguments — an `art://` reference — because a large nested object passed inline
+as a tool argument is emitted only stochastically (AF #2747 schema-loss), while small-arg tool
+calls are reliable (measured 5/5). So the Architect emits its spec as structured output, a
+deterministic node stores it BY REFERENCE (through semantic-mcp, so this host holds no store
+credentials), and the Architect then calls the governed gateway-MCP `semantic_validate_model` +
+`archimate_render` by that ref. A deterministic render fallback guarantees the pipeline completes
+even if the model skips the call on a given run. The final ADOIT write stays deterministic +
+human-gated. Governed egress is unchanged: every LLM and tool call goes through the gateway with
+each agent's own identity — including the BA's reads of its inputs (storage-mcp) and the images
+the deterministic node fetches for it.
 """
+import asyncio
+import base64
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-from agent_framework import WorkflowBuilder, WorkflowContext, executor
+from agent_framework import Content, Message, WorkflowBuilder, WorkflowContext, executor
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from jsonschema import Draft7Validator
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-import asyncio, os  # noqa: E402
-from agent_framework import Content, Message  # noqa: E402  (inline image content for the BA)
-BA_RUN_TIMEOUT = float(os.environ.get("BA_RUN_TIMEOUT", "900"))   # wall-clock guard per BA run
-from processes.visio_to_archimate import inputs as I  # noqa: E402
 from processes.visio_to_archimate import agents as A  # noqa: E402
-from shared import artifacts  # noqa: E402
+from processes.visio_to_archimate import inputs as I  # noqa: E402
+
+BA_RUN_TIMEOUT = float(os.environ.get("BA_RUN_TIMEOUT", "900"))   # wall-clock guard per BA run
 
 
 def _extract_json(text: str):
@@ -71,7 +74,9 @@ def _incomplete(obj):
     return None
 
 
-async def _call_tools(headers, mcp_url, calls):
+async def _call_tools_raw(headers, mcp_url, calls):
+    """Call gateway-MCP tools by name suffix; returns the raw fastmcp results (keeps `.content`,
+    which is where image blocks live — `.data` is None for image results)."""
     async with Client(StreamableHttpTransport(mcp_url, headers=headers)) as c:
         names = [t.name for t in await c.list_tools()]
 
@@ -81,7 +86,30 @@ async def _call_tools(headers, mcp_url, calls):
                 raise RuntimeError(f"tool *{suffix} not exposed by gateway ({names})")
             return m[0]
 
-        return [(await c.call_tool(pick(sfx), args)).data for sfx, args in calls]
+        return [await c.call_tool(pick(sfx), args) for sfx, args in calls]
+
+
+async def _call_tools(headers, mcp_url, calls):
+    return [r.data for r in await _call_tools_raw(headers, mcp_url, calls)]
+
+
+def _images_from(result) -> list[tuple[bytes, str, str]]:
+    """(bytes, media_type, label) from a storage_get / storage_extract_figures result: the server
+    returns image content blocks each followed by a text label. Images ride the gateway as MCP
+    ImageContent (base64); a text-only result means the gateway flattened them — surface that."""
+    out, pending = [], None
+    for block in getattr(result, "content", []) or []:
+        t = getattr(block, "type", "")
+        if t == "image":
+            if pending:
+                out.append((*pending, ""))
+            pending = (base64.b64decode(block.data), block.mimeType)
+        elif t == "text" and pending:
+            out.append((*pending, block.text))
+            pending = None
+    if pending:
+        out.append((*pending, ""))
+    return out
 
 
 def _tool_results(r):
@@ -119,55 +147,87 @@ def build_workflow(cfg):
     def span(name):
         return tracer.start_as_current_span(name, context=root_ctx)
 
-    def ba_agent():
-        return A.make_agent("ba-agent", A.ba_instructions(), cfg["ba_cred"],
-                            cfg["traceparent"], tools=[A.read_vsdx_tool(), A.read_document_tool()])
-
     def architect_agent(tools=None):
         return A.make_agent("architect-agent", A.architect_instructions(), cfg["ar_cred"],
                             cfg["traceparent"], tools=tools)
 
+    async def _ba_message(diagram: str, reqs: list[str]) -> tuple[Message, dict]:
+        """Build the BA's message: what to read (and with which tool), plus every image attached
+        inline — the diagram itself when it is an image, and the figures embedded in each
+        requirements document. Refs are fetched THROUGH THE GATEWAY (storage_get /
+        storage_extract_figures, BA identity); paths are parsed locally (dev)."""
+        lines, contents, attrs = [], [], {"ba.images": 0}
+        dk = I.kind(diagram)
+        if dk == "image":
+            lines.append("The system diagram is the ATTACHED IMAGE. Read every box, its label, "
+                         "every arrow and its label before classifying anything.")
+            if I.is_ref(diagram):
+                res, = await _call_tools_raw(cfg["ba_headers"], cfg["mcp_url"], [("storage_get", {"ref": diagram})])
+                imgs = _images_from(res)
+                if not imgs:
+                    raise RuntimeError(f"storage_get returned no image content for {diagram}")
+                contents += [Content.from_data(d, mt) for d, mt, _ in imgs]
+            else:
+                contents.append(Content.from_data(I.load(diagram), I.media_type(diagram)))
+        else:
+            tool = "storage_read_vsdx" if I.is_ref(diagram) else "read_vsdx"
+            lines.append(f"The Visio diagram to analyse is: {diagram}\nCall {tool} with exactly that source.")
+        for req in reqs:
+            tool = "storage_read_document" if I.is_ref(req) else "read_document"
+            lines.append(f"A requirements document is provided: {req}\n"
+                         f"Call {tool} with exactly that source and use its content.")
+            # figures embedded in the document (diagrams, screenshots) carry meaning the text does
+            # not: extracted deterministically (server-side for refs) and attached for the BA's vision
+            if I.is_ref(req):
+                res, = await _call_tools_raw(cfg["ba_headers"], cfg["mcp_url"],
+                                             [("storage_extract_figures", {"ref": req})])
+                figs = [(label, d, mt) for d, mt, label in _images_from(res)]
+            else:
+                figs = I.extract_images(req)
+            for label, data, mtype in figs:
+                lines.append(f"Attached: {label or 'embedded figure'} — read it like a diagram or screenshot.")
+                contents.append(Content.from_data(data, mtype))
+        lines.append("Then produce the JSON system description.")
+        attrs["ba.images"] = len(contents)
+        return Message("user", [Content.from_text("\n".join(lines)), *contents]), attrs
+
+    async def _run_ba(agent, msg):
+        r = await asyncio.wait_for(agent.run(msg), timeout=BA_RUN_TIMEOUT)
+        obj = _extract_json(r.text)
+        err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
+        if err:                                  # one corrective retry, then hard reject
+            r = await asyncio.wait_for(
+                agent.run(f"Your description was rejected as incomplete/invalid: {err}\n"
+                          f"Fix exactly that and resend the full corrected JSON only."),
+                timeout=BA_RUN_TIMEOUT)
+            obj = _extract_json(r.text)
+            err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
+            if err:
+                raise RuntimeError(f"BA output rejected (incomplete after retry): {err}")
+        return obj
+
     @executor(id="ba")
     async def ba(inputs: dict, ctx: WorkflowContext[dict]) -> None:
         """inputs = {"diagram": <path|art://>, "requirements": [<path|art://>, ...]}.
-        The diagram is a .vsdx (the BA reads it with the read_vsdx tool) or an IMAGE, which is
-        attached inline to the message — kimi-k3 has vision via the gateway (verified) — so no
-        parse and no extra model call. Requirements documents are read with the read_document tool."""
+        Refs -> the BA's tools are the gateway's storage_mcp read tools and the node fetches images
+        through the gateway; paths -> local function tools (dev). Either way kimi-k3 reads images
+        inline (vision via the gateway, verified) — no parse, no extra model call."""
         with span("ba-agent") as s:
-            agent = ba_agent()
             diagram, reqs = inputs["diagram"], list(inputs.get("requirements") or [])
-            lines, contents = [], []
-            if I.kind(diagram) == "image":
-                lines.append("The system diagram is the ATTACHED IMAGE. Read every box, its label, "
-                             "every arrow and its label before classifying anything.")
-                contents.append(Content.from_data(I.load(diagram), I.media_type(diagram)))
+            by_ref = I.is_ref(diagram) or any(I.is_ref(r) for r in reqs)
+            msg, attrs = await _ba_message(diagram, reqs)
+            s.set_attributes({"ba.diagram_kind": I.kind(diagram), "ba.requirements": len(reqs),
+                              "ba.by_ref": by_ref, **attrs})
+            if by_ref:
+                mcp = A.ba_tools(cfg["ba_headers"])          # governed reads with the BA's identity
+                async with mcp:
+                    agent = A.make_agent("ba-agent", A.ba_instructions(), cfg["ba_cred"],
+                                         cfg["traceparent"], tools=[mcp])
+                    obj = await _run_ba(agent, msg)
             else:
-                lines.append(f"The Visio diagram to analyse is: {diagram}\n"
-                             f"Call read_vsdx with exactly that source.")
-            for req in reqs:
-                lines.append(f"A requirements document is provided: {req}\n"
-                             f"Call read_document with exactly that source and use its content.")
-                # figures embedded in the document (diagrams, screenshots) carry meaning the text
-                # does not: extract them deterministically and attach them for the BA's vision.
-                for label, data, mtype in I.extract_images(req):
-                    lines.append(f"Attached: {label} — read it like a diagram or screenshot.")
-                    contents.append(Content.from_data(data, mtype))
-            lines.append("Then produce the JSON system description.")
-            msg = Message("user", [Content.from_text("\n".join(lines)), *contents])
-            s.set_attribute("ba.diagram_kind", I.kind(diagram))
-            s.set_attribute("ba.requirements", len(reqs))
-            r = await asyncio.wait_for(agent.run(msg), timeout=BA_RUN_TIMEOUT)
-            obj = _extract_json(r.text)
-            err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
-            if err:                                  # one corrective retry, then hard reject
-                r = await asyncio.wait_for(
-                    agent.run(f"Your description was rejected as incomplete/invalid: {err}\n"
-                              f"Fix exactly that and resend the full corrected JSON only."),
-                    timeout=BA_RUN_TIMEOUT)
-                obj = _extract_json(r.text)
-                err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
-                if err:
-                    raise RuntimeError(f"BA output rejected (incomplete after retry): {err}")
+                agent = A.make_agent("ba-agent", A.ba_instructions(), cfg["ba_cred"],
+                                     cfg["traceparent"], tools=[A.read_vsdx_tool(), A.read_document_tool()])
+                obj = await _run_ba(agent, msg)
             s.set_attribute("ba.elements",
                             sum(len(obj.get(k, [])) for k in ("actors", "components", "data", "behaviors")))
             await ctx.send_message({"path": diagram, "inputs": inputs, "ba_output": obj})
@@ -190,10 +250,15 @@ def build_workflow(cfg):
 
     @executor(id="store")
     async def store(state: dict, ctx: WorkflowContext[dict]) -> None:
-        with span("store-spec"):
+        # By reference through semantic-mcp (credential-free, granted to every team): this host
+        # keeps no artifact-store credentials. Inline spec is fine here — deterministic code, not
+        # a model, emits the argument (AF #2747 only bites LLM-emitted nested args).
+        with span("store-spec") as s:
             spec = {**state["spec"], "standard_views": True}   # engine lays out the view catalogue
-            ref = artifacts.store().put("visio-import.spec.json",
-                                        json.dumps(spec).encode(), "application/json")
+            res, = await _call_tools(cfg["ar_headers"], cfg["mcp_url"],
+                                     [("semantic_store_spec", {"spec": spec, "name": "visio-import.spec.json"})])
+            ref = res["spec_ref"] if isinstance(res, dict) else json.loads(res)["spec_ref"]
+            s.set_attribute("spec.ref", ref)
             state["spec"], state["spec_ref"] = spec, ref
             await ctx.send_message(state)
 

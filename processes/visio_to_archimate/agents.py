@@ -54,35 +54,49 @@ def architect_instructions() -> str:
 
 
 def read_vsdx_tool():
-    """A local function tool the BA agent calls to read the Visio file itself (no egress).
-    Accepts a filesystem path OR an art:// reference (materialised from the shared artifact store)."""
-    import sys
-    sys.path.insert(0, str(SKILLS / "visio-reader" / "scripts"))
-    from read_vsdx import read_vsdx as _rv
+    """LOCAL-DEV ONLY: a function tool the BA calls to read a Visio file from a filesystem path
+    (no egress). Refs are never read here — for art:// inputs the BA gets the gateway's
+    storage_mcp tools instead (ba_tools), so a workload holds no store credentials."""
     from . import inputs as I
 
     def read_vsdx(source: str) -> dict:
         """Read a Microsoft Visio .vsdx diagram into {pages, shapes, connectors}. `source` is the
-        exact path or art:// reference you were given. Call this BEFORE describing the system."""
-        return _rv(I.local_path(source))
+        exact path you were given. Call this BEFORE describing the system."""
+        return I.read_vsdx(source)
 
     return read_vsdx
 
 
 def read_document_tool():
-    """A local function tool the BA calls to read a requirements document — parsed locally (no
-    egress), returned as plain text; that text then reaches the model through the gateway, where
-    the PII guardrail applies like any other prompt content."""
+    """LOCAL-DEV ONLY: a function tool the BA calls to read a requirements document from a path —
+    parsed locally, returned as plain text; that text then reaches the model through the gateway,
+    where the PII guardrail applies like any other prompt content."""
     from . import inputs as I
 
     def read_document(source: str) -> str:
         """Read a requirements document (.docx, .pdf, .md, .txt, .csv) into plain text. `source` is
-        the exact path or art:// reference you were given. Read EVERY requirements document you
-        were given BEFORE producing the system description, and use it to name behaviours, data,
-        rules and actors the diagram only implies."""
+        the exact path you were given. Read EVERY requirements document you were given BEFORE
+        producing the system description, and use it to name behaviours, data, rules and actors
+        the diagram only implies."""
         return I.read_document(source)
 
     return read_document
+
+
+# exact governed READ tools the BA may call on the upload store (gateway prefixes the server name)
+BA_MCP_TOOLS = ["storage_mcp-storage_read_document", "storage_mcp-storage_read_vsdx"]
+
+
+def ba_tools(headers: dict):
+    """The BA's in-agent tools for art:// inputs = the gateway MCP filtered to the two read tools,
+    called with the BA's own identity (its team holds the storage_mcp grant). Async-context tool —
+    open it (`async with`) around the agent run. Images are NOT a BA tool: the workflow node fetches
+    them (storage_get / storage_extract_figures, also via the gateway) and attaches them inline."""
+    from agent_framework import MCPStreamableHTTPTool
+    url = os.environ["GATEWAY_URL"].rstrip("/") + "/mcp/"
+    return MCPStreamableHTTPTool(
+        name="storage", url=url, allowed_tools=BA_MCP_TOOLS,
+        header_provider=lambda _ctx: dict(headers), approval_mode="never_require")
 
 
 # exact governed tools the Architect may call (gateway prefixes server name); NOT adoit_request_import

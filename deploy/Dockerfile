@@ -3,8 +3,10 @@
 #   gateway     litellm --config gateway/litellm-config.yaml --port 4000
 #   adoit-mcp   python mcp/adoit_mcp/server.py
 #   semantic-mcp python mcp/semantic_mcp/server.py
+#   storage-mcp python mcp/storage_mcp/server.py      (read-only governed object store, :9300)
 #   review      streamlit run review/app.py --server.port 8501 --server.headless true
 #   telegram    python channels/telegram.py
+#   wf-visio    python -m processes.visio_to_archimate.consumer   (long-lived workload host)
 # Full python:3.12 (NOT -slim): prisma generate downloads a prebuilt Node.js whose binary needs
 # several runtime libs (libatomic.so.1, …) that slim omits — the full image ships them, killing a
 # whole class of "cannot open shared object file" build failures. ca-certificates is already present.
@@ -20,5 +22,5 @@ COPY . /app
 # failure here means a broken gateway, so fail the build loudly instead of shipping it silently.
 RUN python -c "import litellm_proxy_extras, os; print(os.path.dirname(litellm_proxy_extras.__file__))" > /tmp/lpe \
  && prisma generate --schema "$(cat /tmp/lpe)/schema.prisma"
-EXPOSE 4000 9100 9200 8501
+EXPOSE 4000 9100 9200 9300 8501
 CMD ["python", "mcp/adoit_mcp/server.py"]

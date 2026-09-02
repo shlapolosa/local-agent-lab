@@ -11,6 +11,7 @@ x-lab: &lab
     GATEWAY_URL: http://gateway:4000
     ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
     SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
+    STORAGE_MCP_URL: http://storage-mcp:9300/mcp
     REVIEW_APP_URL: ${REVIEW_APP_URL:-http://localhost:8501}
     JAEGER_UI_URL: ${JAEGER_UI_URL:-http://localhost:16686}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
@@ -28,13 +29,16 @@ services:
     <<: *lab
     command: ["python", "mcp/semantic_mcp/server.py"]
     volumes: ["../semantic/reference/sources:/app/semantic/reference/sources:ro"]
+  storage-mcp:                # read-only governed upload store (holds S3_*/UPLOADS_URL; workloads never do)
+    <<: *lab
+    command: ["python", "mcp/storage_mcp/server.py"]
   gateway:
     <<: *lab
     command: ["litellm", "--config", "gateway/litellm-config.yaml", "--port", "4000"]
     environment:
       OTEL_SERVICE_NAME: litellm-gateway
     ports: ["4000:4000"]
-    depends_on: [adoit-mcp, semantic-mcp]
+    depends_on: [adoit-mcp, semantic-mcp, storage-mcp]
   review:
     <<: *lab
     command: ["streamlit", "run", "review/app.py", "--server.port", "8501", "--server.headless", "true"]

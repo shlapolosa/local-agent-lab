@@ -157,6 +157,23 @@ def semantic_export_archimate(scheme: str, root_label: str | None = None, depth:
 
 
 @mcp.tool()
+def semantic_store_spec(spec: dict | str, name: str = "model.spec.json") -> dict:
+    """Store a model spec (the archimate_render / semantic_validate_model JSON) in the artifact
+    store and return its art:// reference plus counts. Lets a workload keep its intermediate
+    spec BY REFERENCE without holding store credentials itself — the deterministic workflow
+    node calls this through the gateway. Writes only to the artifact store (never to the EA
+    repository), so it needs no human approval."""
+    with tracer.start_as_current_span("semantic_store_spec") as span:
+        if isinstance(spec, str):
+            spec = json.loads(spec)
+        ref = artifacts.store().put(name, json.dumps(spec).encode(), "application/json")
+        span.set_attributes({"semantic.spec_ref": ref, "semantic.elements": len(spec.get("elements", [])),
+                             "semantic.relations": len(spec.get("relations", []))})
+        return {"spec_ref": ref, "name": name, "elements": len(spec.get("elements", [])),
+                "relations": len(spec.get("relations", [])), "views": len(spec.get("views", []))}
+
+
+@mcp.tool()
 def semantic_questions() -> dict:
     """Named traceability questions available to semantic_ask, with their parameters."""
     return S.questions()
