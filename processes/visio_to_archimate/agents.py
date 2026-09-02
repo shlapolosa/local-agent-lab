@@ -123,11 +123,12 @@ def make_agent(name: str, instructions: str, credential: str,
     # A real per-request timeout + bounded output: without them a stalled turn hangs the host
     # forever (observed: a BA run sat 2.5 h on one in-flight /v1/responses call), and kimi-k3's
     # reasoning can emit ~8k tokens per turn, which store=False then resends every turn.
-    # The output cap must LEAVE ROOM for that reasoning: it counts toward max_output_tokens, and a
-    # 6000 cap ended a multimodal+tools BA turn with finish=incomplete and NO final text (twice,
-    # verified in gateway spans) -> the JSON gate rejected an empty description. kimi-k3 ignores
-    # reasoning_effort via Ollama (verified), so 16000 is the working default; the timeout, not the
-    # cap, is what protects against a hang.
+    # The output cap must LEAVE ROOM for that reasoning: it counts toward max_output_tokens. A
+    # 6000 cap ended a tiny BA turn finish=incomplete with no text; 16000 still exhausted on a
+    # DENSE 1600px diagram (out=16000, finish=incomplete, no JSON — verified) because kimi-k3
+    # reasons for thousands of tokens about a busy image before answering. 32000 fits image
+    # reasoning + the JSON; kimi-k3 ignores reasoning_effort via Ollama (verified), so the cap is
+    # the only lever, and the wall-clock timeout (not the cap) protects against a hang.
     from openai import AsyncOpenAI
     http = AsyncOpenAI(
         api_key=credential, base_url=os.environ["GATEWAY_URL"].rstrip("/") + "/v1/",
@@ -139,4 +140,4 @@ def make_agent(name: str, instructions: str, credential: str,
     client = OpenAIChatClient(model=MODEL, api_key=credential, async_client=http)
     return Agent(client=client, name=name, instructions=instructions, tools=tools,
                  default_options=ChatOptions(
-                     store=STORE, max_tokens=int(os.environ.get("AGENT_MAX_OUTPUT_TOKENS", "16000"))))
+                     store=STORE, max_tokens=int(os.environ.get("AGENT_MAX_OUTPUT_TOKENS", "32000"))))

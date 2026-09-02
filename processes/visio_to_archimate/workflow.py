@@ -195,11 +195,17 @@ def build_workflow(cfg):
         r = await asyncio.wait_for(agent.run(msg), timeout=BA_RUN_TIMEOUT)
         obj = _extract_json(r.text)
         err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
-        if err:                                  # one corrective retry, then hard reject
-            r = await asyncio.wait_for(
-                agent.run(f"Your description was rejected as incomplete/invalid: {err}\n"
-                          f"Fix exactly that and resend the full corrected JSON only."),
-                timeout=BA_RUN_TIMEOUT)
+        if err:
+            # One corrective retry. It MUST re-send the original contents (the diagram image +
+            # figures): the client is stateless (store=False), so a bare text correction would run
+            # in a fresh conversation blind to the diagram — verified it then also returns "no
+            # elements". "no JSON" almost always means the previous turn spent its whole output
+            # budget reasoning (finish=incomplete); tell it to emit the JSON FIRST.
+            note = (f"Your previous answer was rejected: {err}. Re-read the attached diagram and "
+                    f"documents above and resend ONLY the corrected JSON system description. Output "
+                    f"the JSON object FIRST, before any reasoning, so it is not truncated.")
+            retry = Message("user", [*msg.contents, Content.from_text(note)])
+            r = await asyncio.wait_for(agent.run(retry), timeout=BA_RUN_TIMEOUT)
             obj = _extract_json(r.text)
             err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
             if err:
