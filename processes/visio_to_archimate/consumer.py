@@ -83,9 +83,13 @@ def main() -> None:
         workflows.ack(GROUP, eid)
         print(f"request {rid} marked failed (stale from a previous run)", flush=True)
     print(f"consumer ready  service={SERVICE} group={GROUP} consumer={CONSUMER}", flush=True)
+    # BLOCK must be shorter than the Redis client's socket_timeout (5 s in shared/approvals.py):
+    # with BLOCK 5000 the server's "nothing yet" reply arrived just after the client gave up on
+    # Railway's private network, so every idle poll raised TimeoutError (delivery still worked,
+    # but the log filled and each miss cost a 5 s back-off). 3 s leaves the RTT headroom.
     while not _stop:
         try:
-            for eid, f in workflows.channel_events(GROUP, CONSUMER, block_ms=5000, count=1):
+            for eid, f in workflows.channel_events(GROUP, CONSUMER, block_ms=3000, count=1):
                 handle(eid, f)
         except Exception as e:                    # noqa: BLE001 — Redis hiccup: log, back off, keep serving
             print(f"consumer loop error: {type(e).__name__}: {e}", flush=True)
