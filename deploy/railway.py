@@ -83,6 +83,14 @@ def load_env_for_cloud() -> dict:
         if re.match(r"^[A-Z0-9_]+$", k):
             active[k] = v.strip().strip("'\"")
     active.update(cloud)                                   # cloud values override local
+    # Expand `$VAR` / `${VAR}` references against the parsed values — the shell does this on
+    # `source .env`, but Railway passes values verbatim, so e.g. ARTIFACTS_URL=$DATABASE_URL would
+    # otherwise reach the container as the literal "$DATABASE_URL" (psycopg: missing "=" ...). Two
+    # passes resolve one level of chaining; unknown refs are left untouched.
+    def expand(v):
+        return re.sub(r"\$\{?([A-Z_][A-Z0-9_]*)\}?", lambda m: active.get(m.group(1), m.group(0)), v)
+    for _ in range(2):
+        active = {k: expand(v) for k, v in active.items()}
     drop = {"RAILWAY_TOKEN", "RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID", "NEON_API_KEY",
             "NEON_PROJECT_ID", "NEON_ORG_ID", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"}
     return {k: v for k, v in active.items() if k not in drop and v != ""}
