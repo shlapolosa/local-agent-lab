@@ -3,8 +3,11 @@
   substrate  — the shared plane: gateway (public), semantic-mcp + adoit-mcp (internal),
                review (public). Lives in the existing project alongside Jaeger, so the
                gateway reaches the MCP servers over Railway private DNS (*.railway.internal).
-  workload   — a business process (visio) referencing the substrate ONLY via the gateway's
-               public domain + shared backends. (Handled by deploy/railway_workload... later.)
+  workload   — a business process (e.g. visio) as its OWN service, referencing the substrate
+               ONLY via the gateway's PUBLIC domain + the shared managed backends — never the
+               MCP servers (internal to the substrate) or another workload. Run-to-completion
+               jobs deploy with restartPolicyType=NEVER (re-run = redeploy); event/A2A-driven
+               hosts stay long-lived. Each workload is deployed/torn down independently.
 
 Builds `deploy/Dockerfile` from the PUBLIC GitHub repo (no local Docker, no GitHub app needed).
 Config/secrets come from `.env`: active `KEY=value` lines, with `# CLOUD: KEY=value` comment
@@ -12,6 +15,7 @@ values overriding the machine-local ones (Redis Cloud, Railway Jaeger). Secrets 
 `.env`, never in this script. Idempotent: services are found by name and updated in place.
 
 Usage: set -a && source .env && set +a && python deploy/railway.py substrate up|down|status
+       set -a && source .env && set +a && python deploy/railway.py workload visio up|down|status
 """
 import json
 import os
@@ -222,9 +226,96 @@ def substrate_down():
             print(f"  {label:13} already {d['status'].lower()}")
 
 
+# --- workloads: each business process is its OWN service, deployed independently ON the substrate ---
+# The two-tier contract: a workload reaches the substrate ONLY through the gateway's PUBLIC domain
+# plus the shared managed backends (Neon, Redis Cloud, Railway Jaeger) from .env — never the MCP
+# servers (internal to the substrate) or another workload; cross-workflow coupling goes via events
+# (Redis Streams) or A2A through the gateway. The public URL is the door by design (and the gateway
+# binds IPv4 — see SUBSTRATE — so its *.railway.internal name would not be reachable anyway).
+WORKLOADS = {
+    "visio": {
+        "service": "wf-visio",
+        # Railway has no volume mounts and the .vsdx fixture is git-ignored: generate it at start,
+        # then run the host to completion (Visio -> BA -> Architect -> ADOIT import staged for approval).
+        "cmd": "python -m processes.visio_to_archimate.make_sample_vsdx && "
+               "python -m processes.visio_to_archimate.host",
+        "restart": "NEVER",   # run-to-completion job: exit 0 means done, not crashed; re-run = redeploy
+        "env": {"AGENT_RESPONSES_STORE": "false"},
+    },
+}
+
+
+def _public(ids, name):
+    d = domain_of(ids[name]) if ids.get(name) else None
+    return f"https://{d}" if d else None
+
+
+def configure_workload(sid, spec, base_env, ids):
+    env = dict(base_env)
+    gw = _public(ids, "gateway")
+    if not gw:
+        raise SystemExit("substrate gateway has no public domain — deploy the substrate first")
+    env["GATEWAY_URL"] = gw                                     # the ONLY substrate coordinate
+    env["REVIEW_APP_URL"] = _public(ids, "review") or env.get("REVIEW_APP_URL", "")
+    for k in ("ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "BIND_HOST"):
+        env.pop(k, None)                                      # workloads never see the MCP servers
+    env.update(spec.get("env", {}))
+    gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
+        {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
+                "variables": env, "replace": True, "skipDeploys": True}})
+    gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
+        'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
+        {"s": sid, "e": ENV, "in": {"dockerfilePath": "deploy/Dockerfile", "startCommand": spec["cmd"],
+                                    "healthcheckPath": "",        # a job serves nothing to probe
+                                    "restartPolicyType": spec.get("restart", "ON_FAILURE")}})
+    return gw
+
+
+def workload_up(name):
+    spec = WORKLOADS[name]
+    ids = services()
+    base = load_env_for_cloud()
+    sid, created = ensure_service(spec["service"])
+    print(f"deploying workload '{name}' as service {spec['service']} "
+          f"({'created' if created else 'exists '} {sid[:8]}) from {REPO}@{BRANCH}")
+    gw = configure_workload(sid, spec, base, ids)
+    deploy(sid)
+    print(f"  references substrate gateway {gw}; restart={spec.get('restart')}; no ingress (job)")
+    print(f"  watch: python deploy/railway.py workload {name} status   (logs: Railway dashboard)")
+
+
+def workload_status(name):
+    spec = WORKLOADS[name]
+    sid = services().get(spec["service"])
+    if not sid:
+        print(f"  {spec['service']:13} (not created)")
+        return
+    d = latest(sid)
+    print(f"  {spec['service']:13} {d['status'].lower():10} (job: SUCCESS = ran; check logs for the result)")
+
+
+def workload_down(name):
+    spec = WORKLOADS[name]
+    sid = services().get(spec["service"])
+    if not sid:
+        return
+    d = latest(sid)
+    if d["status"] in ("SUCCESS", "DEPLOYING", "BUILDING"):
+        gql('mutation($id:String!){ deploymentRemove(id:$id) }', {"id": d["id"]})
+        print(f"  {spec['service']:13} stopped (config/variables kept)")
+    else:
+        print(f"  {spec['service']:13} already {d['status'].lower()}")
+
+
 if __name__ == "__main__":
+    usage = ("usage: railway.py substrate up|down|status\n"
+             "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status")
     tier = sys.argv[1] if len(sys.argv) > 1 else ""
-    cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
-    if tier != "substrate":
-        raise SystemExit("usage: railway.py substrate up|down|status")
-    {"up": substrate_up, "down": substrate_down, "status": substrate_status}[cmd]()
+    if tier == "substrate":
+        cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
+        {"up": substrate_up, "down": substrate_down, "status": substrate_status}[cmd]()
+    elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:
+        cmd = sys.argv[3] if len(sys.argv) > 3 else "status"
+        {"up": workload_up, "down": workload_down, "status": workload_status}[cmd](sys.argv[2])
+    else:
+        raise SystemExit(usage)
