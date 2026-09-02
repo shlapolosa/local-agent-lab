@@ -155,6 +155,18 @@ stateless and address each other only through `shared/config.py` env vars:
 - `deploy/Dockerfile` (one image, role by command), `deploy/docker-compose.yml` (the cloud
   topology on any Docker host — unbuilt here: no daemon), `deploy/README.md` (Azure Container
   Apps mapping). `lab.sh` stays the single-machine runner with the same env contract.
+- **Railway is the live cloud host (Hobby plan), two tiers, each deployed/torn down on its own**
+  via `deploy/railway.py` (reads `.env`, `# CLOUD:` lines win, `$VAR` refs expanded):
+  `substrate up|down|status` (redis → semantic-mcp, adoit-mcp, gateway, review, + Jaeger) and
+  `workload visio up|down|status` (service `wf-visio`). A workload references the substrate ONLY
+  via the gateway's PUBLIC domain + the shared backends. Railway job gotchas, all verified:
+  (1) a Dockerfile start command is exec'd WITHOUT a shell — `a && b` runs only `a`, so chains
+  must be `sh -c '…'`; (2) a `restartPolicyType=NEVER` job reports SUCCESS whether it finished
+  or crashed — `workload status` reads the run's log markers instead; (3) no volume mounts, so
+  git-ignored generated inputs (`architecture/lab_model.json`, the `.vsdx` fixture) are generated
+  at start; (4) the gateway must bind `0.0.0.0` with NO healthcheck (public edge is IPv4, the
+  healthcheck probe is IPv6) and needs `DISABLE_SCHEMA_UPDATE=true`; (5) it's metered — the
+  substrate 24/7 is ~$20–25/mo, so `substrate down` between demos.
 
 ## Architecture Modelling
 
@@ -290,7 +302,12 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
   `.env`; `lab.sh` checks it instead of starting brew redis when `REDIS_URL` is set. Measured
   cost from the UAE: ~180 ms RTT × ~20 sequential gateway Redis calls ≈ **+3.8 s per gateway
   request** (4.75 s vs 0.95 s direct). That is geography, not Redis: it vanishes once the gateway
-  itself runs in the same Azure region. Until then, the local brew redis is a one-line fallback
+  itself runs in the same Azure region. **The cloud tier does exactly that (Sep 2026): Redis runs
+  INSIDE the Railway substrate** (`redis:7-alpine` image service + `/data` volume, `# CLOUD:
+  REDIS_URL=redis://redis.railway.internal:6379/0` in `.env`) — Redis Cloud's 30-client free-tier
+  cap was blown by LiteLLM alone (two 50-connection pools + pub/sub subscribers per gateway; the
+  cloud workload's approval publish died with "max number of clients reached"). Redis there must
+  bind `0.0.0.0 ::` (Railway private DNS is IPv6-only). Local `lab.sh` still uses brew Redis. Until then, the local brew redis is a one-line fallback
   (comment in `.env`) or a hybrid (approvals on cloud, gateway state local). Verify with
   `redis-cli -u "$REDIS_URL" --scan` (keys `spend:team:*`, `{api_key:...}:window`) and `GET /cache/ping`.
 - **Registry UI**: http://127.0.0.1:4000/ui (user `admin`, password = master key) — teams,

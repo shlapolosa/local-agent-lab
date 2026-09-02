@@ -10,7 +10,10 @@ runs the shared plane once; each product team ships its workload onto it):
   on their own. Cross-workflow deps go via **events (Redis Streams)** or **A2A through the gateway** —
   never direct container coupling — and degrade gracefully.
 
-Everything stateful is a managed service: **Neon** (keys/spend/skills/artifacts), **Redis Cloud**
+Everything stateful is a managed service: **Neon** (keys/spend/skills/artifacts), **Redis — inside the substrate on the cloud tier** (a `redis:7-alpine`
+service with a `/data` volume; Redis Cloud's 30-client free tier was blown by LiteLLM's two
+50-connection pools + pub/sub per gateway, and co-locating removes the cross-region RTT; it must
+bind `0.0.0.0 ::` because Railway private DNS is IPv6-only), still **Redis Cloud** as the flip-back
 (limiter + approval streams), **Ollama Cloud** (inference), **ADOIT** (EA repo), **Jaeger on
 Railway** (tracing). The tiers are stateless containers over that.
 
@@ -47,14 +50,27 @@ machine-local ones (Redis Cloud, Railway Jaeger) — secrets never leave `.env`.
 
 ## Running a workload against the cloud substrate
 
-Point any client/host at the substrate gateway's public domain — the workload references the plane,
-it doesn't embed it:
+A workload is its **own Railway service** that references the plane, it doesn't embed it — it
+gets ONLY the gateway's public domain + the shared backends (never the MCP servers):
 ```bash
+set -a && source .env && set +a
+python deploy/railway.py workload visio up|down|status     # service wf-visio, a run-to-completion job
+# or, from anywhere, the same thing by hand:
 GATEWAY_URL=https://<gateway-domain> .venv/bin/python -m processes.visio_to_archimate.host
 ```
 Agents authenticate (Entra JWT / per-agent key), tools run via the substrate MCP servers through the
 gateway, the approval stages into the substrate review app, and the run traces to Railway Jaeger —
-exactly the local behaviour, now off-laptop.
+exactly the local behaviour, now off-laptop (verified: one trace, 552 spans across the workload,
+gateway and both MCP servers). Railway job gotchas, all verified the hard way:
+- a Dockerfile **start command is exec'd without a shell** — `a && b` runs only `a`; chains must be
+  `sh -c '…'` (`railway.py` does this);
+- a `restartPolicyType=NEVER` job shows **SUCCESS whether it finished or crashed** — `workload status`
+  reads the run's own log markers (`approval requested:` / `Traceback`) instead of trusting it;
+- **no volume mounts**, so git-ignored generated inputs (`architecture/lab_model.json`, then the
+  `.vsdx` fixture) are generated at container start; re-run = redeploy (or set `cronSchedule`).
+- **Large workloads span containers by decomposition, not by splitting one graph**: one AF host per
+  sub-process/agent (own container, OTel service name, key), coupled via A2A through the gateway or
+  Redis Streams; throughput is replicas of a stateless host.
 
 ## Azure target (unchanged)
 
