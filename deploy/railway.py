@@ -78,7 +78,8 @@ def load_env_for_cloud() -> dict:
         line = raw.rstrip("\n")
         m = re.match(r"# CLOUD:\s*([A-Z0-9_]+)=(.*)$", line)
         if m:
-            cloud[m.group(1)] = m.group(2).strip().strip("'\"")
+            # drop a trailing inline comment ("value   # note") — a URL once shipped WITH its note
+            cloud[m.group(1)] = re.sub(r"\s+#.*$", "", m.group(2)).strip().strip("'\"")
             continue
         if line.startswith("#") or "=" not in line:
             continue
