@@ -23,7 +23,12 @@ model_list:
       api_key: os.environ/OLLAMA_API_KEY
       input_cost_per_token: 0.00000015
       output_cost_per_token: 0.00000060
+    model_info:                        # Ollama Cloud /api/show declares 'vision' for this model;
+      supports_vision: true            # image parts pass through the gateway (verified) — the BA
+                                       # reads diagram images inline with it
+      supports_function_calling: true
   - model_name: kimi-k2.7-code          # coding-focused, ~30% lower thinking-token usage
+    model_info: {supports_vision: true, supports_function_calling: true}   # per Ollama /api/show
     litellm_params:
       model: openai/kimi-k2.7-code
       api_base: https://ollama.com/v1
@@ -33,6 +38,7 @@ model_list:
   # --- `auto` resolves via gateway/auto_router.py BEFORE routing; this entry makes it a
   #     listable model and the fallback if the hook is ever disabled ---
   - model_name: auto
+    model_info: {supports_vision: true, supports_function_calling: true}   # glm-5.3-flash underneath
     litellm_params:
       model: openai/glm-5.3-flash
       api_base: https://ollama.com/v1
@@ -45,6 +51,7 @@ model_list:
       input_cost_per_token: 0.00000015   # nominal USD/token so budgets meter (Ollama Cloud is flat-rate)
       output_cost_per_token: 0.00000060
   - model_name: glm-flash               # cheap/fast utility model
+    model_info: {supports_vision: true, supports_function_calling: true}   # per Ollama /api/show
     litellm_params:
       model: openai/glm-5.3-flash
       api_base: https://ollama.com/v1

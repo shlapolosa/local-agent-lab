@@ -54,17 +54,35 @@ def architect_instructions() -> str:
 
 
 def read_vsdx_tool():
-    """A local function tool the BA agent calls to read the Visio file itself (no egress)."""
+    """A local function tool the BA agent calls to read the Visio file itself (no egress).
+    Accepts a filesystem path OR an art:// reference (materialised from the shared artifact store)."""
     import sys
     sys.path.insert(0, str(SKILLS / "visio-reader" / "scripts"))
     from read_vsdx import read_vsdx as _rv
+    from . import inputs as I
 
-    def read_vsdx(path: str) -> dict:
-        """Read a Microsoft Visio .vsdx file into {pages, shapes, connectors}. Call this with the
-        given file path to load the diagram BEFORE describing the system."""
-        return _rv(path)
+    def read_vsdx(source: str) -> dict:
+        """Read a Microsoft Visio .vsdx diagram into {pages, shapes, connectors}. `source` is the
+        exact path or art:// reference you were given. Call this BEFORE describing the system."""
+        return _rv(I.local_path(source))
 
     return read_vsdx
+
+
+def read_document_tool():
+    """A local function tool the BA calls to read a requirements document — parsed locally (no
+    egress), returned as plain text; that text then reaches the model through the gateway, where
+    the PII guardrail applies like any other prompt content."""
+    from . import inputs as I
+
+    def read_document(source: str) -> str:
+        """Read a requirements document (.docx, .pdf, .md, .txt, .csv) into plain text. `source` is
+        the exact path or art:// reference you were given. Read EVERY requirements document you
+        were given BEFORE producing the system description, and use it to name behaviours, data,
+        rules and actors the diagram only implies."""
+        return I.read_document(source)
+
+    return read_document
 
 
 # exact governed tools the Architect may call (gateway prefixes server name); NOT adoit_request_import
@@ -88,9 +106,20 @@ def make_agent(name: str, instructions: str, credential: str,
     """One ChatAgent -> gateway /v1 (Responses API, stateless) with the agent's own credential.
     `traceparent` (W3C headers) rides as default_headers so gateway LLM spans join the run's trace.
     `tools` optionally attaches in-agent function/MCP tools (agentic mode)."""
-    client = OpenAIChatClient(
-        model=MODEL, api_key=credential,
-        base_url=os.environ["GATEWAY_URL"].rstrip("/") + "/v1/",
-        default_headers=dict(traceparent or {}))
+    # A real per-request timeout + bounded output: without them a stalled turn hangs the host
+    # forever (observed: a BA run sat 2.5 h on one in-flight /v1/responses call), and kimi-k3's
+    # reasoning can emit ~8k tokens per turn, which store=False then resends every turn.
+    # The output cap must LEAVE ROOM for that reasoning: it counts toward max_output_tokens, and a
+    # 6000 cap ended a multimodal+tools BA turn with finish=incomplete and NO final text (twice,
+    # verified in gateway spans) -> the JSON gate rejected an empty description. kimi-k3 ignores
+    # reasoning_effort via Ollama (verified), so 16000 is the working default; the timeout, not the
+    # cap, is what protects against a hang.
+    from openai import AsyncOpenAI
+    http = AsyncOpenAI(
+        api_key=credential, base_url=os.environ["GATEWAY_URL"].rstrip("/") + "/v1/",
+        default_headers=dict(traceparent or {}),
+        timeout=float(os.environ.get("AGENT_REQUEST_TIMEOUT", "300")), max_retries=1)
+    client = OpenAIChatClient(model=MODEL, api_key=credential, async_client=http)
     return Agent(client=client, name=name, instructions=instructions, tools=tools,
-                 default_options=ChatOptions(store=STORE))
+                 default_options=ChatOptions(
+                     store=STORE, max_tokens=int(os.environ.get("AGENT_MAX_OUTPUT_TOKENS", "16000"))))

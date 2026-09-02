@@ -95,6 +95,20 @@ The first, `processes/visio_to_archimate/` (see its README), is the reference:
   a **deterministic fallback** (`_call_tools` by ref) guarantees the pipeline completes if a model
   skips a call on a given run. Both `archimate_render` and `semantic_validate_model` accept
   `spec`|`spec_ref` (and coerce a JSON-string spec → dict). Model: **kimi-k3**.
+- **BA inputs = a diagram + optional requirements documents, BY REFERENCE** (`processes/
+  visio_to_archimate/inputs.py`). Every input is a path or an `art://` ref in the shared artifact
+  store (`inputs upload <files>` → refs; a cloud job takes them via `# CLOUD: VISIO_DIAGRAM` /
+  `VISIO_REQUIREMENTS`). Three input kinds, three mechanisms — do not conflate them: a **`.vsdx`**
+  is structured OOXML and is parsed deterministically by the `read_vsdx` tool (vision would only
+  degrade it); a **diagram IMAGE** (png/jpg — no XML to parse) is attached inline to the BA's
+  message and read with vision (kimi-k3 / kimi-k2.7-code / glm-flash all declare `vision` on
+  Ollama Cloud and image parts pass through the gateway — verified; `supports_vision` is set in
+  `litellm-config.yaml`); a **requirements document** (docx/pdf/md/txt) is parsed locally by the
+  `read_document` tool into text, and its **embedded figures** are extracted (python-docx image
+  parts / pypdf page images, decorations dropped, big ones downscaled) and attached alongside as
+  "figure N embedded in <doc>" so the BA reads them too. Requirements are evidence, not new boxes:
+  a requirements-only element is added only if plainly part of THIS system (marked
+  `source: requirements`), otherwise it is an `openQuestion`; the BA output schema is unchanged.
 - **Agents never call each other directly — the workflow mediates via a typed contract.** The BA
   emits schema-validated JSON (`jsonschema`); a **deterministic gate rejects incomplete output**
   (one BA retry) before the Architect sees it. A2A-through-the-gateway is the future upgrade when

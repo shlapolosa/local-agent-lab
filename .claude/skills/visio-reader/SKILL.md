@@ -1,13 +1,17 @@
 ---
 name: visio-reader
 description: >
-  Read and interpret Microsoft Visio (.vsdx) diagrams into a structured, plain-language
-  description of the system they depict — shapes (with their stencil/master hint and caption)
-  and the connectors between them (source, target, label). Use this skill whenever a business
-  analyst or architect must understand an uploaded Visio diagram, extract the system's actors,
-  components, data and behaviours from it, or convert a Visio drawing into a downstream model
-  (e.g. ArchiMate). Covers how to turn loosely-drawn boxes-and-lines into a faithful system
-  description without over-committing to a formal notation the diagram does not actually use.
+  Read and interpret a system diagram — a Microsoft Visio (.vsdx) file OR a diagram image
+  (PNG/JPEG) — together with any accompanying requirements documents (.docx/.pdf/.md/.txt)
+  into a structured, plain-language description of the system: shapes (with their stencil/master
+  or visual hint and caption) and the connectors between them (source, target, label), enriched
+  with the behaviours, data, rules and actors the requirements make explicit. Use this skill
+  whenever a business analyst or architect must understand an uploaded diagram or requirements
+  pack, extract the system's actors, components, data and behaviours from it, or convert a
+  drawing into a downstream model (e.g. ArchiMate). Covers how to turn loosely-drawn
+  boxes-and-lines into a faithful system description without over-committing to a formal
+  notation the diagram does not actually use, and how to use requirements as evidence rather
+  than as a source of invented elements.
 ---
 
 # Reading Visio into a system description
@@ -65,6 +69,41 @@ Emit the structured system description defined by `schemas/ba_output.schema.json
 `{from,to,type,intent}`), and `openQuestions[]`. Respond with **only** that JSON object — no prose,
 no markdown fences. It is the validated contract handed to the Architect agent; a schema-invalid
 response is rejected and you are asked to correct it.
+
+## Diagram images and requirements documents
+
+The same method applies when the diagram is a **raster image** instead of a `.vsdx`, and when
+**requirements documents** accompany it. Inputs are named by an exact *source* (a path or an
+`art://` artifact reference); a `.vsdx` is loaded with `read_vsdx`, a document with
+`read_document`, and an image is simply attached to the message for you to read directly.
+
+**Reading an image diagram.** Every box (or icon with a caption) is a shape whose `text` is its
+caption; every arrow is a connector `from → to` with the arrow-head giving direction and any text
+on or beside it as the `label`. Visual cues — icon shapes, colours, swim-lanes, containers, line
+styles — are exactly what a stencil `master` is: a *soft hint* to intent, never ground truth.
+Read every box and every arrow before classifying anything. A grouping box around several
+shapes usually means a boundary (a system, a node, a domain), not an element of its own — decide
+from what crosses it. If an arrow-head or a label is genuinely unreadable, record that in
+`openQuestions` rather than guessing a direction.
+
+**Using requirements documents.** Requirements are *evidence about* the system the diagram
+shows — they are not a second diagram. Read each one fully first, then use them to:
+- name the **behaviours** (processes, functions, events, services) the diagram only implies;
+- describe **data** precisely — what is held, what moves, who owns it;
+- refine each element's `role` and `candidateType` (a "portal" that requirements describe as
+  a channel for citizens is an interface, not a component);
+- surface business rules, SLAs, volumes and constraints in the `summary`.
+An element that exists only in the requirements is not invented silently: if it is plainly a
+component/actor of *this* system, include it and mark its `role` with `source: requirements`;
+otherwise raise it as an `openQuestion`. A conflict between the diagram and the requirements is
+always an `openQuestion` quoting both sides. Never paste requirements prose into the output.
+
+**Figures embedded in documents.** Requirements packs carry diagrams and screenshots the text
+never spells out. They are extracted from the document (its image parts / page images) and
+attached alongside the main diagram, labelled "figure N embedded in <document>". Read each one
+with the image rules above; treat what it shows as evidence of the same weight as the document
+text, and cite the figure in `intent`/`openQuestions` when it is your source. Decorative images
+(logos, icons) carry no system meaning — ignore them.
 
 ## Boundaries
 

@@ -46,12 +46,14 @@ def _cred(prefix: str) -> str:
     return agent_headers(prefix)["Authorization"].removeprefix("Bearer ").strip()
 
 
-async def main(path: str):
+async def main(diagram: str, requirements: list[str] | None = None):
+    requirements = list(requirements or [])
     tracer = _setup_otel()
     with tracer.start_as_current_span("visio-to-archimate-run") as root:
         trace_id = format(root.get_span_context().trace_id, "032x")
         root.set_attribute("lab.trace_id", trace_id)
-        root.set_attribute("visio.input", os.path.basename(path))
+        root.set_attribute("visio.input", os.path.basename(diagram))
+        root.set_attribute("visio.requirements", len(requirements))
         traceparent: dict = {}
         propagate.inject(traceparent)      # W3C headers for this run -> gateway + MCP join the trace
         root_ctx = trace.set_span_in_context(root)
@@ -69,8 +71,10 @@ async def main(path: str):
             "outdir": str(HERE / "out"),
         }
         print(f"trace id: {trace_id}")
-        print(f"input:    {path}")
-        out = await run_workflow(cfg, path)
+        print(f"input:    {diagram}")
+        for req in requirements:
+            print(f"requires: {req}")
+        out = await run_workflow(cfg, {"diagram": diagram, "requirements": requirements})
 
     _shutdown()
     print("\n=== result ===")
@@ -94,7 +98,21 @@ def _shutdown():
 
 
 if __name__ == "__main__":
-    p = sys.argv[1] if len(sys.argv) > 1 else str(DEFAULT_VSDX)
-    if not os.path.exists(p):
-        sys.exit(f"no such file: {p}")
-    asyncio.run(main(p))
+    import argparse
+    ap = argparse.ArgumentParser(description="Visio/diagram (+ requirements) -> ArchiMate, staged for approval")
+    ap.add_argument("diagram", nargs="?", default=str(DEFAULT_VSDX),
+                    help="the system diagram: a .vsdx OR an image (.png/.jpg/...), as a path or an art:// ref")
+    ap.add_argument("-r", "--requirements", nargs="*", default=[],
+                    help="requirements documents (.docx/.pdf/.md/.txt), paths or art:// refs "
+                         "(upload: python -m processes.visio_to_archimate.inputs upload <files>)")
+    a = ap.parse_args()
+    # A cloud job has no CLI: VISIO_DIAGRAM / VISIO_REQUIREMENTS (space-separated) env vars — set
+    # as `# CLOUD:` lines in .env, typically art:// refs from `inputs upload` — override the
+    # defaults, so the same container runs real uploaded inputs instead of the generated fixture.
+    if len(sys.argv) == 1:
+        a.diagram = os.environ.get("VISIO_DIAGRAM") or a.diagram
+        a.requirements = os.environ.get("VISIO_REQUIREMENTS", "").split() or a.requirements
+    for src in [a.diagram, *a.requirements]:
+        if not src.startswith("art://") and not os.path.exists(src):
+            sys.exit(f"no such file: {src}")
+    asyncio.run(main(a.diagram, a.requirements))

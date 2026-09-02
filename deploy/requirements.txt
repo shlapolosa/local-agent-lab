@@ -20,3 +20,5 @@ mcp>=1.29                        # MCP SDK — agent_framework exports MCPStream
 vsdx>=0.6                        # read Visio .vsdx diagrams (visio-to-archimate BA ingest)
 jsonschema>=4                   # validate the BA-output contract
 msal>=1.31                      # agent identity: Entra client-credentials (shared/identity.py)
+python-docx>=1.1                # BA reads requirements .docx (processes/visio_to_archimate/inputs.py)
+pypdf>=4                        # BA reads requirements .pdf

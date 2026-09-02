@@ -28,6 +28,10 @@ from jsonschema import Draft7Validator
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+import asyncio, os  # noqa: E402
+from agent_framework import Content, Message  # noqa: E402  (inline image content for the BA)
+BA_RUN_TIMEOUT = float(os.environ.get("BA_RUN_TIMEOUT", "900"))   # wall-clock guard per BA run
+from processes.visio_to_archimate import inputs as I  # noqa: E402
 from processes.visio_to_archimate import agents as A  # noqa: E402
 from shared import artifacts  # noqa: E402
 
@@ -117,31 +121,56 @@ def build_workflow(cfg):
 
     def ba_agent():
         return A.make_agent("ba-agent", A.ba_instructions(), cfg["ba_cred"],
-                            cfg["traceparent"], tools=[A.read_vsdx_tool()])
+                            cfg["traceparent"], tools=[A.read_vsdx_tool(), A.read_document_tool()])
 
     def architect_agent(tools=None):
         return A.make_agent("architect-agent", A.architect_instructions(), cfg["ar_cred"],
                             cfg["traceparent"], tools=tools)
 
     @executor(id="ba")
-    async def ba(path: str, ctx: WorkflowContext[dict]) -> None:
+    async def ba(inputs: dict, ctx: WorkflowContext[dict]) -> None:
+        """inputs = {"diagram": <path|art://>, "requirements": [<path|art://>, ...]}.
+        The diagram is a .vsdx (the BA reads it with the read_vsdx tool) or an IMAGE, which is
+        attached inline to the message — kimi-k3 has vision via the gateway (verified) — so no
+        parse and no extra model call. Requirements documents are read with the read_document tool."""
         with span("ba-agent") as s:
             agent = ba_agent()
-            prompt = (f"The Visio diagram to analyse is at path: {path}\n"
-                      f"Call read_vsdx with that exact path, then produce the JSON system description.")
-            r = await agent.run(prompt)
+            diagram, reqs = inputs["diagram"], list(inputs.get("requirements") or [])
+            lines, contents = [], []
+            if I.kind(diagram) == "image":
+                lines.append("The system diagram is the ATTACHED IMAGE. Read every box, its label, "
+                             "every arrow and its label before classifying anything.")
+                contents.append(Content.from_data(I.load(diagram), I.media_type(diagram)))
+            else:
+                lines.append(f"The Visio diagram to analyse is: {diagram}\n"
+                             f"Call read_vsdx with exactly that source.")
+            for req in reqs:
+                lines.append(f"A requirements document is provided: {req}\n"
+                             f"Call read_document with exactly that source and use its content.")
+                # figures embedded in the document (diagrams, screenshots) carry meaning the text
+                # does not: extract them deterministically and attach them for the BA's vision.
+                for label, data, mtype in I.extract_images(req):
+                    lines.append(f"Attached: {label} — read it like a diagram or screenshot.")
+                    contents.append(Content.from_data(data, mtype))
+            lines.append("Then produce the JSON system description.")
+            msg = Message("user", [Content.from_text("\n".join(lines)), *contents])
+            s.set_attribute("ba.diagram_kind", I.kind(diagram))
+            s.set_attribute("ba.requirements", len(reqs))
+            r = await asyncio.wait_for(agent.run(msg), timeout=BA_RUN_TIMEOUT)
             obj = _extract_json(r.text)
             err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
             if err:                                  # one corrective retry, then hard reject
-                r = await agent.run(f"Your description was rejected as incomplete/invalid: {err}\n"
-                                    f"Fix exactly that and resend the full corrected JSON only.")
+                r = await asyncio.wait_for(
+                    agent.run(f"Your description was rejected as incomplete/invalid: {err}\n"
+                              f"Fix exactly that and resend the full corrected JSON only."),
+                    timeout=BA_RUN_TIMEOUT)
                 obj = _extract_json(r.text)
                 err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
                 if err:
                     raise RuntimeError(f"BA output rejected (incomplete after retry): {err}")
             s.set_attribute("ba.elements",
                             sum(len(obj.get(k, [])) for k in ("actors", "components", "data", "behaviors")))
-            await ctx.send_message({"path": path, "ba_output": obj})
+            await ctx.send_message({"path": diagram, "inputs": inputs, "ba_output": obj})
 
     @executor(id="architect_design")
     async def architect_design(state: dict, ctx: WorkflowContext[dict]) -> None:
@@ -222,9 +251,12 @@ def build_workflow(cfg):
         [ba, architect_design, store, architect_finalize, stage_import]).build()
 
 
-async def run_workflow(cfg, path: str):
+async def run_workflow(cfg, inputs):
+    """inputs: {"diagram": <path|art://>, "requirements": [...]} — a bare str is a diagram only."""
+    if not isinstance(inputs, dict):
+        inputs = {"diagram": inputs, "requirements": []}
     wf = build_workflow(cfg)
-    result = await wf.run(path)
+    result = await wf.run(inputs)
     outs = result.get_outputs()
     if not outs:
         raise RuntimeError("workflow produced no output")

@@ -68,6 +68,11 @@ gateway and both MCP servers). Railway job gotchas, all verified the hard way:
   reads the run's own log markers (`approval requested:` / `Traceback`) instead of trusting it;
 - **no volume mounts**, so git-ignored generated inputs (`architecture/lab_model.json`, then the
   `.vsdx` fixture) are generated at container start; re-run = redeploy (or set `cronSchedule`).
+- **Inputs go in by reference.** `python -m processes.visio_to_archimate.inputs upload <diagram>
+  <docs...>` stores them in the shared artifact store and prints `art://` refs; a cloud run takes
+  them via `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=` in `.env`. The diagram may be a `.vsdx`
+  (parsed deterministically) or an image (read with vision); requirements docs (docx/pdf/md/txt)
+  are parsed locally and their embedded figures attached for the BA to read too.
 - **Large workloads span containers by decomposition, not by splitting one graph**: one AF host per
   sub-process/agent (own container, OTel service name, key), coupled via A2A through the gateway or
   Redis Streams; throughput is replicas of a stateless host.

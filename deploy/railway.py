@@ -304,6 +304,11 @@ WORKLOADS = {
                "python -m processes.visio_to_archimate.make_sample_vsdx && "
                "python -m processes.visio_to_archimate.host'",
         "restart": "NEVER",   # run-to-completion job: exit 0 means done, not crashed; re-run = redeploy
+        # Real inputs instead of the fixture: upload them once (`python -m
+        # processes.visio_to_archimate.inputs upload <diagram> <docs...>` -> art:// refs) and add
+        # `# CLOUD: VISIO_DIAGRAM=art://...` / `# CLOUD: VISIO_REQUIREMENTS=art://... art://...`
+        # to .env; host.py honours them when it has no CLI args (a .png/.jpg diagram is read with
+        # vision; .docx/.pdf text AND their embedded figures reach the BA too).
         "env": {"AGENT_RESPONSES_STORE": "false"},
     },
 }
