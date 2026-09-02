@@ -115,6 +115,62 @@ def ensure_service(name):
     return d["serviceCreate"]["id"], True
 
 
+# --- the substrate's own Redis: an IMAGE service (like Jaeger), not built from the repo ---
+# Replaces Redis Cloud for the cloud tier (Sep 2026): LiteLLM opens two 50-connection pools
+# (cache + router, redis-py BlockingConnectionPool default) plus pub/sub subscribers per gateway,
+# which blew Redis Cloud's 30-client free-tier cap ("max number of clients reached"), and
+# co-locating it removes the ~180 ms cross-region RTT (+3.8 s per gateway request measured).
+# `.env` points the cloud tier at it via `# CLOUD: REDIS_URL=redis://redis.railway.internal:6379/0`
+# (litellm falls back to REDIS_URL when REDIS_HOST/PORT are absent — verified); local lab.sh keeps
+# brew Redis. Limiter/budget state + the approval streams live here, so it deploys FIRST.
+REDIS_NAME = "redis"
+REDIS_IMAGE = "redis:7-alpine"
+# --bind 0.0.0.0 :: is REQUIRED: Railway private DNS (*.railway.internal) is IPv6-only and Redis's
+# default v4-only bind would be unreachable from the gateway (the same bug class as the gateway's
+# own IPv4-edge / IPv6-healthcheck split). No password on the private network -> --protected-mode
+# no. appendonly + the /data volume let the approval streams survive a restart.
+REDIS_CMD = "redis-server --bind 0.0.0.0 :: --protected-mode no --appendonly yes --dir /data"
+
+
+def ensure_image_service(name, image):
+    existing = services()
+    if name in existing:
+        return existing[name], False
+    d = gql('mutation($in:ServiceCreateInput!){ serviceCreate(input:$in){ id } }',
+            {"in": {"projectId": PROJECT, "name": name, "source": {"image": image}}})
+    return d["serviceCreate"]["id"], True
+
+
+def ensure_volume(sid, mount_path):
+    """Attach a persistent volume at mount_path — idempotent (never creates a second one)."""
+    try:
+        d = gql('query($p:String!){ project(id:$p){ volumes{ edges{ node{ id volumeInstances{ '
+                'edges{ node{ serviceId mountPath } } } } } } } }', {"p": PROJECT})
+        for e in d["project"]["volumes"]["edges"]:
+            for vi in e["node"]["volumeInstances"]["edges"]:
+                if vi["node"]["serviceId"] == sid and vi["node"]["mountPath"] == mount_path:
+                    return False                                   # already attached
+    except SystemExit as e:
+        print(f"  (volume lookup unavailable: {str(e)[:60]} — attempting create)")
+    gql('mutation($in:VolumeCreateInput!){ volumeCreate(input:$in){ id } }',
+        {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid, "mountPath": mount_path}})
+    return True
+
+
+def ensure_redis():
+    sid, created = ensure_image_service(REDIS_NAME, REDIS_IMAGE)
+    print(f"  {REDIS_NAME:13} {'created' if created else 'exists '} {sid[:8]}  ({REDIS_IMAGE})")
+    gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
+        'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
+        {"s": sid, "e": ENV, "in": {"source": {"image": REDIS_IMAGE}, "startCommand": REDIS_CMD,
+                                    "healthcheckPath": "", "restartPolicyType": "ALWAYS"}})
+    if ensure_volume(sid, "/data"):
+        print(f"  {REDIS_NAME:13} volume attached at /data")
+    deploy(sid, latest=False)                                  # image service: no repo commit to fetch
+    print(f"  {REDIS_NAME:13} deploying ({REDIS_CMD.split()[0]} dual-stack bind, appendonly)")
+    return sid
+
+
 def configure(sid, spec, base_env):
     env = dict(base_env)
     env["BIND_HOST"] = "::"                                 # IPv6 for Railway private networking
@@ -182,7 +238,8 @@ def ensure_jaeger(ids):
 
 def substrate_up():
     base = load_env_for_cloud()
-    print(f"deploying substrate ({len(SUBSTRATE)} services) from {REPO}@{BRANCH}")
+    print(f"deploying substrate ({len(SUBSTRATE)} services + redis + jaeger) from {REPO}@{BRANCH}")
+    ensure_redis()                                         # first: gateway/MCP/review depend on it
     for name, spec in SUBSTRATE.items():
         sid, created = ensure_service(name)
         print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
@@ -199,7 +256,7 @@ def substrate_up():
 
 def substrate_status():
     ids = services()
-    for name in list(SUBSTRATE) + [JAEGER_NAME]:
+    for name in [REDIS_NAME] + list(SUBSTRATE) + [JAEGER_NAME]:
         sid = ids.get(name)
         label = "jaeger" if name == JAEGER_NAME else name
         if not sid:
@@ -212,8 +269,9 @@ def substrate_status():
 
 def substrate_down():
     ids = services()
-    # include Jaeger: tearing the substrate down stops its observability too (metered)
-    for name in list(SUBSTRATE) + [JAEGER_NAME]:
+    # include Redis + Jaeger: tearing the substrate down stops its state + observability too
+    # (metered). The Redis volume persists, so approval streams survive an up/down cycle.
+    for name in [REDIS_NAME] + list(SUBSTRATE) + [JAEGER_NAME]:
         sid = ids.get(name)
         label = "jaeger" if name == JAEGER_NAME else name
         if not sid:
@@ -235,10 +293,16 @@ def substrate_down():
 WORKLOADS = {
     "visio": {
         "service": "wf-visio",
-        # Railway has no volume mounts and the .vsdx fixture is git-ignored: generate it at start,
-        # then run the host to completion (Visio -> BA -> Architect -> ADOIT import staged for approval).
-        "cmd": "python -m processes.visio_to_archimate.make_sample_vsdx && "
-               "python -m processes.visio_to_archimate.host",
+        # Railway has no volume mounts and both inputs are git-ignored GENERATED files
+        # (architecture/lab_model.json, then the .vsdx fixture built from it): generate both at
+        # start, then run the host to completion (Visio -> BA -> Architect -> ADOIT import staged
+        # for approval). Verified: skipping lab_model.py fails with FileNotFoundError.
+        # `sh -c` is REQUIRED: Railway execs a Dockerfile start command without a shell, so a bare
+        # `a && b && c` runs only `a` (the rest arrives as ignored argv) and exits 0 — verified
+        # twice (only the first step's output ever appeared). The wrapper restores shell semantics.
+        "cmd": "sh -c 'python architecture/lab_model.py && "
+               "python -m processes.visio_to_archimate.make_sample_vsdx && "
+               "python -m processes.visio_to_archimate.host'",
         "restart": "NEVER",   # run-to-completion job: exit 0 means done, not crashed; re-run = redeploy
         "env": {"AGENT_RESPONSES_STORE": "false"},
     },
@@ -291,7 +355,23 @@ def workload_status(name):
         print(f"  {spec['service']:13} (not created)")
         return
     d = latest(sid)
-    print(f"  {spec['service']:13} {d['status'].lower():10} (job: SUCCESS = ran; check logs for the result)")
+    # Railway reports a NEVER-restart job as SUCCESS whether it exited 0 or crashed (verified), so
+    # the deployment status is NOT the result — the run's own log markers are authoritative.
+    verdict = "no logs yet"
+    try:
+        lg = gql('query($d:String!){ deploymentLogs(deploymentId:$d, limit:200){ message } }', {"d": d["id"]})
+        msgs = [l["message"] for l in lg["deploymentLogs"]]
+        blob = "\n".join(msgs)
+        if "approval requested:" in blob:
+            verdict = "RAN TO COMPLETION — " + next(m for m in msgs if "approval requested:" in m).strip()
+        elif "Traceback" in blob:
+            err = next((m for m in reversed(msgs) if m.strip() and not m.startswith(" ")), "see logs")
+            verdict = "FAILED — " + err.strip()[:140]
+        elif msgs:
+            verdict = "running / in progress"
+    except Exception:
+        pass
+    print(f"  {spec['service']:13} {d['status'].lower():10} {verdict}")
 
 
 def workload_down(name):

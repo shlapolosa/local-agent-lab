@@ -19,6 +19,13 @@ x-sub: &sub
     SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
     REVIEW_APP_URL: ${REVIEW_APP_URL:-http://review:8501}
     JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
+    # the substrate's own Redis (service above) — overrides the machine-local .env value, which
+    # inside a container would point at the container itself. HOST/PORT/PASSWORD feed litellm's
+    # router_settings; URL feeds everything else (shared/approvals.py, litellm cache).
+    REDIS_URL: redis://redis:6379/0
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    REDIS_PASSWORD: ""
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
     OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
   restart: unless-stopped
@@ -28,7 +35,23 @@ networks:
   substrate:
     name: substrate            # a stable, external-joinable name so workloads can attach
 
+volumes:
+  redis-data: {}               # approval streams + limiter state survive a restart
+
 services:
+  redis:                       # substrate Redis: limiter/budget/router state + the approval streams
+    # Lives IN the substrate (not Redis Cloud) since Sep 2026: LiteLLM opens two 50-connection
+    # pools + pub/sub subscribers per gateway, which blew Redis Cloud's 30-client free-tier cap,
+    # and co-locating removes the ~180 ms cross-region RTT (+3.8 s/gateway request measured).
+    # --bind 0.0.0.0 ::  -> dual-stack: Railway private DNS is IPv6-only and a v4-only bind is
+    # unreachable there (same bug class as the gateway's edge/healthcheck split). No password:
+    # reachable only on the private substrate network, hence --protected-mode no.
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "::", "--protected-mode", "no",
+              "--appendonly", "yes", "--dir", "/data"]
+    volumes: ["redis-data:/data"]
+    networks: [substrate]
+    restart: unless-stopped
   jaeger:                      # local tracing; on Railway this is the remote Jaeger (OTEL_* point at it)
     image: jaegertracing/jaeger:2.20.0
     ports: ["16686:16686", "4318:4318"]
