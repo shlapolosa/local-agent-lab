@@ -131,7 +131,7 @@ def main():
     def make_key(alias, role):
         return litellm("/key/generate", {
             "key_alias": alias, "team_id": team_id, "models": ["kimi-k3"],
-            "max_budget": 2.0, "budget_duration": "30d", "rpm_limit": 30, "tpm_limit": 60000,
+            "max_budget": 2.0, "budget_duration": "30d", "rpm_limit": 60, "tpm_limit": 240000,
             "metadata": {"role": role, "entra_app_registration": alias},
         })["key"]
 

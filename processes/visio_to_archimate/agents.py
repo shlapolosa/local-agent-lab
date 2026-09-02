@@ -132,7 +132,10 @@ def make_agent(name: str, instructions: str, credential: str,
     http = AsyncOpenAI(
         api_key=credential, base_url=os.environ["GATEWAY_URL"].rstrip("/") + "/v1/",
         default_headers=dict(traceparent or {}),
-        timeout=float(os.environ.get("AGENT_REQUEST_TIMEOUT", "300")), max_retries=1)
+        timeout=float(os.environ.get("AGENT_REQUEST_TIMEOUT", "300")),
+        # 3 retries with the SDK's backoff ride out a transient 429/5xx from the gateway (a per-key
+        # token window resetting) without masking a real outage — the timeout still bounds each try.
+        max_retries=int(os.environ.get("AGENT_MAX_RETRIES", "3")))
     client = OpenAIChatClient(model=MODEL, api_key=credential, async_client=http)
     return Agent(client=client, name=name, instructions=instructions, tools=tools,
                  default_options=ChatOptions(
