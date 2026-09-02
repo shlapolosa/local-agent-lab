@@ -53,6 +53,11 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
       OTEL_SERVICE_NAME: litellm-gateway
+      # Neon is already migrated by the native bootstrap (gateway/bootstrap_registry.py). A container
+      # has no local prisma migration state, so WITHOUT this it re-baselines + resolves all ~152
+      # migrations one-by-one against REMOTE Neon on every cold start (~20s each ≈ tens of minutes,
+      # verified). Skip schema management in containers; migrate the DB once, natively.
+      DISABLE_SCHEMA_UPDATE: "true"
     ports: ["4000:4000"]
     depends_on: [adoit-mcp, semantic-mcp]
   review:                     # human approval gate (cross-cutting) — public, password-gated

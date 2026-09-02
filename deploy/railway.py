@@ -33,9 +33,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUBSTRATE = {
     "semantic-mcp": {"cmd": "python mcp/semantic_mcp/server.py", "port": None},
     "adoit-mcp":    {"cmd": "python mcp/adoit_mcp/server.py", "port": None},
-    "gateway":      {"cmd": "litellm --config gateway/litellm-config.yaml --port 4000",
+    "gateway":      {"cmd": "litellm --config gateway/litellm-config.yaml --port 4000 --num_workers 1",
                      "port": 4000, "health": "/health/liveliness",
-                     "env": {"OTEL_SERVICE_NAME": "litellm-gateway"}},
+                     # DISABLE_SCHEMA_UPDATE: Neon is already migrated by the native bootstrap; without
+                     # this a fresh container re-baselines + resolves ~152 migrations one-by-one against
+                     # remote Neon on every cold start (~tens of minutes, verified locally). Skip it.
+                     "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
     "review":       {"cmd": "streamlit run review/app.py --server.port 8501 "
                             "--server.address :: --server.headless true", "port": 8501},
 }
@@ -123,9 +126,14 @@ def domain_of(sid):
     return None
 
 
-def deploy(sid):
-    gql('mutation($s:String!,$e:String!){ serviceInstanceDeploy(serviceId:$s, environmentId:$e) }',
-        {"s": sid, "e": ENV})
+def deploy(sid, latest=True):
+    # latestCommit:true makes Railway FETCH the newest commit of the tracked branch (without a
+    # GitHub webhook it otherwise rebuilds the snapshot from service-creation time). Image services
+    # (Jaeger) have no repo — plain redeploy.
+    q = ('mutation($s:String!,$e:String!){ serviceInstanceDeploy(serviceId:$s, environmentId:$e, latestCommit:true) }'
+         if latest else
+         'mutation($s:String!,$e:String!){ serviceInstanceDeploy(serviceId:$s, environmentId:$e) }')
+    gql(q, {"s": sid, "e": ENV})
 
 
 def latest(sid):
@@ -142,7 +150,7 @@ def ensure_jaeger(ids):
         print(f"  {'jaeger':13} not in project — deploy it via lab.sh (remote tracing)")
         return
     if latest(sid)["status"] != "SUCCESS":
-        deploy(sid)
+        deploy(sid, latest=False)                          # image service — no repo commit to fetch
         print(f"  {'jaeger':13} redeploying (observability sink for the substrate)")
     else:
         print(f"  {'jaeger':13} already up")

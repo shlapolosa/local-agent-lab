@@ -1,0 +1,15 @@
+# Local dev cruft that must never enter the image build context.
+.venv/
+.git/
+.lab/
+logs/
+out/
+architecture/out/
+**/__pycache__/
+*.pyc
+.env
+*.log
+node_modules/
+.DS_Store
+# licensed reference workbooks are mounted as a volume, not baked in
+semantic/reference/sources/
