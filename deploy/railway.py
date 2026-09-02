@@ -33,11 +33,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUBSTRATE = {
     "semantic-mcp": {"cmd": "python mcp/semantic_mcp/server.py", "port": None},
     "adoit-mcp":    {"cmd": "python mcp/adoit_mcp/server.py", "port": None},
-    "gateway":      {"cmd": "litellm --config gateway/litellm-config.yaml --port 4000 --num_workers 1",
-                     "port": 4000, "health": "/health/liveliness",
-                     # DISABLE_SCHEMA_UPDATE: Neon is already migrated by the native bootstrap; without
-                     # this a fresh container re-baselines + resolves ~152 migrations one-by-one against
-                     # remote Neon on every cold start (~tens of minutes, verified locally). Skip it.
+    "gateway":      {"cmd": "litellm --config gateway/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
+                     "port": 4000,   # NOTE: deliberately NO "health" key — see below.
+                     # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
+                     # Railway uses TWO different network paths to a container: the PUBLIC edge reaches it
+                     # over IPv4, but the HEALTHCHECK probes over IPv6. uvicorn binds a single stack, so
+                     # neither single choice satisfies both: `--host ::` is IPv6-only (healthcheck could
+                     # pass, but the IPv4 public edge 502s — every request did), and `--host 0.0.0.0` is
+                     # IPv4-only (public edge works, but the IPv6 healthcheck can't connect and Railway
+                     # kills the deploy). Fix = bind 0.0.0.0 for the public edge AND set no healthcheckPath
+                     # so the IPv6 probe never runs. Nothing internal calls the gateway (workloads use its
+                     # public URL), so IPv4-only inbound is fine; its OUTBOUND calls to the MCP servers over
+                     # private IPv6 DNS are unaffected by its own bind. (streamlit's :: happens to dual-stack,
+                     # which is why review works on :: — uvicorn does not.) Do NOT set a manual PORT var
+                     # either: forcing PORT=4000 also broke edge routing (verified). DISABLE_SCHEMA_UPDATE:
+                     # Neon is already migrated by the native bootstrap; skip the ~152-migration cold-start
+                     # replay a fresh container otherwise runs against remote Neon.
                      "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
     "review":       {"cmd": "streamlit run review/app.py --server.port 8501 "
                             "--server.address :: --server.headless true", "port": 8501},
@@ -102,9 +113,10 @@ def configure(sid, spec, base_env):
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
                 "variables": env, "replace": True, "skipDeploys": True}})
-    upd = {"dockerfilePath": "deploy/Dockerfile", "startCommand": spec["cmd"]}
-    if spec.get("health"):
-        upd["healthcheckPath"] = spec["health"]
+    # Always send healthcheckPath — empty string CLEARS any stale probe. The gateway must have NO
+    # healthcheck (its IPv6 probe fights the IPv4 0.0.0.0 bind and kills the deploy); see SUBSTRATE.
+    upd = {"dockerfilePath": "deploy/Dockerfile", "startCommand": spec["cmd"],
+           "healthcheckPath": spec.get("health", "")}
     gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
         'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
         {"s": sid, "e": ENV, "in": upd})
