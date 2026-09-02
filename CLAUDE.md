@@ -8,6 +8,29 @@ A local prototyping lab for enterprise agentic solutions targeting Azure, run en
 
 The goal is **pattern parity with Azure, not feature parity**: every prototype agent authenticates, egresses through a gateway, is metered, is PII-scanned, and is traced — exactly as in production. Application code uses the **Microsoft Agent Framework** so solutions migrate to Azure (Container Apps + APIM + AI Foundry) without rework.
 
+## Debugging & Error Resolution (methodology — follow on ANY error or failure)
+
+Resolve every error or failure by **root-cause analysis, never by guessing** — this is a principle,
+not a last resort. Read the actual error, logs, and state; form a specific hypothesis about *why*;
+confirm it against evidence **before** changing anything. Never pattern-match a fix and hope. Then
+escalate through these steps in order, stopping the moment the cause is found:
+
+1. **Clear error → fix it.** If the message names the cause unambiguously, apply the fix.
+2. **Not immediately obvious → verify correct component usage via docs.** Pull the component's
+   documentation through **context7** (`resolve-library-id` → `query-docs`) and check you are using
+   it correctly. If the component — or its specific version — is **not in context7**, web-search for
+   the official docs.
+3. **Using it correctly but still failing → search for others' reports.** Web-search the exact
+   error/symptom for similar issues faced by others and their resolutions (GitHub issues, forums).
+4. **No similar findings → read the source.** If the component's source is available, read it to
+   understand how it is actually meant to work and what triggers the failure.
+5. **Spike locally for fast turnaround.** Whenever possible, reproduce and fix in a fast local loop
+   before touching the slow/remote path — e.g. build+run the container locally (~70 s boot) before
+   redeploying to Railway (~5 min build cycle). A local spike that isolates the cause is worth more
+   than repeated remote guesses. (Reference: the Railway gateway 502 was solved this way — root-caused
+   from deploy logs to an IPv4-edge-vs-IPv6-healthcheck bind mismatch, not guessed; see
+   `deploy/railway.py` comments.)
+
 ## Service Mapping (local analogue → Azure target)
 
 | Local component | Stands in for | Role |
