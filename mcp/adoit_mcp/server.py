@@ -41,6 +41,7 @@ SKILL_SCRIPTS = os.path.join(
 sys.path.insert(0, os.path.abspath(SKILL_SCRIPTS))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from archimate_engine import Model  # noqa: E402
+import adoit_rest  # noqa: E402  (ADOIT 18 REST read facade — search / object detail)
 from shared import approvals, artifacts, config  # noqa: E402  (approval gate, artifact store, addresses)
 from shared.mcpauth import BearerAuthMiddleware  # noqa: E402
 
@@ -158,6 +159,34 @@ def adoit_repos() -> dict:
                                      headers={"Authorization": f"Basic {cred}"})
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
+
+
+@mcp.tool()
+def adoit_search(name_like: str = "", class_name: str = "", scope: str = "objects", limit: int = 50) -> list:
+    """Search the EXISTING architecture in the ADOIT repository (read-only) — the way to check
+    whether something is already modelled before designing. Give a `name_like` (substring, e.g.
+    'portal') and/or a `class_name` (an ArchiMate type like 'ApplicationComponent', or a raw ADOIT
+    class 'C_APPLICATION_COMPONENT'); at least one is required. `scope`: 'objects' (repository
+    objects, default), 'models' (diagrams/views), or 'all'. Returns
+    [{id, name, class, artefactType, groupId, modelName}] — use the `id` with adoit_object, and reuse
+    it as an element id when regenerating so the object is updated in place instead of duplicated."""
+    with tracer.start_as_current_span("adoit_search") as span:
+        res = adoit_rest.search(name_like, class_name, scope, limit)
+        span.set_attributes({"adoit.name_like": name_like, "adoit.class": class_name,
+                             "adoit.scope": scope, "adoit.hits": len(res)})
+        return res
+
+
+@mcp.tool()
+def adoit_object(object_id: str) -> dict:
+    """Full detail of one existing ADOIT object (read-only): its class, group, key attributes and
+    its relations ({type, target_id, target_name}). Use the `id` from adoit_search. Read this before
+    deciding an input is an UPDATE, to see what the existing element already connects to."""
+    with tracer.start_as_current_span("adoit_object") as span:
+        span.set_attribute("adoit.object_id", object_id)
+        obj = adoit_rest.get_object(object_id)
+        span.set_attributes({"adoit.class": obj.get("class") or "", "adoit.relations": len(obj.get("relations", []))})
+        return obj
 
 
 @mcp.tool()
