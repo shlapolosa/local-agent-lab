@@ -10,11 +10,20 @@ docx operating model.
 ## Shape
 
 ```
-ba ──▶ architect_design ──▶ store ──▶ architect_finalize ──▶ stage_import
-(reads inputs   (BA desc ->     (spec ->        (agent calls validate     (human-gated
- via gateway     engine spec)    art:// ref via  + render BY REF)          ADOIT import)
- storage tools)                  semantic-mcp)
+ba ──▶ resolve_existing ──▶ architect_design ──▶ store ──▶ architect_finalize ──▶ stage_import
+(reads   (search ADOIT:        (BA desc + matches   (spec ->    (agent calls validate  (human-gated
+ inputs   NEW vs UPDATE,        -> engine spec,      art:// ref  + render BY REF)        ADOIT import,
+ via gw   match existing ids)    reuse ids, folder)   via sem-mcp)                       decision shown)
+ storage)
 ```
+
+**Existing-architecture-aware.** `resolve_existing` searches the live ADOIT 18 repository
+(`adoit_search`, through the gateway) for objects related to the described system, and a Resolver
+agent (`prompts/resolve.md`) decides **NEW vs UPDATE**, picks the **domain**, and matches BA elements
+to existing ADOIT object ids. The Architect then **reuses those ids verbatim** (so ADOIT is updated,
+not duplicated) and tags every element with the domain `folder`; the engine emits `<organizations>`
+grouping by domain → layer; relation ids are stable hashes. The reviewer confirms update-vs-new at
+the approval gate. If ADOIT is unreachable the run proceeds as NEW.
 
 - A Microsoft Agent Framework **`WorkflowBuilder` graph** (`workflow.py`) — typed nodes, one host
   process, distinct OTel service name `process-visio-to-archimate`.

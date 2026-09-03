@@ -138,15 +138,24 @@ async def mcp_roundtrip():
                   "returned data" if ok else "empty")
         else:
             check("gateway->semantic-mcp round-trip", False, "no read-only semantic tool found")
-        # read-only call to the adoit server (GET repos against ADOIT:CE)
+        # read-only call to the adoit server (GET repos against the live ADOIT 18 tenant)
         rep = next((n for n in names if n.endswith("adoit_repos")), None)
         if rep:
             r = await c.call_tool(rep, {})
             ok = r is not None and (getattr(r, "content", None) or getattr(r, "data", None) or r)
-            check("gateway->adoit-mcp round-trip (adoit_repos -> ADOIT:CE)", bool(ok),
+            check("gateway->adoit-mcp round-trip (adoit_repos)", bool(ok),
                   "returned data" if ok else "empty")
         else:
             check("gateway->adoit-mcp round-trip", False, "no adoit_repos tool")
+        # existing-architecture search: adoit_search must return real objects from the ADOIT 18 repo
+        srch = next((n for n in names if n.endswith("adoit_search")), None)
+        if srch:
+            r = await c.call_tool(srch, {"class_name": "ApplicationComponent", "limit": 5})
+            items = r.data if isinstance(r.data, list) else (json.loads(r.content[0].text) if r.content else [])
+            check("adoit_search (existing architecture, ApplicationComponents)", bool(items),
+                  f"{len(items)} existing component(s)" if items else "no hits")
+        else:
+            check("adoit_search present", False, "no adoit_search tool (grant adoit_mcp / restart gateway)")
         # governed object store: list through the gateway (read-only), then info on the first ref
         lst = next((n for n in names if n.endswith("storage_list")), None)
         if lst:
