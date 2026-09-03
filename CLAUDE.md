@@ -150,7 +150,24 @@ The first, `processes/visio_to_archimate/` (see its README), is the reference:
 
 The ADOIT EA integration wraps the ADOIT REST API (Community Edition has no built-in MCP), built on the existing internal Python ArchiMate library (61 element types, role-based architect agents). FastMCP exposes typed create/read/update tools; validation runs against the library before any repository write. Read/query tools may be shared across processes; write tools are ACL-restricted to a dedicated EA Modeling Agent. ADOIT credentials live in `.env` (`ADOIT_USERNAME`/`ADOIT_PASSWORD`, plus `ADOIT_BASE_URL` and `ADOIT_REPO_ID`), alongside `OLLAMA_API_KEY`.
 
-Verified against the live CE tenant (Aug 2026): Basic auth works against `GET {ADOIT_BASE_URL}/rest/2.0/repos` (returns the user's repository), but deeper REST 2.0 endpoints (`/objects` search, `/models`) return 403/"service not present" — the full REST module appears disabled on Community Edition. Expect to work within this limited surface or via the browser-facing API until a full ADOIT 18 tenant is available.
+**The tenant is a full ADOIT 18 with a working REST 2.0 API (verified live Sep 2026 —
+`GET /rest/2.0/version` → `productVersion 18.0.0`), NOT the Community Edition an earlier note
+assumed.** Search, object read, and full CRUD all work; the earlier "REST disabled / 403 service
+not present" was a wrong-method/wrong-path probe. The verified read surface (`mcp/adoit_mcp/adoit_rest.py`):
+- **Search** — `GET /rest/2.0/repos/{repo}/search?query=<url-encoded JSON>` (Basic auth). Query =
+  `{"filters":[{"className":"C_APPLICATION_COMPONENT"} | {"attrName":"NAME","op":"OP_LIKE","value":"x"}],
+   "scope":{"repoObjects":true,"models":true,"modObjects":true}}` — **a non-empty filter is required**
+  (empty → 400). Items: `{id,name,type,artefactType(REPOSITORY_OBJECT|DIAGRAM|MODINST),metaName(C_*),
+  groupId,modelId,modelName}`. Exposed as the read-only tool **`adoit_search(name_like, class_name, scope, limit)`**.
+- **Object detail** — `GET /rest/2.0/repos/{repo}/objects/{objId}` → attributes + relation slots
+  (`{name, metaName(RC_*), targets:[{id,name,metaName,direction}]}`). Tool **`adoit_object(object_id)`**.
+- **Write** — `OPTIONS /objects/{id}` → `PATCH,DELETE`; `POST /objects` to create. So true in-place
+  updates are possible via REST (the Phase-2 governed write facade); today writes still go through
+  the human-gated file-import. className map is deterministic (CamelCase ↔ `C_UPPER_SNAKE`).
+The repo already holds a real ~134-object landscape. The workflow is **existing-architecture-aware**:
+a `resolve_existing` node searches ADOIT, an agent decides NEW vs UPDATE + matches BA elements to
+existing object ids, the Architect **reuses those ids** (no duplicates) and folders by domain, and
+the reviewer confirms update-vs-new at the approval gate.
 
 ## Local-first vs cloud toggles
 

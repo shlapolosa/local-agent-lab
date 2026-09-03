@@ -153,6 +153,18 @@ if req.get("comment"):
     st.warning(f'Last comment ({req.get("decided_by")} via {req.get("decided_via")}): {req["comment"]}')
 
 summ = p.get("summary", {})
+# existing-architecture resolution — is this NEW or an UPDATE to something already in ADOIT?
+decision = summ.get("decision")
+if decision:
+    if decision == "UPDATE":
+        base = summ.get("base_model") or summ.get("domain")
+        st.warning(f'**UPDATE** to **{base}** (domain: {summ.get("domain")}) — '
+                   f'{summ.get("matched_existing", 0)} existing element(s) reused, '
+                   f'{summ.get("new_elements", 0)} new. Approving reuses the existing ADOIT object ids.')
+    else:
+        st.success(f'**NEW** model in domain **{summ.get("domain")}** — {summ.get("new_elements", summ.get("elements"))} new element(s).')
+    if summ.get("resolve_rationale"):
+        st.caption(summ["resolve_rationale"])
 m = st.columns(5)
 for col, k in zip(m, ("elements", "relations", "views", "violations", "warnings")):
     col.metric(k, summ.get(k, "—"))

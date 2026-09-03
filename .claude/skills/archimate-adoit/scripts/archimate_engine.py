@@ -128,12 +128,15 @@ class Model:
         self.elements = {}      # eid -> (type, name, doc)
         self.relations = {}     # rid -> (type, src, tgt, extra-attrs dict)
         self.views = []
+        self.folders = {}       # eid -> folder/domain label (drives <organizations>)
         self._rseq = 0
 
-    def el(self, eid, atype, name, doc=None):
+    def el(self, eid, atype, name, doc=None, folder=None):
         if atype not in _TYPES:
             raise ValueError(f"unknown ArchiMate element type: {atype}")
         self.elements[eid] = (atype, name, doc)
+        if folder:
+            self.folders[eid] = folder
         return eid
 
     def rel(self, rtype, src, tgt, rid=None, accessType=None):
@@ -273,6 +276,28 @@ class Model:
                 out.append(f'<relationship identifier="id-{rid}" source="id-{s}" target="id-{g}" '
                            f'xsi:type="{t}"{at}/>')
             out.append('</relationships>')
+        # <organizations>: a folder tree grouping elements by domain (primary) then ArchiMate layer.
+        # Emitted ONLY when folders are set (otherwise the output is byte-identical to before).
+        # Schema order (ArchiMate 3.1 Model Exchange): elements, relationships, organizations, views.
+        if self.folders:
+            tree = {}
+            for eid in self.elements:
+                dom = self.folders.get(eid)
+                if not dom:
+                    continue
+                layer = _TYPES.get(self.elements[eid][0], "Other")
+                tree.setdefault(dom, {}).setdefault(layer, []).append(eid)
+            if tree:
+                out.append('<organizations>')
+                for dom in sorted(tree):
+                    out.append(f'<item><label xml:lang="en">{escape(dom)}</label>')
+                    for layer in sorted(tree[dom]):
+                        out.append(f'<item><label xml:lang="en">{escape(layer)}</label>')
+                        for eid in tree[dom][layer]:
+                            out.append(f'<item identifierRef="id-{eid}"/>')
+                        out.append('</item>')
+                    out.append('</item>')
+                out.append('</organizations>')
         if body:
             out.append('<views><diagrams>')
             out += body

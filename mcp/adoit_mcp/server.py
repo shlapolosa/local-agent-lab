@@ -88,7 +88,7 @@ def _load_spec(spec, spec_path=None, spec_ref=None):
 def _build(spec):
     m = Model(spec["name"], spec.get("id", "model"))
     for e in spec.get("elements", []):
-        m.el(e["id"], e["type"], e["name"], e.get("doc"))
+        m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
     for r in spec.get("relations", []):
         m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
     for v in spec.get("views", []):
@@ -231,10 +231,11 @@ def adoit_import_status(request_id: str) -> dict:
 
 @mcp.tool()
 def adoit_import_instructions() -> str:
-    """The governed write path into ADOIT:CE (its REST write endpoints are disabled)."""
+    """The governed file-import write path into ADOIT (the Phase-1 write path; REST write is Phase 2)."""
     return (
-        "ADOIT:CE write path (verified Aug 2026): REST 2.0 write endpoints return 403, so "
-        "imports go through the UI. 1) Log in at " + os.environ.get("ADOIT_BASE_URL", "") +
+        "ADOIT 18 write path (Phase 1): the model is imported through the UI (the governed granular "
+        "REST write facade — PATCH/POST/DELETE, which ADOIT 18 supports — is Phase 2). "
+        "1) Log in at " + os.environ.get("ADOIT_BASE_URL", "") +
         " 2) Menu -> Import/Export -> ArchiMate Model Exchange File -> upload the "
         ".archimate.xml. 3) Decline any auto-layout offer so the generated geometry "
         "survives. 4) Confirm interfaces render as icons (toggle representation to symbol "
