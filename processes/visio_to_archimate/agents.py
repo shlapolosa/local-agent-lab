@@ -53,6 +53,10 @@ def architect_instructions() -> str:
     ])
 
 
+def resolve_instructions() -> str:
+    return _read("prompts/resolve.md")
+
+
 def read_vsdx_tool():
     """LOCAL-DEV ONLY: a function tool the BA calls to read a Visio file from a filesystem path
     (no egress). Refs are never read here — for art:// inputs the BA gets the gateway's

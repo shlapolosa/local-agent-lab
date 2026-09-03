@@ -20,6 +20,7 @@ the deterministic node fetches for it.
 """
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import re
@@ -91,6 +92,38 @@ async def _call_tools_raw(headers, mcp_url, calls):
 
 async def _call_tools(headers, mcp_url, calls):
     return [r.data for r in await _call_tools_raw(headers, mcp_url, calls)]
+
+
+def _rid(src, rtype, tgt):
+    """Stable relation id from its endpoints+type — so the same relationship keeps its id across
+    runs/updates (the engine otherwise auto-numbers r1,r2… positionally)."""
+    return "r-" + hashlib.md5(f"{src}|{rtype}|{tgt}".encode()).hexdigest()[:10]
+
+
+async def _adoit_search_many(headers, mcp_url, terms, scope="all", per=5, cap=60):
+    """Search existing ADOIT content for many names in one gateway MCP session; merge unique
+    candidates by id. Each term -> adoit_search(name_like=term). Returns [] if the tool/ADOIT is
+    unavailable (the resolve step then treats the input as NEW)."""
+    seen, out = set(), []
+    try:
+        async with Client(StreamableHttpTransport(mcp_url, headers=headers)) as c:
+            names = [t.name for t in await c.list_tools()]
+            tool = next((n for n in names if n.endswith("adoit_search")), None)
+            if not tool:
+                return []
+            for term in terms:
+                if not term or len(term) < 3:
+                    continue
+                r = await c.call_tool(tool, {"name_like": term, "scope": scope, "limit": per})
+                items = r.data if isinstance(r.data, list) else (json.loads(r.content[0].text) if r.content else [])
+                for it in items or []:
+                    if it.get("id") and it["id"] not in seen:
+                        seen.add(it["id"]); out.append(it)
+                if len(out) >= cap:
+                    break
+    except Exception:
+        return out
+    return out
 
 
 def _images_from(result) -> list[tuple[bytes, str, str]]:
@@ -238,11 +271,50 @@ def build_workflow(cfg):
                             sum(len(obj.get(k, [])) for k in ("actors", "components", "data", "behaviors")))
             await ctx.send_message({"path": diagram, "inputs": inputs, "ba_output": obj})
 
+    @executor(id="resolve_existing")
+    async def resolve_existing(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Existing-architecture-aware step: search ADOIT for objects related to the described
+        system, then decide NEW vs UPDATE and match BA elements to existing ADOIT ids (so the
+        Architect reuses them instead of duplicating). Degrades to NEW if ADOIT is unreachable."""
+        with span("resolve-existing") as s:
+            ba = state["ba_output"]
+            names = [ba.get("systemName", "")] + [e.get("name", "")
+                     for k in ("components", "actors", "data", "behaviors") for e in ba.get(k, [])]
+            cands = await _adoit_search_many(cfg["ba_headers"], cfg["mcp_url"], names[:16])
+            s.set_attribute("resolve.candidates", len(cands))
+            if not cands:
+                existing = {"decision": "NEW", "domain": ba.get("systemName", "Unassigned"),
+                            "base_model": None, "matched": {}, "candidates": [],
+                            "rationale": "no related objects found in the ADOIT repository"}
+            else:
+                agent = A.make_agent("resolve-agent", A.resolve_instructions(), cfg["ar_cred"], cfg["traceparent"])
+                prompt = ("BA system description:\n" + json.dumps(ba) +
+                          "\n\nExisting ADOIT candidates:\n" + json.dumps(cands))
+                r = await asyncio.wait_for(agent.run(prompt), timeout=BA_RUN_TIMEOUT)
+                existing = _extract_json(r.text) or {}
+                existing.setdefault("decision", "NEW")
+                existing.setdefault("domain", ba.get("systemName", "Unassigned"))
+                existing.setdefault("matched", {})
+                existing["candidates"] = cands
+            s.set_attributes({"resolve.decision": existing["decision"], "resolve.domain": existing["domain"],
+                              "resolve.matched": len(existing.get("matched", {}))})
+            state["existing"] = existing
+            await ctx.send_message(state)
+
     @executor(id="architect_design")
     async def architect_design(state: dict, ctx: WorkflowContext[dict]) -> None:
         with span("architect-design") as s:
+            ex = state.get("existing") or {}
             agent = architect_agent()
-            r = await agent.run("BA system description:\n" + json.dumps(state["ba_output"]))
+            ctx_block = ""
+            if ex.get("matched") or ex.get("decision") == "UPDATE":
+                ctx_block = ("\n\nEXISTING ARCHITECTURE (from the ADOIT repository). Decision: "
+                             f"{ex.get('decision')} in domain '{ex.get('domain')}'. For every element below "
+                             "that is the SAME as one you emit, use its adoit_id VERBATIM as the element `id` "
+                             "(do not slug a new one) so it updates in place; slug fresh ids only for genuinely "
+                             "new elements. Put every element's `folder` = the domain.\n"
+                             + json.dumps(ex.get("matched", {})))
+            r = await agent.run("BA system description:\n" + json.dumps(state["ba_output"]) + ctx_block)
             spec = _extract_json(r.text)
             if not spec or "elements" not in spec:
                 r = await agent.run("That was not a valid engine spec. Resend ONLY the JSON object "
@@ -250,7 +322,17 @@ def build_workflow(cfg):
                 spec = _extract_json(r.text)
             if not spec or "elements" not in spec:
                 raise RuntimeError(f"Architect produced no spec: {(r.text or '')[:160]!r}")
-            s.set_attribute("spec.elements", len(spec.get("elements", [])))
+            # deterministic guarantees the model can't be relied on for: stable relation ids, and the
+            # domain folder on every element (drives ADOIT organisation + reuse regardless of the LLM).
+            domain = ex.get("domain")
+            for e in spec.get("elements", []):
+                if domain and not e.get("folder"):
+                    e["folder"] = domain
+            for rel in spec.get("relations", []):
+                rel.setdefault("id", _rid(rel.get("src"), rel.get("type"), rel.get("tgt")))
+            s.set_attributes({"spec.elements": len(spec.get("elements", [])),
+                              "spec.reused_ids": sum(1 for e in spec.get("elements", [])
+                                                     if e.get("id") in {m.get("adoit_id") for m in ex.get("matched", {}).values()})})
             state["spec"] = spec
             await ctx.send_message(state)
 
@@ -303,9 +385,16 @@ def build_workflow(cfg):
     async def stage_import(state: dict, ctx: WorkflowContext[dict]) -> None:
         with span("stage-import") as s:
             spec = state["spec"]
+            ex = state.get("existing") or {}
+            matched = ex.get("matched", {})
             summary = {"elements": len(spec.get("elements", [])), "relations": len(spec.get("relations", [])),
                        "views": state["views"], "semantic_illegal": len(state["semantic"]["illegal"]),
-                       "semantic_warnings": len(state["semantic"]["warnings"])}
+                       "semantic_warnings": len(state["semantic"]["warnings"]),
+                       # existing-architecture resolution — the reviewer approves as update vs new
+                       "decision": ex.get("decision", "NEW"), "domain": ex.get("domain"),
+                       "base_model": ex.get("base_model"), "matched_existing": len(matched),
+                       "new_elements": max(0, len(spec.get("elements", [])) - len(matched)),
+                       "resolve_rationale": ex.get("rationale")}
             req, = await _call_tools(cfg["ar_headers"], cfg["mcp_url"], [
                 ("adoit_request_import",
                  {"xml_ref": state["xml_ref"], "svg_refs": state["svg_refs"],
@@ -319,7 +408,7 @@ def build_workflow(cfg):
                 "semantic": state["semantic"]})
 
     return WorkflowBuilder(start_executor=ba).add_chain(
-        [ba, architect_design, store, architect_finalize, stage_import]).build()
+        [ba, resolve_existing, architect_design, store, architect_finalize, stage_import]).build()
 
 
 async def run_workflow(cfg, inputs):

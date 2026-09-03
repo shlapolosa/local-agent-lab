@@ -34,6 +34,12 @@ Rules:
 - **`id` is a stable slug** of the name: lowercase, spaces/punctuation → single dashes, ASCII only
   (e.g. "LiteLLM Proxy" → `litellm-proxy`, "/v1 (OpenAI)" → `v1-openai`). Ids must be unique; if two
   names slug the same, suffix `-2`, `-3`. `relations` reference elements by these ids, never by name.
+- **Reuse existing ids — do not duplicate the repository.** When the input includes an EXISTING
+  ARCHITECTURE block (a map of BA element name → `{adoit_id, adoit_name, class}` from the ADOIT
+  repository), any element you emit that is the SAME thing as a listed one MUST use that `adoit_id`
+  **verbatim** as its `id` (not a fresh slug), so ADOIT updates the object in place instead of
+  creating a duplicate. Slug fresh ids only for genuinely new elements. Give every element a
+  `"folder"` equal to the stated domain, so it is organised under the right application/domain.
 - **`type` is the exact ArchiMate 3.1 type.** Start from the BA's `candidateType`, but CORRECT it
   when the BA's classification is wrong for the evidence (e.g. a thing everything routes *through* is
   an `ApplicationInterface`, not an `ApplicationComponent`; a noun-phrase outcome is a `…Service`, a
