@@ -1,7 +1,8 @@
-"""visio-reader/scripts/read_vsdx — page selection, multi-page enumeration, connector endpoint
+"""src/lab/core/visio/read_vsdx — page selection, multi-page enumeration, connector endpoint
 resolution (Begin/End, order-of-appearance fallback, dangling ends), text-less shapes, Lucidchart
-type_hint evidence and the CLI. Offline: every fixture is a tiny OOXML .vsdx zipped IN the test.
-Run: .venv/bin/python tests/unit/core/visio/test_read_vsdx.py   (also pytest-compatible)"""
+type_hint evidence, GEOMETRIC connector recovery for a Lucidchart export (no <Connects> at all) and
+the CLI. Offline: every fixture is a tiny OOXML .vsdx zipped IN the test.
+Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/core/visio/test_read_vsdx.py"""
 import io
 import json
 import os
@@ -10,6 +11,8 @@ import sys
 import tempfile
 import zipfile
 from contextlib import redirect_stdout
+
+import pytest
 from xml.sax.saxutils import escape, quoteattr
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -40,6 +43,27 @@ def connector(sid, label=""):
 def connect(conn_id, to_id, cell):
     """One <Connect> row: cell is 'BeginX' | 'EndX' | anything else (unlabelled end)."""
     return f'<Connect FromSheet="{conn_id}" FromCell="{cell}" FromPart="9" ToSheet="{to_id}" ToCell="PinX" ToPart="3"/>'
+
+
+def boxed(sid, text, master, x, y, w=1.0, h=1.0, children=""):
+    """A 2-D shape placed at (x, y) with size (w, h) — bottom-left anchored (LocPin 0,0).
+    `children` nests sub-shapes, whose own coordinates are RELATIVE to this shape's origin."""
+    m = quoteattr(master)
+    cells = (f'<Cell N="PinX" V="{x}"/><Cell N="PinY" V="{y}"/><Cell N="Width" V="{w}"/>'
+             f'<Cell N="Height" V="{h}"/><Cell N="LocPinX" V="0"/><Cell N="LocPinY" V="0"/>')
+    txt = f"<Text>{escape(text)}</Text>" if text is not None else ""
+    kids = f"<Shapes>{children}</Shapes>" if children else ""
+    return f'<Shape ID="{sid}" NameU={m} Name={m} Type="{"Group" if children else "Shape"}">{cells}{txt}{kids}</Shape>'
+
+
+def lucid_line(sid, bx, by, ex, ey, label=""):
+    """A Lucidchart line: endpoint geometry only, NO <Connect> row anywhere (that is the whole point)."""
+    cells = (f'<Cell N="PinX" V="{bx}"/><Cell N="PinY" V="{by}"/><Cell N="Width" V="{ex - bx}"/>'
+             f'<Cell N="Height" V="{ey - by}"/><Cell N="BeginX" V="{bx}"/><Cell N="BeginY" V="{by}"/>'
+             f'<Cell N="EndX" V="{ex}"/><Cell N="EndY" V="{ey}"/>')
+    txt = f"<Text>{escape(label)}</Text>" if label else "<Text/>"
+    m = quoteattr(f"com.lucidchart.Line.{sid}")
+    return f'<Shape ID="{sid}" NameU={m} Name={m} Type="Shape">{cells}{txt}</Shape>'
 
 
 def page_xml(shapes, connects):
@@ -174,6 +198,120 @@ def test_page_match_and_helper_fallbacks():
 
     assert R._txt(Broken()) == "" and R._master(Broken()) is None
     assert R._txt(Plain()) == "hello" and R._master(Plain()) == "Stencil"
+
+
+# ---------------------------------------------------------------- Lucidchart geometric recovery
+def lucid_fixture(tmp):
+    """A Lucidchart export in miniature: NO <Connects> at all, three typed icons (one of them NESTED
+    inside a grouping block, so absolute coordinates need the group offset), and three lines —
+       L20 Portal -> DB (labelled, both ends just OUTSIDE the boxes)
+       L21 DB -> Nested VM (its end lands inside BOTH the grouping block and the nested icon:
+                            the smaller box must win, which needs the group offset folded in)
+       L22 into nothing (dropped).
+    """
+    nested = boxed(4, "Nested VM", "com.lucidchart.VirtualMachineAzure2021.4", 1.0, 0.0, 1.0, 1.0)
+    shapes = [
+        boxed(1, "Portal", "com.lucidchart.WebAppAzure2021.1", 0.0, 0.0),
+        boxed(2, "DB", "com.lucidchart.SqlDatabaseAzure2021.2", 4.0, 0.0),
+        boxed(3, "Zone", "com.lucidchart.FreehandBlock.3", 8.0, 0.0, 3.0, 3.0, children=nested),
+        lucid_line(20, 1.05, 0.5, 3.95, 0.5, "writes"),
+        lucid_line(21, 5.05, 0.5, 9.5, 0.5),
+        lucid_line(22, 0.5, 0.5, 40.0, 40.0),
+    ]
+    return write_vsdx(os.path.join(tmp, "lucid.vsdx"), [("Cloud", page_xml(shapes, []))])
+
+
+def test_lucidchart_lines_become_connectors_and_are_not_elements():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = R.read_vsdx(lucid_fixture(tmp))
+    assert out["lucidchart"] is True
+    # the labelled line shape ("writes") is a CONNECTOR, never an element
+    assert {s["text"] for s in out["shapes"]} == {"Portal", "DB", "Zone", "Nested VM"}
+    pairs = {(c["from"], c["to"]): c for c in out["connectors"]}
+    assert set(pairs) == {("Portal", "DB"), ("DB", "Nested VM")}
+    assert pairs[("Portal", "DB")]["label"] == "writes"
+    # provenance: every recovered link says so, and how tight the geometric match was
+    assert all(c["recovered"] == "geometry" and c["match_distance"] <= 0.05 for c in pairs.values())
+    assert all(c["page"] == "Cloud" for c in pairs.values())
+
+
+def test_nested_shape_matches_on_absolute_page_coordinates():
+    """The nested VM sits at 8+1=9.0..10.0 absolute, inside the Zone block at 8.0..11.0. A line
+    ending at 9.5 is inside BOTH; the smaller box wins, and it is only AT 9.5 because the group's
+    offset was folded into the child's box (locally the child sits at 1.0)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = R.read_vsdx(lucid_fixture(tmp))
+    nested = [c for c in out["connectors"] if c["to"] == "Nested VM"]
+    assert len(nested) == 1 and nested[0]["from"] == "DB"
+
+
+def test_recovery_tolerance_is_configurable_and_can_reject_everything():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = R.read_vsdx(lucid_fixture(tmp), tolerance_factor=0.0)
+    assert out["connectors"] == []                       # nothing within a zero tolerance
+    assert {s["text"] for s in out["shapes"]} == {"Portal", "DB", "Zone", "Nested VM"}   # lines still not elements
+
+
+def test_native_connectors_win_over_a_recovered_duplicate():
+    """A Lucidchart file that ALSO has a native <Connect> for a pair keeps the native connector only."""
+    with tempfile.TemporaryDirectory() as tmp:
+        shapes = [boxed(1, "Portal", "com.lucidchart.WebAppAzure2021.1", 0.0, 0.0),
+                  boxed(2, "DB", "com.lucidchart.SqlDatabaseAzure2021.2", 4.0, 0.0),
+                  lucid_line(20, 1.05, 0.5, 3.95, 0.5, "geometric")]
+        px = page_xml(shapes, [connect(20, 1, "BeginX"), connect(20, 2, "EndX")])
+        out = R.read_vsdx(write_vsdx(os.path.join(tmp, "mixed.vsdx"), [("P", px)]))
+    assert len(out["connectors"]) == 1
+    assert out["connectors"][0]["label"] == "geometric" and "recovered" not in out["connectors"][0]
+
+
+def test_a_native_file_is_never_geometrically_recovered():
+    """No Lucidchart evidence -> the second pass does not run, and behaviour is byte-identical."""
+    with tempfile.TemporaryDirectory() as tmp:
+        px = page_xml([boxed(1, "A", "Rectangle", 0.0, 0.0), boxed(2, "B", "Rectangle", 4.0, 0.0),
+                       connector(20, "unlinked")], [])
+        out = R.read_vsdx(write_vsdx(os.path.join(tmp, "native.vsdx"), [("P", px)]))
+    assert out["lucidchart"] is False and out["connectors"] == []
+    assert {s["text"] for s in out["shapes"]} == {"A", "B", "unlinked"}
+
+
+def test_a_line_missing_endpoint_geometry_is_skipped_not_guessed():
+    """A `com.lucidchart.Line.*` shape with no End cells carries no endpoint to match — it is
+    dropped from the recovery (and, having no geometry, is not an element box either)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        broken = ('<Shape ID="20" NameU="com.lucidchart.Line.20" Name="com.lucidchart.Line.20" Type="Shape">'
+                  '<Cell N="BeginX" V="1.05"/><Cell N="BeginY" V="0.5"/><Text>half a line</Text></Shape>')
+        px = page_xml([boxed(1, "Portal", "com.lucidchart.WebAppAzure2021.1", 0.0, 0.0),
+                       boxed(2, "DB", "com.lucidchart.SqlDatabaseAzure2021.2", 4.0, 0.0), broken], [])
+        out = R.read_vsdx(write_vsdx(os.path.join(tmp, "half.vsdx"), [("P", px)]))
+    assert out["connectors"] == []
+    assert {s["text"] for s in out["shapes"]} == {"Portal", "DB", "half a line"}
+
+
+def test_page_index_resolves_a_page_name_to_its_position():
+    names = ["secure-baseline", "sahatna-hld", "VBackground-1"]
+    assert R.page_index(names, None) == 0                      # no selector -> the first page
+    assert R.page_index(names, " SAHATNA-HLD ") == 1           # same case/space rules as the parser
+    assert R.page_index(names, "VBackground-1") == 2
+    with pytest.raises(ValueError, match="no page named"):
+        R.page_index(names, "Nope")
+
+
+def test_page_names_lists_every_drawable_page():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert R.page_names(fixture(tmp)) == ["Page A", "Page B"]
+
+
+def test_cell_reader_tolerates_missing_and_unparsable_cells():
+    class NoCell:
+        def cell_value(self, name):
+            raise RuntimeError("no such cell")
+
+    class Blank:
+        def cell_value(self, name):
+            return {"PinX": "", "Width": "notanumber"}.get(name)
+
+    assert R._cellf(NoCell(), "PinX") is None
+    assert R._cellf(Blank(), "PinX") is None and R._cellf(Blank(), "Width") is None
 
 
 def test_cli_prints_json_and_usage_error():

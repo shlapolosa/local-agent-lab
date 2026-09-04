@@ -1,5 +1,6 @@
 """lab.substrate.channels.telegram — the Telegram approval channel, OFFLINE: token/chat and the Bot API
-are constructor-injected (a recorded fake), approvals.decide/channel_events/ack are patched; no env.
+are constructor-injected (a recorded fake), the loop's channel_events/ack are patched and the inbound
+commands run against a FakeRedis; no env, no network, no live Redis.
 Run: pytest tests/unit/substrate/channels/test_telegram.py (or as a script)."""
 import io
 import json
@@ -8,6 +9,7 @@ from contextlib import redirect_stdout
 
 import pytest
 
+from fixtures.fakes import FakeRedis, patched_client
 from lab.substrate import approvals
 from lab.substrate.channels import telegram as T
 
@@ -54,30 +56,33 @@ def test_notify_sends_summary_with_review_link_and_commands():
     assert "Diagrams: http://review.test" in txt and "/approve apr-1" in txt and "/decline apr-1" in txt
 
 
-def test_poll_commands_records_decisions_and_reports_errors(monkeypatch):
+def test_poll_commands_records_decisions_and_reports_errors():
+    """Against a FakeRedis, because the channel now records through approvals.human_decision — the
+    ONE validated human path (identified actor, legal decision, a final answer decided once), shared
+    with the Teams channel and the approvals_decide MCP tool."""
     ch = _enabled()
-    decided = []
-
-    def fake_decide(rid, decision, actor, channel, comment):
-        if rid == "missing":
-            raise KeyError(rid)
-        decided.append((rid, decision, actor, channel, comment))
-    monkeypatch.setattr(approvals, "decide", fake_decide)
-    ch.updates = {"result": [
-        {"update_id": 7, "message": {"text": "hello", "from": {"username": "bob"}}},                 # not a command
-        {"update_id": 8, "message": {"text": "/approve apr-1", "from": {"username": "bob"}}},
-        {"update_id": 9, "message": {"text": "/decline@labbot apr-2 too big", "from": {"id": 99}}},  # @bot suffix, id actor
-        {"update_id": 10, "message": {"text": "/update", "from": {"username": "bob"}}},              # no id -> ignored
-        {"update_id": 11, "message": {"text": "/frobnicate apr-3", "from": {"username": "bob"}}},     # unknown -> ignored
-        {"update_id": 12, "message": {"text": "/approve missing", "from": {"username": "bob"}}},      # decide raises
-    ]}
-    ch.poll_commands()
-    assert ch.offset == 13                                     # every update acknowledged
-    assert decided == [("apr-1", "approve", "bob", "telegram", ""),
-                       ("apr-2", "decline", "99", "telegram", "too big")]
-    replies = [p["text"] for m, p in ch.sent if m == "sendMessage"]
-    assert replies == ["Recorded approve for apr-1", "Recorded decline for apr-2", "Error: 'missing'"]
-    assert ch.sent[0] == ("getUpdates", {"offset": 0, "timeout": 0})
+    with patched_client(FakeRedis()) as r:
+        one = approvals.request("adoit-import", "one", {}, "architect", client=r)
+        two = approvals.request("adoit-import", "two", {}, "architect", client=r)
+        ch.updates = {"result": [
+            {"update_id": 7, "message": {"text": "hello", "from": {"username": "bob"}}},                 # not a command
+            {"update_id": 8, "message": {"text": f"/approve {one}", "from": {"username": "bob"}}},
+            {"update_id": 9, "message": {"text": f"/decline@labbot {two} too big", "from": {"id": 99}}},  # @bot suffix, id actor
+            {"update_id": 10, "message": {"text": "/update", "from": {"username": "bob"}}},              # no id -> ignored
+            {"update_id": 11, "message": {"text": "/frobnicate apr-3", "from": {"username": "bob"}}},     # unknown -> ignored
+            {"update_id": 12, "message": {"text": "/approve missing", "from": {"username": "bob"}}},      # unknown id
+            {"update_id": 13, "message": {"text": f"/approve {two}", "from": {"username": "bob"}}},       # already declined
+        ]}
+        ch.poll_commands()
+        assert ch.offset == 14                                     # every update acknowledged
+        assert [(f["request_id"], f["decision"], f["actor"], f["channel"], f["comment"])
+                for _, f in r.x[approvals.DEC]] == [
+            (one, "approve", "bob", "telegram", ""), (two, "decline", "99", "telegram", "too big")]
+        replies = [p["text"] for m, p in ch.sent if m == "sendMessage"]
+        assert replies[:2] == [f"Recorded approve for {one}", f"Recorded decline for {two}"]
+        assert "unknown request missing" in replies[2]
+        assert "already decline" in replies[3]                     # a released decision is not flipped
+        assert ch.sent[0] == ("getUpdates", {"offset": 0, "timeout": 0})
 
 
 def test_call_posts_urlencoded_form_to_the_bot_api(monkeypatch):

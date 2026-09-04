@@ -73,6 +73,41 @@ def test_decide_paths():
         assert rid2 not in r.s["approvals:pending"]
 
 
+def test_human_decision_is_the_validated_path_every_channel_shares():
+    """approvals.decide RECORDS; human_decision VALIDATES — identified actor, legal decision, a
+    request still open, and a final answer CLAIMED atomically so two channels cannot both answer."""
+    with patched_client(FakeRedis()) as r:
+        rid = approvals.request("adoit-import", "s", {}, "arch")
+        for bad in (None, "", "   "):
+            _raises(ValueError, approvals.human_decision, rid, "approve", bad, "teams")
+        _raises(ValueError, approvals.human_decision, rid, "maybe", "maria", "teams")
+        _raises(KeyError, approvals.human_decision, "apr-nope", "approve", "maria", "teams")
+        assert approvals.status(rid)["status"] == "pending" and approvals.DEC not in r.x
+        # `update` = changes requested: recorded, still claimable
+        assert approvals.human_decision(rid, "update", " maria ", "teams", " rename X ") == {
+            "request_id": rid, "decision": "update", "actor": "maria", "channel": "teams",
+            "comment": "rename X", "decided_at": approvals.status(rid)["decided_at"]}
+        assert rid in r.s["approvals:pending"]
+        approvals.human_decision(rid, "approve", "maria", "teams")
+        _raises(ValueError, approvals.human_decision, rid, "decline", "omar", "teams")   # final is final
+
+
+def test_a_lost_claim_and_a_failed_write_leave_the_request_answerable():
+    with patched_client(FakeRedis()) as r:
+        rid = approvals.request("adoit-import", "s", {}, "arch")
+        r.s["approvals:pending"].discard(rid)                     # another channel claimed it first
+        _raises(ValueError, approvals.human_decision, rid, "approve", "omar", "cli")
+        assert approvals.DEC not in r.x
+        r.s["approvals:pending"].add(rid)
+        r.fail("xadd")                                            # the audit append fails mid-decision
+        _raises(redis.ConnectionError, approvals.human_decision, rid, "approve", "maria", "cli")
+        r.fail("xadd")
+        _raises(redis.ConnectionError, approvals.human_decision, rid, "update", "maria", "cli", "x")
+        r.fail("xadd", False)
+        assert rid in r.s["approvals:pending"], "the claim is released, not swallowed"
+        assert approvals.human_decision(rid, "approve", "maria", "cli")["decision"] == "approve"
+
+
 def test_channel_events_each_channel_sees_every_request_and_acks():
     with patched_client(FakeRedis()) as r:
         rid = approvals.request("adoit_import", "s", {}, "arch")

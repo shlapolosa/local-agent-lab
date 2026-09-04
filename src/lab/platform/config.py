@@ -32,6 +32,11 @@ SEMANTIC_MCP_PORT = int(_e("SEMANTIC_MCP_PORT", "9200"))
 STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 
+# --- host tooling ---
+# Rendering a .vsdx page to a picture needs LibreOffice on the HOST running storage-mcp. It is an
+# optional capability: absent, the pipeline degrades to the structured parse (see render_vsdx).
+SOFFICE_BIN = _e("SOFFICE_BIN")                      # override for an install off the standard paths
+
 # --- trust between services ---
 MCP_SHARED_SECRET = _e("MCP_SHARED_SECRET")          # gateway -> MCP servers bearer token; unset = open (local only)
 REVIEW_APP_PASSWORD = _e("REVIEW_APP_PASSWORD")      # minimal gate when no identity-aware proxy fronts the app

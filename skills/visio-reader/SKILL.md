@@ -31,7 +31,9 @@ The deterministic ingest step (`scripts/read_vsdx.py`, run for you — you do NO
   "pages": ["Lab System"],
   "shapes":     [{"id":"1","text":"LiteLLM Proxy","master":"Component","type_hint":null,"page":"Lab System"},
                  {"id":"2","text":"Claims DB","master":"com.lucidchart.AzureSqlDatabase","type_hint":"DataObject","page":"Lab System"}],
-  "connectors": [{"from":"LiteLLM Proxy","to":"/v1 (OpenAI)","label":"Composition","page":"Lab System"}]
+  "connectors": [{"from":"LiteLLM Proxy","to":"/v1 (OpenAI)","label":"Composition","page":"Lab System"},
+                 {"from":"Claims DB","to":"LiteLLM Proxy","label":"","page":"Lab System",
+                  "recovered":"geometry","match_distance":0.04}]
 }
 ```
 
@@ -54,6 +56,15 @@ The deterministic ingest step (`scripts/read_vsdx.py`, run for you — you do NO
 - **`connectors`** are directed `from → to` with an optional `label`. The label may be an ArchiMate
   relationship name (Composition/Assignment/Serving/Realization…), a verb ("calls", "routes to"),
   or empty. Use it as evidence of the *kind* of dependency, but you decide the real intent.
+- **`recovered`** appears only on a connector the file did NOT declare. A diagram exported from a
+  foreign tool (Lucidchart, for one) writes its lines as plain shapes with no endpoint bindings, so
+  the parser reconstructs the link from the line's GEOMETRY — each end matched to the nearest shape
+  — and marks it `"recovered": "geometry"` with the `match_distance` of the looser end (0 means the
+  endpoint sat inside the shape). A recovered link is real evidence, not a guess, but it is weaker
+  than a declared one: prefer it over having no link at all, confirm it against the rendered image
+  when you have one, and raise a large `match_distance` or an implausible pair in `openQuestions`.
+  Lines whose ends could not be matched are simply absent — so a diagram that clearly has more
+  arrows than the parse lists is a case for the image, and for `openQuestions`.
 
 ## How to interpret
 
@@ -95,10 +106,21 @@ tools — `storage_read_vsdx` for a Visio file, `storage_read_document` for a do
 local development, a file path read with `read_vsdx` / `read_document`. The message names the
 tool for each source; call exactly that one with the source unchanged. Images are never a tool
 for you: the diagram image and every figure embedded in a document are fetched (through the same
-gateway, `storage_get` / `storage_extract_figures`) and **attached to the message** for you to
+gateway — `storage_get`, `storage_extract_figures`, and `storage_render_vsdx` for a Visio page)
+and **attached to the message** for you to
 read directly. Sizing contract you can rely on: every attached image is at most 1600 px on its
 longest edge, PNG or JPEG, with decorations (under 2 KB or 64 px) already dropped and at most 8
 figures per document — so read them as-is, nothing is hidden behind a download.
+
+**Both representations of one `.vsdx`.** When the deployment can render Visio, you get the
+structured parse AND an image of the SAME page (rendered by `storage_render_vsdx`) attached to the
+message. They are complementary, not duplicates: the **parse** is authoritative for element
+identity, caption text, stencil/`type_hint` and declared connectors; the **image** is authoritative
+for grouping/containment (which boxes sit inside which zone or swim-lane) and for links the parse
+missed or only recovered geometrically. Never drop a parsed element because the picture did not
+show it clearly; where the two genuinely disagree, keep the parse's identity and record the
+disagreement as an `openQuestion`. When no image is available the message says so — then the parse
+is your only representation and anything it cannot settle belongs in `openQuestions`.
 
 **Reading an image diagram.** Every box (or icon with a caption) is a shape whose `text` is its
 caption; every arrow is a connector `from → to` with the arrow-head giving direction and any text

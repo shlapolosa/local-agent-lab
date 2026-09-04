@@ -100,3 +100,55 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print(f"  [PASS] {name}")
     print("test_docparse: ALL PASSED")
+
+
+# ---------------------------------------------------------------- vsdx page -> image
+def _vsdx_bytes():
+    import io
+    import zipfile
+    from lab.workloads.visio_to_archimate import make_sample_vsdx as MV
+    page_xml, _ = MV.build_page_xml([{"id": "a", "type": "ApplicationComponent", "name": "Portal"}], [])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in MV._parts(page_xml).items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_vsdx_page_image_resolves_the_page_name_to_the_pdf_page_index():
+    seen = {}
+
+    def render(data, page_index, **kw):
+        seen["data"], seen["index"] = data, page_index
+        return b"png", "image/png", (800, 600)
+
+    data = _vsdx_bytes()
+    out = docparse.vsdx_page_image(data, "lab-system.vsdx#Lab System", render=render)
+    assert out == (b"png", "image/png", (800, 600))
+    assert seen["index"] == 0 and seen["data"] == data          # the bytes go straight to the renderer
+    assert docparse.vsdx_page_image(data, "lab-system.vsdx", page="Lab System", render=render) == out
+
+
+def test_vsdx_page_image_defaults_to_the_platform_renderer():
+    """With no injected renderer it wires itself to lab.platform.render_vsdx.render_page — the one
+    LibreOffice+rasteriser path — rather than silently doing nothing."""
+    from lab.platform import render_vsdx
+    seen = {}
+
+    def fake(data, page_index, **kw):
+        seen["index"] = page_index
+        return b"png", "image/png", (900, 700)
+
+    old = render_vsdx.render_page
+    render_vsdx.render_page = fake
+    try:
+        assert docparse.vsdx_page_image(_vsdx_bytes(), "lab-system.vsdx") == (b"png", "image/png", (900, 700))
+    finally:
+        render_vsdx.render_page = old
+    assert seen["index"] == 0
+
+
+def test_vsdx_page_image_rejects_an_unknown_page_name():
+    import pytest
+    with pytest.raises(ValueError, match="no page named"):
+        docparse.vsdx_page_image(_vsdx_bytes(), "lab-system.vsdx#Nope", render=lambda *a, **k: None)

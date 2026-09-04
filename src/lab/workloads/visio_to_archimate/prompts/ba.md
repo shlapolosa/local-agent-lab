@@ -11,7 +11,8 @@ call exactly that one, with the source string unchanged. Inputs arrive in one of
 
       { "pages": [...],
         "shapes":     [ { "id", "text", "master", "type_hint", "page" }, ... ],
-        "connectors": [ { "from", "to", "label", "page" }, ... ] }
+        "connectors": [ { "from", "to", "label", "page",
+                          "recovered"?, "match_distance"? }, ... ] }
 
   `text` is the human caption (the element's identity). `master` is the stencil the author used, and
   `type_hint` (present when the parser recognises an Azure / Lucidchart / cloud stencil, e.g.
@@ -24,7 +25,15 @@ call exactly that one, with the source string unchanged. Inputs arrive in one of
   CommunicationNetwork) — do NOT flatten it into a generic ApplicationComponent. Only a **weak,
   generic** stencil (a bare rectangle, an unlabelled box, a shape with no distinguishing master)
   falls back to connectivity as the primary signal. `connectors` are directed `from → to` with an
-  optional `label` (an ArchiMate relationship name, a verb, or empty).
+  optional `label` (an ArchiMate relationship name, a verb, or empty). A connector carrying
+  **`"recovered": "geometry"`** was NOT declared by the file: a foreign export (Lucidchart) writes
+  its lines as plain shapes with no endpoint bindings, so the parser reconstructed the link from the
+  line's endpoint geometry, matching each end to the nearest shape (`match_distance` = how tight the
+  looser end was; 0 means it sat inside the shape). Treat it as real but WEAKER evidence than a
+  declared connector: keep it, confirm it against the rendered image when you have one, and raise an
+  implausible pair or a large `match_distance` in `openQuestions`. Lines the parser could not match
+  are absent altogether — a page with visibly more arrows than connectors is exactly where the
+  image earns its place.
 - **A diagram IMAGE (PNG/JPEG/…)**, attached to the message → read it directly: every box and its
   label is a shape, every arrow (with its label and direction) is a connector. Visual cues that are
   **strong and specific** (a recognisable cloud/infrastructure icon, a stereotyped node/server
@@ -71,8 +80,10 @@ Record on **every element** a `provenance` OBJECT — `{"source": "diagram"|"doc
 a parsed shape → `{"source":"diagram","representation":"structure"}`; a rendered image/figure →
 `{"source":"diagram","representation":"vision"}`; a design document → `{"source":"document",
 "representation":"document"}`; a requirements document → `{"source":"requirements","representation":
-"document"}`. This field is part of the output schema; keep it aligned with how you actually
-classified the element.
+"document"}`. This field is REQUIRED: a deterministic gate rejects the whole description and asks
+you again if any element is missing it. Keep it aligned with how you actually classified the
+element. (The bare string `"structure"` / `"vision"` / `"document"` is accepted as a shorthand and
+expanded for you, but the object form is what you should write.)
 
 ## Your job
 

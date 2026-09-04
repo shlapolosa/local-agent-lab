@@ -15,6 +15,7 @@ from lab.platform.contracts import (APPROVAL_FINAL, WORKFLOW_FINISHED, WORKFLOW_
 # ------------------------------------------------------------------ tool catalogues
 def test_catalogues_name_the_tools_exactly_as_the_servers_register_them():
     assert StorageTools.read_vsdx == "storage_read_vsdx" and StorageTools.extract_figures == "storage_extract_figures"
+    assert StorageTools.render_vsdx == "storage_render_vsdx"
     assert SemanticTools.store_spec == "semantic_store_spec" and SemanticTools.validate_model == "semantic_validate_model"
     assert EATools.render == "archimate_render" and EATools.stage_import == "ea_stage_import"
     assert EATools.search == "ea_search" and EATools.object == "ea_object"
@@ -22,7 +23,7 @@ def test_catalogues_name_the_tools_exactly_as_the_servers_register_them():
 
 def test_names_enumerates_only_the_tool_constants():
     assert StorageTools.names() == frozenset({"storage_list", "storage_info", "storage_get", "storage_read_document",
-                                              "storage_read_vsdx", "storage_extract_figures"})
+                                              "storage_read_vsdx", "storage_render_vsdx", "storage_extract_figures"})
     assert "storage_mcp" not in StorageTools.names()            # SERVER is the alias, not a tool
     assert all(n.startswith(("semantic_",)) for n in SemanticTools.names()) and len(SemanticTools.names()) == 13
     assert all(n.startswith(("archimate_", "ea_")) for n in EATools.names()) and len(EATools.names()) == 8

@@ -20,6 +20,7 @@ Tools (all read-only, over art://<id>/<name> refs)
   storage_get(ref, max_edge)                an IMAGE object, normalised, as image content + a label
   storage_read_document(ref, max_chars)     .docx/.pdf/.md/.txt -> plain text
   storage_read_vsdx(ref)                    .vsdx -> {pages, shapes, connectors}
+  storage_render_vsdx(ref, page)            a .vsdx PAGE as a picture (LibreOffice + a rasteriser)
   storage_extract_figures(ref, max_images)  figures embedded in a .docx/.pdf -> images + labels
 """
 import os
@@ -62,7 +63,7 @@ def storage_info(ref: str) -> dict:
     return info
 
 
-# NOTE: the two image tools deliberately have NO return annotation — fastmcp derives an
+# NOTE: the image tools deliberately have NO return annotation — fastmcp derives an
 # outputSchema from one, and a schema makes clients demand structured output that image content
 # blocks cannot carry ("outputSchema defined but no structured output returned", verified).
 @server.tool()
@@ -115,6 +116,33 @@ def storage_read_vsdx(ref: str, page: str | None = None) -> dict:
     span().set_attributes({"storage.kind": "vsdx", "storage.shapes": len(d.get("shapes", [])),
                            "storage.connectors": len(d.get("connectors", []))})
     return d
+
+
+@server.tool()
+def storage_render_vsdx(ref: str, page: str | None = None, max_edge: int = docparse.MAX_IMAGE_EDGE):
+    """Render ONE page of a .vsdx as an image, for reading the diagram WITH VISION alongside the
+    structured parse: returned normalised to the sizing contract as image content, followed by a
+    text label "<name> page <page> <w>x<h> <mime>". The picture is authoritative for GROUPING /
+    CONTAINMENT (which boxes sit inside which zone or swim-lane) and for lines a foreign exporter
+    never wrote as connectors; `storage_read_vsdx` stays authoritative for element identity, text
+    and native connectors. Use both and reconcile. `page` (or a `ref#Page` fragment) selects the
+    page exactly as `storage_read_vsdx` does; the default is the first.
+
+    Rendering needs LibreOffice and a PDF rasteriser ON THIS SERVER. When they are absent the call
+    fails with a message saying so — a caller must degrade to the structured parse, not stop."""
+    base, frag = docparse.split_fragment(ref)
+    page = page or frag
+    span().set_attributes({"storage.ref": base, "storage.page": page or ""})
+    name = _name(base)
+    if docparse.kind(name) != "vsdx":
+        raise ValueError(f"{name} is not a .vsdx file")
+    norm = docparse.vsdx_page_image(server.uploads().get(base), name, page=page, max_edge=max_edge)
+    if not norm:
+        raise ValueError(f"{name} page {page or 1} rendered to nothing renderable (blank or decorative page)")
+    out, mime, (w, h) = norm
+    span().set_attributes({"storage.bytes": len(out), "storage.kind": "vsdx-render",
+                           "storage.width": w, "storage.height": h})
+    return [_image(out, mime), f"{name} page {page or 1} {w}x{h} {mime}"]
 
 
 @server.tool()

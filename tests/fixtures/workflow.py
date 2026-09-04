@@ -26,17 +26,27 @@ TRACEPARENT = {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203
 BA_OK = {
     "systemName": "Clinic Portal",
     "summary": "Clinicians use a web portal to read patient records.",
+    # provenance is required by the deterministic gate; "Clinician" uses the STRING shorthand on
+    # purpose, so the gate's normalisation to the object form is exercised on every run.
     "actors": [{"name": "Clinician", "role": "Reads records", "layer": "Business", "aspect": "active",
-                "candidateType": "BusinessActor"}],
+                "candidateType": "BusinessActor", "provenance": "structure"}],
     "components": [{"name": "Portal", "role": "Web front end", "layer": "Application", "aspect": "active",
-                    "candidateType": "ApplicationComponent"}],
+                    "candidateType": "ApplicationComponent",
+                    "provenance": {"source": "diagram", "representation": "structure"}}],
     "data": [{"name": "Patient Record", "role": "The clinical record", "layer": "Application",
-              "aspect": "passive", "candidateType": "DataObject"}],
+              "aspect": "passive", "candidateType": "DataObject",
+              "provenance": {"source": "document", "representation": "document"}}],
     "behaviors": [],
     "relationships": [{"from": "Portal", "to": "Clinician", "type": "Serving", "intent": "portal serves clinician"},
                       {"from": "Portal", "to": "Patient Record", "type": "Access", "intent": "portal reads record"}],
     "openQuestions": [],
 }
+
+# What the deterministic gate hands on: the same document with every provenance in the object form
+# (the "Clinician" shorthand expanded to its only possible source). This — not BA_OK — is what the
+# Architect prompt and the persisted `ba_output` artifact contain.
+BA_NORMALISED = json.loads(json.dumps(BA_OK))
+BA_NORMALISED["actors"][0]["provenance"] = {"source": "diagram", "representation": "structure"}
 
 SPEC_OK = {
     "name": "Clinic Portal", "id": "clinic-portal",

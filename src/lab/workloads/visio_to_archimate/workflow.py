@@ -67,6 +67,19 @@ def _schema_errors(validator, obj):
     return "; ".join(f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errs[:5])
 
 
+# What the BA is told when it holds BOTH representations of one .vsdx page. The rule itself is
+# stated once in prompts/ba.md + references/method.md; this is the per-run reminder that the second
+# representation is actually attached, and of who wins on what.
+RECONCILE_VSDX = (
+    "You are ALSO given an ATTACHED IMAGE of the SAME diagram page, rendered from that .vsdx. Read "
+    "BOTH representations and reconcile them: the deterministic parse wins on element identity, "
+    "caption text, stencil/type_hint and native connectors; the image wins on grouping/containment "
+    "(which boxes sit inside which zone or swim-lane) and on connectors the parse missed. A "
+    "connector marked `recovered: \"geometry\"` was inferred from line geometry, not declared by the "
+    "file — confirm it against the image, and the larger its `match_distance` the more suspect it "
+    "is. Never drop a parsed element because the image did not show it clearly. Where the two "
+    "genuinely disagree, keep the parse's identity and record the disagreement in openQuestions.")
+
 # OTel span name -> executor id (the graph/run-log node id). Keep in step with build_workflow's executors.
 _EXECUTOR_OF_SPAN = {
     "ba-agent": "ba", "resolve-existing": "resolve_existing", "architect-design": "architect_design",
@@ -93,18 +106,50 @@ def _repair_relations(spec: dict) -> tuple[dict, list]:
         return spec, []
 
 
+def _elements_of(obj):
+    """Every declared element, whichever BA group it was filed under."""
+    return [e for k in ("actors", "components", "data", "behaviors") for e in obj.get(k, [])]
+
+
+def _normalise_provenance(obj):
+    """[D] Per-element provenance gate, IN PLACE: expand the bare-string shorthand to the object
+    form so the Architect and the persisted `ba_output` artifact see one shape, and name the
+    elements that declared none. Provenance is what makes a later reader able to tell a parsed
+    shape from something read off a picture or lifted from a document, so it is required, not
+    decorative — a miss is a gate error and the BA is asked again."""
+    missing = []
+    for e in _elements_of(obj):
+        prov, errs = BT.normalise_provenance(e.get("provenance"))
+        if errs:
+            missing.append(e.get("name") or "<unnamed>")
+        else:
+            e["provenance"] = prov
+    if missing:
+        return (f"{len(missing)} element(s) have no valid provenance {{source, representation}}: "
+                + ", ".join(missing[:8]))
+    return None
+
+
 def _incomplete(obj):
     """Deterministic completeness gate for the BA->Architect contract (beyond schema shape)."""
     if not obj.get("systemName") or not obj.get("summary"):
         return "missing systemName/summary"
-    n = sum(len(obj.get(k, [])) for k in ("actors", "components", "data", "behaviors"))
-    if n == 0:
+    if not _elements_of(obj):
         return "no elements described"
-    names = {e["name"] for k in ("actors", "components", "data", "behaviors") for e in obj.get(k, [])}
+    names = {e["name"] for e in _elements_of(obj)}
     dangling = [r for r in obj.get("relationships", []) if r["from"] not in names or r["to"] not in names]
     if dangling:
         return f"{len(dangling)} relationship endpoint(s) reference undeclared elements"
     return None
+
+
+def _ba_gate(validator, obj):
+    """[D] THE gate between the BA agent and the Architect, in one place: the output must be valid
+    against `ba_output.schema.json`, complete (systemName/summary, some elements, no dangling
+    relationship endpoints), and carry per-element provenance — which it also NORMALISES in place,
+    so the shorthand and the object form become one shape downstream. Returns an error string for
+    the corrective retry, or None when the description may pass."""
+    return _schema_errors(validator, obj) or (_incomplete(obj) or _normalise_provenance(obj) if obj else "no JSON")
 
 
 async def _call_tools_raw(headers, mcp_url, calls):
@@ -236,6 +281,26 @@ def build_workflow(cfg):
         return A.make_agent("architect-agent", A.architect_instructions(), cfg["ar_cred"],
                             cfg["traceparent"], tools=tools)
 
+    async def _render_page(diagram: str):
+        """The .vsdx page as an image, or None when this deployment cannot render one.
+
+        By REF it is the governed `storage_render_vsdx` (the workload holds no store credentials);
+        by PATH it is the same renderer in-process (dev). Every failure — no LibreOffice, no
+        rasteriser, a gateway that flattened the image blocks — degrades to None with a warning,
+        because the picture is a SECOND representation, never the only one."""
+        try:
+            if I.is_ref(diagram):
+                res, = await _call_tools_raw(cfg["ba_headers"], cfg["mcp_url"],
+                                             [(StorageTools.render_vsdx, {"ref": diagram})])
+                imgs = _images_from(res)
+                return (imgs[0][0], imgs[0][1]) if imgs else None
+            norm = I.render_page(diagram)
+            return (norm[0], norm[1]) if norm else None
+        except Exception as e:
+            print(f"[warn] no image representation for {diagram}: {type(e).__name__}: {str(e)[:160]}",
+                  flush=True)
+            return None
+
     async def _ba_message(diagram: str, reqs: list[str]) -> tuple[Message, dict]:
         """Build the BA's message: what to read (and with which tool), plus every image attached
         inline — the diagram itself when it is an image, and the figures embedded in each
@@ -257,6 +322,19 @@ def build_workflow(cfg):
         else:
             tool = StorageTools.read_vsdx if I.is_ref(diagram) else "read_vsdx"
             lines.append(f"The Visio diagram to analyse is: {diagram}\nCall {tool} with exactly that source.")
+            # SECOND representation of the SAME page: the rendered picture. Optional by design —
+            # it needs LibreOffice + a rasteriser on the storage-mcp host (or this one, for a dev
+            # path). When that is missing the run continues on the parse alone and says so.
+            page = await _render_page(diagram)
+            attrs["ba.rendered"] = bool(page)
+            if page:
+                lines.append(RECONCILE_VSDX)
+                contents.append(Content.from_data(page[0], page[1]))
+            else:
+                lines.append("No rendered image of this diagram is available on this host, so the "
+                             "structured parse is your ONLY representation of it. Read grouping and "
+                             "containment from the parse's own evidence, and record anything the "
+                             "parse cannot settle in openQuestions.")
         for req in reqs:
             tool = StorageTools.read_document if I.is_ref(req) else "read_document"
             lines.append(f"A requirements document is provided: {req}\n"
@@ -279,7 +357,7 @@ def build_workflow(cfg):
     async def _run_ba(agent, msg):
         r = await asyncio.wait_for(agent.run(msg), timeout=BA_RUN_TIMEOUT)
         obj = _extract_json(r.text)
-        err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
+        err = _ba_gate(validator, obj)
         if err:
             # One corrective retry. It MUST re-send the original contents (the diagram image +
             # figures): the client is stateless (store=False), so a bare text correction would run
@@ -292,7 +370,7 @@ def build_workflow(cfg):
             retry = Message("user", [*msg.contents, Content.from_text(note)])
             r = await asyncio.wait_for(agent.run(retry), timeout=BA_RUN_TIMEOUT)
             obj = _extract_json(r.text)
-            err = _schema_errors(validator, obj) or (_incomplete(obj) if obj else "no JSON")
+            err = _ba_gate(validator, obj)
             if err:
                 raise RuntimeError(f"BA output rejected (incomplete after retry): {err}")
         return obj
@@ -305,7 +383,7 @@ def build_workflow(cfg):
         await asyncio.wait_for(agent.run(msg), timeout=BA_RUN_TIMEOUT)
         acc.last_finish or acc.finish()
         obj = acc.result()
-        err = _schema_errors(validator, obj) or _incomplete(obj)
+        err = _ba_gate(validator, obj)
         if err:
             note = (f"Your description is incomplete: {err}. Re-read the attached diagram and documents "
                     f"above; add what is missing with add_elements / add_relationships (fix any rejected "
@@ -314,7 +392,7 @@ def build_workflow(cfg):
             await asyncio.wait_for(agent.run(retry), timeout=BA_RUN_TIMEOUT)
             acc.last_finish or acc.finish()
             obj = acc.result()
-            err = _schema_errors(validator, obj) or _incomplete(obj)
+            err = _ba_gate(validator, obj)
             if err:
                 raise RuntimeError(f"BA output rejected (incomplete after retry): {err}")
         return obj

@@ -62,7 +62,10 @@ class TelegramChannel:
             if cmd in approvals.DECISIONS and len(parts) >= 2:
                 actor = msg.get("from", {}).get("username") or str(msg.get("from", {}).get("id"))
                 try:
-                    approvals.decide(parts[1], cmd, actor, self.name, parts[2] if len(parts) > 2 else "")
+                    # human_decision, not decide: ONE validated path for every human channel —
+                    # identified actor, legal decision, and a final answer that is not re-decided
+                    approvals.human_decision(parts[1], cmd, actor, self.name,
+                                             parts[2] if len(parts) > 2 else "")
                     self._call("sendMessage", chat_id=self.chat, text=f"Recorded {cmd} for {parts[1]}")
                 except (KeyError, ValueError) as e:
                     self._call("sendMessage", chat_id=self.chat, text=f"Error: {e}")

@@ -128,7 +128,7 @@
           }
         },
         "provenance": {
-          "description": "Optional: where this element came from and how it was read. `source` is the input kind (diagram shape, a requirements/design document, or requirements evidence); `representation` is how it was interpreted (parsed structure, vision over an image, or extracted document text). Fully optional; downstream traceability only. Accepts either the full object or a bare-string shorthand naming only the representation (structure|vision|document); the pipeline normalises the shorthand to {representation: <s>}.",
+          "description": "Where this element came from and how it was read. `source` is the input kind (a diagram shape, a design/requirements document); `representation` is how it was interpreted (the deterministic parse, vision over an image, or extracted document text). REQUIRED on every element by the deterministic gate that follows the BA (the schema also accepts the bare-string shorthand naming only the representation, which the gate expands to {representation: <s>}).",
           "oneOf": [
             {
               "type": "string",
@@ -137,7 +137,7 @@
                 "vision",
                 "document"
               ],
-              "description": "Shorthand: the representation only."
+              "description": "Shorthand: the representation only. The gate expands it to the full object, filling `source` with the only kind that representation can come from (structure/vision -> diagram, document -> document)."
             },
             {
               "type": "object",
@@ -161,7 +161,12 @@
                   ],
                   "description": "How the source was interpreted: deterministic structure, vision over an image, or document text."
                 }
-              }
+              },
+              "required": [
+                "source",
+                "representation"
+              ],
+              "description": "Where the element came from and how it was read. Both fields are required in this form: a half-filled provenance says nothing."
             }
           ]
         }

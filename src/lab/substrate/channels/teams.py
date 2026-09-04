@@ -23,9 +23,13 @@ INBOUND — two paths, both real, only one needs a bot:
       connector, a Teams outgoing webhook, or a bot** calls once it has captured the decision and
       the SIGNED-IN USER. The actor is the caller's, never an anonymous default: an empty actor is
       a ValueError, because "who approved this EA write" is the whole point of the audit log.
-      Wiring (b) end-to-end needs a bot/agent registration (Copilot Studio topic + a custom
-      connector or Power Automate flow calling this process); until then (a) carries the decision.
-      Note `decide()` needs no webhook — the inbound path works on a disabled channel.
+      OVER THE WIRE that entry point is the governed MCP tool `approvals_decide` on workflow-mcp
+      (`lab.substrate.mcp.workflow.approval_tools`), reached through the gateway like every other
+      capability — granted per team, metered, traced. Both it and this method call
+      `approvals.human_decision`, so the Python path and the tool are ONE implementation and cannot
+      diverge. What is still needed to close the loop in Teams is only the Microsoft side: a Copilot
+      Studio agent with an MCP/custom connector to the gateway, carrying the signed-in user as
+      `actor`. Note it needs no webhook — the inbound path works on a disabled channel.
 
 Run: .venv/bin/python -m lab.substrate.channels.teams   (loop; exits immediately if not configured)
 """
@@ -79,9 +83,9 @@ class TeamsChannel:
                      "text": "Diagrams are not shown here — open the review app for the views and to decide."})
 
         actions = [{"type": "Action.OpenUrl", "title": "Review & decide", "url": self.review_url}]
-        if f.get("trace_id"):
-            actions.append({"type": "Action.OpenUrl", "title": "Open trace",
-                            "url": f'{self.jaeger_url}/trace/{f["trace_id"]}'})
+        trace = approvals.trace_url(f.get("trace_id"), self.jaeger_url)   # one link construction, shared
+        if trace:
+            actions.append({"type": "Action.OpenUrl", "title": "Open trace", "url": trace})
         return {"type": "message", "attachments": [{
             "contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
             "content": {"$schema": CARD_SCHEMA, "type": "AdaptiveCard", "version": CARD_VERSION,
@@ -96,12 +100,14 @@ class TeamsChannel:
     # --- inbound: human -> decision (see the module docstring: path (b)) ---
     def decide(self, request_id, decision, actor, comment=""):
         """Record a decision taken in Teams. `actor` is the SIGNED-IN USER supplied by the caller
-        (Copilot Studio / bot / outgoing webhook) — there is no anonymous default. Raises ValueError
-        for a missing actor or an unknown decision, KeyError for an unknown request id."""
-        actor = (actor or "").strip()
-        if not actor:
-            raise ValueError("actor is required — a Teams decision must carry the signed-in user")
-        return approvals.decide(request_id, decision, actor, self.name, comment)
+        (Copilot Studio / bot / outgoing webhook) — there is no anonymous default.
+
+        This is a thin CHANNEL BINDING, not a second implementation: the rules (identified actor,
+        legal decision, request still open) live once in `approvals.human_decision`, which the
+        `approvals_decide` MCP tool calls with the same arguments — a Teams bot and a Copilot Studio
+        connector therefore decide on identical terms. Raises ValueError for a missing actor, an
+        unknown decision or an already-decided request; KeyError for an unknown request id."""
+        return approvals.human_decision(request_id, decision, actor, self.name, comment)
 
     def _post(self, payload):
         req = urllib.request.Request(self.webhook, data=json.dumps(payload).encode(),

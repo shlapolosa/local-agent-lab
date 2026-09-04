@@ -9,7 +9,9 @@ no clients, importable by every tier.
                     under (`<server alias>-<tool>`; aliases per config/litellm-config.yaml `mcp_servers`).
   ArtifactRef       the `art://<id>/<name>[#<page>]` reference — the only handle a workload holds on an
                     input or an artifact (the substrate's stores mint and resolve them).
-  Approval contract request kinds, decision values and status names of the human-in-the-loop gate.
+  Approval contract request kinds, decision values and status names of the human-in-the-loop gate,
+                    plus `ApprovalTools` — the gate as governed tools (on workflow-mcp), split into
+                    a READ grant and the human-gated WRITE (`approvals_decide`).
   Workflow requests the `workflow:requests` event (statuses, field names) a host consumes.
   Process registry  every business PROCESS declared once (`PROCESSES`): how it is addressed, what a
                     caller must know about it, its typed INPUT CONTRACT and the outputs a finished run
@@ -58,6 +60,7 @@ class StorageTools(ToolCatalogue):
     get = "storage_get"
     read_document = "storage_read_document"
     read_vsdx = "storage_read_vsdx"
+    render_vsdx = "storage_render_vsdx"      # the SAME page as a picture: the vision representation
     extract_figures = "storage_extract_figures"
 
 
@@ -100,15 +103,43 @@ class EATools(ToolCatalogue):
 
 
 class WorkflowTools(ToolCatalogue):
-    """workflow-mcp — the governed front door to every business PROCESS. Its tools are not fixed
+    """workflow-mcp — the governed front door to every business PROCESS. Its process tools are not fixed
     constants: they are GENERATED, three per entry in `PROCESSES` below (`<process>_submit`,
-    `<process>_status`, `<process>_result`), so registering a process is the one place that changes."""
+    `<process>_status`, `<process>_result`), so registering a process is the one place that changes.
+    The same server also carries the APPROVAL tools (`ApprovalTools` below) — a run PAUSES for a human
+    approval, so the pause is part of the lifecycle this front door exposes."""
     SERVER = "workflow_mcp"
     VERBS = ("submit", "status", "result")             # a tuple, so `names()`'s string filter ignores it
 
     @classmethod
     def names(cls) -> frozenset[str]:
-        return frozenset(spec.tool(v) for spec in PROCESSES.values() for v in cls.VERBS)
+        return (frozenset(spec.tool(v) for spec in PROCESSES.values() for v in cls.VERBS)
+                | ApprovalTools.names())
+
+
+class ApprovalTools(ToolCatalogue):
+    """The human-in-the-loop GOVERNANCE surface — list / read / DECIDE an approval. Registered on
+    workflow-mcp (same gateway alias, hence `SERVER` below, and NOT a separate entry in `SERVERS`):
+    a run pauses for an approval and `<process>_status` already hands back the `approval_id`, so one
+    server = one connector for a channel that must follow a run from submit to decision.
+
+    TWO GRANTS, not one. `READ` is safe for anything that shows a human what is waiting; `decide`
+    RECORDS A HUMAN'S DECISION to release an EA-repository write and must reach only a channel that
+    carries a signed-in user (Teams/Copilot Studio, the review app) — never a workload's own agents.
+    The gateway enforces the split per team with `mcp_tool_permissions` (per-tool ACL on the same
+    `object_permission` as the server grant):
+
+        read-only  {"object_permission": {"mcp_servers": ["workflow_mcp"],
+                    "mcp_tool_permissions": {"workflow_mcp": list(ApprovalTools.READ)}}}
+        + decide   … + list(ApprovalTools.WRITE)
+    """
+    SERVER = "workflow_mcp"
+    list = "approvals_list"
+    get = "approvals_get"
+    decide = "approvals_decide"
+
+    READ = (list, get)          # the two GRANTS, as tuples so `names()`'s string filter ignores them
+    WRITE = (decide,)           # the human-gated write — granted deliberately, never by default
 
 
 # ----------------------------------------------------------------------------- artifact references
@@ -345,7 +376,7 @@ ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.nam
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "SERVERS", "ALL_TOOLS",
+           "ApprovalTools", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE"]

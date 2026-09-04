@@ -58,6 +58,10 @@ RELATIONSHIP_TYPES: tuple[str, ...] = tuple(_REL["type"]["enum"])
 PROVENANCE_REPRESENTATIONS: tuple[str, ...] = tuple(
     next(s for s in _PROV_ONEOF if s.get("type") == "string")["enum"])
 PROVENANCE_SOURCES: tuple[str, ...] = tuple(_PROV_OBJ["source"]["enum"])
+# Expanding the bare-string shorthand: which input kind a representation can only have come from.
+# `document` is the general case; `requirements` is narrower and the model must say so explicitly.
+SOURCE_OF_REPRESENTATION: dict[str, str] = {"structure": "diagram", "vision": "diagram",
+                                            "document": "document"}
 
 ELEMENT_REQUIRED: tuple[str, ...] = tuple(SCHEMA["definitions"]["element"]["required"])
 ELEMENT_FIELDS: tuple[str, ...] = tuple(_EL.keys())            # everything the schema allows
@@ -69,17 +73,24 @@ _ELEMENT_VALIDATOR = Draft7Validator({"definitions": SCHEMA["definitions"], **SC
 _RELATIONSHIP_VALIDATOR = Draft7Validator({"definitions": SCHEMA["definitions"], **SCHEMA["definitions"]["relationship"]})
 
 
-def _normalise_provenance(p: Any) -> tuple[Any, list[str]]:
-    """Accept the bare-string shorthand or the object; return (normalised, errors)."""
+def normalise_provenance(p: Any) -> tuple[Any, list[str]]:
+    """Accept the bare-string shorthand or the object; return (normalised, errors).
+
+    THE one provenance normaliser: the accumulator calls it per item, and the json-mode gate in
+    `workflow.py` calls it over the finished document, so both BA modes hand the Architect exactly
+    one shape. A missing provenance is an error here — every element must say where it came from."""
     errs: list[str] = []
     if p is None:
-        return None, errs
+        return None, ["provenance is required: a representation shorthand "
+                      f"[{fmt(PROVENANCE_REPRESENTATIONS)}] or an object {{source, representation}}"]
     if isinstance(p, str):
         s = p.strip()
         if s not in PROVENANCE_REPRESENTATIONS:
             errs.append(f"provenance '{p}' is not one of [{fmt(PROVENANCE_REPRESENTATIONS)}] "
                         f"(or an object {{source, representation}})")
-        return s, errs
+            return None, errs
+        # the shorthand EXPANDS to the full object, so everything downstream sees ONE shape
+        return {"source": SOURCE_OF_REPRESENTATION[s], "representation": s}, errs
     if isinstance(p, dict):
         out: dict = {}
         unknown = sorted(set(p) - set(_PROV_OBJ))
@@ -96,7 +107,10 @@ def _normalise_provenance(p: Any) -> tuple[Any, list[str]]:
                             f"[{fmt(PROVENANCE_REPRESENTATIONS)}]")
             else:
                 out["representation"] = p["representation"]
-        return out, errs
+        for f in ("source", "representation"):
+            if f not in p:
+                errs.append(f"provenance.{f} is required")
+        return (out if not errs else None), errs
     errs.append("provenance must be a string shorthand (representation) or an object {source, representation}")
     return None, errs
 
@@ -135,7 +149,7 @@ def _validate_element_item(item: Any) -> tuple[dict | None, str | None, list[str
         else:
             ids = [str(i) for i in ids]
 
-    prov, perrs = _normalise_provenance(item.get("provenance"))
+    prov, perrs = normalise_provenance(item.get("provenance"))
     errs.extend(perrs)
 
     if errs:
@@ -150,8 +164,7 @@ def _validate_element_item(item: Any) -> tuple[dict | None, str | None, list[str
     }
     if ids:
         el["sourceShapeIds"] = ids
-    if prov not in (None, {}):
-        el["provenance"] = prov
+    el["provenance"] = prov
 
     # backstop: the schema itself is the last word on shape
     schema_errs = [f"{'/'.join(map(str, e.path)) or '<element>'}: {e.message}"

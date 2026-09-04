@@ -13,7 +13,7 @@ Composition: each entry point builds the process container ONCE (`lab.platform.c
 — config, the pooled Redis client, the tracer named after SERVICE) and hands it down as `root`; nothing
 below constructs a client. Inputs are paths (local dev) or art:// refs — refs are read ONLY through the
 gateway's storage-mcp tools, so this process holds no object-store credentials. All egress is governed
-by the gateway; the ADOIT write is staged for human approval (review app / Telegram / CLI).
+by the gateway; the EA-repository write is staged for human approval (review app / Teams / Telegram / CLI).
 """
 import asyncio
 import os

@@ -136,3 +136,26 @@ def vsdx_dict(data: bytes, name: str, page: str | None = None) -> dict:
         p = Path(d) / (base.rstrip("/").split("/")[-1] or "diagram.vsdx")
         p.write_bytes(data)
         return _rv(str(p), page=page)
+
+
+def vsdx_page_image(data: bytes, name: str, page: str | None = None,
+                    max_edge: int = MAX_IMAGE_EDGE, render=None):
+    """A .vsdx PAGE as a picture — the second representation of the same diagram, for a vision model.
+
+    The page NAME (or a `#page` fragment on `name`, the same selector `vsdx_dict` honours) is resolved
+    against the workbook's own page order and handed to the renderer as an index; the bitmap comes
+    back already through `normalise_image`. Returns None when the page normalises below the sizing
+    floor. Raises `ValueError` for an unknown page name and `RuntimeError` when this host has no
+    LibreOffice / PDF rasteriser — the caller degrades to the structured parse alone.
+    `render` injects the renderer (default `lab.platform.render_vsdx.render_page`)."""
+    from lab.core.visio.read_vsdx import page_index, page_names   # local: vsdx loads only for a .vsdx
+    base, frag = split_fragment(name)
+    page = page or frag
+    if render is None:
+        from lab.platform import render_vsdx
+        render = render_vsdx.render_page
+    with tempfile.TemporaryDirectory(prefix="vsdx-") as d:
+        p = Path(d) / (base.rstrip("/").split("/")[-1] or "diagram.vsdx")
+        p.write_bytes(data)
+        index = page_index(page_names(str(p)), page)
+    return render(data, index, max_edge=max_edge)

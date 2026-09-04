@@ -7,8 +7,8 @@ import pytest
 
 from lab.platform import contracts as C
 from lab.platform import workflows
-from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, InputField, InputKind, ProcessSpec,
-                                    WorkflowTools)
+from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, ApprovalTools, InputField,
+                                    InputKind, ProcessSpec, WorkflowTools)
 
 FAKE = ProcessSpec(
     name="fake_process", group="wf-fake", title="Fake", description="A process used only by tests.",
@@ -21,10 +21,24 @@ FAKE = ProcessSpec(
 # ------------------------------------------------------------------ the catalogue is derived
 def test_workflow_catalogue_is_generated_three_tools_per_registered_process():
     assert WorkflowTools.SERVER == "workflow_mcp" and WorkflowTools.VERBS == ("submit", "status", "result")
-    assert WorkflowTools.names() == {f"{p}_{v}" for p in PROCESSES for v in WorkflowTools.VERBS}
-    assert len(WorkflowTools.names()) == 3 * len(PROCESSES)
+    generated = WorkflowTools.names() - ApprovalTools.names()    # the fixed approval gate rides along
+    assert generated == {f"{p}_{v}" for p in PROCESSES for v in WorkflowTools.VERBS}
+    assert len(generated) == 3 * len(PROCESSES)
     assert "visio_to_archimate_submit" in WorkflowTools.names()
     assert "workflow_mcp" not in WorkflowTools.names()          # SERVER is the alias, not a tool
+
+
+def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_two_grants():
+    """A run PAUSES for a human, so the approval tools sit on workflow-mcp — but READ and the
+    human-gated WRITE are separate GRANTS (`mcp_tool_permissions`), never one blanket permission."""
+    assert ApprovalTools.SERVER == WorkflowTools.SERVER
+    assert ApprovalTools.names() == {"approvals_list", "approvals_get", "approvals_decide"}
+    assert ApprovalTools.names() < WorkflowTools.names()         # reachable under the one alias
+    assert set(ApprovalTools.READ) | set(ApprovalTools.WRITE) == ApprovalTools.names()
+    assert set(ApprovalTools.READ) & set(ApprovalTools.WRITE) == set()
+    assert ApprovalTools.WRITE == (ApprovalTools.decide,)        # exactly one tool writes a decision
+    assert C.SERVERS.get("approvals_mcp") is None                # NOT a server of its own
+    assert ApprovalTools.gateway(ApprovalTools.decide) == "workflow_mcp-approvals_decide"
 
 
 def test_workflow_tools_join_the_server_registry_and_the_gateway_naming():

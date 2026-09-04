@@ -149,6 +149,15 @@ class FakeApprovals:
     def decide(self, rid, decision, actor, channel, comment):
         self.decisions.append((rid, decision, actor, channel, comment))
 
+    def human_decision(self, rid, decision, actor, channel, comment=""):
+        """The one human-gate path the real module enforces: an identified actor, and one final
+        answer. The double keeps the SAME contract so a channel cannot be tested on weaker terms."""
+        if not (actor or "").strip():
+            raise ValueError("actor is required — a decision must carry the human who made it")
+        if any(d[0] == rid and d[1] in ("approve", "decline") for d in self.decisions):
+            raise ValueError(f"{rid} is already decided")
+        return self.decide(rid, decision, actor, channel, comment)
+
 
 class FakeWorkflows:
     def __init__(self, recent=(), statuses=None):

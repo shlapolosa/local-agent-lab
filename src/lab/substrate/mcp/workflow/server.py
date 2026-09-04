@@ -14,11 +14,22 @@ a request that long. `<process>_submit` publishes ONE durable `workflow:requests
 returns a `request_id` immediately; the long-lived workload host consumes it and writes progress
 back, which `<process>_status` / `<process>_result` read. A tool call NEVER blocks on a run.
 
-The tools are GENERATED from `lab.platform.contracts.PROCESSES` — three per process:
+The process tools are GENERATED from `lab.platform.contracts.PROCESSES` — three per process:
 
     <process>_submit(<input fields…>, requester)  -> {request_id, status: pending, poll_with, …}
     <process>_status(request_id)                  -> {status, trace_id, approval_id, error, …}
     <process>_result(request_id)                  -> the finished outputs, or finished: false
+
+A run PAUSES for a human approval, and `<process>_status` hands back the `approval_id` it raised, so
+the same front door also carries the APPROVAL GATE (`approval_tools.py`, ApprovalTools):
+
+    approvals_list(kind, limit)                                  -> what is waiting for a human
+    approvals_get(request_id)                                    -> one approval + its art:// artifacts
+    approvals_decide(request_id, decision, actor, comment, channel) -> a HUMAN's answer, audited
+
+`approvals_decide` is the governance-critical one (see approval_tools.py): it records a PERSON's
+decision to release an EA-repository write, so `actor` is required and the gateway grants it
+separately from the read tools (`ApprovalTools.READ` / `.WRITE` via `mcp_tool_permissions`).
 
 Adding a business process is therefore ONE `ProcessSpec` entry in `lab.platform.contracts.PROCESSES`
 (plus its consumer group in `lab.platform.workflows.GROUPS`) — no change in this file. Input
@@ -40,6 +51,7 @@ from pydantic import Field
 from lab.platform import config, workflows
 from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, InputKind, ProcessSpec,
                                     WorkflowStatus)
+from lab.substrate.mcp.workflow import approval_tools
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "workflow-mcp"
@@ -170,11 +182,14 @@ def register(server: LabServer, spec: ProcessSpec) -> None:
 
 
 def build(processes: dict[str, ProcessSpec] | None = None) -> LabServer:
-    """The server, with one tool triple per registered process. `processes` is injected so a test (or
-    a future per-tenant deployment) can drive the tool list from a different registry."""
+    """The server: one tool triple per registered process, plus the approval gate (a run PAUSES for a
+    human, so the same front door answers "what is waiting" and "here is the human's decision" —
+    lab.substrate.mcp.workflow.approval_tools). `processes` is injected so a test (or a future
+    per-tenant deployment) can drive the process tool list from a different registry."""
     server = LabServer(SERVICE, config.WORKFLOW_MCP_PORT)
     for spec in (PROCESSES if processes is None else processes).values():
         register(server, spec)
+    approval_tools.register(server)
     return server
 
 

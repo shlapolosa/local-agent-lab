@@ -428,3 +428,24 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print("ok", name)
     print("ALL TESTS PASSED")
+
+
+# ------------------------------------------------------------------ the review app is a HUMAN channel
+def test_review_app_records_through_human_decision_with_a_named_reviewer(monkeypatch):
+    """Every human channel decides on the SAME terms (lab.substrate.approvals.human_decision): an
+    identified actor, a legal decision, one final answer. The review app used to call the raw
+    recorder with a free-text reviewer that could be blank — an ANONYMOUS approval releasing an EA
+    repository write, a weaker guarantee than Teams, Telegram and the approvals_decide tool."""
+    import inspect
+    from lab.substrate.review import app as A
+    src = inspect.getsource(A._review_page)
+    assert "approvals.human_decision(" in src, "the review app must use the one human-gate path"
+    assert "approvals.decide(" not in src, "the raw recorder must not be called from a channel"
+
+
+def test_a_blank_reviewer_cannot_release_a_write(monkeypatch):
+    """A blank actor is refused by human_decision; the app must surface that, not crash."""
+    from lab.substrate import approvals
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="actor is required"):
+        approvals.human_decision("apr-x", "approve", "   ", "review-app", "")

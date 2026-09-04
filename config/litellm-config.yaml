@@ -7,6 +7,18 @@
 #          ["semantic_mcp", "storage_mcp", "ea_mcp", "workflow_mcp"]}}  — a key with no
 #   grant sees ZERO tools. workflow_mcp goes to the teams that TRIGGER processes (an
 #   orchestrator agent, the Copilot Studio connector), not to the workload's own agents.
+# PER-TOOL ACL — REQUIRED on workflow_mcp, which carries BOTH the process tools and the
+#   human-in-the-loop APPROVAL GATE (approvals_list / approvals_get / approvals_decide).
+#   `approvals_decide` records a PERSON's decision to release an EA-repository write, so a
+#   team gets it ONLY if its caller authenticates a human (a Copilot Studio/Teams agent, the
+#   review app). Grant it with mcp_tool_permissions on the same object_permission:
+#     read-only  {"mcp_servers": ["workflow_mcp"], "mcp_tool_permissions":
+#                 {"workflow_mcp": ["visio_to_archimate_submit", "visio_to_archimate_status",
+#                                   "visio_to_archimate_result", "approvals_list", "approvals_get"]}}
+#     + decide   … the same list + "approvals_decide"      (lab.platform.contracts.ApprovalTools
+#                                                           READ / WRITE are these two sets)
+#   An agent that can submit a run AND approve it is not human-in-the-loop at all — never
+#   grant workflow_mcp to a workload's own agents, and never without the tool list.
 # Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
 
 model_list:
@@ -89,8 +101,8 @@ mcp_servers:                          # addresses + trust come from the environm
     url: os.environ/WORKFLOW_MCP_URL  # per process (<process>_submit/_status/_result). Async by contract:
     transport: http                   # submit enqueues a workflow:requests event and returns a request_id
     auth_type: bearer_token           # immediately (a run takes 600-1000 s), status/result poll it.
-    authentication_token: os.environ/MCP_SHARED_SECRET
-    description: Business processes as governed tools — submit a run, poll its status, read its results (async; inputs are art:// refs)
+    authentication_token: os.environ/MCP_SHARED_SECRET   # + the APPROVAL GATE a run pauses at
+    description: Business processes as governed tools — submit a run, poll its status, read its results (async; inputs are art:// refs); plus the human-in-the-loop approval gate — list/read what is awaiting a person and record THEIR decision (approvals_decide needs the signed-in human as `actor`; see the per-tool ACL note at the top of this file)
     extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router

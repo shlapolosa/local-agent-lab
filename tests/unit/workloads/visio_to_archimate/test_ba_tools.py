@@ -53,17 +53,18 @@ def test_ba_session():
     assert len(r["rejected"]) == 1 and r["rejected"][0]["name"] == "Portal"
     assert "layer 'Bizness' is not one of [Motivation, Strategy, Business" in r["rejected"][0]["errors"][0]
     assert r["total_elements"] == 2
-    assert acc.elements["Member"]["element"]["provenance"] == "vision"
+    assert acc.elements["Member"]["element"]["provenance"] == {"source": "diagram", "representation": "vision"}
     assert acc.elements["Adjudication Service"]["element"]["provenance"] == {"source": "requirements", "representation": "document"}
 
     # batch 2: the corrected item + a data element + a behavior; plus unknown field + bad provenance rejected
     r = t["add_elements"]([
         {"group": "components", "name": "Portal", "role": "Web front end", "layer": "Application",
-         "aspect": "active", "candidateType": "ApplicationComponent", "sourceShapeIds": ["s2"]},
+         "aspect": "active", "candidateType": "ApplicationComponent", "sourceShapeIds": ["s2"],
+         "provenance": "structure"},
         {"group": "data", "name": "Claim", "role": "A filed claim record", "layer": "Business",
-         "aspect": "passive", "candidateType": "BusinessObject"},
+         "aspect": "passive", "candidateType": "BusinessObject", "provenance": "structure"},
         {"group": "behaviors", "name": "File Claim", "role": "Member submits a claim", "layer": "Business",
-         "aspect": "behaviour", "candidateType": "BusinessProcess"},
+         "aspect": "behaviour", "candidateType": "BusinessProcess", "provenance": "document"},
         {"group": "widgets", "name": "Mystery", "role": "?", "layer": "Business", "aspect": "active",
          "candidateType": "X", "provenance": "guess", "id": 7},
     ])
@@ -77,7 +78,7 @@ def test_ba_session():
     # re-add a name with a changed role -> UPDATE/merge, no duplicate; sourceShapeIds unioned
     r = t["add_elements"]([{"group": "components", "name": "Portal", "role": "Web front end (React SPA)",
                             "layer": "Application", "aspect": "active", "candidateType": "ApplicationComponent",
-                            "sourceShapeIds": ["s3"]}])
+                            "sourceShapeIds": ["s3"], "provenance": "structure"}])
     assert r["added"] == [] and r["updated"] == ["Portal"] and r["total_elements"] == 5
     assert acc.elements["Portal"]["element"]["role"] == "Web front end (React SPA)"
     assert acc.elements["Portal"]["element"]["sourceShapeIds"] == ["s2", "s3"]

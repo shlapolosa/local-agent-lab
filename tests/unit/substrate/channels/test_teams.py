@@ -1,6 +1,6 @@
 """lab.substrate.channels.teams — the Microsoft Teams approval channel, OFFLINE: the webhook URL and the
-HTTP POST are constructor-injected (a recorded fake), approvals.decide/channel_events/ack are patched;
-no env, no network, no Redis.
+HTTP POST are constructor-injected (a recorded fake), the loop's channel_events/ack are patched and the
+inbound decisions run against a FakeRedis; no env, no network, no live Redis.
 Run: pytest tests/unit/substrate/channels/test_teams.py (or as a script)."""
 import io
 import json
@@ -9,6 +9,7 @@ from contextlib import redirect_stdout
 
 import pytest
 
+from fixtures.fakes import FakeRedis, patched_client
 from lab.substrate import approvals
 from lab.substrate.channels import teams as T
 
@@ -125,47 +126,56 @@ def test_post_sends_json_to_the_webhook(monkeypatch):
 
 
 # ------------------------------------------------------------------ inbound: decisions
-def test_decide_records_through_approvals_with_the_callers_actor(monkeypatch):
-    recorded = []
-    monkeypatch.setattr(approvals, "decide",
-                        lambda *a: recorded.append(a) or {"decision": a[1], "actor": a[2]})
-    ch = _enabled()
-    out = ch.decide("apr-1", "approve", "maria@contoso.com", "looks right")
-    assert recorded == [("apr-1", "approve", "maria@contoso.com", "teams", "looks right")]
-    assert out["decision"] == "approve"
-    ch.decide("apr-1", "update", "  maria@contoso.com  ")           # actor trimmed, comment optional
-    assert recorded[1] == ("apr-1", "update", "maria@contoso.com", "teams", "")
+# `decide` is a CHANNEL BINDING over approvals.human_decision — the same implementation the
+# `approvals_decide` MCP tool (a Copilot Studio connector) calls. These tests assert the binding and
+# the guarantees it inherits; tests/unit/substrate/mcp/workflow/test_approval_tools.py asserts that
+# both callers record IDENTICAL audit entries.
+def _open_request(r, subject="claims"):
+    return approvals.request("adoit-import", subject, {"summary": {}}, "architect", client=r)
 
 
-def test_decide_requires_a_real_actor(monkeypatch):
-    called = []
-    monkeypatch.setattr(approvals, "decide", lambda *a: called.append(a))
-    ch = _enabled()
-    for bad in (None, "", "   "):
-        with pytest.raises(ValueError, match="actor"):
-            ch.decide("apr-1", "approve", bad)
-    assert called == []                                              # never an anonymous default
+def test_decide_records_through_approvals_with_the_callers_actor():
+    with patched_client(FakeRedis()) as r:
+        rid = _open_request(r)
+        out = _enabled().decide(rid, "approve", "  maria@contoso.com  ", " looks right ")
+        assert out == {"request_id": rid, "decision": "approve", "actor": "maria@contoso.com",
+                       "channel": "teams", "comment": "looks right", "decided_at": out["decided_at"]}
+        st = approvals.status(rid, client=r)
+        assert st["status"] == "approve" and st["decided_by"] == "maria@contoso.com"
+        assert st["decided_via"] == "teams"                       # the channel, for the audit log
 
 
-def test_decide_propagates_unknown_id_and_invalid_decision(monkeypatch):
-    def fake_decide(rid, decision, actor, channel, comment):
-        if decision not in approvals.DECISIONS:
-            raise ValueError("decision must be one of ...")
-        raise KeyError(f"unknown request {rid}")
-    monkeypatch.setattr(approvals, "decide", fake_decide)
-    ch = _enabled()
-    with pytest.raises(KeyError):
-        ch.decide("apr-nope", "approve", "maria")
-    with pytest.raises(ValueError):
-        ch.decide("apr-1", "frobnicate", "maria")
+def test_decide_requires_a_real_actor():
+    with patched_client(FakeRedis()) as r:
+        rid = _open_request(r)
+        for bad in (None, "", "   "):
+            with pytest.raises(ValueError, match="actor is required"):
+                _enabled().decide(rid, "approve", bad)
+        assert approvals.status(rid, client=r)["status"] == "pending"   # never an anonymous default
+        assert approvals.DEC not in r.x                                 # and nothing in the audit log
 
 
-def test_decide_works_even_when_outbound_is_not_configured(monkeypatch):
+def test_decide_propagates_unknown_id_invalid_decision_and_a_settled_request():
+    with patched_client(FakeRedis()) as r:
+        rid = _open_request(r)
+        ch = _enabled()
+        with pytest.raises(KeyError, match="unknown request"):
+            ch.decide("apr-nope", "approve", "maria")
+        with pytest.raises(ValueError, match="decision must be one of"):
+            ch.decide(rid, "frobnicate", "maria")
+        ch.decide(rid, "update", "maria", "rename X")             # changes requested -> still open
+        assert approvals.status(rid, client=r)["status"] == "update"
+        ch.decide(rid, "decline", "omar", "wrong domain")
+        with pytest.raises(ValueError, match="already decline"):  # a final decision is final
+            ch.decide(rid, "approve", "maria")
+
+
+def test_decide_works_even_when_outbound_is_not_configured():
     """The inbound path needs no webhook: a connector can record a decision on a disabled channel."""
-    recorded = []
-    monkeypatch.setattr(approvals, "decide", lambda *a: recorded.append(a))
-    T.TeamsChannel("").decide("apr-1", "decline", "maria", "wrong domain")
-    assert recorded == [("apr-1", "decline", "maria", "teams", "wrong domain")]
+    with patched_client(FakeRedis()) as r:
+        rid = _open_request(r)
+        T.TeamsChannel("").decide(rid, "decline", "maria", "wrong domain")
+        assert approvals.status(rid, client=r)["decided_via"] == "teams"
 
 
 # ------------------------------------------------------------------ the loop

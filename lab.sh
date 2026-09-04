@@ -98,6 +98,7 @@ up() {
   start_mcp semantic-mcp lab.substrate.mcp.semantic.server 9200   # vocabularies/legality/SPARQL (read-only, all teams)
   start_mcp storage-mcp  lab.substrate.mcp.storage.server  9300   # READ-ONLY upload store: the only way a workload reads an input
   start_mcp workflow-mcp lab.substrate.mcp.workflow.server 9400   # business processes: <process>_submit/_status/_result (async)
+                                                                  # + the approval gate: approvals_list/_get/_decide (human)
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port

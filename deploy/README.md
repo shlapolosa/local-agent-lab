@@ -6,6 +6,10 @@ runs the shared plane once; each product team ships its workload onto it):
 - **Substrate** = the shared platform plane: `redis` (limiter state + streams, internal),
   `gateway` (governance, public), `semantic-mcp` + `adoit-mcp` + `storage-mcp` + `workflow-mcp`
   (shared tools, internal), `review` (approval gate + Submit, public), `jaeger` (tracing). Deployed once.
+  The approval gate has TWO faces: the review app for a person with a browser, and `workflow-mcp`'s
+  `approvals_list/_get/_decide` tools for a channel that brings its own signed-in human (a Copilot
+  Studio agent in Teams) — one implementation (`lab.substrate.approvals.human_decision`), governed
+  through the gateway like any other tool.
 - **Workloads** = business processes (`src/lab/workloads/<name>/`), each its own container set, referencing
   the substrate ONLY through the gateway's public domain + the shared managed backends. Spin up/down
   on their own. Cross-workflow deps go via **events (Redis Streams)** or **A2A through the gateway** —

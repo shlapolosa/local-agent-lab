@@ -13,7 +13,8 @@ from jsonschema import Draft7Validator
 from lab.workloads.visio_to_archimate import ba_tools as B
 
 OK = {"group": "components", "name": "Portal", "role": "Web front end", "layer": "Application",
-      "aspect": "active", "candidateType": "ApplicationComponent"}
+      "aspect": "active", "candidateType": "ApplicationComponent",
+      "provenance": {"source": "diagram", "representation": "structure"}}
 
 
 def _tools(acc=None):
@@ -73,37 +74,45 @@ def test_add_elements_each_required_field_missing_or_wrong():
                                                              "candidateType is required (non-empty string)"]
     assert errs[5].startswith("layer 'L'") and errs[6].startswith("aspect 'A'")
     assert errs[7] == "provenance must be a string shorthand (representation) or an object {source, representation}"
+    assert len(errs) == 8
     assert acc.elements == {} and acc.counts()["elements"] == 0
 
 
 def test_add_elements_provenance_shapes():
+    """Provenance is REQUIRED on every element and normalises to ONE shape: the bare-string
+    shorthand expands (its source is the only kind that representation can come from), the object
+    form must carry both fields, and anything else is a per-item rejection with a precise reason."""
     acc, t = _tools()
-    # accepted shorthand (stripped) and objects, partial objects, empty object dropped
-    r = t["add_elements"]([_el(name="A", provenance=" vision "), _el(name="B", provenance={"source": "diagram"}),
-                           _el(name="C", provenance={"representation": "structure"}), _el(name="D", provenance={}),
-                           _el(name="E", provenance=None)])
-    assert r["added"] == ["A", "B", "C", "D", "E"] and r["rejected"] == []
-    assert acc.elements["A"]["element"]["provenance"] == "vision"
-    assert acc.elements["B"]["element"]["provenance"] == {"source": "diagram"}
-    assert acc.elements["C"]["element"]["provenance"] == {"representation": "structure"}
-    assert "provenance" not in acc.elements["D"]["element"] and "provenance" not in acc.elements["E"]["element"]
-    # rejected: bad shorthand, bad source, bad representation, unknown field, wrong type
+    r = t["add_elements"]([_el(name="A", provenance=" vision "),
+                           _el(name="B", provenance={"source": "requirements", "representation": "document"})])
+    assert r["added"] == ["A", "B"] and r["rejected"] == []
+    assert acc.elements["A"]["element"]["provenance"] == {"source": "diagram", "representation": "vision"}
+    assert acc.elements["B"]["element"]["provenance"] == {"source": "requirements", "representation": "document"}
+    # every representation expands to exactly one source, and the table is the schema's own enum
+    assert set(B.SOURCE_OF_REPRESENTATION) == set(B.PROVENANCE_REPRESENTATIONS)
+    assert set(B.SOURCE_OF_REPRESENTATION.values()) <= set(B.PROVENANCE_SOURCES)
+    # rejected: absent, half an object, bad shorthand, bad source/representation, unknown field, wrong type
+    required = ("provenance is required: a representation shorthand "
+                f"[{B.fmt(B.PROVENANCE_REPRESENTATIONS)}] or an object {{source, representation}}")
+    item = _el(); del item["provenance"]
+    assert _only(t["add_elements"]([item])) == [required]
+    assert _only(t["add_elements"]([_el(provenance=None)])) == [required]
+    assert _only(t["add_elements"]([_el(provenance={})])) == ["provenance.source is required",
+                                                              "provenance.representation is required"]
+    assert _only(t["add_elements"]([_el(provenance={"source": "diagram"})])) == ["provenance.representation is required"]
+    assert _only(t["add_elements"]([_el(provenance={"representation": "structure"})])) == ["provenance.source is required"]
     assert _only(t["add_elements"]([_el(provenance="parsed")])) == [
         f"provenance 'parsed' is not one of [{B.fmt(B.PROVENANCE_REPRESENTATIONS)}] (or an object {{source, representation}})"]
-    assert _only(t["add_elements"]([_el(provenance={"source": "visio"})])) == [
+    assert _only(t["add_elements"]([_el(provenance={"source": "visio", "representation": "structure"})])) == [
         f"provenance.source 'visio' is not one of [{B.fmt(B.PROVENANCE_SOURCES)}]"]
-    assert _only(t["add_elements"]([_el(provenance={"representation": "image"})])) == [
+    assert _only(t["add_elements"]([_el(provenance={"source": "diagram", "representation": "image"})])) == [
         f"provenance.representation 'image' is not one of [{B.fmt(B.PROVENANCE_REPRESENTATIONS)}]"]
-    assert _only(t["add_elements"]([_el(provenance={"page": 2, "source": "diagram"})])) == [
+    assert _only(t["add_elements"]([_el(provenance={"page": 2, "source": "diagram", "representation": "structure"})])) == [
         f"provenance has unknown field(s) ['page']; allowed: [{B.fmt(('source', 'representation'))}]"]
-    errs = _only(t["add_elements"]([_el(provenance={"source": "x", "representation": "y", "z": 1})]))
-    assert len(errs) == 3 and errs[0].startswith("provenance has unknown field(s) ['z']")
     for bad in (7, ["vision"], True):
         assert _only(t["add_elements"]([_el(provenance=bad)])) == [
             "provenance must be a string shorthand (representation) or an object {source, representation}"], bad
-    assert acc.counts()["elements"] == 5
-    # the helper directly: (normalised, errors) for the None shape
-    assert B._normalise_provenance(None) == (None, [])
+    assert acc.counts()["elements"] == 2
 
 
 def test_add_elements_source_shape_ids_coercion():
@@ -130,7 +139,10 @@ def test_add_elements_update_reclassifies_and_merges_ids():
     assert r == {"added": [], "updated": ["X"], "rejected": [], "total_elements": 1}
     cur = acc.elements["X"]
     assert cur["group"] == "actors" and cur["element"]["role"] == "An actor" and cur["element"]["layer"] == "Business"
-    assert cur["element"]["sourceShapeIds"] == ["1", "2"] and cur["element"]["provenance"] == "vision"
+    # provenance travels with the item, so a re-add restates it (here the OK default) rather than
+    # inheriting the earlier one; sourceShapeIds, which the item omitted entirely, are kept
+    assert cur["element"]["sourceShapeIds"] == ["1", "2"]
+    assert cur["element"]["provenance"] == {"source": "diagram", "representation": "structure"}
     # update with overlapping ids: unioned, order preserved, deduped
     t["add_elements"]([_el(name="X", group="actors", sourceShapeIds=["2", "3", "2"])])
     assert acc.elements["X"]["element"]["sourceShapeIds"] == ["1", "2", "3"]
@@ -270,13 +282,14 @@ def test_schema_backstops_report_precisely_when_the_contract_tightens():
     acc, t = _tools()
     saved_el, saved_rel = B._ELEMENT_VALIDATOR, B._RELATIONSHIP_VALIDATOR
     try:
-        B._ELEMENT_VALIDATOR = Draft7Validator({"properties": {"name": {"maxLength": 3}}, "maxProperties": 5})
+        B._ELEMENT_VALIDATOR = Draft7Validator({"properties": {"name": {"maxLength": 3}}, "maxProperties": 6})
         r = t["add_elements"]([_el(name="Portal", sourceShapeIds=["s1"]), _el(name="Web")])
         assert r["added"] == ["Web"] and r["rejected"][0]["name"] == "Portal"
-        assert r["rejected"][0]["errors"] == ["<element>: {'name': 'Portal', 'role': 'Web front end', 'layer': 'Application', "
-                                              "'aspect': 'active', 'candidateType': 'ApplicationComponent', "
-                                              "'sourceShapeIds': ['s1']} has too many properties",
-                                              "name: 'Portal' is too long"]
+        assert r["rejected"][0]["errors"] == [
+            "<element>: {'name': 'Portal', 'role': 'Web front end', 'layer': 'Application', "
+            "'aspect': 'active', 'candidateType': 'ApplicationComponent', 'sourceShapeIds': ['s1'], "
+            "'provenance': {'source': 'diagram', 'representation': 'structure'}} has too many properties",
+            "name: 'Portal' is too long"]
         B._ELEMENT_VALIDATOR = saved_el
         t["add_elements"]([_el(name="Portal")])
         B._RELATIONSHIP_VALIDATOR = Draft7Validator({"properties": {"intent": {"maxLength": 2}}})

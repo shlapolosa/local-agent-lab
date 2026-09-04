@@ -11,12 +11,15 @@ from lab.workloads import ids
 from fixtures.workflow import (  # noqa: E402
     BA_OK, SPEC_OK, Agents, FakeResult, harness, image_block, raises, run, text_block, text_of)
 
+# provenance is required per element in BOTH modes; the shorthand is accepted and expanded.
 BA_ITEMS = [{"group": "actors", "name": "Clinician", "role": "Reads records", "layer": "Business",
-             "aspect": "active", "candidateType": "BusinessActor"},
+             "aspect": "active", "candidateType": "BusinessActor", "provenance": "structure"},
             {"group": "components", "name": "Portal", "role": "Web front end", "layer": "Application",
-             "aspect": "active", "candidateType": "ApplicationComponent"},
+             "aspect": "active", "candidateType": "ApplicationComponent",
+             "provenance": {"source": "diagram", "representation": "structure"}},
             {"group": "data", "name": "Patient Record", "role": "The clinical record", "layer": "Application",
-             "aspect": "passive", "candidateType": "DataObject"}]
+             "aspect": "passive", "candidateType": "DataObject",
+             "provenance": {"source": "document", "representation": "document"}}]
 BA_RELS = [{"from": "Portal", "to": "Clinician", "type": "Serving", "intent": "portal serves clinician"},
            {"from": "Portal", "to": "Patient Record", "type": "Access", "intent": "portal reads record"}]
 

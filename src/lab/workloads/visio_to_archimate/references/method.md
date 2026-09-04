@@ -74,6 +74,11 @@ complementary, and each is authoritative for different things — do not treat o
 - The **rendered image** is authoritative for **grouping / containment** (which boxes sit inside
   which zone / swim-lane = subsystems or domains) and for **connectors the parse missed** (e.g.
   Lucidchart lines that never became native connectors).
+- A connector marked **`recovered: "geometry"`** sits between the two: the file did not declare it,
+  the parser reconstructed it from the line's endpoint geometry (`match_distance` = how tight the
+  match was). Keep it, confirm it against the image, and raise a doubtful one as an `openQuestion`.
+- When NO image is available (the deployment cannot render Visio), the parse is the only
+  representation: read containment from its own evidence and record what it cannot settle.
 - Where they **disagree**, prefer the deterministic source for identity and raise the disagreement
   as an `openQuestion`.
 

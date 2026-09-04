@@ -15,8 +15,8 @@ from fastmcp import Client
 
 from fixtures.fakes import FakeRedis
 from lab.platform import config, workflows
-from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, InputField, InputKind, ProcessSpec,
-                                    WorkflowStatus, WorkflowTools)
+from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, ApprovalTools, InputField,
+                                    InputKind, ProcessSpec, WorkflowStatus, WorkflowTools)
 from lab.substrate.mcp.workflow import server as srv
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *[".."] * 5))
@@ -82,7 +82,11 @@ def submit(server, **args):
 # ---------------------------------------------------------------- the tool surface
 def test_the_registry_drives_the_tool_list_and_the_contract_catalogue(server):
     by = tools(server)
-    assert set(by) == WorkflowTools.names() == {f"{p}_{v}" for p in PROCESSES for v in ("submit", "status", "result")}
+    assert set(by) == WorkflowTools.names()
+    # the process tools are exactly the registry's; the fixed approval gate rides on the same server
+    assert set(by) - ApprovalTools.names() == {f"{p}_{v}" for p in PROCESSES
+                                               for v in ("submit", "status", "result")}
+    assert ApprovalTools.names() <= set(by)     # see tests/…/test_approval_tools.py for their behaviour
     assert all(by[n].description and len(by[n].description) > 80 for n in by), "an agent picks a tool by its description"
 
 
@@ -91,7 +95,8 @@ def test_adding_a_process_to_the_registry_adds_its_three_tools_and_nothing_else(
     assert set(tools(built)) == WorkflowTools.names() | {"fake_process_submit", "fake_process_status",
                                                          "fake_process_result"}
     only = srv.build({FAKE.name: FAKE})                       # a registry of ONE process -> one triple
-    assert set(tools(only)) == {"fake_process_submit", "fake_process_status", "fake_process_result"}
+    assert set(tools(only)) - ApprovalTools.names() == {"fake_process_submit", "fake_process_status",
+                                                        "fake_process_result"}
     schema = tools(only)["fake_process_submit"].inputSchema
     assert schema["required"] == ["primary"]
     assert set(schema["properties"]) == {"primary", "optional_one", "requester"}

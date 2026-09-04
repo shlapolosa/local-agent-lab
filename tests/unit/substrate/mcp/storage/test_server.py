@@ -34,7 +34,8 @@ TMP = srv = UP = REFS = None        # set up by `_server` (never at import: it p
 ENV_OWNED = False                   # true when no UPLOADS_URL was exported -> we own the fallback
 
 TOOLS = {"storage_list", "storage_info", "storage_get", "storage_read_document", "storage_read_vsdx",
-         "storage_extract_figures"}
+         "storage_extract_figures", "storage_render_vsdx"}
+IMAGE_TOOLS = {"storage_get", "storage_extract_figures", "storage_render_vsdx"}
 
 
 # ---------------------------------------------------------------- fixtures (all generated)
@@ -144,9 +145,9 @@ def uploads_url(url):
 def test_catalogue_and_image_tools_have_no_output_schema():
     by = {t.name: t for t in tools()}
     assert set(by) == TOOLS
-    for name in ("storage_get", "storage_extract_figures"):        # the fastmcp gotcha
+    for name in IMAGE_TOOLS:                                       # the fastmcp gotcha
         assert by[name].outputSchema is None, name
-    for name in TOOLS - {"storage_get", "storage_extract_figures"}:
+    for name in TOOLS - IMAGE_TOOLS:
         assert by[name].outputSchema, name
 
 
@@ -210,6 +211,55 @@ def test_read_vsdx_pages_and_fragment():
     assert other["pages"] == ["Lab System"] and other["shapes"] == []            # enumerated, not parsed
     assert "is not a .vsdx" in call_error("storage_read_vsdx", ref=REFS["png"])
     assert "is not a .vsdx" in call_error("storage_read_vsdx", ref=REFS["docx"] + "#p1")
+
+
+# ---------------------------------------------------------------- vsdx page -> image
+@contextmanager
+def fake_renderer(fn):
+    """Stand in for LibreOffice + a PDF rasteriser: the whole render hop, injected."""
+    old = srv.docparse.vsdx_page_image
+    srv.docparse.vsdx_page_image = fn
+    try:
+        yield
+    finally:
+        srv.docparse.vsdx_page_image = old
+
+
+def test_render_vsdx_returns_an_image_block_and_a_label():
+    seen = {}
+
+    def render(data, name, page=None, **kw):
+        seen["name"], seen["page"], seen["bytes"] = name, page, len(data)
+        return _png(300), "image/png", (300, 300)
+
+    with fake_renderer(render):
+        r = call("storage_render_vsdx", ref=REFS["vsdx"], page="Lab System")
+    assert isinstance(r.content[0], ImageContent) and isinstance(r.content[1], TextContent)
+    assert "lab-system.vsdx" in r.content[1].text and "300x300" in r.content[1].text
+    assert "Lab System" in r.content[1].text
+    assert seen["name"] == "lab-system.vsdx" and seen["page"] == "Lab System" and seen["bytes"] > 0
+
+
+def test_render_vsdx_honours_a_page_fragment_and_defaults_to_the_first_page():
+    def render(data, name, page=None, **kw):
+        return _png(300), "image/png", (300, 300)
+
+    with fake_renderer(render):
+        assert "page 1" in call("storage_render_vsdx", ref=REFS["vsdx"]).content[1].text
+        frag = call("storage_render_vsdx", ref=REFS["vsdx"] + "#Lab System")
+    assert "Lab System" in frag.content[1].text
+
+
+def test_render_vsdx_errors_are_explicit_about_kind_blankness_and_capability():
+    assert "is not a .vsdx" in call_error("storage_render_vsdx", ref=REFS["png"])
+    with fake_renderer(lambda *a, **k: None):
+        assert "nothing renderable" in call_error("storage_render_vsdx", ref=REFS["vsdx"])
+
+    def missing(*a, **k):
+        raise RuntimeError("LibreOffice (soffice) not found")
+
+    with fake_renderer(missing):
+        assert "LibreOffice" in call_error("storage_render_vsdx", ref=REFS["vsdx"])
 
 
 def test_extract_figures():

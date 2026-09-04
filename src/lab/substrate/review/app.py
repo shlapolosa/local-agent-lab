@@ -395,7 +395,7 @@ def _review_page(reviewer):
     items = approvals.pending()
     st.sidebar.metric("Pending", len(items))
     if not items:
-        st.info("No models awaiting review. Runs that call `adoit_request_import` will appear here "
+        st.info("No models awaiting review. Runs that call `ea_stage_import` will appear here "
                 "(start one from **Submit** mode).")
         st.subheader("Recent decisions")
         for h in approvals.history(20):
@@ -445,7 +445,12 @@ def _review_page(reviewer):
     def _decide(d):
         if d != "approve" and not comment.strip():
             st.error("A comment is required for that decision."); return
-        approvals.decide(req["request_id"], d, reviewer, "review-app", comment.strip())
+        try:
+            # the ONE human-gate path (identified actor, legal decision, one final answer claimed
+            # atomically) — the same terms Teams, Telegram, the CLI and approvals_decide record on
+            approvals.human_decision(req["request_id"], d, reviewer, "review-app", comment.strip())
+        except ValueError as e:                 # blank reviewer, or already decided
+            st.error(str(e)); return
         st.success(f"Recorded: {d}"); st.rerun()
     if b1.button("✅ Approve — release for import", type="primary"): _decide("approve")
     if b2.button("✏️ Request changes"): _decide("update")
@@ -464,7 +469,10 @@ def main():
             if pw == config.REVIEW_APP_PASSWORD:
                 st.session_state["authed"] = True; st.rerun()
             st.stop()
-    reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer"))
+    # the audit log answers "who released this EA-repository write", so the reviewer is never blank
+    reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer")).strip()
+    if not reviewer:
+        st.sidebar.warning("Enter your name to decide — an approval must carry the human who made it.")
     mode = st.sidebar.radio("Mode", list(PAGES), horizontal=True)
     PAGES[mode](reviewer)
 

@@ -170,6 +170,15 @@ def test_adoit_mcp_receives_exactly_what_it_consumes():
     }
 
 
+def test_workflow_mcp_holds_redis_and_two_links_and_no_store():
+    """The role that carries the process tools AND the approval gate: Redis is its ONLY backend, and
+    the two URLs are addresses a reviewer follows — never a store or bucket credential."""
+    env = railway.env_for_role("workflow-mcp", FAKE)
+    assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
+                        "REVIEW_APP_URL", "JAEGER_UI_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"}
+    assert not _has(env, "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_")
+
+
 def test_semantic_mcp_is_credential_free():
     env = railway.env_for_role("semantic-mcp", FAKE)
     assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "ARTIFACTS_URL", "DATABASE_URL",

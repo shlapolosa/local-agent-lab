@@ -95,6 +95,27 @@ def test_no_tool_or_alias_names_a_vendor():
     assert named == [], f"vendor name in the tool contract: {named}"
 
 
+def test_no_grant_hands_a_team_the_human_approval_write_by_accident():
+    """workflow_mcp carries BOTH the process tools and the approval gate, so a team granted the
+    SERVER without a per-tool ACL could approve the very run it submitted — the human-in-the-loop
+    invariant, gone. Any grant of workflow_mcp in the repo must therefore name its tools
+    (`mcp_tool_permissions`), and only a channel that authenticates a person may name
+    `approvals_decide`. Today no provisioning script grants workflow_mcp at all; this is the ratchet
+    that keeps a future one honest."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    offenders = []
+    for base, _, files in os.walk(os.path.join(root, "scripts")):
+        for f in (x for x in files if x.endswith(".py")):
+            src = open(os.path.join(base, f), encoding="utf-8").read()
+            for line in src.splitlines():
+                if '"workflow_mcp"' in line and "mcp_servers" in line and "mcp_tool_permissions" not in src:
+                    offenders.append(f"{f}: {line.strip()}")
+    assert offenders == [], ("workflow_mcp granted without a per-tool ACL — a submitting agent could "
+                            f"approve its own run: {offenders}")
+    assert contracts.ApprovalTools.WRITE == ("approvals_decide",)      # exactly one tool writes a decision
+    assert set(contracts.ApprovalTools.READ) < contracts.WorkflowTools.names()
+
+
 def test_every_gateway_server_alias_has_a_contract():
     """The contract's aliases ARE the gateway's `mcp_servers` keys — read from litellm-config.yaml, because
     the alias is what `StorageTools.gateway()` bakes into the agents' `allowed_tools`: rename one in the

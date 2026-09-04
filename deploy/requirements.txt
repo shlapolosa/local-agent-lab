@@ -25,4 +25,8 @@ pypdf>=4                        # BA reads requirements .pdf
 boto3>=1.40,<2                  # S3-compatible upload store (Railway Bucket / Azure Blob): shared/artifacts.py S3Store
 Pillow>=10                      # storage-mcp image normalisation (shared/docparse.py)
 dependency-injector>=4.49,<5    # composition roots: lab.platform.container + lab.substrate.container (providers live only there)
-# pymupdf: add back (`pymupdf>=1.24`) only when shared/render_vsdx.py gains a caller AND LibreOffice ships in the image (review A-F6)
+# PDF rasteriser for the .vsdx -> PNG representation (lab/platform/render_vsdx.py: pypdfium2 preferred,
+# pymupdf accepted). It now HAS a caller (storage_render_vsdx), but rendering also needs LIBREOFFICE in
+# the image, which deploy/Dockerfile does not install: `render_vsdx.available()` is the capability gate
+# and the BA degrades to the structured parse when it is False. Add `pypdfium2>=4` HERE in the same
+# change that adds LibreOffice to the image — a rasteriser without soffice renders nothing.

@@ -17,6 +17,16 @@ a `BeginX` Connect binds the connector to its SOURCE shape, an `EndX` Connect to
 We classify a shape as a connector iff it appears as a `FromSheet` in the page connects, so the
 same logic works on hand-authored fixtures and genuine Visio uploads alike.
 
+A **Lucidchart export has no <Connects> section at all** (verified on the real 244-shape Sahatna
+cloud diagram: zero `<Connect>` rows on every page), so that pass finds nothing. It does carry a
+`com.lucidchart.Line.*` shape per line with real Begin/End coordinates, so a SECOND, geometric pass
+runs on such a file: absolute bounding boxes for every element shape (group offsets folded in),
+absolute endpoints for every line, and each endpoint matched to its nearest box
+(`read_lucidchart.recover_connectors`). Recovered links merge into the SAME `connectors` list and
+are marked `recovered: "geometry"` + `match_distance` so their provenance stays visible; a line
+shape recovered this way is a connector, never an element, so its caption ("TCP 443") stops being
+read as a box. Native Visio files never enter this pass.
+
 CLI: `python read_vsdx.py <file.vsdx>` prints the JSON.
 """
 import json
@@ -24,7 +34,9 @@ import sys
 
 from vsdx import VisioFile
 
-from lab.core.visio.read_lucidchart import is_lucidchart_master, type_hint_for_master
+from lab.core.visio.read_lucidchart import (DEFAULT_TOLERANCE_FACTOR, Box, Segment,
+                                             is_line_master, is_lucidchart_master,
+                                             recover_connectors, type_hint_for_master)
 
 
 def _txt(shape) -> str:
@@ -34,6 +46,46 @@ def _txt(shape) -> str:
         return ""
 
 
+def _cellf(shape, name) -> float | None:
+    """One numeric ShapeSheet cell as a float, or None when absent/blank/unparsable."""
+    try:
+        v = shape.cell_value(name)
+    except Exception:
+        return None
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _collect_geometry(shapes, ox: float, oy: float, boxes: dict, segments: list) -> None:
+    """Walk the shape tree once, converting LOCAL ShapeSheet geometry to ABSOLUTE page coordinates.
+
+    A Visio group's children are positioned in the group's own coordinate space, whose origin is the
+    group's `(PinX - LocPinX, PinY - LocPinY)`; the offset accumulates down the tree (the Sahatna
+    pages nest three deep). Fills `boxes` (shape id -> (x0, y0, x1, y1), any 2-D shape) and
+    `segments` (one `Segment` per Lucidchart line, endpoints already absolute)."""
+    for s in shapes:
+        px, py = _cellf(s, "PinX"), _cellf(s, "PinY")
+        lx, ly = _cellf(s, "LocPinX") or 0.0, _cellf(s, "LocPinY") or 0.0
+        w, h = _cellf(s, "Width"), _cellf(s, "Height")
+        sid = str(s.ID) if s.ID is not None else None
+        master = getattr(s, "universal_name", None) or _master(s)
+        if sid and is_line_master(master):
+            bx, by = _cellf(s, "BeginX"), _cellf(s, "BeginY")
+            ex, ey = _cellf(s, "EndX"), _cellf(s, "EndY")
+            if None not in (bx, by, ex, ey):
+                segments.append(Segment(id=sid, label=_txt(s),
+                                        bx=bx + ox, by=by + oy, ex=ex + ox, ey=ey + oy))
+        elif sid and px is not None and py is not None and w is not None and h is not None:
+            x0, y0 = px - lx + ox, py - ly + oy
+            boxes[sid] = (min(x0, x0 + w), min(y0, y0 + h), max(x0, x0 + w), max(y0, y0 + h))
+        kids = list(getattr(s, "child_shapes", []) or [])
+        if kids:
+            kx, ky = (px - lx + ox, py - ly + oy) if px is not None and py is not None else (ox, oy)
+            _collect_geometry(kids, kx, ky, boxes, segments)
+
+
 def _page_match(page_name: str, want: str | None) -> bool:
     """Page selector: None = every page; else case/space-insensitive name match."""
     if want is None:
@@ -41,10 +93,33 @@ def _page_match(page_name: str, want: str | None) -> bool:
     return (page_name or "").strip().lower() == want.strip().lower()
 
 
-def read_vsdx(path: str, page: str | None = None) -> dict:
+def page_index(names, want: str | None) -> int:
+    """Position of the page called `want` among `names` (the parse's `pages`), 0 when no page is
+    named. Same case/space-insensitive matching as the parser, so the ONE page selector the whole
+    pipeline uses (`ref#Page`) resolves identically for a parse and for a render."""
+    if want is None:
+        return 0
+    for i, n in enumerate(names):
+        if _page_match(n, want):
+            return i
+    raise ValueError(f"no page named {want!r} (pages: {list(names)})")
+
+
+def page_names(path: str) -> list:
+    """Just the drawable page names, in order — what `page_index` resolves against."""
+    f = VisioFile(path)
+    try:
+        return [p.name for p in f.pages if not p.is_master_page]
+    finally:
+        f.close_vsdx()
+
+
+def read_vsdx(path: str, page: str | None = None,
+              tolerance_factor: float = DEFAULT_TOLERANCE_FACTOR) -> dict:
     """Parse the file. `page` (optional) restricts shapes/connectors to that ONE page by name — a
     multi-page workbook is many views, and a run models one view (Phase B explodes a workbook into
-    one request per page). `pages` still lists every page so a caller can enumerate them."""
+    one request per page). `pages` still lists every page so a caller can enumerate them.
+    `tolerance_factor` tunes the Lucidchart geometric endpoint match (see `read_lucidchart`)."""
     f = VisioFile(path)
     try:
         out = {"file": path.split("/")[-1], "pages": [], "shapes": [], "connectors": [],
@@ -67,6 +142,12 @@ def read_vsdx(path: str, page: str | None = None) -> dict:
             if not _page_match(page_obj.name, page):
                 continue                                   # enumerate, but don't parse, other pages
             connects = list(page_obj.connects)
+            # Lucidchart export: recover the geometry the export wrote instead of <Connects>.
+            geo_boxes: dict = {}
+            segments: list = []
+            if out["lucidchart"]:
+                _collect_geometry(list(page_obj.child_shapes), 0.0, 0.0, geo_boxes, segments)
+            line_ids = {seg.id for seg in segments}
             # id -> shape (all shapes on the page, connectors included)
             by_id = {}
             for s in page_obj.all_shapes:
@@ -76,8 +157,8 @@ def read_vsdx(path: str, page: str | None = None) -> dict:
 
             # element shapes = everything that is not a connector and carries a caption
             for sid, s in by_id.items():
-                if sid in connector_ids:
-                    continue
+                if sid in connector_ids or sid in line_ids:
+                    continue          # a Lucidchart line is a connector; its caption is a link label
                 text = _txt(s)
                 if not text:
                     continue
@@ -117,6 +198,17 @@ def read_vsdx(path: str, page: str | None = None) -> dict:
                     "label": _txt(conn_shape) if conn_shape else "",
                     "page": page_obj.name,
                 })
+
+            # second pass: geometric recovery, over the elements THIS page reported. A pair the
+            # native pass already resolved is authoritative and is never duplicated.
+            if segments:
+                native = {(c["from_id"], c["to_id"]) for c in out["connectors"]}
+                elements = [Box(sh["id"], sh["text"], *geo_boxes[sh["id"]])
+                            for sh in out["shapes"]
+                            if sh["page"] == page_obj.name and sh["id"] in geo_boxes]
+                out["connectors"] += [c for c in recover_connectors(segments, elements, page_obj.name,
+                                                                    tolerance_factor)
+                                      if (c["from_id"], c["to_id"]) not in native]
         return out
     finally:
         f.close_vsdx()

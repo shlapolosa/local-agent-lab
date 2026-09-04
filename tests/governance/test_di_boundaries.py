@@ -35,7 +35,7 @@ KNOWN_ENV_READERS = {
     "src/lab/substrate/gateway/auto_router.py",                     # loaded by LiteLLM by path
     "src/lab/workloads/identity.py",                         # <PREFIX>_CLIENT_ID/SECRET/KEY lookup by prefix
     "src/lab/platform/otel.py",                             # OTEL_EXPORTER_OTLP_ENDPOINT
-    "src/lab/substrate/approvals.py",                        # REVIEW_APP_URL in the request payload
+    "src/lab/substrate/approvals.py",                        # $USER as the CLI channel's actor
     "src/lab/platform/workflows.py",                        # consumer name / review URL
     "src/lab/platform/docparse.py",                         # BA_MAX_* sizing knobs (should come from config)
     "src/lab/substrate/mcp/adoit/adoit_rest.py",                # ADOIT_* credentials (should come from config)

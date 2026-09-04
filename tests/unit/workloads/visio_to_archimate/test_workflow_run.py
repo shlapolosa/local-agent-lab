@@ -21,7 +21,7 @@ from lab.workloads.visio_to_archimate import workflow as W
 from lab.workloads import ids
 
 from fixtures.workflow import (
-    SCHEMA, TRACEPARENT, BA_OK, SPEC_OK, FakeResult, image_block, text_block, Agents, text_of, data_contents, tool_call_response, make_cfg, harness, run, raises, EXECUTOR_IDS)
+    SCHEMA, TRACEPARENT, BA_OK, BA_NORMALISED, SPEC_OK, FakeResult, image_block, text_block, Agents, text_of, data_contents, tool_call_response, make_cfg, harness, run, raises, EXECUTOR_IDS)
 
 
 # ------------------------------------------------------------------ tests
@@ -29,6 +29,10 @@ def test_fixtures_honour_the_contracts():
     from jsonschema import Draft7Validator
     assert W._schema_errors(Draft7Validator(SCHEMA), BA_OK) is None
     assert W._incomplete(BA_OK) is None
+    # the whole gate, on a COPY: _ba_gate normalises provenance in place, so it never runs on the
+    # shared fixture (a mutated fixture would silently change every later test's expectations)
+    assert W._ba_gate(Draft7Validator(SCHEMA), json.loads(json.dumps(BA_OK))) is None
+    assert W._ba_gate(Draft7Validator(SCHEMA), None) == "not valid JSON"
 
 
 def test_json_mode_vsdx_path_end_to_end():
@@ -65,7 +69,7 @@ def test_json_mode_vsdx_path_end_to_end():
                         "semantic_store_spec", "semantic_validate_model", "archimate_render",
                         "ea_stage_import"], suffixes
     store_ba, store_spec = h.router.called("semantic_store_spec")
-    assert store_ba == {"spec": BA_OK, "name": "visio-import.ba_output.json"}
+    assert store_ba == {"spec": BA_NORMALISED, "name": "visio-import.ba_output.json"}
     assert store_spec["name"] == "visio-import.spec.json" and store_spec["spec"]["standard_views"] is True
     assert [a["name_like"] for a in h.router.called("ea_search")] == ["Clinic Portal", "Portal", "Clinician", "Patient Record"]
     assert h.router.called("semantic_validate_model") == [{"spec_ref": "art://store/visio-import.spec.json"}]
@@ -83,7 +87,7 @@ def test_json_mode_vsdx_path_end_to_end():
     assert "add_elements" not in ba.instructions
     # -- the Architect: design prompt has no EXISTING block (nothing matched); finalize prompt is by ref
     design, finalize = h.agents.runs_of("architect-agent")
-    assert "EXISTING ARCHITECTURE" not in design and json.dumps(BA_OK) in design
+    assert "EXISTING ARCHITECTURE" not in design and json.dumps(BA_NORMALISED) in design
     assert "art://store/visio-import.spec.json" in finalize and "semantic_validate_model" in finalize
     assert h.agents.made[-1].credential == "ar-key" and h.agents.made[-1].tools[0].name == "ea-tools"
     # -- live run visibility: every executor node start/done in graph order + the mermaid graph
@@ -157,6 +161,74 @@ def test_by_ref_inputs_existing_update_and_agent_tool_results():
     assert out["semantic"]["illegal"] == ["x->y"] and s["semantic_illegal"] == 1
     assert out["xlsx_ref"] == "art://x/visio-import.xlsx"        # produced by the repository, not by us
     assert s["ba_output_ref"] == "art://s/visio-import.ba_output.json"
+
+
+# ------------------------------------------------------------------ vsdx dual representation
+def test_vsdx_ref_attaches_the_rendered_page_beside_the_structured_parse():
+    """A .vsdx gets BOTH representations: the parse the BA pulls with storage_read_vsdx, and the
+    page rendered to an image by storage_render_vsdx and attached inline for vision."""
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    tools = {"storage_render_vsdx": FakeResult(content=[image_block(b"page-1-png"),
+                                                        text_block("clinic.vsdx page 1 1600x900 image/png")])}
+    with harness(agents, tools) as h:
+        run(h, {"diagram": "art://d1/clinic.vsdx#Ward", "requirements": []})
+    msg = h.agents.runs_of("ba-agent")[0]
+    t = text_of(msg)
+    assert "Call storage_read_vsdx with exactly that source" in t          # the parse: unchanged
+    assert "ATTACHED IMAGE of the SAME diagram page" in t                  # the picture: added
+    assert "deterministic parse wins" in t and "openQuestions" in t        # the reconciliation rule
+    assert [c.media_type for c in data_contents(msg)] == ["image/png"]
+    assert h.router.called("storage_render_vsdx") == [{"ref": "art://d1/clinic.vsdx#Ward"}]
+
+
+def test_vsdx_run_degrades_to_structure_only_when_the_host_cannot_render():
+    """No LibreOffice on the storage-mcp host -> the tool errors -> the run continues on the parse
+    alone and SAYS so, rather than failing (the capability is optional by design)."""
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    tools = {"storage_render_vsdx": RuntimeError("LibreOffice (soffice) not found")}
+    with harness(agents, tools) as h:
+        out = run(h, {"diagram": "art://d1/clinic.vsdx", "requirements": []})
+    assert out["status"] == "pending"
+    msg = h.agents.runs_of("ba-agent")[0]
+    t = text_of(msg)
+    assert data_contents(msg) == []
+    assert "ATTACHED IMAGE of the SAME diagram page" not in t
+    assert "No rendered image of this diagram is available" in t
+    assert h.router.called("storage_render_vsdx") == [{"ref": "art://d1/clinic.vsdx"}]
+
+
+def test_vsdx_render_that_returns_no_image_is_treated_as_unavailable():
+    """A gateway that flattened the image blocks to text must not claim an attached picture."""
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    tools = {"storage_render_vsdx": FakeResult(content=[text_block("flattened")])}
+    with harness(agents, tools) as h:
+        run(h, {"diagram": "art://d1/clinic.vsdx", "requirements": []})
+    msg = h.agents.runs_of("ba-agent")[0]
+    assert data_contents(msg) == [] and "No rendered image" in text_of(msg)
+
+
+def test_local_vsdx_path_renders_locally_when_the_host_can():
+    """Dev inputs by PATH never touch the gateway: the same render runs in-process, if available."""
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    with harness(agents) as h, patch.object(W.I, "render_page",
+                                            lambda src: (b"png-bytes", "image/png", (800, 600))):
+        run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
+    msg = h.agents.runs_of("ba-agent")[0]
+    assert [c.media_type for c in data_contents(msg)] == ["image/png"]
+    assert "ATTACHED IMAGE of the SAME diagram page" in text_of(msg)
+    assert h.router.called("storage_render_vsdx") == []
+
+
+def test_local_vsdx_path_without_libreoffice_stays_structure_only():
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+
+    def no_libreoffice(src):
+        raise RuntimeError("LibreOffice (soffice) not found")
+
+    with harness(agents) as h, patch.object(W.I, "render_page", no_libreoffice):
+        run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
+    msg = h.agents.runs_of("ba-agent")[0]
+    assert data_contents(msg) == [] and "No rendered image" in text_of(msg)
 
 
 def test_image_ref_without_image_content_fails_loud():
@@ -332,3 +404,41 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print("ok", name)
     print("ALL TESTS PASSED")
+
+
+# ------------------------------------------------------------------ per-element provenance
+def _elements(obj):
+    return [e for k in ("actors", "components", "data", "behaviors") for e in obj.get(k, [])]
+
+
+def test_provenance_shorthand_is_normalised_to_the_object_form_before_the_architect_sees_it():
+    """Every element reaches the Architect (and the persisted ba_output artifact) with the SAME
+    provenance shape — the bare-string shorthand is expanded, the object form is left alone."""
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    with harness(agents) as h:
+        run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
+    stored, _ = h.router.called("semantic_store_spec")
+    prov = {e["name"]: e["provenance"] for e in _elements(stored["spec"])}
+    # the shorthand is expanded with the ONE source that representation can have come from
+    assert prov == {"Clinician": {"source": "diagram", "representation": "structure"},
+                    "Portal": {"source": "diagram", "representation": "structure"},
+                    "Patient Record": {"source": "document", "representation": "document"}}
+    assert BA_OK["actors"][0]["provenance"] == "structure"          # the fixture itself is untouched
+
+
+def test_the_gate_rejects_an_element_with_no_provenance_and_retries_the_ba():
+    missing = json.loads(json.dumps(BA_OK))
+    del missing["components"][0]["provenance"]
+    agents = Agents(**{"ba-agent": [missing, BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    with harness(agents) as h:
+        run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
+    note = text_of(h.agents.runs_of("ba-agent")[1])
+    assert "provenance" in note and "Portal" in note
+
+
+def test_a_half_filled_provenance_object_is_a_schema_error():
+    from jsonschema import Draft7Validator
+    half = json.loads(json.dumps(BA_OK))
+    half["components"][0]["provenance"] = {"source": "diagram"}      # representation missing
+    err = W._schema_errors(Draft7Validator(SCHEMA), half)
+    assert err and "provenance" in err

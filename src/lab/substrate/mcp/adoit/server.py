@@ -280,7 +280,7 @@ def ea_import_status(request_id: str) -> dict:
            if config.ADOIT_REST_WRITE else
            "REST write is off (ADOIT_REST_WRITE=false — hosted CE blocks it)")
     )
-    nxt = {"pending": "awaiting a human decision (review app / Telegram / CLI)",
+    nxt = {"pending": "awaiting a human decision (review app / Teams / Telegram / CLI / approvals_decide)",
            "approve": approve_next,
            "decline": "declined — do not import",
            "update": "changes requested — address the comment, re-render, re-request"}

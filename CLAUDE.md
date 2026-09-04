@@ -681,6 +681,21 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
   `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
+  **The gate is also a governed TOOL surface**: `workflow-mcp` carries `approvals_list` /
+  `approvals_get` / `approvals_decide` (`lab.substrate.mcp.workflow.approval_tools`, catalogue
+  `contracts.ApprovalTools`), so a channel that authenticates its OWN human — a Copilot Studio agent in
+  Teams — decides through the gateway, granted/metered/traced like any tool. It sits on workflow-mcp
+  because a run PAUSES for an approval (`<process>_status` returns the `approval_id`): one server, one
+  grant, one connector. `approvals_decide` requires the signed-in human as `actor` (blank REFUSED),
+  records the channel as `mcp:<channel>` so a relay is never logged as a review-app decision, and is
+  granted SEPARATELY from the read tools via `mcp_tool_permissions` (`ApprovalTools.READ` / `.WRITE`).
+  **Never grant `workflow_mcp` to a workload's own agents, and never without the tool list** — an agent
+  could otherwise approve its own run (ratcheted by
+  `test_no_grant_hands_a_team_the_human_approval_write_by_accident`).
+  **Every human channel records through `approvals.human_decision`** — identified actor, a decision from
+  the contract, request still open, and ONE final answer claimed atomically on `approvals:pending`
+  (`SREM`) because there are now several concurrent writers. `approvals.decide` is the raw recorder and
+  must not be called from a channel.
   **Stated exception to gateway-only egress**: a channel posts outward DIRECTLY (Telegram API, Teams
   webhook). That is SUBSTRATE egress, never a workload's, to a fixed configured URL, carrying only
   counts, ids and links — no model content. A NEW outbound path either goes through the gateway or is

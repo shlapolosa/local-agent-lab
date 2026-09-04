@@ -78,8 +78,10 @@ SUBSTRATE = {
     # READ-ONLY governed object store. "s3": True = this service (and only such services) receives the
     # bucket credentials (S3_* + UPLOADS_URL); every other service — and every workload — gets none.
     "storage-mcp":  {"cmd": "python -m lab.substrate.mcp.storage.server", "port": None, "s3": True},
-    # the front door to every business process (submit/status/result). Redis ONLY: it publishes
-    # workflow:requests events and reads their status — no store, no bucket, no ADOIT credential.
+    # the front door to every business process (submit/status/result) AND the human-in-the-loop
+    # approval gate a run pauses at (approvals_list/get/decide). Redis ONLY: it publishes
+    # workflow:requests events, reads their status and appends approval decisions — no store, no
+    # bucket, no ADOIT credential.
     "workflow-mcp": {"cmd": "python -m lab.substrate.mcp.workflow.server", "port": None},
     "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
@@ -148,11 +150,12 @@ ROLE_ENV = {
         "BA_MAX_*",                                # docparse.py size limits (BA_MAX_DOC_CHARS, BA_MAX_EMBEDDED_IMAGES)
         _OTLP,
     ],                                             # + S3_KEYS via the "s3" flag (the only writer/reader pair of the bucket)
-    "workflow-mcp": [                              # src/lab/substrate/mcp/workflow/server.py + lab.platform.{workflows,contracts} — Redis ONLY
+    "workflow-mcp": [                              # src/lab/substrate/mcp/workflow/{server,approval_tools}.py + lab.substrate.approvals + lab.platform.{workflows,contracts} — Redis ONLY
         "MCP_SHARED_SECRET", "BIND_HOST", "WORKFLOW_MCP_PORT",
-        "REDIS_URL",                               # workflows.request/status — the ONLY backend it holds
-        _OTLP,                                     # deliberately NO ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*:
-    ],                                             # inputs are art:// refs it never dereferences
+        "REDIS_URL",                               # workflows.request/status + approvals streams — the ONLY backend it holds
+        "REVIEW_APP_URL", "JAEGER_UI_URL",         # approval_tools.py: the two LINKS a reviewer follows
+        _OTLP,                                     # (addresses, not credentials). Deliberately NO
+    ],                                             # ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*: refs are never dereferenced here
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
         "REDIS_URL",                               # approvals / workflows / runlog streams
