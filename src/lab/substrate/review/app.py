@@ -71,11 +71,15 @@ def _submit_page(reviewer):
         for r in refs["requirements"]:
             st.write("**Requirements**", f"`{r}`")
         if st.button("▶️ Run visio_to_archimate", type="primary"):
-            rid = workflows.request("visio_to_archimate",
-                                    {"diagram": refs["diagram"], "requirements": refs["requirements"]},
-                                    requester=reviewer)
-            st.session_state["submit_rid"] = rid
-            st.rerun()
+            try:    # the process's OWN contract validates every producer (lab.platform.contracts)
+                rid = workflows.request("visio_to_archimate",
+                                        {"diagram": refs["diagram"], "requirements": refs["requirements"]},
+                                        requester=reviewer)
+            except ValueError as e:
+                st.error(f"rejected: {e}")
+            else:
+                st.session_state["submit_rid"] = rid
+                st.rerun()
 
     rid = st.session_state.get("submit_rid")
     if rid:

@@ -1,7 +1,7 @@
 """Approval events over Redis Streams — the lab's human-in-the-loop gate.
 
 Why events: a write into the EA repository must wait for a person, and that person may be
-at the review app or on Telegram. Publishing one durable request event that every channel
+at the review app, on Teams or on Telegram. Publishing one durable request event that every channel
 consumes (its own consumer group, so each sees every request) and accepting the decision
 from whichever channel answers first keeps the workflow/tool side channel-agnostic.
 
@@ -28,7 +28,7 @@ from lab.platform import redis_client
 from lab.platform.contracts import APPROVAL_FINAL, ApprovalStatus, Decision
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
-CHANNELS = ("review-app", "telegram")
+CHANNELS = ("review-app", "telegram", "teams")
 DECISIONS = tuple(d.value for d in Decision)         # the contract (lab.platform.contracts) as wire strings
 
 

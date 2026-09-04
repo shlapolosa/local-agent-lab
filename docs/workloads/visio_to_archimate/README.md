@@ -12,29 +12,32 @@ docx operating model.
 ```
 ba ──▶ resolve_existing ──▶ architect_design ──▶ store ──▶ architect_finalize ──▶ stage_import
 (reads   (search ADOIT:        (BA desc + matches   (spec ->    (agent calls validate  (human-gated
- inputs   NEW vs UPDATE,        -> engine spec,      art:// ref  + render BY REF)        ADOIT import,
+ inputs   NEW vs UPDATE,        -> engine spec,      art:// ref  + render BY REF)        EA import,
  via gw   match existing ids)    reuse ids, folder)   via sem-mcp)                       decision shown)
  storage)
 ```
 
-**Existing-architecture-aware.** `resolve_existing` searches the live ADOIT 18 repository
-(`adoit_search`, through the gateway) for objects related to the described system, and a Resolver
-agent (`prompts/resolve.md`) decides **NEW vs UPDATE**, picks the **domain**, and matches BA elements
-to existing ADOIT object ids. The Architect then **reuses those ids verbatim** (so ADOIT is updated,
+**Existing-architecture-aware.** `resolve_existing` searches the live EA repository (`ea_search`,
+through the gateway — the vendor-neutral port; ADOIT 18 is what answers it today) for objects related
+to the described system, and a Resolver agent (`prompts/resolve.md`) decides **NEW vs UPDATE**, picks
+the **domain**, and matches BA elements to existing repository object ids. The Architect then **reuses those ids verbatim** (so ADOIT is updated,
 not duplicated) and tags every element with the domain `folder`; the engine emits `<organizations>`
 grouping by domain → layer; relation ids are stable hashes. The reviewer confirms update-vs-new at
 the approval gate. If ADOIT is unreachable the run proceeds as NEW.
 
-**Write path — two files (the hosted CE blocks REST writes at the edge).** A run stages BOTH, and the
-reviewer imports both through the ADOIT UI after approval:
-- **Objects → an Excel file** (`adoit_excel_render`): ADOIT's "Import objects from Excel" **creates and
-  updates** objects — and their **relationships** — matching each row on its **name** (found once →
-  update in place, absent → create). This is why object names must stay unique — the existing-aware
-  step's job.
-- **Views → the ArchiMate XML** (`archimate_render`): imports the diagram. ArchiMate import always
-  *creates* (never matches on identifier — verified), so it's the views path; the Excel file keeps
-  objects de-duplicated and updatable. The granular REST write facade is built but gated behind
-  `.env` `ADOIT_REST_WRITE` (off on CE, on for a full ADOIT tenant).
+**Write path — ONE call to the port.** `stage_import` calls `ea_stage_import(spec_ref, model_name,
+summary, xml_ref, svg_refs)`: the repository takes the model BY REFERENCE, produces whatever IT needs a
+human to import, and returns those `artifacts` plus the human `instructions`. The workload does not
+know — and must not assume — what they are. On this ADOIT:CE tenant (REST writes blocked at the edge)
+they are two files, both imported through the ADOIT UI after approval:
+- **Objects → an Excel file**: ADOIT's "Import objects from Excel" **creates and updates** objects —
+  and their **relationships** — matching each row on its **name** (found once → update in place,
+  absent → create). This is why object names must stay unique — the existing-aware step's job.
+- **Views → the ArchiMate XML** (rendered by `archimate_render` and reused): imports the diagram.
+  ArchiMate import always *creates* (never matches on identifier — verified), so it's the views path;
+  the Excel file keeps objects de-duplicated and updatable. The granular REST write facade is built but
+  gated behind `.env` `ADOIT_REST_WRITE` (off on CE, on for a full ADOIT tenant) — such a tenant's
+  adapter would write after the approval and return NO artifacts, with no change to this workload.
 
 - A Microsoft Agent Framework **`WorkflowBuilder` graph** (`workflow.py`) — typed nodes, one host
   process, distinct OTel service name `process-visio-to-archimate`.
@@ -62,9 +65,9 @@ reviewer imports both through the ADOIT UI after approval:
   never call each other directly — the workflow mediates.
 - **Identity:** `ba-agent` (role `EA.Model`) and `architect-agent` (`EA.Model` + `Tools.ADOIT`),
   one Entra app registration ↔ one virtual key each, both in team `visio-conversion` (granted
-  `adoit_mcp` + `semantic_mcp` + `storage_mcp`). LLM calls use each agent's own credential (spend
+  `ea_mcp` + `semantic_mcp` + `storage_mcp`). LLM calls use each agent's own credential (spend
   attributes per key); the BA node reads inputs with the BA's identity, the tool nodes use the
-  Architect's (which holds the ADOIT/semantic grants).
+  Architect's (which holds the EA-repository/semantic grants).
 
 ## Run
 

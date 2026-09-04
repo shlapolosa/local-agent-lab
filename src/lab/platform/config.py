@@ -21,6 +21,8 @@ WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # submit
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
+TEAMS_WEBHOOK_URL  = _e("TEAMS_WEBHOOK_URL")                              # Teams approval channel: incoming
+                                                                          #  webhook; unset = channel disabled
 JAEGER_UI_URL    = _e("JAEGER_UI_URL", "http://127.0.0.1:16686")
 
 # --- how servers listen ---

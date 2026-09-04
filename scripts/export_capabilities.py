@@ -1,7 +1,7 @@
 """Governed export of a reference capability map into ADOIT.
 
   semantic-mcp  : semantic_export_archimate(scheme, root, depth)  -> ArchiMate spec (read-only)
-  adoit-mcp     : archimate_render(spec) -> XML + SVG views ; adoit_request_import -> approval
+  ea-mcp        : archimate_render(spec) -> XML + SVG views ; ea_stage_import -> approval
 
 Usage: .venv/bin/python scripts/export_capabilities.py <scheme> [root_label] [depth]
    e.g. ... healthcare-provider-v2.0                       (whole map, L1 overview + L2 branch views)
@@ -39,12 +39,14 @@ async def main(scheme, root, depth):
                 "spec_ref": spec["spec_ref"], "basename": base})).data
             print("violations:", len(res["violations"]), "| warnings:", len(res["warnings"]),
                   "| views:", len(res["views"]), "| xml:", res["xml_ref"])
-            req = (await c.call_tool(pick("adoit_request_import"), {
-                "xml_ref": res["xml_ref"], "svg_refs": res["svg_refs"], "model_name": spec["name"],
+            req = (await c.call_tool(pick("ea_stage_import"), {
+                "spec_ref": spec["spec_ref"], "xml_ref": res["xml_ref"], "svg_refs": res["svg_refs"],
+                "model_name": spec["name"],
                 "summary": {"elements": spec["elements"], "relations": spec["relations"],
                             "views": len(res["views"]), "violations": len(res["violations"]),
                             "warnings": len(res["warnings"])}})).data
             print(f"approval requested: {req['request_id']} ({req['status']}) — review at {req['review_app']}")
+            print("import artifacts staged by the repository:", ", ".join(req.get("artifacts") or {}) or "none")
     otel.shutdown()                    # flush the batch exporter before exit
 
 

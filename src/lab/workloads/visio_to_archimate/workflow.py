@@ -2,8 +2,8 @@
 agentic edition:
 
   ba ──▶ architect_design ──▶ store ──▶ architect_finalize ──▶ stage_import
- (reads inputs     (BA desc ->    (spec ->        (agent calls validate    (human-gated
-  via gateway       engine spec)   art:// ref via  + render BY REF)          ADOIT import)
+ (reads inputs     (BA desc ->    (spec ->        (agent calls validate    (human-gated EA
+  via gateway       engine spec)   art:// ref via  + render BY REF)          repository import)
   storage tools)                   semantic-mcp)
 
 Design rationale (see [[agent-framework-tool-calling]] / CLAUDE.md): agents DO call tools, but
@@ -13,10 +13,13 @@ calls are reliable (measured 5/5). So the Architect emits its spec as structured
 deterministic node stores it BY REFERENCE (through semantic-mcp, so this host holds no store
 credentials), and the Architect then calls the governed gateway-MCP `semantic_validate_model` +
 `archimate_render` by that ref. A deterministic render fallback guarantees the pipeline completes
-even if the model skips the call on a given run. The final ADOIT write stays deterministic +
-human-gated. Governed egress is unchanged: every LLM and tool call goes through the gateway with
-each agent's own identity — including the BA's reads of its inputs (storage-mcp) and the images
-the deterministic node fetches for it.
+even if the model skips the call on a given run. The final EA-repository write stays deterministic +
+human-gated, and goes through the VENDOR-NEUTRAL port (`EATools`, gateway alias `ea_mcp`): this
+workload never names ADOIT and never knows which artifacts that repository needs a human to import —
+`ea_stage_import` takes the model by ref and reports back what it produced. Governed egress is
+unchanged: every LLM and tool call goes through the gateway with each agent's own identity —
+including the BA's reads of its inputs (storage-mcp) and the images the deterministic node fetches
+for it.
 """
 import asyncio
 import base64
@@ -35,7 +38,7 @@ from lab.workloads.visio_to_archimate import agents as A
 from lab.workloads.visio_to_archimate import inputs as I
 from lab.workloads import ids, workflowviz  # (live run visibility: Runs board + graph)
 from lab.platform import runlog
-from lab.platform.contracts import AdoitTools, ArtifactRef, SemanticTools, StorageTools
+from lab.platform.contracts import ArtifactRef, EATools, SemanticTools, StorageTools
 from lab.workloads.visio_to_archimate import ba_tools as BT  # (BA_MODE=tools accumulator)
 from lab.workloads.visio_to_archimate import architect_tools as AT  # (ARCHITECT_MODE=tools)
 
@@ -133,18 +136,19 @@ def _ref_from(res, key: str = "spec_ref") -> str:
 _rid = ids.rid   # one relation-id formula in the repo (src/lab/workloads/ids.py), shared with the accumulators
 
 
-async def _adoit_search_many(headers, mcp_url, terms, scope="all", per=5, cap=60):
-    """Search existing ADOIT content for many names in one gateway MCP session; merge unique
-    candidates by id. Each term -> adoit_search(name_like=term). Returns (candidates, error):
-    `error` is None on success, else a short description. A failed search MUST be surfaced by the
-    caller — it must never look like "genuinely new" (review finding C-H3: fail loud, not open)."""
+async def _ea_search_many(headers, mcp_url, terms, scope="all", per=5, cap=60):
+    """Search the EA repository for many names in one gateway MCP session; merge unique candidates by
+    id. Each term -> ea_search(name_like=term) — the vendor-neutral port, so which EA tool is behind
+    the gateway alias is not this workload's business. Returns (candidates, error): `error` is None on
+    success, else a short description. A failed search MUST be surfaced by the caller — it must never
+    look like "genuinely new" (review finding C-H3: fail loud, not open)."""
     seen, out = set(), []
     try:
         async with Client(StreamableHttpTransport(mcp_url, headers=headers)) as c:
             names = [t.name for t in await c.list_tools()]
-            tool = next((n for n in names if n.endswith(AdoitTools.search)), None)
+            tool = next((n for n in names if n.endswith(EATools.search)), None)
             if not tool:
-                return [], (f"{AdoitTools.search} not exposed to this identity (grant {AdoitTools.SERVER} to the "
+                return [], (f"{EATools.search} not exposed to this identity (grant {EATools.SERVER} to the "
                             f"team / restart the gateway)")
             for term in terms:
                 if not term or len(term) < 3:
@@ -158,7 +162,7 @@ async def _adoit_search_many(headers, mcp_url, terms, scope="all", per=5, cap=60
                     break
     except Exception as e:
         err = f"{type(e).__name__}: {str(e)[:160]}"
-        print(f"[warn] ADOIT search failed: {err}", flush=True)
+        print(f"[warn] EA repository search failed: {err}", flush=True)
         return out, err
     return out, None
 
@@ -358,27 +362,27 @@ def build_workflow(cfg):
 
     @executor(id="resolve_existing")
     async def resolve_existing(state: dict, ctx: WorkflowContext[dict]) -> None:
-        """Existing-architecture-aware step: search ADOIT for objects related to the described
-        system, then decide NEW vs UPDATE and match BA elements to existing ADOIT ids (so the
-        Architect reuses them instead of duplicating). Degrades to NEW if ADOIT is unreachable."""
+        """Existing-architecture-aware step: search the EA repository for objects related to the
+        described system, then decide NEW vs UPDATE and match BA elements to existing repository ids
+        (so the Architect reuses them instead of duplicating). Degrades to NEW if it is unreachable."""
         with span("resolve-existing") as s:
             ba = state["ba_output"]
             names = [ba.get("systemName", "")] + [e.get("name", "")
                      for k in ("components", "actors", "data", "behaviors") for e in ba.get(k, [])]
-            # Tool nodes use the ARCHITECT identity (it holds the ADOIT/semantic grants) — review C-H3.
-            cands, search_err = await _adoit_search_many(cfg["ar_headers"], cfg["mcp_url"], names[:16])
+            # Tool nodes use the ARCHITECT identity (it holds the EA/semantic grants) — review C-H3.
+            cands, search_err = await _ea_search_many(cfg["ar_headers"], cfg["mcp_url"], names[:16])
             s.set_attributes({"resolve.candidates": len(cands), "resolve.search_error": search_err or ""})
             if not cands:
                 existing = {"decision": "NEW", "domain": ba.get("systemName", "Unassigned"),
                             "base_model": None, "matched": {}, "candidates": [],
                             "search_failed": bool(search_err),
-                            "rationale": (f"ADOIT search FAILED ({search_err}) — NEW is UNVERIFIED, review "
-                                          f"for duplicates" if search_err
-                                          else "no related objects found in the ADOIT repository")}
+                            "rationale": (f"EA repository search FAILED ({search_err}) — NEW is UNVERIFIED, "
+                                          f"review for duplicates" if search_err
+                                          else "no related objects found in the EA repository")}
             else:
                 agent = A.make_agent("resolve-agent", A.resolve_instructions(), cfg["ar_cred"], cfg["traceparent"])
                 prompt = ("BA system description:\n" + json.dumps(ba) +
-                          "\n\nExisting ADOIT candidates:\n" + json.dumps(cands))
+                          "\n\nExisting EA repository candidates:\n" + json.dumps(cands))
                 r = await asyncio.wait_for(agent.run(prompt), timeout=BA_RUN_TIMEOUT)
                 existing = _extract_json(r.text) or {}
                 # [D] gate the resolver's structured output on its schema (review C-M6). An agent step
@@ -417,7 +421,7 @@ def build_workflow(cfg):
             s.set_attribute("architect.mode", "tools" if arch_tools else "json")
             ctx_block = ""
             if ex.get("matched") or ex.get("decision") == "UPDATE":
-                ctx_block = ("\n\nEXISTING ARCHITECTURE (from the ADOIT repository). Decision: "
+                ctx_block = ("\n\nEXISTING ARCHITECTURE (from the EA repository). Decision: "
                              f"{ex.get('decision')} in domain '{ex.get('domain')}'. For every element below "
                              "that is the SAME as one you emit, use its adoit_id VERBATIM as the element `id` "
                              "(do not slug a new one) so it updates in place; slug fresh ids only for genuinely "
@@ -486,31 +490,24 @@ def build_workflow(cfg):
                 prompt = (f"The finished ArchiMate spec is stored at reference '{ref}'.\n"
                           f"1) Call {SemanticTools.gateway(SemanticTools.validate_model)} with "
                           f"{{\"spec_ref\": \"{ref}\"}} to check legality.\n"
-                          f"2) Call {AdoitTools.gateway(AdoitTools.render)} with "
+                          f"2) Call {EATools.gateway(EATools.render)} with "
                           f"{{\"spec_ref\": \"{ref}\", \"basename\": \"visio-import\"}} to render it.\n"
                           f"Then reply 'done'.")
                 r = await agent.run(prompt)
                 res = _tool_results(r)
             sem = _pick_result(res, SemanticTools.validate_model)
-            render = _pick_result(res, AdoitTools.render)
+            render = _pick_result(res, EATools.render)
             # deterministic fallbacks — guarantee the pipeline completes even if the model skipped a call
             if not (isinstance(sem, dict) and "illegal" in sem):
                 sem, = await _call_tools(cfg["ar_headers"], cfg["mcp_url"],
                                          [(SemanticTools.validate_model, {"spec_ref": ref})])
             if not (isinstance(render, dict) and render.get("xml_ref")):
                 render, = await _call_tools(cfg["ar_headers"], cfg["mcp_url"],
-                                            [(AdoitTools.render, {"spec_ref": ref, "basename": "visio-import"})])
-            # ALSO render the Excel object file (deterministic) — the CE write path for OBJECTS
-            # (create + update by name); the ArchiMate XML above stays the path for views/diagrams.
-            xlsx, = await _call_tools(cfg["ar_headers"], cfg["mcp_url"],
-                                      [(AdoitTools.excel_render, {"spec_ref": ref, "basename": "visio-import"})])
-            s.set_attribute("agent.called_render", bool(_pick_result(res, AdoitTools.render)))
+                                            [(EATools.render, {"spec_ref": ref, "basename": "visio-import"})])
+            s.set_attribute("agent.called_render", bool(_pick_result(res, EATools.render)))
             s.set_attribute("semantic.illegal", len(sem.get("illegal", [])))
-            s.set_attribute("adoit.excel.objects", (xlsx or {}).get("objects", 0))
             state["semantic"] = {"illegal": sem.get("illegal", []), "warnings": sem.get("warnings", [])}
-            state["xml_ref"], state["svg_refs"] = render["xml_ref"], render.get("svg_refs", [])
-            state["xlsx_ref"] = (xlsx or {}).get("xlsx_ref")
-            state["excel_objects"] = (xlsx or {}).get("objects", 0)
+            state["xml_ref"], state["svg_refs"] = render["xml_ref"], render.get("svg_refs", {})
             state["views"] = len(render.get("views", {}))
             await ctx.send_message(state)
 
@@ -528,25 +525,30 @@ def build_workflow(cfg):
                        "base_model": ex.get("base_model"), "matched_existing": len(matched),
                        "new_elements": max(0, len(spec.get("elements", [])) - len(matched)),
                        "resolve_rationale": ex.get("rationale"),
-                       # object write path (Excel, create+update by name) vs the XML views path
-                       "excel_objects": state.get("excel_objects", 0),
                        "ba_output_ref": state.get("ba_output_ref"),
-                       # a failed ADOIT search means "NEW" is unverified — the reviewer must know (C-H3)
+                       # a failed repository search means "NEW" is unverified — the reviewer must know (C-H3)
                        "search_failed": bool(ex.get("search_failed", False)),
                        # deterministic relation repairs (illegal -> legal), shown to the reviewer
                        "relation_repairs": len(state.get("repairs", [])),
                        "repair_notes": [r.get("reason", "") for r in state.get("repairs", [])][:12]}
+            # ONE call to the EA-repository port: it takes the model BY REF, produces whatever THIS
+            # repository needs a human to import (this workload must not know what that is — a
+            # spreadsheet here, nothing at all on a write-capable tenant) and stages it for approval.
+            # The already-rendered views ride along so the repository need not render them again.
             req, = await _call_tools(cfg["ar_headers"], cfg["mcp_url"], [
-                (AdoitTools.request_import,
-                 {"xml_ref": state["xml_ref"], "svg_refs": state["svg_refs"],
-                  "xlsx_ref": state.get("xlsx_ref"),
+                (EATools.stage_import,
+                 {"spec_ref": state["spec_ref"], "xml_ref": state["xml_ref"], "svg_refs": state["svg_refs"],
                   "model_name": spec.get("name", "Visio Import"), "summary": summary,
                   "requester": "architect-agent"})])
-            s.set_attribute("approval.request_id", req["request_id"])
+            artifacts = req.get("artifacts") or {}          # {} from a repository that writes over its own API
+            s.set_attributes({"approval.request_id": req["request_id"],
+                              "import.artifacts": len(artifacts)})
             await ctx.yield_output({
                 "request_id": req["request_id"], "status": req["status"],
-                "review_app": req.get("review_app"), "xml_ref": state["xml_ref"],
-                "svg_refs": state["svg_refs"], "xlsx_ref": state.get("xlsx_ref"),
+                "review_app": req.get("review_app"),
+                "xml_ref": artifacts.get("xml_ref") or state["xml_ref"],
+                "svg_refs": artifacts.get("svg_refs") or state["svg_refs"],
+                "xlsx_ref": artifacts.get("xlsx_ref"),
                 "summary": summary, "spec": spec, "semantic": state["semantic"]})
 
     return WorkflowBuilder(start_executor=ba).add_chain(

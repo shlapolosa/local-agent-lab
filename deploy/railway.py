@@ -162,6 +162,11 @@ ROLE_ENV = {
     "telegram": [                                  # src/lab/substrate/channels/telegram.py (not deployed by this script; documented for parity)
         "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "REDIS_URL", "REVIEW_APP_URL",
     ],
+    "teams": [                                     # src/lab/substrate/channels/teams.py (not deployed by this script; documented for parity)
+        "TEAMS_WEBHOOK_URL",                       # outbound Adaptive Card webhook (unset = disabled)
+        "REDIS_URL",                               # approvals:requests consumer group "teams" + decisions
+        "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
+    ],
     "workload": [                                  # src/lab/workloads/visio_to_archimate/{host,consumer,agents,workflow}.py + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
         "GATEWAY_URL",                             # the ONLY substrate coordinate (LLM + MCP via the gateway)
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # reported to the human (host.py prints; consumer writes back)

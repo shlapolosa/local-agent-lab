@@ -77,7 +77,8 @@ def _state(server: LabServer, spec: ProcessSpec, request_id: str) -> dict:
 
 def _submit(server: LabServer, spec: ProcessSpec, requester: str, values: dict) -> dict:
     inputs = spec.validate(values)          # the ProcessSpec IS the validator (one impl, every surface)
-    rid = workflows.request(spec.name, inputs, (requester or "").strip() or "mcp", client=_redis(server))
+    rid = workflows.request(spec.name, inputs, (requester or "").strip() or "mcp",
+                            spec=spec, client=_redis(server))   # this server's registry, not a global
     span().set_attributes({"workflow.process": spec.name, "workflow.request_id": rid,
                            "workflow.status": WorkflowStatus.PENDING.value})
     return {"request_id": rid, "process": spec.name, "status": WorkflowStatus.PENDING.value,

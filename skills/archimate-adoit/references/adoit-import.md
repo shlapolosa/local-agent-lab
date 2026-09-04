@@ -58,21 +58,26 @@ this schema strictly; ADOIT is more lenient.
 The tenant runs a full ADOIT 18 with a working REST 2.0 API (`GET /rest/2.0/version` →
 `productVersion 18.0.0`). **Reads work** — `GET /repos/{repo}/search?query=<json>` (a non-empty
 filter is required) and `GET /repos/{repo}/objects/{id}` — and are exposed as the read-only tools
-`adoit_search` / `adoit_object`; the workflow uses them to detect existing objects and reuse their
-ids. (The earlier "403 service not present" note came from a wrong-method/wrong-path probe, not
+`ea_search` / `ea_object` (the vendor-neutral EA-repository port this ADOIT adapter serves under the
+gateway alias `ea_mcp`); the workflow uses them to detect existing objects and reuse their ids. (The earlier "403 service not present" note came from a wrong-method/wrong-path probe, not
 from the edition.)
 
 **Writes are blocked at the hosted-CE edge**: `POST/PATCH/DELETE /objects` answer "URL not
 available" before reaching the application. So the write path is the **two-file human import**,
 each file with one purpose:
 
-1. **Excel object file** (`adoit_excel_render` → Object Catalogue → Import objects from Excel):
-   CREATES and UPDATES objects, matched by **name** (created if new, updated if present).
-2. **ArchiMate Model Exchange XML** (`archimate_render` → Import/Export → ArchiMate Model Exchange
-   File): imports the **views/diagrams**; reused ADOIT ids are emitted as `id_<uuid>` so the view
-   references the existing objects instead of duplicating them.
+1. **Excel object file** (Object Catalogue → Import objects from Excel): CREATES and UPDATES
+   objects, matched by **name** (created if new, updated if present).
+2. **ArchiMate Model Exchange XML** (Import/Export → ArchiMate Model Exchange File): imports the
+   **views/diagrams**; reused ADOIT ids are emitted as `id_<uuid>` so the view references the
+   existing objects instead of duplicating them.
 
-Both files are staged by `adoit_request_import` and released only on a human **approve**. The
+**Both files are produced by `ea_stage_import`**, which takes the model by reference and returns the
+artifacts it made (`artifacts.xlsx_ref` / `xml_ref` / `svg_refs`) plus the human `instructions`. That
+a spreadsheet is needed at all is an ADOIT:CE limitation, so it is NOT part of the port: a caller
+passes the model and reads back whatever came out — a write-capable repository returns no artifacts
+and writes over REST after the approval. The request is released only on a human **approve**
+(`ea_import_status`). The
 granular REST write facade (create/patch/relate/delete) exists but is **dormant behind
 `ADOIT_REST_WRITE=false`**; flip it only on a licensed/self-hosted tenant (or the Azure target)
 where the edge allows writes — then the same approval releases the REST changeset instead.

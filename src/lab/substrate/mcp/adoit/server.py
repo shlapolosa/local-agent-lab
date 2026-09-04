@@ -1,4 +1,13 @@
-"""adoit-mcp — MCP facade over the ArchiMate engine + the ADOIT repository (hosted CE).
+"""adoit-mcp — the ADOIT ADAPTER behind the lab's vendor-neutral EA-repository PORT.
+
+The PORT is the tool contract (`lab.platform.contracts.EATools`, gateway alias `ea_mcp`):
+`ea_search` / `ea_object` / `ea_repositories` read the existing architecture, `ea_stage_import`
+stages a model for a human-approved write, `ea_import_status` / `ea_import_instructions` follow it.
+No tool names ADOIT and none leaks an ADOIT limitation — swapping ADOIT for another EA tool is a
+different server registering these SAME names under the SAME gateway alias, with no workload change.
+This SERVICE is where the vendor lives: the ADOIT credentials, REST facade, and the fact that hosted
+CE blocks REST writes so a human must import an Excel object file (a PRIVATE detail of this adapter,
+produced inside `ea_stage_import` — the caller is told only what artifacts came out).
 
 Runs as streamable HTTP so it can register with the LiteLLM MCP gateway (the lab's
 governance plane): agents connect to ONE gateway endpoint; this server holds the ADOIT
@@ -11,23 +20,28 @@ header) plus one per tool, to which the tools add domain attributes (elements, r
 violations); urllib calls to ADOIT are auto-instrumented. Exported over OTLP/HTTP when
 OTEL_EXPORTER_OTLP_ENDPOINT is set; silent otherwise.
 
-Tools (every spec argument is spec | spec_ref (art://…) | spec_path (local dev) — src/lab/substrate/specref.py):
+Tools (every spec argument is spec | spec_ref (art://…) | spec_path (local dev) — src/lab/substrate/specref.py).
+DOMAIN (engine) services — here only because the engine is, they belong with the modelling side if it splits:
   archimate_validate(spec…)                         -> ArchiMate legality warnings for a model spec
   archimate_render(basename, spec…, strict)         -> xml_ref + svg_refs (artifact store) + layout report;
                                                        strict=False returns layout violations instead of failing
-  adoit_excel_render(basename, spec…)               -> xlsx_ref: the ADOIT Excel OBJECT import (create + update by name)
-  adoit_repos()                                     -> repositories visible to the lab's ADOIT account (read)
-  adoit_search(name_like, class_name, scope, limit) -> EXISTING objects/models in the repository (read)
-  adoit_object(object_id)                           -> one existing object: attributes + relations (read)
-  adoit_request_import(xml_ref, model_name, summary, svg_refs, xlsx_ref)
-                                                    -> WRITE PATH step 1: publish an approval event, get id
-  adoit_import_status(request_id)                   -> WRITE PATH step 2: decision + what happens next
-  adoit_import_instructions()                       -> the human file-import procedure (Excel objects + XML views)
+EA-REPOSITORY PORT (vendor-neutral names; this server is the ADOIT adapter):
+  ea_repositories()                                 -> repositories visible to the lab's account (read)
+  ea_search(name_like, class_name, scope, limit)    -> EXISTING objects/models in the repository (read)
+  ea_object(object_id)                              -> one existing object: attributes + relations (read)
+  ea_stage_import(spec_ref, model_name, summary, xml_ref, svg_refs)
+                                                    -> WRITE PATH step 1: produce this repository's import
+                                                       artifacts + publish an approval event, get id
+  ea_import_status(request_id)                      -> WRITE PATH step 2: decision + what happens next
+  ea_import_instructions()                          -> the human import procedure for this repository
 
-Write path: human-gated TWO-FILE import — the Excel object file creates/updates objects matched
-by name, the ArchiMate XML imports the views. The REST write facade (adoit_rest.create/patch/
-delete/relation) stays dormant behind ADOIT_REST_WRITE (see src/lab/platform/config.py: the hosted CE edge
-blocks REST write verbs; reads — search/object/repos — work).
+Write path on THIS adapter: human-gated TWO-FILE import — an Excel object file creates/updates objects
+matched by name, the ArchiMate XML imports the views. Both are produced INSIDE ea_stage_import (private
+`_object_import_file` / `_render_model`), because "a spreadsheet a human imports" is an ADOIT:CE
+limitation, not something the port may oblige a caller to know. The REST write facade
+(adoit_rest.create/patch/delete/relation) stays dormant behind ADOIT_REST_WRITE (see
+src/lab/platform/config.py: the hosted CE edge blocks REST write verbs; reads work). A write-capable
+tenant's adapter would write over REST after the approval and return NO import artifacts.
 
 Model spec (JSON): {
   "name": str, "id": str?,
@@ -37,15 +51,17 @@ Model spec (JSON): {
   "standard_views": bool                            # add the mapping-view catalogue
 }
 
-Run:  python -m lab.substrate.mcp.adoit.server     (port 9100, path /mcp)
+Run:  python -m lab.substrate.mcp.adoit.server     (port 9100, path /mcp, gateway alias ea_mcp)
 """
 import json
 import os
+import re
 import sys
 import urllib.request
 
 from lab.core.archimate.engine import Model
 from lab.platform import config
+from lab.platform.contracts import ApprovalKind
 from lab.substrate import approvals  # (approval gate)
 from lab.substrate.artifacts import put_file
 from lab.substrate.mcp.adoit import adoit_excel  # (ADOIT Excel object-import generator — CE-safe object create/update)
@@ -96,18 +112,12 @@ def archimate_validate(spec: dict | None = None, spec_path: str | None = None,
     return {"elements": len(m.elements), "relations": len(m.relations), "warnings": warnings}
 
 
-@server.tool()
-def archimate_render(basename: str, spec: dict | None = None, spec_path: str | None = None,
-                     spec_ref: str | None = None, outdir: str | None = None, strict: bool = True) -> dict:
-    """Validate, lay out and render a model spec to ADOIT-importable Model Exchange XML plus
-    one SVG preview per view. Pass spec by value, spec_ref (art://…) or, locally, spec_path.
-    Outputs go to the artifact store: returns xml_ref + svg_refs (usable from any host),
-    per-view canvas sizes, legality warnings. outdir additionally keeps local copies (dev).
-    strict (default true) fails the call on a layout-invariant or XSD violation; strict=false
-    still renders and returns them in `violations` so a reviewer can judge them — use it when a
-    failed render at the last step would waste a whole run."""
+def _render_model(spec: dict, basename: str, outdir: str | None = None, strict: bool = True) -> dict:
+    """Lay out and render a built model to Model Exchange XML + one SVG per view, stored as artifacts.
+    ONE implementation, two callers: the `archimate_render` tool and `ea_stage_import` (which renders
+    the views itself when the caller has not already)."""
     import tempfile
-    m = _build(server.spec(spec, spec_path, spec_ref))
+    m = _build(spec)
     work = outdir or tempfile.mkdtemp(prefix="archimate-")
     report = m.render(work, basename, strict=strict)
     xml = next(f for f in report["files"] if f.endswith(".archimate.xml"))
@@ -125,20 +135,14 @@ def archimate_render(basename: str, spec: dict | None = None, spec_path: str | N
     return report
 
 
-@server.tool()
-def adoit_excel_render(basename: str, spec: dict | None = None, spec_path: str | None = None,
-                       spec_ref: str | None = None) -> dict:
-    """Render a model spec to an ADOIT **Excel object-import** file and store it as an artifact.
-    This is the CE-safe write path for OBJECTS: ADOIT's 'Import objects from Excel' both CREATES and
-    UPDATES repository objects (and their relationships), matching each row on its NAME — unlike the
-    ArchiMate XML import, which always duplicates. Objects carry Name + Description; relationships are
-    written on the source object's row (Composition/Serving/Realization/…). Returns xlsx_ref plus the
-    object/relation/skip summary. The ArchiMate XML (archimate_render) remains the path for
-    views/diagrams; a run stages both by ref."""
+def _object_import_file(spec: dict, basename: str) -> dict:
+    """PRIVATE to this adapter: the ADOIT Excel OBJECT-import file (xlsx_ref + counts). It exists only
+    because hosted ADOIT:CE blocks REST writes, so objects are created/updated by a human importing a
+    spreadsheet that matches each row on its NAME. That is an ADOIT limitation, so it is NOT a tool of
+    the EA port — `ea_stage_import` produces it and reports it as one of the artifacts it produced."""
     import tempfile
-    data = server.spec(spec, spec_path, spec_ref)
     out = os.path.join(tempfile.mkdtemp(prefix="adoit-xlsx-"), f"{basename}.objects.xlsx")
-    res = adoit_excel.generate(data, out)
+    res = adoit_excel.generate(spec, out)
     res["xlsx_ref"] = _put_file(out)
     res.pop("path", None)
     span().set_attributes({"adoit.excel.objects": res["objects"],
@@ -148,9 +152,30 @@ def adoit_excel_render(basename: str, spec: dict | None = None, spec_path: str |
     return res
 
 
+def _slug(name: str) -> str:
+    """A safe artifact basename from a model name ('Claims Portal' -> 'claims-portal')."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", name or "").strip("-").lower() or "model"
+
+
+# archimate_validate / archimate_render are DOMAIN (engine) services, not EA-repository operations:
+# they live on this server only because the engine does, and would move with the modelling side if
+# the two ever split — which is why they keep their names while the repository tools are `ea_*`.
 @server.tool()
-def adoit_repos() -> dict:
-    """List ADOIT repositories visible to the lab's service account (read-only REST call;
+def archimate_render(basename: str, spec: dict | None = None, spec_path: str | None = None,
+                     spec_ref: str | None = None, outdir: str | None = None, strict: bool = True) -> dict:
+    """Validate, lay out and render a model spec to importable ArchiMate Model Exchange XML plus
+    one SVG preview per view. Pass spec by value, spec_ref (art://…) or, locally, spec_path.
+    Outputs go to the artifact store: returns xml_ref + svg_refs (usable from any host),
+    per-view canvas sizes, legality warnings. outdir additionally keeps local copies (dev).
+    strict (default true) fails the call on a layout-invariant or XSD violation; strict=false
+    still renders and returns them in `violations` so a reviewer can judge them — use it when a
+    failed render at the last step would waste a whole run."""
+    return _render_model(server.spec(spec, spec_path, spec_ref), basename, outdir, strict)
+
+
+@server.tool()
+def ea_repositories() -> dict:
+    """List the EA repositories visible to the lab's service account (read-only; the repository
     credentials are injected by this server — agents never see them)."""
     # /repos sits ABOVE the repo-scoped paths adoit_rest._get() serves, so only the credential
     # shape (_cfg) is shared here — one place knows how ADOIT Basic auth is built.
@@ -162,13 +187,13 @@ def adoit_repos() -> dict:
 
 
 @server.tool()
-def adoit_search(name_like: str = "", class_name: str = "", scope: str = "objects", limit: int = 50) -> list:
-    """Search the EXISTING architecture in the ADOIT repository (read-only) — the way to check
+def ea_search(name_like: str = "", class_name: str = "", scope: str = "objects", limit: int = 50) -> list:
+    """Search the EXISTING architecture in the EA repository (read-only) — the way to check
     whether something is already modelled before designing. Give a `name_like` (substring, e.g.
-    'portal') and/or a `class_name` (an ArchiMate type like 'ApplicationComponent', or a raw ADOIT
-    class 'C_APPLICATION_COMPONENT'); at least one is required. `scope`: 'objects' (repository
-    objects, default), 'models' (diagrams/views), or 'all'. Returns
-    [{id, name, class, artefactType, groupId, modelName}] — use the `id` with adoit_object, and reuse
+    'portal') and/or a `class_name` (an ArchiMate type like 'ApplicationComponent', or the
+    repository's own class name such as 'C_APPLICATION_COMPONENT'); at least one is required.
+    `scope`: 'objects' (repository objects, default), 'models' (diagrams/views), or 'all'. Returns
+    [{id, name, class, artefactType, groupId, modelName}] — use the `id` with ea_object, and reuse
     it as an element id when regenerating so the object is updated in place instead of duplicated."""
     res = adoit_rest.search(name_like, class_name, scope, limit)
     span().set_attributes({"adoit.name_like": name_like, "adoit.class": class_name,
@@ -177,9 +202,9 @@ def adoit_search(name_like: str = "", class_name: str = "", scope: str = "object
 
 
 @server.tool()
-def adoit_object(object_id: str) -> dict:
-    """Full detail of one existing ADOIT object (read-only): its class, group, key attributes and
-    its relations ({type, target_id, target_name}). Use the `id` from adoit_search. Read this before
+def ea_object(object_id: str) -> dict:
+    """Full detail of one existing repository object (read-only): its class, group, key attributes and
+    its relations ({type, target_id, target_name}). Use the `id` from ea_search. Read this before
     deciding an input is an UPDATE, to see what the existing element already connects to."""
     span().set_attribute("adoit.object_id", object_id)
     obj = adoit_rest.get_object(object_id)
@@ -188,31 +213,55 @@ def adoit_object(object_id: str) -> dict:
 
 
 @server.tool()
-def adoit_request_import(xml_ref: str, model_name: str, summary: dict, svg_refs: dict | None = None,
-                         xlsx_ref: str | None = None, requester: str = "ea-modeling-agent") -> dict:
-    """WRITE PATH, step 1. Stage a rendered model for import into the EA repository by
-    publishing an approval request (Redis Streams). Nothing is written to ADOIT here — a
-    human must approve via the review app or Telegram. xml_ref / svg_refs are the artifact
-    references returned by archimate_render (the views/diagram path); xlsx_ref is the Excel
-    object-import file from adoit_excel_render (the object create+update path). Returns the
-    request id to poll with adoit_import_status."""
-    server.artifacts().info(xml_ref)         # fail fast if the reference is unknown
+def ea_stage_import(spec_ref: str, model_name: str, summary: dict, xml_ref: str | None = None,
+                    svg_refs: dict | None = None, requester: str = "ea-modeling-agent") -> dict:
+    """WRITE PATH, step 1. Stage a model for a human-approved write into the EA repository: produce
+    whatever THIS repository needs in order to take the model, and publish an approval request (Redis
+    Streams). NOTHING is written here — a human decides via the review app or Telegram, then
+    ea_import_status says what happens next.
+    `spec_ref` is the model BY REFERENCE (art://…, e.g. from semantic_store_spec). `xml_ref`/`svg_refs`
+    are OPTIONAL ArchiMate view artifacts you already rendered (archimate_render) that this repository
+    may reuse instead of rendering them again; omit them and it renders what it needs itself.
+    Returns the `request_id` to poll with ea_import_status, `artifacts` — whatever this repository
+    produced for the import, by reference — and the human `instructions` for it. Do NOT assume any
+    particular artifact: a repository that writes over its own API after the approval returns
+    `artifacts: {}` (this ADOIT adapter returns the views XML, its SVG previews and an Excel object
+    file, because hosted ADOIT:CE requires a human to import them). An adapter MAY add facts of its own
+    to the staged summary (this one adds the object count and, when it rendered the views itself, the
+    lenient render's violation count) — a caller must never require them."""
+    if svg_refs and not xml_ref:             # the pair is atomic: previews without their XML describe nothing
+        raise ValueError("svg_refs given without xml_ref — pass both rendered artifacts or neither")
+    spec = server.spec(spec_ref=spec_ref)
+    basename = _slug(model_name)
+    facts: dict = {}
+    if xml_ref:
+        server.artifacts().info(xml_ref)     # fail fast if the caller's reference is unknown
+    else:                                    # strict=False: a failed render at the last step wastes a whole run
+        rendered = _render_model(spec, basename, strict=False)
+        xml_ref, svg_refs = rendered["xml_ref"], rendered["svg_refs"]
+        # lenient render: the violations must NOT vanish — the human approving this import is the only
+        # gate left, so what strict=True would have refused is reported to them.
+        facts["render_violations"] = len(rendered["violations"])
+    objects = _object_import_file(spec, basename)     # ADOIT:CE object create/update — this adapter's need
+    facts["excel_objects"] = objects["objects"]
+    artifacts = {"xml_ref": xml_ref, "svg_refs": svg_refs or {}, "xlsx_ref": objects["xlsx_ref"]}
     ctx = span().get_span_context()
     trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
-    rid = approvals.request(kind="adoit-import", subject=model_name,
-                            payload={"xml_ref": xml_ref, "svg_refs": svg_refs or {},
-                                     "xlsx_ref": xlsx_ref, "summary": summary},
+    rid = approvals.request(kind=ApprovalKind.ADOIT_IMPORT.value, subject=model_name,
+                            payload={**artifacts, "summary": {**summary, **facts}},
                             requester=requester, trace_id=trace_id)
-    span().set_attributes({"approval.request_id": rid, "approval.kind": "adoit-import"})
+    span().set_attributes({"approval.request_id": rid, "approval.kind": ApprovalKind.ADOIT_IMPORT.value,
+                           **{f"adoit.{k}": v for k, v in facts.items()}})
     return {"request_id": rid, "status": "pending", "channels": list(approvals.CHANNELS),
-            "review_app": config.REVIEW_APP_URL}
+            "review_app": config.REVIEW_APP_URL, "artifacts": artifacts,
+            "instructions": _import_instructions()}
 
 
 @server.tool()
-def adoit_import_status(request_id: str) -> dict:
+def ea_import_status(request_id: str) -> dict:
     """WRITE PATH, step 2. Current decision on an import request and what happens next.
-    approve -> the model is released for the two-file import (Excel objects + ArchiMate XML
-    views, adoit_import_instructions). ADOIT_REST_WRITE=true only reports that the REST write
+    approve -> the artifacts ea_stage_import produced are released for the human import
+    (ea_import_instructions). ADOIT_REST_WRITE=true only reports that the REST write
     path is enabled (`rest_write_enabled`); the gated REST apply step is not implemented, so
     file-import stays the release path. decline -> stop. update -> changes requested, see
     comment; re-render and re-request."""
@@ -225,7 +274,7 @@ def adoit_import_status(request_id: str) -> dict:
     # human-gated change).
     approve_next = (
         "released for file-import — import the ArchiMate XML (views/creates) and, for object updates, the "
-        "Excel object file, via the ADOIT UI (adoit_import_instructions). "
+        "Excel object file, via the ADOIT UI (ea_import_instructions). "
         + ("REST write path is ENABLED (ADOIT_REST_WRITE=true) but the gated apply step is not implemented "
            "on this tenant/version — file-import remains the release path"
            if config.ADOIT_REST_WRITE else
@@ -241,27 +290,34 @@ def adoit_import_status(request_id: str) -> dict:
     return st
 
 
-@server.tool()
-def adoit_import_instructions() -> str:
-    """The governed human file-import write path into ADOIT. TWO files, TWO purposes (the hosted CE
-    blocks REST writes at the edge; the granular REST facade is gated behind ADOIT_REST_WRITE for a
-    full tenant): the Excel object file CREATES + UPDATES objects (matched by name), the ArchiMate XML
-    imports the views/diagrams."""
-    base = os.environ.get("ADOIT_BASE_URL", "")
+def _import_instructions() -> str:
+    """This adapter's human import procedure — ONE text, two callers (the tool and ea_stage_import,
+    which hands it back with the artifacts it produced)."""
+    base = adoit_rest._cfg()[0]          # the ONE place that knows where this tenant lives
     return (
         "ADOIT write path (human-gated). Log in at " + base + ", then import BOTH artifacts:\n"
-        "A) OBJECTS — the Excel file (adoit_excel_render): Object Catalogue -> right-click the target "
+        "A) OBJECTS — the Excel object file (from ea_stage_import): Object Catalogue -> right-click the target "
         "group -> Import/Export -> Import objects from Excel -> upload the .xlsx. ADOIT matches each "
         "row on its NAME: a name found once is UPDATED in place, a new name is CREATED. Review the "
         "import PREVIEW (it says create vs update per object) before confirming. Keep object names "
         "UNIQUE — a duplicate name makes the import ambiguous and it refuses that object.\n"
-        "B) VIEWS — the ArchiMate XML (archimate_render): Import/Export -> ArchiMate Model Exchange "
+        "B) VIEWS — the ArchiMate XML (from ea_stage_import): Import/Export -> ArchiMate Model Exchange "
         "File -> upload the .archimate.xml. Decline any auto-layout offer so the generated geometry "
         "survives; confirm interfaces render as icons. Note the ArchiMate import always CREATES objects "
         "in a new group (it does not match on identifier), so use it for the diagram; the Excel file is "
         "what keeps objects de-duplicated and updatable.\n"
         "Human approval is required before every import (lab approval-gate policy)."
     )
+
+
+@server.tool()
+def ea_import_instructions() -> str:
+    """The governed human write path into this EA repository (ADOIT). TWO files, TWO purposes (the
+    hosted CE blocks REST writes at the edge; the granular REST facade is gated behind
+    ADOIT_REST_WRITE for a full tenant): the Excel object file CREATES + UPDATES objects (matched by
+    name), the ArchiMate XML imports the views/diagrams. ea_stage_import returns this same text with
+    the artifacts it produced."""
+    return _import_instructions()
 
 
 if __name__ == "__main__":

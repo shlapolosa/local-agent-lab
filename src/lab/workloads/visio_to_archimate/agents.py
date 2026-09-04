@@ -21,7 +21,7 @@ from agent_framework import Agent, ChatOptions
 from agent_framework.openai import OpenAIChatClient
 
 from lab.platform import config
-from lab.platform.contracts import AdoitTools, SemanticTools, StorageTools
+from lab.platform.contracts import EATools, SemanticTools, StorageTools
 
 HERE = Path(__file__).resolve().parent
 SKILLS = config.REPO_ROOT / "skills"          # the registered skills' SKILL.md (single source of truth)
@@ -118,7 +118,7 @@ def ba_tools(headers: dict):
 
 
 # exact governed tools the Architect may call (gateway-qualified names, from the contract); NOT the import staging
-ARCHITECT_MCP_TOOLS = [SemanticTools.gateway(SemanticTools.validate_model), AdoitTools.gateway(AdoitTools.render)]
+ARCHITECT_MCP_TOOLS = [SemanticTools.gateway(SemanticTools.validate_model), EATools.gateway(EATools.render)]
 
 
 def architect_tools(headers: dict):

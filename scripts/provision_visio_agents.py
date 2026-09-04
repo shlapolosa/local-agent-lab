@@ -7,7 +7,7 @@ registration (the docx operating model). Creates:
     - app `ba-agent`        (client-credentials) granted lab-gateway role EA.Model
     - app `architect-agent` (client-credentials) granted EA.Model + Tools.ADOIT
   LiteLLM (master key, admin plane):
-    - team `visio-conversion` (budget; MCP grant adoit_mcp + semantic_mcp for the process)
+    - team `visio-conversion` (budget; MCP grant ea_mcp + semantic_mcp + storage_mcp for the process)
     - virtual keys `ba-agent`, `architect-agent` (kimi-k3; per-agent budget/rpm/tpm)
 
 Then patches .env: BA_AGENT_CLIENT_ID/SECRET, ARCHITECT_AGENT_CLIENT_ID/SECRET, VISIO_TEAM_ID,
@@ -121,7 +121,7 @@ def main():
         team = litellm("/team/new", {
             "team_alias": "visio-conversion", "max_budget": 5.0, "budget_duration": "30d",
             "models": ["kimi-k3", "gpt-oss-120b", "glm-flash"],
-            "object_permission": {"mcp_servers": ["adoit_mcp", "semantic_mcp", "storage_mcp"]},
+            "object_permission": {"mcp_servers": ["ea_mcp", "semantic_mcp", "storage_mcp"]},
         })
         team_id = team["team_id"]
         print("created team visio-conversion:", team_id)

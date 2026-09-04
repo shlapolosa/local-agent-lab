@@ -23,7 +23,7 @@ LITELLM_CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os
 SERVER_MODULES = {                       # gateway alias -> the server module that registers the tools
     "storage_mcp": "lab.substrate.mcp.storage.server",
     "semantic_mcp": "lab.substrate.mcp.semantic.server",
-    "adoit_mcp": "lab.substrate.mcp.adoit.server",
+    "ea_mcp": "lab.substrate.mcp.adoit.server",   # the ADOIT ADAPTER satisfying the vendor-neutral EA port
     "workflow_mcp": "lab.substrate.mcp.workflow.server",
 }
 
@@ -79,6 +79,20 @@ def test_every_registered_server_forwards_trace_context():
     for alias, spec in servers.items():
         assert spec.get("extra_headers") == ["traceparent", "tracestate"], alias
         assert spec.get("auth_type") == "bearer_token" and spec.get("description"), alias
+
+
+VENDORS = ("adoit", "bizzdesign", "archi_", "boc")     # EA-tool product names — a PORT must not name one
+
+
+def test_no_tool_or_alias_names_a_vendor():
+    """The PORT is vendor-neutral: swapping ADOIT for another EA tool is a different server satisfying
+    the SAME tools under the SAME gateway alias, with no workload change. A vendor word anywhere in the
+    catalogue (`adoit_search`) or in an alias (`adoit_mcp`) breaks that — the workload would have to be
+    re-edited to call the replacement. The vendor lives in the SERVICE (adoit-mcp, ADOIT_MCP_URL,
+    its credentials), never in the contract."""
+    named = [n for n in sorted(contracts.ALL_TOOLS) + sorted(contracts.SERVERS)
+             if any(v in n.lower() for v in VENDORS)]
+    assert named == [], f"vendor name in the tool contract: {named}"
 
 
 def test_every_gateway_server_alias_has_a_contract():

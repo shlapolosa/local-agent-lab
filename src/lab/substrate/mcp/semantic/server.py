@@ -107,10 +107,10 @@ def semantic_export_archimate(scheme: str, root_label: str | None = None, depth:
                               out_path: str | None = None, by_ref: bool = True) -> dict:
     """Project a reference scheme (or subtree) to an ArchiMate model spec — Capability /
     ValueStream elements with Composition, plus an L1 overview view and one nested view per
-    top concept. Feed the result to adoit-mcp's archimate_render + adoit_request_import: that
-    is the governed way to write reference capabilities into ADOIT.
+    top concept. Feed the result to the EA-repository server's archimate_render + ea_stage_import:
+    that is the governed way to write reference capabilities into the EA repository.
     By default the spec is stored as an artifact and only counts + spec_ref (art://…) are
-    returned — the gateway meters tool payloads as tokens and adoit-mcp accepts spec_ref from
+    returned — the gateway meters tool payloads as tokens and ea-mcp accepts spec_ref from
     any host. by_ref=False returns the payload inline (small subtrees); out_path also writes a
     local copy (dev)."""
     spec = S.export_archimate(scheme, root_label, depth, kind, views)

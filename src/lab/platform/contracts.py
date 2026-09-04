@@ -79,18 +79,24 @@ class SemanticTools(ToolCatalogue):
     ask = "semantic_ask"
 
 
-class AdoitTools(ToolCatalogue):
-    """adoit-mcp — the ArchiMate engine + the governed ADOIT repository facade (reads; human-gated import)."""
-    SERVER = "adoit_mcp"
+class EATools(ToolCatalogue):
+    """The EA-repository PORT (+ the ArchiMate engine services), vendor-neutral: the tools an EA
+    repository must offer a workload — read the existing architecture, stage a model for a human-gated
+    write. Today's ADAPTER is `adoit-mcp` (it holds the ADOIT credentials and knows that hosted CE
+    needs a spreadsheet imported by a human); swapping in another EA tool is a different server
+    registering these SAME names under the SAME gateway alias — no workload change. The vendor is
+    named by the SERVICE (adoit-mcp, ADOIT_MCP_URL, its credentials), never here.
+    `archimate_validate` / `archimate_render` are DOMAIN (engine) services, not repository operations:
+    they sit on this server only because the engine does, and belong with the modelling side if it splits."""
+    SERVER = "ea_mcp"
     validate = "archimate_validate"
     render = "archimate_render"
-    excel_render = "adoit_excel_render"
-    repos = "adoit_repos"
-    search = "adoit_search"
-    object = "adoit_object"
-    request_import = "adoit_request_import"
-    import_status = "adoit_import_status"
-    import_instructions = "adoit_import_instructions"
+    repositories = "ea_repositories"
+    search = "ea_search"
+    object = "ea_object"
+    stage_import = "ea_stage_import"
+    import_status = "ea_import_status"
+    import_instructions = "ea_import_instructions"
 
 
 class WorkflowTools(ToolCatalogue):
@@ -333,12 +339,12 @@ PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE,)}
 
 # ----------------------------------------------------------------------------- the registry of servers
 # Last, because WorkflowTools' tool names are derived from PROCESSES above.
-SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, AdoitTools,
+SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
                                                                  WorkflowTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
 
 
-__all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "AdoitTools", "WorkflowTools",
+__all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
            "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",

@@ -112,12 +112,20 @@ def default_tools(**over) -> dict:
     """The happy-path gateway: every tool the six executors call. Override per test (None removes)."""
     t = {
         "semantic_store_spec": lambda a: {"spec_ref": f"art://store/{a['name']}"},
-        "adoit_search": [],
+        "ea_search": [],
         "semantic_validate_model": {"illegal": [], "warnings": ["w1"]},
+        # svg_refs is a DICT {view label: ref} — exactly what adoit-mcp's render report returns and what
+        # the review app iterates with .items(); a list here would hide an AttributeError in the UI
         "archimate_render": {"xml_ref": "art://x/visio-import.archimate.xml",
-                             "svg_refs": ["art://x/a.svg", "art://x/b.svg"], "views": {"v1": {}, "v2": {}}},
-        "adoit_excel_render": {"xlsx_ref": "art://x/visio-import.xlsx", "objects": 3},
-        "adoit_request_import": {"request_id": "req-1", "status": "pending", "review_app": "http://review/req-1"},
+                             "svg_refs": {"landscape": "art://x/a.svg", "detail": "art://x/b.svg"},
+                             "views": {"v1": {}, "v2": {}}},
+        # the EA-repository port: it echoes back the views it was handed and adds the artifacts THIS
+        # repository needs a human to import (an ADOIT Excel object file today) — see adoit-mcp
+        "ea_stage_import": lambda a: {
+            "request_id": "req-1", "status": "pending", "review_app": "http://review/req-1",
+            "artifacts": {"xml_ref": a.get("xml_ref"), "svg_refs": a.get("svg_refs") or {},
+                          "xlsx_ref": "art://x/visio-import.xlsx"},
+            "instructions": "import both files via the ADOIT UI"},
         "storage_get": FakeResult(content=[image_block(), text_block("diagram.png")]),
         "storage_extract_figures": FakeResult(content=[]),
     }

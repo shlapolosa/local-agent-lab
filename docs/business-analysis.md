@@ -192,10 +192,10 @@ plainly part of *this* system (tagged `source: requirements`), otherwise it beco
 The BA emits schema-validated JSON (`schemas/ba_output.schema.json`).
 
 **2. Existing-architecture resolution (`resolve_existing`).** Before any design, the workflow searches
-the **live ADOIT repository** (`adoit_search`, through the gateway) for objects related to the described
+the **live EA repository** (`ea_search`, through the gateway) for objects related to the described
 system. A Resolver agent (`prompts/resolve.md`) decides **NEW vs UPDATE**, picks the target **domain**,
-and matches BA elements to **existing ADOIT object ids**. If ADOIT is unreachable the run degrades
-gracefully to **NEW** with a warning.
+and matches BA elements to **existing repository object ids**. If the repository is unreachable the run
+degrades gracefully to **NEW** with a warning.
 
 **3. Architect agent (`architect_design` / `architect_finalize`).** Formalises the BA description into
 an ArchiMate spec. For matched elements it **reuses the real ADOIT object id verbatim** (so the
@@ -213,12 +213,15 @@ ref) guarantees the pipeline completes even if a model skips a call on a given r
 mediates. The BA's schema-validated JSON passes a **deterministic completeness gate** (with one BA
 retry that re-sends the diagram) before the Architect sees it.
 
-**5. Human approval + import (`stage_import`).** The render is staged for a human decision
-(`adoit_request_import` → decision → `adoit_import_status`); nothing is written without approval. The
-review app shows the model, views, the NEW/UPDATE banner and a trace link.
+**5. Human approval + import (`stage_import`).** The model is handed to the EA repository by
+reference for a human decision (`ea_stage_import` → decision → `ea_import_status`); nothing is written
+without approval. `ea_stage_import` produces whatever THAT repository needs a human to import and
+returns those artifacts — the workload never assumes a particular file exists (on hosted ADOIT:CE it is
+the ArchiMate views XML + an Excel object file; a write-capable tenant would return none and write over
+REST after the approval). The review app shows the model, views, the NEW/UPDATE banner and a trace link.
 
 **Identity.** `ba-agent` (role `EA.Model`) and `architect-agent` (`EA.Model` + `Tools.ADOIT`) each hold
-one Entra app registration ↔ one virtual key, both in team `visio-conversion` (granted `adoit_mcp` +
+one Entra app registration ↔ one virtual key, both in team `visio-conversion` (granted `ea_mcp` +
 `semantic_mcp` + `storage_mcp`). LLM calls bill each agent's own key; tool nodes use the identity that
 holds the grant.
 
@@ -272,9 +275,12 @@ as the access point of a service).
 ## 8. ADOIT Integration & Write Paths (current findings)
 
 The ADOIT integration is an **own-built MCP facade** (`src/lab/substrate/mcp/adoit/`) over the ADOIT REST API,
-because the tenant has no built-in MCP. It exposes read tools (`adoit_search`, `adoit_object`,
-`adoit_repos`), the validate/render tools, and the human-gated import tools
-(`adoit_request_import`, `adoit_import_status`, `adoit_import_instructions`). ADOIT credentials
+because the tenant has no built-in MCP. It is the **ADAPTER** behind the lab's **vendor-neutral
+EA-repository PORT** (gateway alias `ea_mcp`, catalogue `lab.platform.contracts.EATools`): read tools
+(`ea_search`, `ea_object`, `ea_repositories`), the validate/render engine tools, and the human-gated
+write path (`ea_stage_import`, `ea_import_status`, `ea_import_instructions`). No tool names the vendor
+and none leaks an ADOIT limitation, so swapping ADOIT for another EA tool is a different server
+registering the same tools under the same alias — no workload change. ADOIT credentials
 (`ADOIT_BASE_URL`, `ADOIT_USERNAME`, `ADOIT_PASSWORD`, `ADOIT_REPO_ID`) live in `.env` and are injected
 server-side — **agents never hold them**.
 
@@ -302,13 +308,14 @@ established a precise read/write asymmetry:
 Because direct REST writes are unavailable, the write path is **file-import through the ADOIT UI**,
 always behind human approval:
 
-- **ArchiMate Model Exchange XML** — the rendered model (`archimate_render`) imports **views + object
-  creation**. This is the established path (`adoit_import_instructions`).
+- **ArchiMate Model Exchange XML** — the rendered model imports **views + object creation**. This is
+  the established path (`ea_import_instructions`).
 - **ADOIT Excel object import** — ADOIT's native Excel interface **imports *or updates*** objects and
   their attributes/relations (create + update). This is the mechanism intended to carry **object-level
   updates** on CE, complementing the ArchiMate view file. (The Excel template structure is
   configuration-specific and downloaded from the ADOIT UI, so a generated file must match the tenant's
-  template.)
+  template.) Both files are produced INSIDE `ea_stage_import` — that a spreadsheet is needed at all is an
+  ADOIT:CE limitation, so it is a private detail of this adapter, not a tool of the port.
 
 ### 8.3 Object vs view model (verified) — why writes are high-stakes
 
@@ -337,7 +344,7 @@ map 1:1 to the tenant metamodel, `RC_<UPPER_SNAKE>`).
 It is kept **dormant behind an `.env` toggle**, `ADOIT_REST_WRITE` (default **false** on CE;
 `src/lab/platform/config.py`). On CE the write path stays file-import; the facade activates only against a
 **full/licensed ADOIT** tenant or the **Azure/Foundry** target, where the same code performs true
-in-place updates. The approval tool (`adoit_import_status`) already reports which write path is active.
+in-place updates. The approval tool (`ea_import_status`) already reports which write path is active.
 
 ---
 
@@ -354,7 +361,7 @@ in-place updates. The approval tool (`adoit_import_status`) already reports whic
 | INV-G3b | Names / free-text clinical PII (compliance) | Presidio NER middleware in workflow hosts — **designed, not yet built** | Purview |
 | INV-G4 | Cloud-only inference (NFR) | Ollama Cloud only; native Ollama client is off-limits (bypasses gateway) | AI Foundry models |
 | INV-G5 | Shared tools are governed MCP servers (security) | `adoit-mcp`, `semantic-mcp`, `storage-mcp` over streamable HTTP, registered in `litellm-config.yaml`, granted per team | APIM-fronted tool/MCP endpoints |
-| INV-G6 | Destructive/write tools require human approval (governance) | Approval gate (Redis Streams) + `adoit_request_import` → decision → `adoit_import_status`; no write without a decision | Human-in-the-loop + Foundry |
+| INV-G6 | Destructive/write tools require human approval (governance) | Approval gate (Redis Streams) + `ea_stage_import` → decision → `ea_import_status`; no write without a decision | Human-in-the-loop + Foundry |
 | INV-G7 | Workloads hold no store credentials (security) | Inputs are `art://` refs read only via `storage-mcp`; `configure_workload()` strips bucket/DB creds | Managed identity + Container Apps |
 | INV-G8 | Per-host distinct OTel service name (observability) | e.g. `process-visio-to-archimate`; one service name per business process | App Insights cloud roles |
 | INV-G9 | Everything registered in the gateway registry (governance) | MCP servers in `litellm-config.yaml`; skills in both LiteLLM registries via `register_skill.sh` | Agent 365 registry |
@@ -366,7 +373,7 @@ in-place updates. The approval tool (`adoit_import_status`) already reports whic
 | FR-02 | Read inputs by reference, governed (functional/security) | `storage-mcp` read-only tools; images normalised in `src/lab/platform/docparse.py` | Managed storage + MCP |
 | FR-03 | Reliable tool calls (functional) | Tool calls **by reference** (small args) + deterministic fallback (AF #2747/#3313) | Same |
 | FR-04 | Typed BA→Architect hand-off with completeness gate (functional) | `schemas/ba_output.schema.json` + deterministic gate + one retry | Same |
-| FR-05 | Existing-architecture-aware: NEW vs UPDATE, reuse ids, folder by domain (functional) | `resolve_existing` + `adoit_search`; Architect reuses object ids; `<organizations>` foldering | Same (REST write on full tenant) |
+| FR-05 | Existing-architecture-aware: NEW vs UPDATE, reuse ids, folder by domain (functional) | `resolve_existing` + `ea_search`; Architect reuses object ids; `<organizations>` foldering | Same (REST write on full tenant) |
 | FR-06 | Human review with model, views, NEW/UPDATE context, trace (functional) | Review app (Streamlit) + approval gate; Telegram/CLI channels | Container Apps + Entra auth |
 | FR-07 | Object CRUD into ADOIT via file-import on CE (functional) | ArchiMate XML (views/creates) + Excel object import (create/update); human-gated | REST write facade on full tenant |
 | FR-08 | True in-place REST writes when tenant allows (functional) | Facade built (`adoit_rest.py`), gated by `ADOIT_REST_WRITE` (default false on CE) | Full ADOIT / Foundry |
@@ -414,7 +421,7 @@ in-place updates. The approval tool (`adoit_import_status`) already reports whic
   models (BA Guild) as SKOS.
 - Reference business process **Visio/diagram → ArchiMate → ADOIT**, end to end, with human approval and
   one-trace-per-run; verified on the cloud tier.
-- **Existing-architecture-aware modelling — Phase 1 (done):** `adoit_search`/`adoit_object` reads;
+- **Existing-architecture-aware modelling — Phase 1 (done):** `ea_search`/`ea_object` reads;
   `resolve_existing` NEW-vs-UPDATE; object-id reuse; `<organizations>` domain foldering; approval
   surfacing.
 - Two-tier cloud deployment (Railway substrate + `wf-visio` workload) with the same env contract.

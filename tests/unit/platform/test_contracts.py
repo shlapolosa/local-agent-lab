@@ -7,8 +7,8 @@ import json
 import pytest
 
 from lab.platform import contracts as C
-from lab.platform.contracts import (APPROVAL_FINAL, WORKFLOW_FINISHED, WORKFLOW_OPEN, AdoitTools,
-                                    ApprovalKind, ApprovalStatus, ArtifactRef, Decision, SemanticTools,
+from lab.platform.contracts import (APPROVAL_FINAL, WORKFLOW_FINISHED, WORKFLOW_OPEN, ApprovalKind,
+                                    ApprovalStatus, ArtifactRef, Decision, EATools, SemanticTools,
                                     StorageTools, WorkflowRequest, WorkflowStatus)
 
 
@@ -16,8 +16,8 @@ from lab.platform.contracts import (APPROVAL_FINAL, WORKFLOW_FINISHED, WORKFLOW_
 def test_catalogues_name_the_tools_exactly_as_the_servers_register_them():
     assert StorageTools.read_vsdx == "storage_read_vsdx" and StorageTools.extract_figures == "storage_extract_figures"
     assert SemanticTools.store_spec == "semantic_store_spec" and SemanticTools.validate_model == "semantic_validate_model"
-    assert AdoitTools.render == "archimate_render" and AdoitTools.request_import == "adoit_request_import"
-    assert AdoitTools.excel_render == "adoit_excel_render" and AdoitTools.search == "adoit_search"
+    assert EATools.render == "archimate_render" and EATools.stage_import == "ea_stage_import"
+    assert EATools.search == "ea_search" and EATools.object == "ea_object"
 
 
 def test_names_enumerates_only_the_tool_constants():
@@ -25,20 +25,21 @@ def test_names_enumerates_only_the_tool_constants():
                                               "storage_read_vsdx", "storage_extract_figures"})
     assert "storage_mcp" not in StorageTools.names()            # SERVER is the alias, not a tool
     assert all(n.startswith(("semantic_",)) for n in SemanticTools.names()) and len(SemanticTools.names()) == 13
-    assert all(n.startswith(("archimate_", "adoit_")) for n in AdoitTools.names()) and len(AdoitTools.names()) == 9
+    assert all(n.startswith(("archimate_", "ea_")) for n in EATools.names()) and len(EATools.names()) == 8
+    assert "adoit_excel_render" not in EATools.names()        # the vendor's spreadsheet is adapter-private
 
 
 def test_gateway_qualified_names_use_the_gateway_server_alias():
     assert C.gateway_name("storage_mcp", "storage_read_vsdx") == "storage_mcp-storage_read_vsdx"
     assert StorageTools.gateway(StorageTools.read_vsdx) == "storage_mcp-storage_read_vsdx"
     assert SemanticTools.gateway(SemanticTools.validate_model) == "semantic_mcp-semantic_validate_model"
-    assert AdoitTools.gateway(AdoitTools.render) == "adoit_mcp-archimate_render"
+    assert EATools.gateway(EATools.render) == "ea_mcp-archimate_render"
     with pytest.raises(ValueError, match="not a storage_mcp tool"):
         StorageTools.gateway("semantic_ask")
 
 
 def test_registry_maps_gateway_aliases_to_catalogues_and_tools_are_globally_unique():
-    assert C.SERVERS == {"storage_mcp": StorageTools, "semantic_mcp": SemanticTools, "adoit_mcp": AdoitTools,
+    assert C.SERVERS == {"storage_mcp": StorageTools, "semantic_mcp": SemanticTools, "ea_mcp": EATools,
                          "workflow_mcp": C.WorkflowTools}   # generated from PROCESSES; see tests/unit/substrate/mcp/workflow/
     assert all(cls.SERVER == alias for alias, cls in C.SERVERS.items())
     every = [n for cls in C.SERVERS.values() for n in cls.names()]

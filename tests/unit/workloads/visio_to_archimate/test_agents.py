@@ -75,7 +75,7 @@ def test_mcp_tool_factories_filter_to_the_governed_tools_with_the_callers_identi
     ar = A.architect_tools({"Authorization": "Bearer ar-key"})
     assert type(ba).__name__ == "MCPStreamableHTTPTool" and ba.name == "storage" and ar.name == "ea-tools"
     assert set(ba.allowed_tools) == set(A.BA_MCP_TOOLS) and set(ar.allowed_tools) == set(A.ARCHITECT_MCP_TOOLS)
-    assert "adoit_mcp-adoit_request_import" not in ar.allowed_tools         # import staging stays human-gated
+    assert "ea_mcp-ea_stage_import" not in ar.allowed_tools                 # import staging stays human-gated
     assert ba._header_provider({}) == {"Authorization": "Bearer ba-key", "traceparent": "00-a-b-01"}
     assert ar._header_provider({}) == {"Authorization": "Bearer ar-key"}
     hdr = ba._header_provider({}); hdr["x"] = 1

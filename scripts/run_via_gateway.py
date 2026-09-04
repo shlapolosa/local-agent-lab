@@ -45,9 +45,9 @@ async def _run(tracer, spec, headers):
                 sys.exit(f"tool {suffix} not exposed by gateway")
             return m[0]
 
-        with tracer.start_as_current_span("tool adoit_repos"):
-            repos = await c.call_tool(pick("adoit_repos"), {})
-        print("ADOIT repos (read via governed facade):", json.dumps(repos.data)[:160])
+        with tracer.start_as_current_span("tool ea_repositories"):
+            repos = await c.call_tool(pick("ea_repositories"), {})
+        print("EA repositories (read via the governed facade):", json.dumps(repos.data)[:160])
 
         # semantic layer first: exact ArchiMate legality + interface semantics, then load for questions
         with tracer.start_as_current_span("tool semantic_validate_model"):
@@ -81,17 +81,20 @@ async def _run(tracer, spec, headers):
             print(f"  view {vid}: {canvas[0]}x{canvas[1]}")
         print("artifacts:", res.data["xml_ref"], f'+ {len(res.data["svg_refs"])} svg refs')
 
-        # governed write path: stage for human approval (review app / Telegram / CLI)
-        with tracer.start_as_current_span("tool adoit_request_import"):
+        # governed write path: hand the EA repository the model BY REF and let it produce whatever it
+        # needs a human to import, then stage that for approval (review app / Telegram / CLI)
+        stored = await c.call_tool(pick("semantic_store_spec"), {"spec": spec, "name": "lab-architecture.spec.json"})
+        with tracer.start_as_current_span("tool ea_stage_import"):
             summary = {"elements": val.data["elements"], "relations": val.data["relations"],
                        "views": len(res.data["views"]), "violations": len(res.data["violations"]),
                        "warnings": len(res.data["warnings"])}
-            req = await c.call_tool(pick("adoit_request_import"), {
-                "xml_ref": res.data["xml_ref"], "svg_refs": res.data["svg_refs"],
-                "model_name": spec["name"], "summary": summary})
+            req = await c.call_tool(pick("ea_stage_import"), {
+                "spec_ref": stored.data["spec_ref"], "xml_ref": res.data["xml_ref"],
+                "svg_refs": res.data["svg_refs"], "model_name": spec["name"], "summary": summary})
         print(f"approval requested: {req.data['request_id']} -> status {req.data['status']} "
               f"(review at {req.data['review_app']})")
-        st = await c.call_tool(pick("adoit_import_status"), {"request_id": req.data["request_id"]})
+        print("import artifacts staged by the repository:", ", ".join(req.data.get("artifacts") or {}) or "none")
+        st = await c.call_tool(pick("ea_import_status"), {"request_id": req.data["request_id"]})
         print("import status:", st.data["status"], "—", st.data["next"])
 
 

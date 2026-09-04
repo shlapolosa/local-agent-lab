@@ -24,10 +24,11 @@ from datetime import datetime, timezone
 import redis
 
 from lab.platform import redis_client
-from lab.platform.contracts import WORKFLOW_FINISHED, WorkflowRequest, WorkflowStatus
+from lab.platform.contracts import PROCESSES, WORKFLOW_FINISHED, WorkflowRequest, WorkflowStatus
 
 REQ = "workflow:requests"
-GROUPS = ("wf-visio",)                      # one consumer group per workload host
+GROUPS = tuple(spec.group for spec in PROCESSES.values())   # DERIVED: one group per registered process
+                                            # (lab.platform.contracts.PROCESSES is the ONE source)
 STATUSES = tuple(s.value for s in WorkflowStatus)    # the contract (lab.platform.contracts) as wire strings
 
 
@@ -50,8 +51,17 @@ def ensure_groups(r=None):
                 raise
 
 
-def request(process, inputs, requester, *, client=None):
-    """Publish a run request. `inputs` = {"diagram": art://…, "requirements": [art://…]}."""
+def request(process, inputs, requester, *, spec=None, client=None):
+    """Publish a run request, validated by the process's OWN contract (`ProcessSpec.validate`) so
+    workflow-mcp, the review app's Submit page and the CLI cannot drift apart — nothing reaches the
+    stream unvalidated. `spec` lets a caller that already holds one (a server built from its own
+    registry) pass it instead of a global lookup; otherwise `PROCESSES[process]` is used and an
+    unknown process is a ValueError."""
+    if spec is None:
+        spec = PROCESSES.get(process)
+        if spec is None:
+            raise ValueError(f"unknown process {process!r}; registered: {sorted(PROCESSES)}")
+    inputs = spec.validate(inputs)
     r = _r(client); ensure_groups(r)
     rid = f"wfr-{uuid.uuid4().hex[:12]}"
     fields = WorkflowRequest(request_id=rid, process=process, inputs=inputs, requester=requester,
@@ -134,6 +144,9 @@ if __name__ == "__main__":
     elif a[0] == "show":
         print(json.dumps(status(a[1]), indent=1))
     elif a[0] == "request" and len(a) >= 3:
-        print(request(a[1], {"diagram": a[2], "requirements": a[3:]}, os.environ.get("USER", "cli")))
+        try:                                    # the process's own contract validates: report, don't traceback
+            print(request(a[1], {"diagram": a[2], "requirements": a[3:]}, os.environ.get("USER", "cli")))
+        except ValueError as e:
+            sys.exit(f"rejected: {e}")
     else:
         sys.exit(__doc__)

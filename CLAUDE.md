@@ -142,9 +142,16 @@ These rules define the lab; do not violate them when adding code:
   `adoit-mcp` (:9100), `semantic-mcp` (:9200), `storage-mcp` (:9300), `workflow-mcp` (:9400). A domain
   dependency's ADAPTER is its MCP server and the PORT is its tool contract (`lab.platform.contracts`) —
   swapping ADOIT for another EA tool means a different server satisfying the same tools, re-registered;
-  no workload changes. (Today the repository tools still NAME the vendor — `adoit_search`,
-  `adoit_excel_render` leaks an ADOIT:CE limitation into the port — renaming them to neutral verbs is
-  open work.)
+  no workload changes. The EA-repository port is **vendor-neutral**: alias `ea_mcp`, tools
+  `ea_search|ea_object|ea_repositories|ea_stage_import|ea_import_status|ea_import_instructions`
+  (catalogue `lab.platform.contracts.EATools`), guarded by
+  `tests/governance/test_contracts_match_servers.py::test_no_tool_or_alias_names_a_vendor`.
+  `archimate_validate`/`archimate_render` keep their names — they are domain ENGINE services, not
+  repository operations. The vendor lives only in the SERVICE (`adoit-mcp`, `ADOIT_MCP_URL`, its
+  credentials). `ea_stage_import` takes the model BY REF and returns the artifacts THAT repository
+  needs a human to import plus the instructions — so ADOIT:CE's spreadsheet is a private adapter
+  detail and a REST-capable tenant returns `artifacts: {}`. Still vendor-named DOWNSTREAM of the port
+  (next cleanup): `ApprovalKind.ADOIT_IMPORT`, `xlsx_ref` in `ProcessSpec.outputs`, the review app.
 - **A workload's EXTERNAL contract is an MCP server registered in the gateway, not an agent façade.**
   A workload is a deterministic workflow that CONTAINS agents; containment is not an interface.
   `<process>_submit(...)` enqueues and returns a `request_id` (runs take 600-1000 s — sync is
@@ -270,15 +277,15 @@ the Azure/Foundry target. The verified read surface (`src/lab/substrate/mcp/adoi
   `{"filters":[{"className":"C_APPLICATION_COMPONENT"} | {"attrName":"NAME","op":"OP_LIKE","value":"x"}],
    "scope":{"repoObjects":true,"models":true,"modObjects":true}}` — **a non-empty filter is required**
   (empty → 400). Items: `{id,name,type,artefactType(REPOSITORY_OBJECT|DIAGRAM|MODINST),metaName(C_*),
-  groupId,modelId,modelName}`. Exposed as the read-only tool **`adoit_search(name_like, class_name, scope, limit)`**.
+  groupId,modelId,modelName}`. Exposed as the read-only tool **`ea_search(name_like, class_name, scope, limit)`**.
 - **Object detail** — `GET /rest/2.0/repos/{repo}/objects/{objId}` → attributes + relation slots
-  (`{name, metaName(RC_*), targets:[{id,name,metaName,direction}]}`). Tool **`adoit_object(object_id)`**.
+  (`{name, metaName(RC_*), targets:[{id,name,metaName,direction}]}`). Tool **`ea_object(object_id)`**.
 - **Write (edge-blocked on CE)** — `OPTIONS` advertises `POST /objects` and `PATCH,DELETE /objects/{id}`,
   but the actual verbs return the CE edge block page. className/relclass maps are deterministic
   (CamelCase ↔ `C_UPPER_SNAKE`; relation ↔ `RC_UPPER_SNAKE`). The facade is ready for a write-capable tenant.
 
-**Write path = human-gated file-import, TWO files, TWO purposes** (`adoit_import_instructions`):
-- **OBJECTS → Excel object-import** (`adoit_excel_render` → `.xlsx`, `src/lab/substrate/mcp/adoit/adoit_excel.py`,
+**Write path = human-gated file-import, TWO files, TWO purposes** (`ea_import_instructions`):
+- **OBJECTS → Excel object-import** (the adapter's PRIVATE object-import file → `.xlsx`, `src/lab/substrate/mcp/adoit/adoit_excel.py`,
   bundled ENGLISH tenant template in `src/lab/substrate/mcp/adoit/templates/`). ADOIT's "Import objects from Excel"
   both **creates and updates** objects, matching each row on its **NAME** (found once → UPDATE in place,
   absent → CREATE, found twice → error). One sheet per element type; the generator fills the tenant's
@@ -330,7 +337,7 @@ stateless and address each other only through `src/lab/platform/config.py` env v
 - **Artifacts by reference, never by path**: `src/lab/substrate/artifacts.py` stores export specs, XML and
   SVGs in a Postgres `lab_artifacts` table and hands out `art://<id>/<name>` refs. Tool contract:
   `semantic_export_archimate` → `spec_ref`; `archimate_render(spec|spec_ref)` → `xml_ref`,
-  `svg_refs`; `adoit_request_import(xml_ref, svg_refs)`; the review app reads refs. `outdir` /
+  `svg_refs`; `ea_stage_import(xml_ref, svg_refs)`; the review app reads refs. `outdir` /
   `spec_path` remain as local-dev conveniences only.
 - `deploy/Dockerfile` (one image, role by command), `deploy/substrate/compose.yml` (the cloud
   topology on any Docker host — unbuilt here: no daemon), `deploy/README.md` (Azure Container
@@ -536,7 +543,7 @@ LiteLLM's key store is **Neon Postgres** (serverless, cloud — no local pg, no 
 - **Team per business process, virtual key per agent** — `scripts/bootstrap_registry.py`
   created team `ea-modelling` and key alias `ea-modeling-agent` (`EA_AGENT_KEY` in `.env`,
   2 USD/30d, 30 rpm, 60k tpm). MCP access is granted per team:
-  `POST /team/update {"object_permission":{"mcp_servers":["adoit_mcp"]}}` — a key with no grant
+  `POST /team/update {"object_permission":{"mcp_servers":["ea_mcp"]}}` — a key with no grant
   sees zero tools (verified). Per-tool ACLs use `mcp_tool_permissions` on the same object.
 - **Metering**: Ollama Cloud is flat-rate, so `litellm-config.yaml` carries nominal per-token
   prices; every call returns `x-litellm-response-cost` and spend rolls up key → team.
@@ -639,7 +646,7 @@ a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
   `semantic_export_archimate(scheme, root_label, depth)` projects a subtree to an ArchiMate spec
   (Capability + Composition, an L1 overview view in rows, one nested view per top concept —
   capability maps nest by convention, the one sanctioned use of containers); then `adoit-mcp`
-  `archimate_render` + `adoit_request_import` render and stage it for approval like any model.
+  `archimate_render` + `ea_stage_import` render and stage it for approval like any model.
   `scripts/export_capabilities.py <scheme> [root] [depth]` runs that chain via the gateway.
 - **Placement**: `semantic-mcp` is a separate, credential-free, read-only server granted to every
   team; `adoit-mcp` stays the governed EA-repository facade. Both import the same package.
@@ -653,19 +660,31 @@ workload host, hash `workflow:req:<id>` with status pending|running|done|failed 
 ids written back by the consumer) — what the review app's Submit mode emits and
 `src/lab/workloads/visio_to_archimate/consumer.py` consumes. `src/lab/substrate/approvals.py` is the approval API:
 `request()` publishes to `approvals:requests` (one consumer group per channel:
-`review-app`, `telegram` — each channel sees every request); `decide()` appends to
+`review-app`, `telegram`, `teams` — each channel sees every request); `decide()` appends to
 `approvals:decisions` (the audit log) with `approve | decline | update` (= changes requested,
 stays open), actor, channel, comment; `status()/await_decision()` for the requester.
 
-- **Write path is two MCP tools**: `adoit_request_import` (publishes the event, returns id,
-  writes nothing) → human decision → `adoit_import_status` (decision + next step). On
+- **Write path is two MCP tools**: `ea_stage_import` (publishes the event, returns id,
+  writes nothing) → human decision → `ea_import_status` (decision + next step). On
   ADOIT:CE "approve" releases the XML for the UI import; on a full tenant the REST write runs
   inside that tool after approval. The tool never writes without a decision.
 - **Channels**: `src/lab/substrate/review/app.py` (Streamlit, `./lab.sh review`, :8501) shows views, model
   contents, trace link, and takes the decision; `src/lab/substrate/channels/telegram.py` is the same contract
   as plumbing only (enabled by `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`; no diagrams — summary
-  + link to the review app); `python -m lab.substrate.approvals approve|decline|update <id>` is the
-  CLI channel. Adding a channel = a new consumer group name in `CHANNELS` + a consumer.
+  + link to the review app); **`src/lab/substrate/channels/teams.py` is the Microsoft Teams channel**
+  (`TEAMS_WEBHOOK_URL`; unset = disabled) — it posts an **Adaptive Card** with the summary, violations
+  flagged in red, and `Action.OpenUrl` buttons to the review app and the Jaeger trace (no diagrams in
+  the card). Its inbound has TWO paths: the deep link back to the review app (wired today — a Teams
+  incoming webhook is SEND-ONLY, so `Action.Submit` cannot come back without a bot registration), and
+  `TeamsChannel.decide(request_id, decision, actor, comment)` for a Copilot Studio connector / Teams
+  bot to call with the **signed-in user as `actor`** — a blank actor RAISES, never defaults, because
+  "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
+  approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
+  `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
+  **Stated exception to gateway-only egress**: a channel posts outward DIRECTLY (Telegram API, Teams
+  webhook). That is SUBSTRATE egress, never a workload's, to a fixed configured URL, carrying only
+  counts, ids and links — no model content. A NEW outbound path either goes through the gateway or is
+  added here deliberately.
 - Requests carry the OTel `trace_id` of the run that produced the model, so a reviewer can
   open the exact trace from the review app.
 

@@ -1,6 +1,8 @@
 """Governance: a workload names substrate tools ONLY through `lab.platform.contracts` — no bare tool-name
-string literal (`storage_*`, `semantic_*`, `archimate_*`, `adoit_*`, a `<server>_mcp` alias, or the
-gateway-qualified `<server>_mcp-<tool>` form) anywhere under src/lab/workloads. AST-based like
+string literal (`storage_*`, `semantic_*`, `archimate_*`, `ea_*`, a `<server>_mcp` alias, or the
+gateway-qualified `<server>_mcp-<tool>` form) anywhere under src/lab/workloads. That is what makes the
+EA-repository port swappable: the workload spells `EATools.search`, so renaming a tool or its adapter is
+a one-place change here, never an edit in the workload. AST-based like
 tests/governance/test_di_boundaries.py: docstrings and comments may MENTION a tool; code may not spell one.
 Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/governance/test_workload_uses_contracts.py"""
 import ast
@@ -58,7 +60,7 @@ def test_workloads_spell_no_tool_name_outside_the_contracts():
 def test_the_guard_sees_f_string_parts_and_skips_docstrings(tmp_path):
     p = tmp_path / "m.py"
     p.write_text('"""storage_get in a docstring is fine."""\n'
-                 'def f(x):\n    """adoit_search mentioned."""\n    return f"call storage_get with {x}", "semantic_mcp"\n')
+                 'def f(x):\n    """ea_search mentioned."""\n    return f"call storage_get with {x}", "semantic_mcp"\n')
     found = {text for _, text in code_literals(str(p))}
     assert found == {"call storage_get with ", "semantic_mcp"}
 

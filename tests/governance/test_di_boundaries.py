@@ -41,7 +41,6 @@ KNOWN_ENV_READERS = {
     "src/lab/substrate/mcp/adoit/adoit_rest.py",                # ADOIT_* credentials (should come from config)
     "src/lab/substrate/review/app.py",                              # REVIEW_APP_PASSWORD / JAEGER_UI_URL
     "src/lab/substrate/mcp/storage/server.py",                  # UPLOADS_URL fallback
-    "src/lab/substrate/mcp/adoit/server.py",                    # port
     "src/lab/core/semantic/reference/baguild.py",              # REFERENCE_MODELS_DIR
 }
 ENV_READ = re.compile(r"os\.environ(\.get)?\s*[\[(]|os\.getenv\s*\(")

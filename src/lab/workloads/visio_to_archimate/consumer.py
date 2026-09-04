@@ -25,11 +25,12 @@ import traceback
 from opentelemetry import trace
 
 from lab.platform import container, workflows
-from lab.platform.contracts import WORKFLOW_OPEN, WorkflowRequest, WorkflowStatus
+from lab.platform.contracts import PROCESSES, WORKFLOW_OPEN, WorkflowRequest, WorkflowStatus
 from lab.workloads.visio_to_archimate.host import SERVICE, _shutdown, run_once
 
-GROUP = "wf-visio"
 PROCESS = "visio_to_archimate"
+SPEC = PROCESSES[PROCESS]        # the ONE source of this process's identity + declared outputs
+GROUP = SPEC.group
 CONSUMER = os.environ.get("WF_CONSUMER", "1")     # stable per replica -> its pending list survives restarts
 _stop = False
 
@@ -53,8 +54,12 @@ def handle(root, entry_id: str, fields: dict) -> None:
     try:
         out = asyncio.run(run_once(root, diagram, reqs,
                                    on_trace=lambda t: workflows.mark(rid, WorkflowStatus.RUNNING, trace_id=t, client=r)))
-        workflows.mark(rid, WorkflowStatus.DONE, approval_id=out["request_id"], review_app=out.get("review_app"),
-                       xml_ref=out["xml_ref"], summary=out["summary"], trace_id=out["trace_id"], client=r)
+        # every output the process DECLARES must be written, or `<process>_result` cannot return it
+        # (xlsx_ref — the ADOIT object-import file — was missing here while host.py wrote it).
+        done = {"approval_id": out.get("request_id"), "review_app": out.get("review_app"),
+                "trace_id": out.get("trace_id")}
+        done.update({o: out.get(o) for o in SPEC.outputs if o in out})
+        workflows.mark(rid, WorkflowStatus.DONE, client=r, **{k: v for k, v in done.items() if v is not None})
         print(f"request {rid} done in {time.time() - t0:.0f}s -> approval {out['request_id']}", flush=True)
     except Exception as e:                        # noqa: BLE001 — the request fails, the host keeps serving
         workflows.mark(rid, WorkflowStatus.FAILED, error=f"{type(e).__name__}: {str(e)[:400]}", client=r)

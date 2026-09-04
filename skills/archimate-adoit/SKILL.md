@@ -68,11 +68,11 @@ report = m.render("architecture/out", "lab")   # XML + SVG per view; raises if i
    import. Check: layers banded correctly, no visual clutter, labels readable.
 5. **Hand off for import** following `references/adoit-import.md` — includes the ADOIT UI
    steps, the duplicate-handling behaviour, and the post-import checklist (interface icon
-   toggle, layout survival). REST **reads** work (`adoit_search`/`adoit_object` — check for
-   existing objects and reuse their ids); REST **writes** are blocked at the hosted-CE edge, so
-   the write path is the two-file import (Excel objects create/update by name + ArchiMate XML
-   views), released by human approval. The REST write facade stays dormant behind
-   `ADOIT_REST_WRITE`.
+   toggle, layout survival). REST **reads** work (`ea_search`/`ea_object` on the vendor-neutral
+   EA-repository port — check for existing objects and reuse their ids); REST **writes** are
+   blocked at the hosted-CE edge, so the write path is the two-file import (Excel objects
+   create/update by name + ArchiMate XML views) that `ea_stage_import` produces and returns,
+   released by human approval. The REST write facade stays dormant behind `ADOIT_REST_WRITE`.
 
 ## Standard view catalogue
 
@@ -88,7 +88,7 @@ The lab's semantic layer holds industry reference models (BA Guild Healthcare Pr
 Insurance v5.0) as SKOS schemes. Use `semantic_concepts(scheme, root_label, depth)` to browse
 them, map a model's `Capability` elements to reference concepts rather than inventing names, and
 `semantic_export_archimate(...)` to project any subtree to an ArchiMate spec for the governed
-ADOIT write path (`archimate_render` → `adoit_request_import`). Capability maps are the one place
+EA-repository write path (`archimate_render` → `ea_stage_import`). Capability maps are the one place
 nesting is the correct notation (L1 containing L2); the export spec uses `containers` for that.
 
 ## Building an architecture from scratch

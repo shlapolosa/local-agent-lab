@@ -232,7 +232,9 @@ def test_result_of_a_failed_run_reports_the_error(server, redis):
 def test_unknown_and_cross_process_ids_are_refused(server, redis):
     for verb in ("status", "result"):
         assert "unknown request" in call_error(server, VISIO_TO_ARCHIMATE.tool(verb), request_id="wfr-nope")
-    other = workflows.request("fake_process", {"primary": "art://a/b.png"}, "tester", client=redis)
+    # seed a SECOND process's request: `spec=` is how a caller with its own registry validates
+    # (workflows.request refuses an unregistered process otherwise)
+    other = workflows.request(FAKE.name, {"primary": "art://a/b.png"}, "tester", spec=FAKE, client=redis)
     for verb in ("status", "result"):
         msg = call_error(server, VISIO_TO_ARCHIMATE.tool(verb), request_id=other)
         assert "is a 'fake_process' run" in msg and "not 'visio_to_archimate'" in msg

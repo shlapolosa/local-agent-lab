@@ -130,7 +130,7 @@ def main():
     section("MCP registry")
     s, d = http("/v1/mcp/server", MASTER)
     srv = [x.get("server_name") for x in d] if isinstance(d, list) else []
-    check("MCP servers registered", set(["adoit_mcp", "semantic_mcp", "storage_mcp"]).issubset(set(srv)), f"{srv}")
+    check("MCP servers registered", set(["ea_mcp", "semantic_mcp", "storage_mcp"]).issubset(set(srv)), f"{srv}")
     s, d = http("/v1/mcp/tools", MASTER)
     tools = d if isinstance(d, list) else d.get("tools", d.get("data", [])) if isinstance(d, dict) else []
     tnames = [t.get("name") if isinstance(t, dict) else t for t in tools]
@@ -156,23 +156,23 @@ def main():
             else:
                 check("gateway->semantic-mcp round-trip", False, "no read-only semantic tool found")
             # read-only call to the adoit server (GET repos against the live ADOIT 18 tenant)
-            rep = next((n for n in names if n.endswith("adoit_repos")), None)
+            rep = next((n for n in names if n.endswith("ea_repositories")), None)
             if rep:
                 r = await c.call_tool(rep, {})
                 ok = r is not None and (getattr(r, "content", None) or getattr(r, "data", None) or r)
-                check("gateway->adoit-mcp round-trip (adoit_repos)", bool(ok),
+                check("gateway->adoit-mcp round-trip (ea_repositories)", bool(ok),
                       "returned data" if ok else "empty")
             else:
-                check("gateway->adoit-mcp round-trip", False, "no adoit_repos tool")
-            # existing-architecture search: adoit_search must return real objects from the ADOIT 18 repo
-            srch = next((n for n in names if n.endswith("adoit_search")), None)
+                check("gateway->adoit-mcp round-trip", False, "no ea_repositories tool")
+            # existing-architecture search: ea_search must return real objects from the ADOIT 18 repo
+            srch = next((n for n in names if n.endswith("ea_search")), None)
             if srch:
                 r = await c.call_tool(srch, {"class_name": "ApplicationComponent", "limit": 5})
                 items = r.data if isinstance(r.data, list) else (json.loads(r.content[0].text) if r.content else [])
-                check("adoit_search (existing architecture, ApplicationComponents)", bool(items),
+                check("ea_search (existing architecture, ApplicationComponents)", bool(items),
                       f"{len(items)} existing component(s)" if items else "no hits")
             else:
-                check("adoit_search present", False, "no adoit_search tool (grant adoit_mcp / restart gateway)")
+                check("ea_search present", False, "no ea_search tool (grant ea_mcp / restart gateway)")
             # governed object store: list through the gateway (read-only), then info on the first ref
             lst = next((n for n in names if n.endswith("storage_list")), None)
             if lst:

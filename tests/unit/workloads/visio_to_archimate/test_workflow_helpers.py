@@ -1,7 +1,7 @@
 """src/lab/workloads/visio_to_archimate/workflow.py — the pure / deterministic helpers, tested directly:
 JSON extraction, the jsonschema + completeness gates, MCP-result parsing (dict AND JSON-string forms,
 AF #3313), image-block extraction, relation repair, the span->executor table (must equal the graph's
-`@executor(id=…)` set — review A-F5), `_adoit_search_many` (candidates, error) and `_call_tools_raw`
+`@executor(id=…)` set — review A-F5), `_ea_search_many` (candidates, error) and `_call_tools_raw`
 against the in-memory gateway from tests/unit/workloads/visio_to_archimate/test_workflow_run.py. Offline: no gateway, no LLM, no Redis.
 Run: .venv/bin/python tests/unit/workloads/visio_to_archimate/test_workflow_helpers.py   (also pytest-compatible)"""
 import asyncio
@@ -61,15 +61,15 @@ def test_ref_from_dict_and_string_with_any_key():
 
 
 def test_pick_result_matches_on_suffix():
-    res = {"semantic_mcp-semantic_validate_model": {"illegal": []}, "adoit_mcp-archimate_render": "r"}
+    res = {"semantic_mcp-semantic_validate_model": {"illegal": []}, "ea_mcp-archimate_render": "r"}
     assert W._pick_result(res, "semantic_validate_model") == {"illegal": []}
     assert W._pick_result(res, "archimate_render") == "r"
-    assert W._pick_result(res, "adoit_excel_render") is None
+    assert W._pick_result(res, "ea_stage_import") is None
     assert W._pick_result({}, "anything") is None
 
 
 def test_tool_results_maps_calls_to_parsed_results():
-    contents = [Content.from_function_call(call_id="1", name="adoit_mcp-archimate_render", arguments={}),
+    contents = [Content.from_function_call(call_id="1", name="ea_mcp-archimate_render", arguments={}),
                 Content.from_function_result(call_id="1", result='{"xml_ref": "art://x"}'),     # JSON string
                 Content.from_function_call(call_id="2", name="semantic_mcp-semantic_validate_model", arguments={}),
                 Content.from_function_result(call_id="2", result={"illegal": []}),              # dict
@@ -78,7 +78,7 @@ def test_tool_results_maps_calls_to_parsed_results():
                 Content.from_function_result(call_id="unknown", result="orphan")]               # no call: name ""
     r = SimpleNamespace(messages=[Message("assistant", contents), Message("assistant", [Content.from_text("done")])])
     out = W._tool_results(r)
-    assert out == {"adoit_mcp-archimate_render": {"xml_ref": "art://x"},
+    assert out == {"ea_mcp-archimate_render": {"xml_ref": "art://x"},
                    "semantic_mcp-semantic_validate_model": {"illegal": []},
                    "other": "plain text", "": "orphan"}
     assert W._tool_results(SimpleNamespace(messages=[])) == {}
@@ -146,44 +146,44 @@ def test_call_tools_raw_and_call_tools_pick_by_suffix_in_order():
 def test_call_tools_raw_fails_loud_on_an_unexposed_tool():
     router = Router({"semantic_store_spec": {}})
     try:
-        _with_client(router, lambda: W._call_tools_raw(HEADERS, URL, [("adoit_request_import", {})]))
+        _with_client(router, lambda: W._call_tools_raw(HEADERS, URL, [("ea_stage_import", {})]))
     except RuntimeError as e:
-        assert "tool *adoit_request_import not exposed by gateway (['srv-semantic_store_spec'])" in str(e)
+        assert "tool *ea_stage_import not exposed by gateway (['srv-semantic_store_spec'])" in str(e)
     else:
         raise AssertionError("expected RuntimeError")
     assert router.calls == []
 
 
-def test_adoit_search_many_merges_unique_candidates():
+def test_ea_search_many_merges_unique_candidates():
     hits = {"Portal": [{"id": "1", "name": "Portal"}, {"id": "2", "name": "Portal API"}],
             "Clinician": [{"id": "1", "name": "Portal"}, {"name": "no-id"}, {"id": "3", "name": "Clinician"}]}
-    router = Router({"adoit_search": lambda a: hits.get(a["name_like"], [])})
-    cands, err = _with_client(router, lambda: W._adoit_search_many(
+    router = Router({"ea_search": lambda a: hits.get(a["name_like"], [])})
+    cands, err = _with_client(router, lambda: W._ea_search_many(
         HEADERS, URL, ["Portal", "", "ab", None, "Clinician", "Nothing"], scope="repo", per=7))
     assert err is None and [c["id"] for c in cands] == ["1", "2", "3"]
-    assert router.calls == [("adoit_search", {"name_like": "Portal", "scope": "repo", "limit": 7}),
-                            ("adoit_search", {"name_like": "Clinician", "scope": "repo", "limit": 7}),
-                            ("adoit_search", {"name_like": "Nothing", "scope": "repo", "limit": 7})]
+    assert router.calls == [("ea_search", {"name_like": "Portal", "scope": "repo", "limit": 7}),
+                            ("ea_search", {"name_like": "Clinician", "scope": "repo", "limit": 7}),
+                            ("ea_search", {"name_like": "Nothing", "scope": "repo", "limit": 7})]
 
 
-def test_adoit_search_many_reads_text_content_and_stops_at_cap():
+def test_ea_search_many_reads_text_content_and_stops_at_cap():
     text_form = FakeResult(data=None, content=[text_block(json.dumps([{"id": "t1"}, {"id": "t2"}]))])
-    router = Router({"adoit_search": lambda a: text_form if a["name_like"] == "one" else FakeResult(data=None, content=[])})
-    cands, err = _with_client(router, lambda: W._adoit_search_many(HEADERS, URL, ["one", "two", "three"], cap=2))
+    router = Router({"ea_search": lambda a: text_form if a["name_like"] == "one" else FakeResult(data=None, content=[])})
+    cands, err = _with_client(router, lambda: W._ea_search_many(HEADERS, URL, ["one", "two", "three"], cap=2))
     assert err is None and [c["id"] for c in cands] == ["t1", "t2"]
     assert len(router.calls) == 1                                        # cap reached -> no further searches
-    cands, err = _with_client(router, lambda: W._adoit_search_many(HEADERS, URL, ["two"]))
+    cands, err = _with_client(router, lambda: W._ea_search_many(HEADERS, URL, ["two"]))
     assert (cands, err) == ([], None)                                    # empty content -> no items, no error
 
 
-def test_adoit_search_many_surfaces_failures_instead_of_looking_new():
-    router = Router({"adoit_object": {}})                                # search tool not granted
-    cands, err = _with_client(router, lambda: W._adoit_search_many(HEADERS, URL, ["Portal"]))
-    assert cands == [] and err.startswith("adoit_search not exposed to this identity")
+def test_ea_search_many_surfaces_failures_instead_of_looking_new():
+    router = Router({"ea_object": {}})                                   # search tool not granted
+    cands, err = _with_client(router, lambda: W._ea_search_many(HEADERS, URL, ["Portal"]))
+    assert cands == [] and err.startswith("ea_search not exposed to this identity")
 
     calls = iter([[{"id": "1"}], TimeoutError("gateway timed out")])
-    router = Router({"adoit_search": lambda a: (lambda v: (_ for _ in ()).throw(v) if isinstance(v, Exception) else v)(next(calls))})
-    cands, err = _with_client(router, lambda: W._adoit_search_many(HEADERS, URL, ["Portal", "Clinician"]))
+    router = Router({"ea_search": lambda a: (lambda v: (_ for _ in ()).throw(v) if isinstance(v, Exception) else v)(next(calls))})
+    cands, err = _with_client(router, lambda: W._ea_search_many(HEADERS, URL, ["Portal", "Clinician"]))
     assert [c["id"] for c in cands] == ["1"] and err == "TimeoutError: gateway timed out"   # partial + error
 
 

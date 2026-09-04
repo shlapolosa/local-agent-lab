@@ -4,7 +4,7 @@
 # bootstrap with scripts/bootstrap_registry.py; grant MCP access per team via /team/update
 # object_permission.mcp_servers. Master key = admin plane only; agents use virtual keys.
 #   grant: POST /team/update {"team_id": "<id>", "object_permission": {"mcp_servers":
-#          ["semantic_mcp", "storage_mcp", "adoit_mcp", "workflow_mcp"]}}  — a key with no
+#          ["semantic_mcp", "storage_mcp", "ea_mcp", "workflow_mcp"]}}  — a key with no
 #   grant sees ZERO tools. workflow_mcp goes to the teams that TRIGGER processes (an
 #   orchestrator agent, the Copilot Studio connector), not to the workload's own agents.
 # Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
@@ -64,12 +64,12 @@ model_list:
       output_cost_per_token: 0.00000020
 
 mcp_servers:                          # addresses + trust come from the environment (cloud shape)
-  adoit_mcp:
-    url: os.environ/ADOIT_MCP_URL      # default http://127.0.0.1:9100/mcp (src/lab/platform/config.py)
-    transport: http
-    auth_type: bearer_token
+  ea_mcp:                             # the EA-repository PORT, vendor-neutral by design: swapping ADOIT
+    url: os.environ/ADOIT_MCP_URL      # for another EA tool is a different server registering the same
+    transport: http                    # ea_* tools under THIS alias — no workload change. The SERVICE
+    auth_type: bearer_token            # behind it is vendor-named (adoit-mcp, ADOIT_MCP_URL, its creds).
     authentication_token: os.environ/MCP_SHARED_SECRET
-    description: ArchiMate engine + ADOIT:CE facade (reads via REST, writes via governed UI import)
+    description: EA repository — read the existing architecture (ea_search/ea_object), stage a model for a human-approved import (ea_stage_import); plus the ArchiMate engine (validate/render)
     extra_headers: ["traceparent", "tracestate"]   # forward W3C trace context -> one trace across all hops
   semantic_mcp:
     url: os.environ/SEMANTIC_MCP_URL
