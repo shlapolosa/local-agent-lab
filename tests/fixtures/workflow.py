@@ -243,16 +243,36 @@ def tool_call_response(text: str, calls: list[tuple[str, object]]) -> FakeRespon
     return FakeResponse(text, [Message("assistant", contents), Message("assistant", [Content.from_text(text)])])
 
 
-def make_cfg(run_id="run-test", schema=SCHEMA):
+class RecordingTracer:
+    """A tracer that keeps each span's attributes — the run's OWN audit trail, which several
+    behaviours (a degraded render, a failed EA search) report ONLY through. A no-op tracer would
+    make those assertions impossible; this stays otherwise identical to the real one's interface."""
+    def __init__(self):
+        self.spans: dict[str, dict] = {}
+
+    @contextlib.contextmanager
+    def start_as_current_span(self, name, context=None):
+        attrs = self.spans.setdefault(name.replace("-agent", "").replace("-", "_"), {})
+
+        class Span:
+            def set_attribute(self, k, v):
+                attrs[k] = v
+
+            def set_attributes(self, d):
+                attrs.update(d)
+        yield Span()
+
+
+def make_cfg(run_id="run-test", schema=SCHEMA, tracer=None):
     return W.make_cfg(ba_cred="ba-key", ar_cred="ar-key", traceparent=TRACEPARENT, schema=schema,
-                      tracer=trace.get_tracer("test-workflow"), root_ctx=None,
+                      tracer=tracer or trace.get_tracer("test-workflow"), root_ctx=None,
                       mcp_url="http://gw.test/mcp/", run_id=run_id)
 
 
 @contextlib.contextmanager
 def harness(agents: Agents, tools: dict | None = None, *, env: dict | None = None, run_id="run-test"):
     """Patch every seam for one run; yields .router .agents .runlog .cfg."""
-    router, rl = Router(default_tools(**(tools or {}))), RunLog()
+    router, rl, tracer = Router(default_tools(**(tools or {}))), RunLog(), RecordingTracer()
     with ExitStack() as st:
         st.enter_context(patch.object(W, "Client", router.client_class()))
         st.enter_context(patch.object(W.A, "make_agent", agents.make_agent))
@@ -262,7 +282,8 @@ def harness(agents: Agents, tools: dict | None = None, *, env: dict | None = Non
         st.enter_context(patch.object(W.runlog, "update", rl.update))
         st.enter_context(patch.dict(os.environ, {"BA_MODE": "json", "ARCHITECT_MODE": "json", **(env or {})}))
         os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)      # no-op tracer
-        yield SimpleNamespace(router=router, agents=agents, runlog=rl, cfg=make_cfg(run_id=run_id))
+        yield SimpleNamespace(router=router, agents=agents, runlog=rl, spans=tracer.spans,
+                              cfg=make_cfg(run_id=run_id, tracer=tracer))
 
 
 def run(h, inputs):

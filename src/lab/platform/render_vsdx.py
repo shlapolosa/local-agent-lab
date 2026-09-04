@@ -10,12 +10,21 @@ Mechanism, in two hops, each replaceable:
   1. **LibreOffice headless** converts the whole workbook to ONE PDF (`soffice --convert-to pdf`).
   2. A **PDF rasteriser** draws page N (pypdfium2 preferred — small and non-AGPL; PyMuPDF accepted
      when it is what the host has), and the bitmap goes through `docparse.normalise_image`, the ONE
-     place the <= 1600 px / PNG-JPEG sizing contract lives.
+     place the PNG/JPEG sizing contract lives — at `docparse.RENDER_MAX_EDGE`, the whole-page cap,
+     not the smaller default meant for figures embedded in a document (see that constant).
 
 Both hops are HEAVY, host-level dependencies, so nothing here is imported at module load and
 `available()` is the capability gate: a host without LibreOffice or a rasteriser must degrade to the
 structured parse alone, never fail the run. `render_page(..., convert=, draw=)` injects either hop,
 which is how this is tested with no LibreOffice anywhere near the suite.
+
+MIGRATION SEAM (write it down before it costs anything): LibreOffice-inside-storage-mcp is a ~1 GB
+image and a 120-second, single-process, memory-heavy subprocess — on Container Apps, concurrent
+renders serialise on CPU and blow the per-component memory budget. `render_page(convert=...)` is
+already the port: today's adapter is this module's `to_pdf` (local soffice); the cloud adapter is an
+HTTP call to a dedicated render service / Function / Graph conversion. Moving is then a question of
+which adapter the substrate composition root wires, not a code change. Do it when the capability has
+earned its keep (see the host-gated test in tests/unit/platform/test_render_vsdx.py).
 
 Caveat, un-verifiable without LibreOffice on this host: the PDF's page ORDER is assumed to follow the
 workbook's page order, and LibreOffice may drop or merge background pages. The caller resolves a page
@@ -88,7 +97,7 @@ def available() -> bool:
     return bool(soffice_bin()) and rasteriser() is not None
 
 
-def to_pdf(vsdx_bytes: bytes, workdir: str, timeout: int = CONVERT_TIMEOUT) -> str:
+def to_pdf(vsdx_bytes: bytes, workdir: str) -> str:
     """`soffice --headless --convert-to pdf` -> `<workdir>/in.pdf`. Raises with a clear cause when
     LibreOffice is missing or the conversion produced nothing."""
     exe = soffice_bin()
@@ -101,7 +110,7 @@ def to_pdf(vsdx_bytes: bytes, workdir: str, timeout: int = CONVERT_TIMEOUT) -> s
     # A per-conversion user profile: never clash with an interactive LibreOffice on the same host.
     profile = f"-env:UserInstallation=file://{os.path.join(workdir, 'lo-profile')}"
     subprocess.run([exe, "--headless", profile, "--convert-to", "pdf", "--outdir", workdir, src],
-                   check=True, capture_output=True, timeout=timeout)
+                   check=True, capture_output=True, timeout=CONVERT_TIMEOUT)
     pdf = os.path.join(workdir, "in.pdf")
     if not os.path.exists(pdf):
         raise RuntimeError("LibreOffice produced no PDF from the .vsdx (conversion failed / unsupported).")
@@ -109,7 +118,7 @@ def to_pdf(vsdx_bytes: bytes, workdir: str, timeout: int = CONVERT_TIMEOUT) -> s
 
 
 def render_page(vsdx_bytes: bytes, page_index: int = 0, zoom: float = DEFAULT_ZOOM,
-                max_edge: int = docparse.MAX_IMAGE_EDGE, *, convert=None, draw=None):
+                max_edge: int = docparse.RENDER_MAX_EDGE, *, convert=None, draw=None):
     """One .vsdx page -> `(png_bytes, media_type, (w, h))`, or None when the rendered page falls
     below the sizing floor (a blank/decorative page). `convert` and `draw` inject the two hops;
     they default to LibreOffice and the host's rasteriser. Raises when a hop is unavailable — the
@@ -122,5 +131,5 @@ def render_page(vsdx_bytes: bytes, page_index: int = 0, zoom: float = DEFAULT_ZO
                                "be rendered to an image on this host.")
     with tempfile.TemporaryDirectory(prefix="vsdx-render-") as wd:
         raw = draw(convert(vsdx_bytes, wd), page_index, zoom)
-    # ONE place enforces the <= 1600 px / PNG-JPEG contract, shared with every other image path.
+    # ONE place enforces the PNG/JPEG sizing contract, shared with every other image path.
     return docparse.normalise_image(raw, "image/png", max_edge)

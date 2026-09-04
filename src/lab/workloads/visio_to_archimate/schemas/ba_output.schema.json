@@ -79,7 +79,8 @@
         "role",
         "layer",
         "aspect",
-        "candidateType"
+        "candidateType",
+        "provenance"
       ],
       "properties": {
         "name": {
@@ -128,7 +129,7 @@
           }
         },
         "provenance": {
-          "description": "Where this element came from and how it was read. `source` is the input kind (a diagram shape, a design/requirements document); `representation` is how it was interpreted (the deterministic parse, vision over an image, or extracted document text). REQUIRED on every element by the deterministic gate that follows the BA (the schema also accepts the bare-string shorthand naming only the representation, which the gate expands to {representation: <s>}).",
+          "description": "Where this element came from and how it was read. `source` is the input kind (a diagram shape, a design/requirements document); `representation` is how it was interpreted (the deterministic parse, vision over an image, or extracted document text). REQUIRED on every element \u2014 a description whose elements do not say where they came from is not auditable. The bare-string shorthand is also accepted and the deterministic gate expands it to the full object.",
           "oneOf": [
             {
               "type": "string",
@@ -137,7 +138,7 @@
                 "vision",
                 "document"
               ],
-              "description": "Shorthand: the representation only. The gate expands it to the full object, filling `source` with the only kind that representation can come from (structure/vision -> diagram, document -> document)."
+              "description": "Shorthand: the representation only. The gate expands it to the full object, filling `source` with the only input kind that representation can come from (structure/vision -> diagram, document -> document)."
             },
             {
               "type": "object",

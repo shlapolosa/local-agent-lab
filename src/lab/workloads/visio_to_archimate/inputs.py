@@ -51,8 +51,13 @@ def read_vsdx(src: str) -> dict:
 
 def render_page(src: str):
     """Render a .vsdx PATH's page to an image — the local-dev twin of the governed
-    `storage_render_vsdx`. `path#Page` selects the page. Returns `(bytes, media_type, (w, h))` or
-    None for a blank page; raises when this host has no LibreOffice / PDF rasteriser, which the
-    caller treats as "no image representation", never as a failed run."""
+    `storage_render_vsdx`, returning the SAME triple it does: `(bytes, media_type, label)`, where
+    the label names the page the picture actually shows. `path#Page` selects the page. None for a
+    blank page; raises when this host has no LibreOffice / PDF rasteriser, which the caller treats
+    as "no image representation", never as a failed run."""
     base, page = split_page(src)
-    return docparse.vsdx_page_image(load(base), name_of(base), page=page)
+    norm = docparse.vsdx_page_image(load(base), name_of(base), page=page)
+    if not norm:
+        return None
+    data, mime, (w, h) = norm
+    return data, mime, f"{name_of(base)} page {page or 1} {w}x{h} {mime}"

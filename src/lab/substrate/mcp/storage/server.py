@@ -28,7 +28,7 @@ import sys
 
 from fastmcp.utilities.types import Image
 
-from lab.platform import config, docparse
+from lab.platform import config, docparse, render_vsdx
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "storage-mcp"
@@ -113,13 +113,18 @@ def storage_read_vsdx(ref: str, page: str | None = None) -> dict:
     if docparse.kind(name) != "vsdx":
         raise ValueError(f"{name} is not a .vsdx file")
     d = docparse.vsdx_dict(server.uploads().get(base), name, page=page)
-    span().set_attributes({"storage.kind": "vsdx", "storage.shapes": len(d.get("shapes", [])),
-                           "storage.connectors": len(d.get("connectors", []))})
+    attrs = {"storage.kind": "vsdx", "storage.shapes": len(d.get("shapes", [])),
+             "storage.connectors": len(d.get("connectors", []))}
+    # A foreign export's connectors are RECOVERED from line geometry, and some lines yield none.
+    # Put the shortfall in the trace: a partial recovery must be auditable, not invisible.
+    for k, v in (d.get("recovery") or {}).items():
+        attrs[f"storage.recovery.{k}"] = v
+    span().set_attributes(attrs)
     return d
 
 
 @server.tool()
-def storage_render_vsdx(ref: str, page: str | None = None, max_edge: int = docparse.MAX_IMAGE_EDGE):
+def storage_render_vsdx(ref: str, page: str | None = None, max_edge: int = docparse.RENDER_MAX_EDGE):
     """Render ONE page of a .vsdx as an image, for reading the diagram WITH VISION alongside the
     structured parse: returned normalised to the sizing contract as image content, followed by a
     text label "<name> page <page> <w>x<h> <mime>". The picture is authoritative for GROUPING /
@@ -129,13 +134,18 @@ def storage_render_vsdx(ref: str, page: str | None = None, max_edge: int = docpa
     page exactly as `storage_read_vsdx` does; the default is the first.
 
     Rendering needs LibreOffice and a PDF rasteriser ON THIS SERVER. When they are absent the call
-    fails with a message saying so — a caller must degrade to the structured parse, not stop."""
+    fails naming that specific cause — a caller must be able to tell a missing HOST CAPABILITY from
+    a missing grant or a broken file, and degrade to the structured parse rather than stop."""
     base, frag = docparse.split_fragment(ref)
     page = page or frag
     span().set_attributes({"storage.ref": base, "storage.page": page or ""})
     name = _name(base)
     if docparse.kind(name) != "vsdx":
         raise ValueError(f"{name} is not a .vsdx file")
+    if not render_vsdx.available():
+        raise RuntimeError("this storage-mcp host cannot render Visio: LibreOffice and/or a PDF "
+                           "rasteriser (pypdfium2) are not installed. Read the diagram with "
+                           f"{storage_read_vsdx.__name__} alone.")
     norm = docparse.vsdx_page_image(server.uploads().get(base), name, page=page, max_edge=max_edge)
     if not norm:
         raise ValueError(f"{name} page {page or 1} rendered to nothing renderable (blank or decorative page)")

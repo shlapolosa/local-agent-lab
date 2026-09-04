@@ -71,7 +71,7 @@ def test_json_mode_vsdx_path_end_to_end():
     store_ba, store_spec = h.router.called("semantic_store_spec")
     assert store_ba == {"spec": BA_NORMALISED, "name": "visio-import.ba_output.json"}
     assert store_spec["name"] == "visio-import.spec.json" and store_spec["spec"]["standard_views"] is True
-    assert [a["name_like"] for a in h.router.called("ea_search")] == ["Clinic Portal", "Portal", "Clinician", "Patient Record"]
+    assert [a["name_like"] for a in h.router.called("ea_search")] == ["Clinic Portal", "Clinician", "Portal", "Patient Record"]
     assert h.router.called("semantic_validate_model") == [{"spec_ref": "art://store/visio-import.spec.json"}]
     assert h.router.called("archimate_render") == [{"spec_ref": "art://store/visio-import.spec.json", "basename": "visio-import"}]
     # ONE call to the port: the model BY REF (+ the views already rendered), never an import artifact
@@ -175,7 +175,8 @@ def test_vsdx_ref_attaches_the_rendered_page_beside_the_structured_parse():
     msg = h.agents.runs_of("ba-agent")[0]
     t = text_of(msg)
     assert "Call storage_read_vsdx with exactly that source" in t          # the parse: unchanged
-    assert "ATTACHED IMAGE of the SAME diagram page" in t                  # the picture: added
+    # `#Ward` means parse and picture cover the SAME single page — no qualification needed
+    assert "ATTACHED IMAGE of the SAME diagram page" in t
     assert "deterministic parse wins" in t and "openQuestions" in t        # the reconciliation rule
     assert [c.media_type for c in data_contents(msg)] == ["image/png"]
     assert h.router.called("storage_render_vsdx") == [{"ref": "art://d1/clinic.vsdx#Ward"}]
@@ -207,12 +208,27 @@ def test_vsdx_render_that_returns_no_image_is_treated_as_unavailable():
     assert data_contents(msg) == [] and "No rendered image" in text_of(msg)
 
 
-def test_local_vsdx_path_renders_locally_when_the_host_can():
-    """Dev inputs by PATH never touch the gateway: the same render runs in-process, if available."""
+def test_a_whole_workbook_is_told_the_image_covers_ONE_page():
+    """No `#page` fragment -> the parse covers EVERY page but only one is rendered. The message must
+    say which, or the BA reconciles page 2's structure against page 1's picture."""
     agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
-    with harness(agents) as h, patch.object(W.I, "render_page",
-                                            lambda src: (b"png-bytes", "image/png", (800, 600))):
-        run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
+    tools = {"storage_render_vsdx": FakeResult(content=[image_block(b"p1"),
+                                                        text_block("clinic.vsdx page 1 1600x900 image/png")])}
+    with harness(agents, tools) as h:
+        run(h, {"diagram": "art://d1/clinic.vsdx", "requirements": []})
+    t = text_of(h.agents.runs_of("ba-agent")[0])
+    assert "clinic.vsdx page 1 1600x900 image/png ONLY" in t
+    assert "the parse covers every page of this workbook" in t
+    assert "SAME diagram page" not in t
+
+
+def test_local_vsdx_path_renders_locally_when_the_host_can():
+    """Dev inputs by PATH never touch the gateway: the same render runs in-process, if available,
+    and returns the same (bytes, media_type, label) triple the governed tool does."""
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    with harness(agents) as h, patch.object(
+            W.I, "render_page", lambda src: (b"png-bytes", "image/png", "clinic.vsdx page Ward 800x600 image/png")):
+        run(h, {"diagram": "diagrams/clinic.vsdx#Ward", "requirements": []})
     msg = h.agents.runs_of("ba-agent")[0]
     assert [c.media_type for c in data_contents(msg)] == ["image/png"]
     assert "ATTACHED IMAGE of the SAME diagram page" in text_of(msg)
@@ -229,6 +245,30 @@ def test_local_vsdx_path_without_libreoffice_stays_structure_only():
         run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
     msg = h.agents.runs_of("ba-agent")[0]
     assert data_contents(msg) == [] and "No rendered image" in text_of(msg)
+
+
+def test_the_reason_there_is_no_image_is_recorded_not_swallowed():
+    """"no LibreOffice on the host", "the tool is not granted / the gateway was not restarted" and
+    "the gateway flattened the image" are three different problems; each must be identifiable after
+    the run, and none of them may fail it."""
+    cases = {
+        "no host capability": (RuntimeError("this storage-mcp host cannot render Visio: LibreOffice ..."),
+                               "cannot render Visio"),
+        "no grant":           (RuntimeError("tool *storage_render_vsdx not exposed by gateway (['x'])"),
+                               "not exposed by gateway"),
+    }
+    for label, (err, fragment) in cases.items():
+        agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+        with harness(agents, {"storage_render_vsdx": err}) as h:
+            out = run(h, {"diagram": "art://d1/clinic.vsdx", "requirements": []})
+        assert out["status"] == "pending", label            # never fails the run
+        assert fragment in h.spans["ba"]["ba.render_error"], label
+        assert h.spans["ba"]["ba.rendered"] is False, label
+    # a gateway that dropped the image blocks is its own, distinguishable case
+    agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    with harness(agents, {"storage_render_vsdx": FakeResult(content=[text_block("flattened")])}) as h:
+        run(h, {"diagram": "art://d1/clinic.vsdx", "requirements": []})
+    assert "no image content" in h.spans["ba"]["ba.render_error"]
 
 
 def test_image_ref_without_image_content_fails_loud():
@@ -427,13 +467,29 @@ def test_provenance_shorthand_is_normalised_to_the_object_form_before_the_archit
 
 
 def test_the_gate_rejects_an_element_with_no_provenance_and_retries_the_ba():
+    """Absent -> named with the element, so the retry can act on it. (`provenance` is also in the
+    schema's element.required — one home for the rule — but the gate's message is the usable one.)"""
     missing = json.loads(json.dumps(BA_OK))
     del missing["components"][0]["provenance"]
     agents = Agents(**{"ba-agent": [missing, BA_OK], "architect-agent": [SPEC_OK, "done"]})
     with harness(agents) as h:
         run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
     note = text_of(h.agents.runs_of("ba-agent")[1])
-    assert "provenance" in note and "Portal" in note
+    assert "1 element(s) have no valid provenance: Portal (provenance is required" in note
+    from jsonschema import Draft7Validator
+    assert "'provenance' is a required property" in W._schema_errors(Draft7Validator(SCHEMA), missing)
+
+
+def test_a_malformed_provenance_is_named_with_its_element_and_its_precise_reason():
+    """Shaped-but-wrong -> the gate names the ELEMENT and the exact reason, so the retry can fix the
+    actual mistake instead of guessing at a category."""
+    wrong = json.loads(json.dumps(BA_OK))
+    wrong["components"][0]["provenance"] = {"source": "visio", "representation": "structure"}
+    agents = Agents(**{"ba-agent": [wrong, BA_OK], "architect-agent": [SPEC_OK, "done"]})
+    with harness(agents) as h:
+        run(h, {"diagram": "diagrams/clinic.vsdx", "requirements": []})
+    note = text_of(h.agents.runs_of("ba-agent")[1])
+    assert "1 element(s) have no valid provenance: Portal (provenance.source 'visio' is not one of" in note
 
 
 def test_a_half_filled_provenance_object_is_a_schema_error():

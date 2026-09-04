@@ -12,7 +12,8 @@ call exactly that one, with the source string unchanged. Inputs arrive in one of
       { "pages": [...],
         "shapes":     [ { "id", "text", "master", "type_hint", "page" }, ... ],
         "connectors": [ { "from", "to", "label", "page",
-                          "recovered"?, "match_distance"? }, ... ] }
+                          "recovered"?, "match_distance"? }, ... ],
+        "recovery"?:  { "lines", "recovered", "unmatched_endpoint", "self_link", ... } }
 
   `text` is the human caption (the element's identity). `master` is the stencil the author used, and
   `type_hint` (present when the parser recognises an Azure / Lucidchart / cloud stencil, e.g.

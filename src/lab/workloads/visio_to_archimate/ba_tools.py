@@ -130,8 +130,8 @@ def _validate_element_item(item: Any) -> tuple[dict | None, str | None, list[str
         errs.append(f"group '{group}' is not one of [{fmt(GROUPS)}]")
 
     for f in ELEMENT_REQUIRED:
-        if f in ("layer", "aspect"):
-            continue  # enum-checked below with a precise message
+        if f in ("layer", "aspect", "provenance"):
+            continue  # enum-/shape-checked below with a precise message
         if not nonempty_str(item.get(f)):
             errs.append(f"{f} is required (non-empty string)")
 

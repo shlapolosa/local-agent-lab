@@ -320,7 +320,7 @@ def test_reset_clears_everything_and_tools_stay_bound():
     assert t["finish"]()["ok"] is False                      # set_system was cleared too
     # the module exports and the schema-derived field lists
     assert set(B.__all__) <= set(dir(B)) and B.ITEM_FIELDS[0] == "group"
-    assert set(B.ELEMENT_REQUIRED) == {"name", "role", "layer", "aspect", "candidateType"}
+    assert set(B.ELEMENT_REQUIRED) == {"name", "role", "layer", "aspect", "candidateType", "provenance"}
     assert set(B.RELATIONSHIP_FIELDS) == {"from", "to", "type", "intent"}
 
 

@@ -25,6 +25,11 @@ MAX_EMBEDDED_IMAGES = int(os.environ.get("BA_MAX_EMBEDDED_IMAGES", "8"))
 MIN_IMAGE_BYTES = 2048            # below this it is a bullet/icon, not a figure
 MIN_IMAGE_EDGE = 64
 MAX_IMAGE_EDGE = 1600             # the sizing contract: no image reaches a model larger than this
+# A WHOLE RENDERED PAGE is a deliberate exception to that default. A Visio page is ~16 in across with
+# ~0.3 in icons, so 1600 px is ~100 dpi and a caption is a few pixels tall — unreadable, which would
+# defeat the point of the second representation (containment and captions the parse cannot give).
+# 2400 px keeps the same contract (PNG/JPEG, one bounded number) at a size a vision model can read.
+RENDER_MAX_EDGE = 2400
 
 
 def _base(name: str) -> str:
@@ -139,7 +144,7 @@ def vsdx_dict(data: bytes, name: str, page: str | None = None) -> dict:
 
 
 def vsdx_page_image(data: bytes, name: str, page: str | None = None,
-                    max_edge: int = MAX_IMAGE_EDGE, render=None):
+                    max_edge: int = RENDER_MAX_EDGE, render=None):
     """A .vsdx PAGE as a picture — the second representation of the same diagram, for a vision model.
 
     The page NAME (or a `#page` fragment on `name`, the same selector `vsdx_dict` honours) is resolved

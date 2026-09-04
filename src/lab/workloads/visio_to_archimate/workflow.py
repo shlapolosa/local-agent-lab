@@ -71,7 +71,7 @@ def _schema_errors(validator, obj):
 # stated once in prompts/ba.md + references/method.md; this is the per-run reminder that the second
 # representation is actually attached, and of who wins on what.
 RECONCILE_VSDX = (
-    "You are ALSO given an ATTACHED IMAGE of the SAME diagram page, rendered from that .vsdx. Read "
+    "You are ALSO given an ATTACHED IMAGE of {scope}, rendered from that .vsdx. Read "
     "BOTH representations and reconcile them: the deterministic parse wins on element identity, "
     "caption text, stencil/type_hint and native connectors; the image wins on grouping/containment "
     "(which boxes sit inside which zone or swim-lane) and on connectors the parse missed. A "
@@ -79,6 +79,12 @@ RECONCILE_VSDX = (
     "file — confirm it against the image, and the larger its `match_distance` the more suspect it "
     "is. Never drop a parsed element because the image did not show it clearly. Where the two "
     "genuinely disagree, keep the parse's identity and record the disagreement in openQuestions.")
+# The parse covers EVERY page when no `#page` was requested, but only one page is rendered — so the
+# reconciliation rule must not claim the picture shows what the BA is reading. Phase B's one-request-
+# per-page split removes the asymmetry; until then the message states it.
+SCOPE_SAME_PAGE = "the SAME diagram page"
+SCOPE_ONE_OF_MANY = ("{label} ONLY — the parse covers every page of this workbook, so for its other "
+                     "pages you have NO image and the parse is your only representation")
 
 # OTel span name -> executor id (the graph/run-log node id). Keep in step with build_workflow's executors.
 _EXECUTOR_OF_SPAN = {
@@ -107,8 +113,9 @@ def _repair_relations(spec: dict) -> tuple[dict, list]:
 
 
 def _elements_of(obj):
-    """Every declared element, whichever BA group it was filed under."""
-    return [e for k in ("actors", "components", "data", "behaviors") for e in obj.get(k, [])]
+    """Every declared element, whichever BA group it was filed under. `BT.GROUPS` is derived from
+    `ba_output.schema.json`, so adding a group is a schema-only change."""
+    return [e for k in BT.GROUPS for e in obj.get(k, [])]
 
 
 def _normalise_provenance(obj):
@@ -117,16 +124,17 @@ def _normalise_provenance(obj):
     elements that declared none. Provenance is what makes a later reader able to tell a parsed
     shape from something read off a picture or lifted from a document, so it is required, not
     decorative — a miss is a gate error and the BA is asked again."""
-    missing = []
+    bad: list[str] = []
     for e in _elements_of(obj):
         prov, errs = BT.normalise_provenance(e.get("provenance"))
         if errs:
-            missing.append(e.get("name") or "<unnamed>")
+            # the accumulator already computed a precise reason ("provenance.source 'visio' is not
+            # one of [...]"); carry it, so the retry fixes the actual mistake, not a category
+            bad.append(f"{e.get('name') or '<unnamed>'} ({errs[0]})")
         else:
             e["provenance"] = prov
-    if missing:
-        return (f"{len(missing)} element(s) have no valid provenance {{source, representation}}: "
-                + ", ".join(missing[:8]))
+    if bad:
+        return f"{len(bad)} element(s) have no valid provenance: " + "; ".join(bad[:5])
     return None
 
 
@@ -144,12 +152,19 @@ def _incomplete(obj):
 
 
 def _ba_gate(validator, obj):
-    """[D] THE gate between the BA agent and the Architect, in one place: the output must be valid
-    against `ba_output.schema.json`, complete (systemName/summary, some elements, no dangling
-    relationship endpoints), and carry per-element provenance — which it also NORMALISES in place,
-    so the shorthand and the object form become one shape downstream. Returns an error string for
-    the corrective retry, or None when the description may pass."""
-    return _schema_errors(validator, obj) or (_incomplete(obj) or _normalise_provenance(obj) if obj else "no JSON")
+    """[D] THE gate between the BA agent and the Architect, in one place: every element must carry
+    provenance (which is also NORMALISED in place, so the shorthand and the object form become one
+    shape downstream), the document must be valid against `ba_output.schema.json`, and it must be
+    complete (systemName/summary, some elements, no dangling relationship endpoints). Returns an
+    error string for the corrective retry, or None when the description may pass.
+
+    Provenance goes FIRST for two reasons: the shorthand is expanded before the schema sees it (so
+    the schema validates ONE shape), and `normalise_provenance` names the offending element and the
+    exact field — where the schema's `oneOf` can only say "not valid under any of the given
+    schemas", which a corrective retry cannot act on. `_schema_errors(validator, None)` still
+    answers "not valid JSON", so a non-document needs no branch of its own."""
+    return ((_normalise_provenance(obj) if isinstance(obj, dict) else None)
+            or _schema_errors(validator, obj) or _incomplete(obj))
 
 
 async def _call_tools_raw(headers, mcp_url, calls):
@@ -282,24 +297,28 @@ def build_workflow(cfg):
                             cfg["traceparent"], tools=tools)
 
     async def _render_page(diagram: str):
-        """The .vsdx page as an image, or None when this deployment cannot render one.
+        """The .vsdx page as an image: `(bytes, media_type, label)`, or `(None, reason)`.
 
         By REF it is the governed `storage_render_vsdx` (the workload holds no store credentials);
-        by PATH it is the same renderer in-process (dev). Every failure — no LibreOffice, no
-        rasteriser, a gateway that flattened the image blocks — degrades to None with a warning,
-        because the picture is a SECOND representation, never the only one."""
+        by PATH it is the same renderer in-process (dev). The picture is a SECOND representation,
+        never the only one, so nothing here raises — but the REASON is returned and recorded rather
+        than swallowed, because "this host has no LibreOffice" (expected) and "the tool is not
+        granted to this team / the gateway was not restarted" (a governance fault) and "the gateway
+        flattened the image blocks" (a transport regression) are three different problems that must
+        not look identical after the fact. They are not raised: the tool is new, so a deployment
+        that has not been restarted must still complete its runs on the parse alone."""
         try:
             if I.is_ref(diagram):
                 res, = await _call_tools_raw(cfg["ba_headers"], cfg["mcp_url"],
                                              [(StorageTools.render_vsdx, {"ref": diagram})])
                 imgs = _images_from(res)
-                return (imgs[0][0], imgs[0][1]) if imgs else None
+                if not imgs:
+                    return None, f"{StorageTools.render_vsdx} returned no image content (flattened?)"
+                return imgs[0], None
             norm = I.render_page(diagram)
-            return (norm[0], norm[1]) if norm else None
+            return (norm, None) if norm else (None, "the page rendered to nothing readable")
         except Exception as e:
-            print(f"[warn] no image representation for {diagram}: {type(e).__name__}: {str(e)[:160]}",
-                  flush=True)
-            return None
+            return None, f"{type(e).__name__}: {str(e)[:160]}"
 
     async def _ba_message(diagram: str, reqs: list[str]) -> tuple[Message, dict]:
         """Build the BA's message: what to read (and with which tool), plus every image attached
@@ -325,16 +344,23 @@ def build_workflow(cfg):
             # SECOND representation of the SAME page: the rendered picture. Optional by design —
             # it needs LibreOffice + a rasteriser on the storage-mcp host (or this one, for a dev
             # path). When that is missing the run continues on the parse alone and says so.
-            page = await _render_page(diagram)
+            page, reason = await _render_page(diagram)
             attrs["ba.rendered"] = bool(page)
             if page:
-                lines.append(RECONCILE_VSDX)
-                contents.append(Content.from_data(page[0], page[1]))
+                data, mtype, label = page
+                one_page = bool(I.split_page(diagram)[1])
+                scope = SCOPE_SAME_PAGE if one_page else SCOPE_ONE_OF_MANY.format(
+                    label=label or "one page of it")
+                lines.append(RECONCILE_VSDX.format(scope=scope))
+                contents.append(Content.from_data(data, mtype))
             else:
-                lines.append("No rendered image of this diagram is available on this host, so the "
-                             "structured parse is your ONLY representation of it. Read grouping and "
-                             "containment from the parse's own evidence, and record anything the "
-                             "parse cannot settle in openQuestions.")
+                attrs["ba.render_error"] = reason or ""
+                print(f"[warn] no image representation for {diagram}: {reason}", flush=True)
+                lines.append("No rendered image of this diagram is available, so the structured "
+                             "parse is your ONLY representation of it. Read grouping and containment "
+                             "from the parse's own evidence, and record anything the parse cannot "
+                             "settle — including connectors you can tell are missing — in "
+                             "openQuestions.")
         for req in reqs:
             tool = StorageTools.read_document if I.is_ref(req) else "read_document"
             lines.append(f"A requirements document is provided: {req}\n"
@@ -425,8 +451,7 @@ def build_workflow(cfg):
                 agent = A.make_agent("ba-agent", instr, cfg["ba_cred"], cfg["traceparent"],
                                      tools=[A.read_vsdx_tool(), A.read_document_tool(), *build_tools])
                 obj = await (_run_ba_tools(agent, msg, acc) if use_tools else _run_ba(agent, msg))
-            s.set_attribute("ba.elements",
-                            sum(len(obj.get(k, [])) for k in ("actors", "components", "data", "behaviors")))
+            s.set_attribute("ba.elements", len(_elements_of(obj)))
             # [D] persist the gate-validated BA output by reference: per-element layer/provenance stay
             # auditable after the run and the approval can link to them (never a raw-agent artifact —
             # this is written AFTER the jsonschema gate in _run_ba).
@@ -445,8 +470,7 @@ def build_workflow(cfg):
         (so the Architect reuses them instead of duplicating). Degrades to NEW if it is unreachable."""
         with span("resolve-existing") as s:
             ba = state["ba_output"]
-            names = [ba.get("systemName", "")] + [e.get("name", "")
-                     for k in ("components", "actors", "data", "behaviors") for e in ba.get(k, [])]
+            names = [ba.get("systemName", "")] + [e.get("name", "") for e in _elements_of(ba)]
             # Tool nodes use the ARCHITECT identity (it holds the EA/semantic grants) — review C-H3.
             cands, search_err = await _ea_search_many(cfg["ar_headers"], cfg["mcp_url"], names[:16])
             s.set_attributes({"resolve.candidates": len(cands), "resolve.search_error": search_err or ""})

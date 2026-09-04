@@ -55,6 +55,31 @@ def test_read_vsdx_whole_file_and_one_page():
     assert all(s.get("page") in (None, "Shafafiya") for s in one["shapes"])
 
 
+def test_render_page_returns_the_same_triple_the_governed_tool_does():
+    """The dev twin of storage_render_vsdx: `(bytes, media_type, label)` — the workflow builds the
+    BA's "which page am I looking at" line from that label, so the shapes must not diverge."""
+    seen = {}
+
+    def render(data, name, page=None, **kw):
+        seen.update(name=name, page=page, bytes=len(data))
+        return b"png", "image/png", (1200, 900)
+
+    old = I.docparse.vsdx_page_image
+    I.docparse.vsdx_page_image = render
+    try:
+        out = I.render_page(FIXTURE + "#Shafafiya")
+        assert out == (b"png", "image/png",
+                       "malaffi-application-solution-arch.vsdx page Shafafiya 1200x900 image/png")
+        assert seen["page"] == "Shafafiya" and seen["bytes"] > 0
+        assert seen["name"] == "malaffi-application-solution-arch.vsdx"
+        # no page selected -> the label says page 1, matching the server's own wording
+        assert I.render_page(FIXTURE)[2].endswith("page 1 1200x900 image/png")
+        I.docparse.vsdx_page_image = lambda *a, **k: None       # a blank/decorative page
+        assert I.render_page(FIXTURE) is None
+    finally:
+        I.docparse.vsdx_page_image = old
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

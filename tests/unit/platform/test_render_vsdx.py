@@ -187,7 +187,7 @@ def test_to_pdf_reports_a_conversion_that_produced_nothing(monkeypatch):
 def test_render_page_normalises_through_the_one_image_contract():
     seen = {}
 
-    def convert(data, workdir, timeout=120):
+    def convert(data, workdir):
         seen["data"] = data
         return os.path.join(workdir, "in.pdf")
 
@@ -197,13 +197,14 @@ def test_render_page_normalises_through_the_one_image_contract():
 
     out = RV.render_page(b"vsdx", page_index=3, convert=convert, draw=draw)
     data, mime, (w, h) = out
-    assert mime == "image/png" and max(w, h) == 1600       # the docparse contract, one place
+    # the ONE sizing contract, at the WHOLE-PAGE cap (a page holds far more small type than a figure)
+    assert mime == "image/png" and max(w, h) == RV.docparse.RENDER_MAX_EDGE == 2400
     assert Image.open(io.BytesIO(data)).size == (w, h)
     assert seen["data"] == b"vsdx" and seen["index"] == 3 and seen["zoom"] == RV.DEFAULT_ZOOM
 
 
 def test_render_page_returns_none_when_the_page_is_a_decoration():
-    out = RV.render_page(b"vsdx", convert=lambda d, wd, timeout=120: "x.pdf",
+    out = RV.render_page(b"vsdx", convert=lambda d, wd: "x.pdf",
                          draw=lambda *a: a_png(20, 20))    # below the sizing floor
     assert out is None
 
@@ -213,7 +214,7 @@ def test_render_page_defaults_to_libreoffice_and_the_host_rasteriser(monkeypatch
         monkeypatch.setattr(RV.config, "SOFFICE_BIN", fake_soffice(tmp, a_pdf(1800, 900)))
         fake_pdfium(monkeypatch, a_png(1800, 900))
         data, mime, (w, h) = RV.render_page(b"vsdx", page_index=1)
-        assert mime == "image/png" and (w, h) == (1600, 800)
+        assert mime == "image/png" and (w, h) == (1800, 900)      # already inside the cap: untouched
 
 
 def test_render_page_without_a_rasteriser_says_so(monkeypatch, no_backends):
@@ -221,3 +222,35 @@ def test_render_page_without_a_rasteriser_says_so(monkeypatch, no_backends):
         monkeypatch.setattr(RV.config, "SOFFICE_BIN", fake_soffice(tmp, a_pdf()))
         with pytest.raises(RuntimeError, match="rasteriser"):
             RV.render_page(b"vsdx")
+
+
+# ---------------------------------------------------------------- the real thing (host-gated)
+@pytest.mark.skipif(not RV.available(),
+                    reason="LibreOffice and/or a PDF rasteriser are not installed on this host")
+def test_renders_a_real_multipage_vsdx_in_workbook_page_order():
+    """The ONE assumption the fakes above cannot check: that LibreOffice's PDF follows the WORKBOOK's
+    page order, so `read_vsdx.page_index` (a page NAME -> a position in the parse) picks the right
+    picture. Self-activates the moment someone installs LibreOffice + pypdfium2 — skipped, not
+    absent, precisely so the assumption cannot quietly become a false one.
+
+    Two pages with deliberately different content: each must render, and they must NOT come out
+    identical (which is what a collapsed or mis-ordered page mapping looks like). A page past the
+    end must be an explicit IndexError, never a silently wrong picture."""
+    from fixtures.vsdx import boxed, page_xml, write_vsdx
+    from lab.core.visio.read_vsdx import page_index, page_names
+
+    with tempfile.TemporaryDirectory() as tmp:
+        alpha = page_xml([boxed(1, "ALPHA ONLY", "Rectangle", 1.0, 1.0, 4.0, 2.0)], [])
+        beta = page_xml([boxed(1, "BETA ONE", "Rectangle", 1.0, 1.0, 4.0, 2.0),
+                         boxed(2, "BETA TWO", "Rectangle", 1.0, 4.0, 4.0, 2.0)], [])
+        path = write_vsdx(os.path.join(tmp, "two.vsdx"), [("Alpha", alpha), ("Beta", beta)])
+        data = open(path, "rb").read()
+        names = page_names(path)
+        assert names == ["Alpha", "Beta"]
+        rendered = [RV.render_page(data, page_index(names, n)) for n in names]
+
+    assert all(r and r[1] == "image/png" for r in rendered)
+    assert all(max(r[2]) <= RV.docparse.RENDER_MAX_EDGE for r in rendered)
+    assert rendered[0][0] != rendered[1][0], "both pages rendered identically — page mapping is wrong"
+    with pytest.raises(IndexError, match="out of range"):
+        RV.render_page(data, len(names) + 5)

@@ -216,13 +216,14 @@ def test_read_vsdx_pages_and_fragment():
 # ---------------------------------------------------------------- vsdx page -> image
 @contextmanager
 def fake_renderer(fn):
-    """Stand in for LibreOffice + a PDF rasteriser: the whole render hop, injected."""
-    old = srv.docparse.vsdx_page_image
-    srv.docparse.vsdx_page_image = fn
+    """Stand in for LibreOffice + a PDF rasteriser: the whole render hop, injected — including the
+    capability gate, since a host with a renderer is by definition capable."""
+    old_fn, old_av = srv.docparse.vsdx_page_image, srv.render_vsdx.available
+    srv.docparse.vsdx_page_image, srv.render_vsdx.available = fn, lambda: True
     try:
         yield
     finally:
-        srv.docparse.vsdx_page_image = old
+        srv.docparse.vsdx_page_image, srv.render_vsdx.available = old_fn, old_av
 
 
 def test_render_vsdx_returns_an_image_block_and_a_label():
@@ -260,6 +261,24 @@ def test_render_vsdx_errors_are_explicit_about_kind_blankness_and_capability():
 
     with fake_renderer(missing):
         assert "LibreOffice" in call_error("storage_render_vsdx", ref=REFS["vsdx"])
+
+
+def test_render_vsdx_names_a_missing_HOST_CAPABILITY_before_it_reads_anything():
+    """A deployment without LibreOffice must say exactly that — a caller has to be able to tell a
+    missing capability from a missing grant or a broken file, and degrade knowingly."""
+    old, srv.render_vsdx.available = srv.render_vsdx.available, lambda: False
+    try:
+        err = call_error("storage_render_vsdx", ref=REFS["vsdx"])
+    finally:
+        srv.render_vsdx.available = old
+    assert "cannot render" in err and "LibreOffice" in err
+
+
+def test_read_vsdx_reports_the_geometric_recovery_it_had_to_do():
+    """A Lucidchart-shaped parse carries `recovery`; a native one does not, and the span records the
+    lines that yielded no link so a partial recovery is auditable, not invisible."""
+    d = call("storage_read_vsdx", ref=REFS["vsdx"]).data
+    assert "recovery" not in d              # the generated fixture is native Visio
 
 
 def test_extract_figures():

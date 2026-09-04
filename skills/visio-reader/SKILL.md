@@ -63,8 +63,11 @@ The deterministic ingest step (`scripts/read_vsdx.py`, run for you — you do NO
   endpoint sat inside the shape). A recovered link is real evidence, not a guess, but it is weaker
   than a declared one: prefer it over having no link at all, confirm it against the rendered image
   when you have one, and raise a large `match_distance` or an implausible pair in `openQuestions`.
-  Lines whose ends could not be matched are simply absent — so a diagram that clearly has more
-  arrows than the parse lists is a case for the image, and for `openQuestions`.
+  Lines whose ends could not be matched are simply absent, and the parse says how many: a
+  **`recovery`** block counts `lines` drawn against `recovered` links, splitting the shortfall into
+  `unmatched_endpoint` and `self_link`. When the two numbers differ materially, the model is missing
+  real dependencies — read them off the image if you have one, and record the gap in
+  `openQuestions` either way.
 
 ## How to interpret
 
@@ -108,9 +111,11 @@ tool for each source; call exactly that one with the source unchanged. Images ar
 for you: the diagram image and every figure embedded in a document are fetched (through the same
 gateway — `storage_get`, `storage_extract_figures`, and `storage_render_vsdx` for a Visio page)
 and **attached to the message** for you to
-read directly. Sizing contract you can rely on: every attached image is at most 1600 px on its
-longest edge, PNG or JPEG, with decorations (under 2 KB or 64 px) already dropped and at most 8
-figures per document — so read them as-is, nothing is hidden behind a download.
+read directly. Sizing contract you can rely on: every attached image is PNG or JPEG and bounded on
+its longest edge — 1600 px for a diagram image or a figure lifted from a document, 2400 px for a
+whole rendered Visio page (a page holds far more small type) — with decorations (under 2 KB or
+64 px) already dropped and at most 8 figures per document. Read them as-is; nothing is hidden
+behind a download.
 
 **Both representations of one `.vsdx`.** When the deployment can render Visio, you get the
 structured parse AND an image of the SAME page (rendered by `storage_render_vsdx`) attached to the

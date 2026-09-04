@@ -22,10 +22,12 @@ cloud diagram: zero `<Connect>` rows on every page), so that pass finds nothing.
 `com.lucidchart.Line.*` shape per line with real Begin/End coordinates, so a SECOND, geometric pass
 runs on such a file: absolute bounding boxes for every element shape (group offsets folded in),
 absolute endpoints for every line, and each endpoint matched to its nearest box
-(`read_lucidchart.recover_connectors`). Recovered links merge into the SAME `connectors` list and
-are marked `recovered: "geometry"` + `match_distance` so their provenance stays visible; a line
-shape recovered this way is a connector, never an element, so its caption ("TCP 443") stops being
-read as a box. Native Visio files never enter this pass.
+(`lab.core.visio.geometry.recover_connectors`). Recovered links merge into the SAME `connectors`
+list and are marked `recovered: "geometry"` + `match_distance` so their provenance stays visible; a
+line shape recovered this way is a connector, never an element, so its caption ("TCP 443") stops
+being read as a box. The pass also reports what it could NOT recover under `recovery`
+(lines drawn vs links made, and why the rest failed) — a partial recovery must never read like a
+sparse diagram. Native Visio files never enter this pass and gain no `recovery` key.
 
 CLI: `python read_vsdx.py <file.vsdx>` prints the JSON.
 """
@@ -34,9 +36,10 @@ import sys
 
 from vsdx import VisioFile
 
-from lab.core.visio.read_lucidchart import (DEFAULT_TOLERANCE_FACTOR, Box, Segment,
-                                             is_line_master, is_lucidchart_master,
-                                             recover_connectors, type_hint_for_master)
+from lab.core.visio.geometry import (DEFAULT_TOLERANCE_FACTOR, Box, Recovery, Segment,
+                                     recover_connectors)
+from lab.core.visio.read_lucidchart import (is_line_master, is_lucidchart_master,
+                                            type_hint_for_master)
 
 
 def _txt(shape) -> str:
@@ -58,13 +61,27 @@ def _cellf(shape, name) -> float | None:
         return None
 
 
-def _collect_geometry(shapes, ox: float, oy: float, boxes: dict, segments: list) -> None:
+def _is_transformed(shape) -> bool:
+    """True iff the shape is ROTATED or FLIPPED, so a plain offset is not its children's origin."""
+    return any((_cellf(shape, c) or 0.0) != 0.0 for c in ("Angle", "FlipX", "FlipY"))
+
+
+def _collect_geometry(shapes, ox: float, oy: float, boxes: dict, segments: list,
+                      skipped: list | None = None) -> None:
     """Walk the shape tree once, converting LOCAL ShapeSheet geometry to ABSOLUTE page coordinates.
 
     A Visio group's children are positioned in the group's own coordinate space, whose origin is the
     group's `(PinX - LocPinX, PinY - LocPinY)`; the offset accumulates down the tree (the Sahatna
-    pages nest three deep). Fills `boxes` (shape id -> (x0, y0, x1, y1), any 2-D shape) and
-    `segments` (one `Segment` per Lucidchart line, endpoints already absolute)."""
+    pages nest three deep). That formula holds only while the group is UNROTATED and UNFLIPPED — a
+    non-zero `Angle`/`FlipX`/`FlipY` invalidates BOTH the shape's own axis-aligned box and its
+    children's origin, and a box placed by the wrong formula would still match SOME endpoint and
+    emit a confidently wrong relation. So a transformed shape and its whole subtree are skipped
+    (recorded in `skipped`) rather than mis-placed: a missing link is a gap a reader can see, a
+    wrong one survives the approval gate looking plausible. A LINE is exempt — its Begin/End cells
+    ARE its endpoints, unaffected by its own rotation — so it is matched before this check.
+
+    Fills `boxes` (shape id -> (x0, y0, x1, y1), any 2-D shape), `segments` (one `Segment` per line
+    shape, endpoints already absolute) and `skipped` (ids of transformed groups)."""
     for s in shapes:
         px, py = _cellf(s, "PinX"), _cellf(s, "PinY")
         lx, ly = _cellf(s, "LocPinX") or 0.0, _cellf(s, "LocPinY") or 0.0
@@ -77,13 +94,19 @@ def _collect_geometry(shapes, ox: float, oy: float, boxes: dict, segments: list)
             if None not in (bx, by, ex, ey):
                 segments.append(Segment(id=sid, label=_txt(s),
                                         bx=bx + ox, by=by + oy, ex=ex + ox, ey=ey + oy))
+        elif _is_transformed(s):
+            # A rotated/flipped shape's axis-aligned box AND its children's origin are both wrong
+            # under this formula, so the whole subtree is skipped and counted — see the docstring.
+            if skipped is not None and sid:
+                skipped.append(sid)
+            continue
         elif sid and px is not None and py is not None and w is not None and h is not None:
             x0, y0 = px - lx + ox, py - ly + oy
             boxes[sid] = (min(x0, x0 + w), min(y0, y0 + h), max(x0, x0 + w), max(y0, y0 + h))
         kids = list(getattr(s, "child_shapes", []) or [])
         if kids:
             kx, ky = (px - lx + ox, py - ly + oy) if px is not None and py is not None else (ox, oy)
-            _collect_geometry(kids, kx, ky, boxes, segments)
+            _collect_geometry(kids, kx, ky, boxes, segments, skipped)
 
 
 def _page_match(page_name: str, want: str | None) -> bool:
@@ -124,6 +147,7 @@ def read_vsdx(path: str, page: str | None = None,
     try:
         out = {"file": path.split("/")[-1], "pages": [], "shapes": [], "connectors": [],
                "lucidchart": False, "page": page}
+        recovery = Recovery()                              # totalled across the parsed pages
         # pre-pass: is this a Lucidchart export? (any shape carrying a `com.lucidchart.*` master).
         # Known up front so per-shape type_hint can trust bare child masters inside such a file.
         for pg in f.pages:                                 # `pg`, not `page`: `page` is the selector
@@ -145,8 +169,9 @@ def read_vsdx(path: str, page: str | None = None,
             # Lucidchart export: recover the geometry the export wrote instead of <Connects>.
             geo_boxes: dict = {}
             segments: list = []
+            skipped: list = []
             if out["lucidchart"]:
-                _collect_geometry(list(page_obj.child_shapes), 0.0, 0.0, geo_boxes, segments)
+                _collect_geometry(list(page_obj.child_shapes), 0.0, 0.0, geo_boxes, segments, skipped)
             line_ids = {seg.id for seg in segments}
             # id -> shape (all shapes on the page, connectors included)
             by_id = {}
@@ -202,13 +227,20 @@ def read_vsdx(path: str, page: str | None = None,
             # second pass: geometric recovery, over the elements THIS page reported. A pair the
             # native pass already resolved is authoritative and is never duplicated.
             if segments:
-                native = {(c["from_id"], c["to_id"]) for c in out["connectors"]}
+                # THIS page's native pairs only: shape ids repeat across pages (the Sahatna
+                # workbook's pages are near-copies), so a file-wide set silently dropped real links
+                native = {(c["from_id"], c["to_id"]) for c in out["connectors"]
+                          if c["page"] == page_obj.name}
                 elements = [Box(sh["id"], sh["text"], *geo_boxes[sh["id"]])
                             for sh in out["shapes"]
                             if sh["page"] == page_obj.name and sh["id"] in geo_boxes]
-                out["connectors"] += [c for c in recover_connectors(segments, elements, page_obj.name,
-                                                                    tolerance_factor)
-                                      if (c["from_id"], c["to_id"]) not in native]
+                rec = recover_connectors(segments, elements, page_obj.name, tolerance_factor)
+                fresh = [c for c in rec.connectors if (c["from_id"], c["to_id"]) not in native]
+                out["connectors"] += fresh
+                rec.stats["skipped_transformed_groups"] = len(skipped)
+                recovery = recovery.merged(Recovery(fresh, rec.stats))
+        if out["lucidchart"]:
+            out["recovery"] = recovery.stats
         return out
     finally:
         f.close_vsdx()

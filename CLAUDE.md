@@ -222,21 +222,41 @@ The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the refe
   **storage-mcp** (`src/lab/substrate/mcp/storage/server.py`, read-only: `storage_read_vsdx`,
   `storage_read_document`, `storage_get`, `storage_extract_figures`, `storage_list/info`), granted
   per team and metered/traced like any tool; the BA's spec is stored via `semantic_store_spec`.
-  Three input kinds, three mechanisms — do not conflate them: a **`.vsdx`** is structured OOXML
-  and is parsed deterministically (vision would only degrade it); a **diagram IMAGE** (png/jpg —
+  **Three input KINDS, and for a `.vsdx` TWO representations** — do not conflate them. A **`.vsdx`** is
+  structured OOXML parsed deterministically AND (when the host can render) rasterised to a page image,
+  so the BA RECONCILES structure with vision: the parse wins on element identity/text/native
+  connectors, vision wins on grouping/containment and missing connectors, conflicts become
+  `openQuestions`. Rendering is an OPTIONAL capability (`storage_render_vsdx`, LibreOffice + a
+  rasteriser on the storage-mcp host, `SOFFICE_BIN` in `.env`): absent, the run degrades to
+  structure-only AND SAYS SO in the BA message — it never fails. Only the rendered page carries an
+  image, and the message names which page that is.
+  **A Lucidchart export has NO `<Connects>` section at all** (verified on the real file — the old
+  "empty instance geometry" note was a library limitation, not the file), but every
+  `com.lucidchart.Line.*` shape carries `BeginX/Y`–`EndX/Y` in page coordinates. `lab.core.visio.geometry`
+  recovers `from`/`to` by matching each endpoint to the nearest element bounding box: tolerance is
+  **1.0 × the median element min-edge** (pages are inches at an arbitrary author scale, so an absolute
+  length is meaningless), group offsets folded in, and rotated/flipped subtrees are SKIPPED and counted
+  — a mis-placed relation survives the approval gate looking plausible, a missing one does not.
+  Recovered links carry `recovered: "geometry"` + `match_distance`, and the parse carries a `recovery`
+  block counting lines that yielded nothing, which the BA must raise in `openQuestions`. Measured:
+  Sahatna **0 → 44 connectors, 244 → 214 shapes**; Malaffi native output byte-identical.
+  A **diagram IMAGE** (png/jpg —
   no XML) is fetched by the deterministic BA node via `storage_get` and attached inline to the
   BA's message, read with vision (kimi-k3 / kimi-k2.7-code / glm-flash declare `vision` on Ollama
   Cloud; image parts pass through the gateway both as message content and as MCP ImageContent —
   verified; `supports_vision` is set in `litellm-config.yaml`); a **requirements document**
   (docx/pdf/md/txt) becomes text via `storage_read_document`, and its **embedded figures** are
   extracted server-side (`storage_extract_figures`) and attached as "figure N embedded in <doc>".
-  Image sizing is enforced in ONE place (`src/lab/platform/docparse.py`: ≤1600 px edge, PNG/JPEG, <2 KB /
-  <64 px decorations dropped, ≤8 figures/doc) and documented in the `visio-reader` skill. Local
+  Image sizing is enforced in ONE place (`src/lab/platform/docparse.py`): **≤1600 px** for images and
+  document figures, **≤2400 px for a whole rendered page** (1600 px on a 16-inch page is ~100 dpi —
+  captions unreadable, defeating the point); PNG/JPEG, <2 KB / <64 px decorations dropped, ≤8 figures/doc and documented in the `visio-reader` skill. Local
   paths still work for dev (parsed by the same helpers). Gotcha: fastmcp derives an outputSchema
   from a tool's return annotation — image-returning tools must have NONE, or clients fail with
   "outputSchema defined but no structured output returned". Requirements are evidence, not new
   boxes: a requirements-only element is added only if plainly part of THIS system (marked
-  `source: requirements`), otherwise it is an `openQuestion`; the BA output schema is unchanged.
+  `source: requirements`), otherwise it is an `openQuestion`. Per-element **`provenance`
+  `{source, representation}` is REQUIRED** by `ba_output.schema.json` and by the `[D]` gate (which
+  expands the bare-string shorthand to the object form; both BA modes share one normaliser).
 - **Agents never call each other directly — the workflow mediates via a typed contract.** The BA
   emits schema-validated JSON (`jsonschema`); a **deterministic gate rejects incomplete output**
   (one BA retry) before the Architect sees it. A2A-through-the-gateway is the future upgrade when
