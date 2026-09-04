@@ -143,6 +143,44 @@ class ApprovalTools(ToolCatalogue):
     WRITE = (decide,)           # the human-gated write — granted deliberately, never by default
 
 
+class CollabTools(ToolCatalogue):
+    """The COLLABORATION port — the files people keep and the meetings they hold. Vendor-neutral by
+    construction: a Microsoft Graph adapter (`graph-mcp`) satisfies it today, and a Google Workspace
+    or Box + Zoom adapter could satisfy the SAME tools tomorrow with no caller change. The vendor
+    lives in the SERVICE (`graph-mcp`, `GRAPH_*` credentials), never here — the `ea_mcp` / `adoit-mcp`
+    precedent, enforced by `test_no_tool_or_alias_names_a_vendor`.
+
+    Content is never returned inline: a listing mints an opaque handle (`lab.core.collab.ContentHandle`)
+    and `collab_fetch` streams the bytes into the UPLOAD store, returning an `art://` ref the workload
+    reads through storage-mcp. A recording is gigabytes; an agent's context is not.
+
+    TWO GRANTS, like ApprovalTools. `READ` queries and fetches. `WRITE` manages change-notification
+    subscriptions — which is egress to a CALLER-SUPPLIED url and a durable object that outlives the
+    run, so it must never reach a workload's own agents:
+
+        read-only  {"object_permission": {"mcp_servers": ["collab_mcp"],
+                    "mcp_tool_permissions": {"collab_mcp": list(CollabTools.READ)}}}
+        + watch    … + list(CollabTools.WRITE)
+    """
+    SERVER = "collab_mcp"
+    capabilities = "collab_capabilities"     # what THIS tenant/credential actually allows, and why not
+    sites = "collab_sites"
+    drives = "collab_drives"
+    list = "collab_list"
+    item = "collab_item"
+    meetings = "collab_meetings"
+    recordings = "collab_recordings"
+    transcripts = "collab_transcripts"
+    fetch = "collab_fetch"                   # handle -> art:// ref, streamed into the upload store
+    watches = "collab_watches"
+    watch = "collab_watch"
+    watch_renew = "collab_watch_renew"
+    unwatch = "collab_unwatch"
+
+    READ = (capabilities, sites, drives, list, item, meetings, recordings, transcripts, fetch, watches)
+    WRITE = (watch, watch_renew, unwatch)    # tuples, so `names()`'s string filter ignores them
+
+
 # ----------------------------------------------------------------------------- artifact references
 _SCHEME = "art://"
 

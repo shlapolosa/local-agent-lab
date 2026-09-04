@@ -145,6 +145,21 @@ class FakeS3:
         self.calls.append(("put", Bucket, Key, ContentType))
         self.objects[Key] = (Body, ContentType, datetime(2026, 9, 1, tzinfo=timezone.utc).replace(second=len(self.objects)))
 
+    def upload_fileobj(self, Fileobj, Bucket, Key, ExtraArgs=None):
+        """boto3's transfer manager, faked: it reads the stream in parts (never whole), exactly the
+        property the store depends on for a multi-gigabyte recording."""
+        parts, reads = [], 0
+        while True:
+            chunk = Fileobj.read(1 << 16)
+            reads += 1
+            if not chunk:
+                break
+            parts.append(chunk)
+        self.calls.append(("upload_fileobj", Bucket, Key, ExtraArgs, reads))
+        body = b"".join(parts)
+        self.objects[Key] = (body, (ExtraArgs or {}).get("ContentType"),
+                             datetime(2026, 9, 1, tzinfo=timezone.utc).replace(second=len(self.objects)))
+
     def get_object(self, Bucket, Key):
         self.calls.append(("get", Bucket, Key))
         if Key not in self.objects:
@@ -281,6 +296,180 @@ def test_store_factory_by_scheme_and_caching():
         artifacts.PostgresStore, artifacts.S3Store = saved["PostgresStore"], saved["S3Store"]
         config.ARTIFACTS_URL, config.UPLOADS_URL = saved_cfg["ARTIFACTS_URL"], saved_cfg["UPLOADS_URL"]
         artifacts._stores.clear(); artifacts._stores.update(saved_stores)
+
+
+# ------------------------------------------------------------------ streaming writes (put_stream)
+class _StreamSource:
+    """A read-only fileobj that yields `total` bytes and REFUSES any read larger than `max_read` —
+    the proof that a backend streams: a store that materialises the object (`read()` / `read(-1)`)
+    blows up here instead of quietly allocating a gigabyte."""
+
+    def __init__(self, total, max_read=artifacts.CHUNK, fill=b"\x01"):
+        self.total, self.max_read, self.fill = total, max_read, fill
+        self.left, self.reads = total, 0
+
+    def read(self, n=-1):
+        self.reads += 1
+        if n is None or n < 0 or n > self.max_read:
+            raise AssertionError(f"whole-object read requested (n={n}) — the store must chunk")
+        take = min(n, self.left)
+        self.left -= take
+        return self.fill * take
+
+
+def test_stream_source_double_refuses_a_whole_object_read():
+    src = _StreamSource(3, max_read=2)
+    assert src.read(2) == b"\x01\x01" and src.read(2) == b"\x01" and src.read(2) == b""
+    _raises(AssertionError, _StreamSource(3, max_read=2).read)          # read() = the whole thing
+
+
+def test_capped_reader_clamps_an_unbounded_read():
+    """`read()` / `read(-1)` would materialise the object — the wrapper hands back a CHUNK instead."""
+    r = artifacts._CappedReader(_StreamSource(artifacts.CHUNK * 3), artifacts.CHUNK * 3, "too big")
+    assert len(r.read()) == artifacts.CHUNK and len(r.read(-1)) == artifacts.CHUNK
+    assert len(r.read(10)) == 10
+
+
+def test_local_store_put_stream_is_chunked_and_ref_shaped_like_put():
+    with tempfile.TemporaryDirectory() as d:
+        s = artifacts.LocalStore(os.path.join(d, "arts"))
+        n = artifacts.CHUNK * 2 + 7
+        src = _StreamSource(n)
+        ref = s.put_stream("rec.mp4", src, "video/mp4", size_hint=n)
+        aid, name = artifacts._split(ref)
+        assert len(aid) == 12 and name == "rec.mp4", "same art://<12-hex>/<name> shape as put()"
+        assert src.reads >= 3, "streamed in chunks, not one read"
+        assert s.info(ref) == {"ref": ref, "name": "rec.mp4", "content_type": artifacts.content_type_for("rec.mp4"),
+                               "size": n, "backend": "file"}, "info reads the type off the name, as it does for put()"
+        assert s.get(ref) == b"\x01" * n
+        assert {i["ref"] for i in s.list()} == {ref}
+        # no size_hint (a Graph download with no Content-Length) still works
+        ref2 = s.put_stream("small.bin", _StreamSource(5))
+        assert s.get(ref2) == b"\x01" * 5 and s.info(ref2)["content_type"] == "application/octet-stream"
+
+
+def test_local_store_cap_by_hint_and_mid_stream_leaves_nothing_behind():
+    with tempfile.TemporaryDirectory() as d:
+        s = artifacts.LocalStore(os.path.join(d, "arts"), max_bytes=1000)
+        # 1. size_hint over the cap: refused BEFORE a single byte is read
+        src = _StreamSource(10)
+        e = _raises(artifacts.ArtifactTooLarge, s.put_stream, "big.mp4", src, "video/mp4", size_hint=5000)
+        assert src.reads == 0 and "1000" in str(e) and "big.mp4" in str(e)
+        assert os.listdir(s.root) == [], "nothing created for a refused upload"
+        # 2. a LYING (or absent) Content-Length must not defeat the cap: it trips mid-stream
+        src = _StreamSource(4000)
+        e = _raises(artifacts.ArtifactTooLarge, s.put_stream, "liar.mp4", src, "video/mp4", size_hint=10)
+        assert "1000" in str(e)
+        assert os.listdir(s.root) == [], "the partial file is cleaned up"
+        assert artifacts.ArtifactTooLarge("x").__class__.__mro__[1] is ValueError, "callers catching ValueError still work"
+        # 3. exactly at the cap is fine
+        ref = s.put_stream("edge.bin", _StreamSource(1000))
+        assert s.info(ref)["size"] == 1000
+        # 4. the by-value path honours the same cap
+        _raises(artifacts.ArtifactTooLarge, s.put, "big.bin", b"x" * 1001)
+
+
+def test_local_store_cap_defaults_to_config():
+    with tempfile.TemporaryDirectory() as d:
+        saved = config.ARTIFACT_MAX_BYTES
+        config.ARTIFACT_MAX_BYTES = 4
+        try:
+            s = artifacts.LocalStore(os.path.join(d, "arts"))
+            assert s.max_bytes == 4, "the default comes from config, not a literal in the store"
+            _raises(artifacts.ArtifactTooLarge, s.put, "x.bin", b"12345")
+        finally:
+            config.ARTIFACT_MAX_BYTES = saved
+
+
+def test_postgres_put_stream_spools_and_refuses_a_recording():
+    db = FakePg()
+    s = artifacts.PostgresStore("postgresql://u@h/db", connect=db.connect, inline_max_bytes=512)
+    ref = s.put_stream("spec.json", _StreamSource(300), "application/json", size_hint=300)
+    aid, name = artifacts._split(ref)
+    assert len(aid) == 12 and name == "spec.json"
+    ins = [l for l in db.log if l[0].startswith("INSERT")][-1]
+    assert ins[1][:4] == (aid, "spec.json", "application/json", 300) and ins[1][5] == b"\x01" * 300
+    assert s.get(ref) == b"\x01" * 300 and s.info(ref)["size"] == 300
+    # refused by the hint — and the message tells the operator what to do instead
+    src = _StreamSource(10)
+    e = _raises(artifacts.ArtifactTooLarge, s.put_stream, "meeting.mp4", src, "video/mp4", size_hint=10 ** 9)
+    assert src.reads == 0
+    for phrase in ("meeting.mp4", "bytea", "512", "UPLOADS_URL=s3://"):
+        assert phrase in str(e), f"{phrase!r} missing from: {e}"
+    # ... and mid-stream, when the caller lied about the length
+    e = _raises(artifacts.ArtifactTooLarge, s.put_stream, "meeting.mp4", _StreamSource(4000), "video/mp4")
+    assert "UPLOADS_URL=s3://" in str(e)
+    assert not [l for l in db.log if l[0].startswith("INSERT") and l[1][1] == "meeting.mp4"], "nothing written"
+    # the by-value path shares the ceiling
+    _raises(artifacts.ArtifactTooLarge, s.put, "big.bin", b"x" * 513)
+
+
+def test_postgres_inline_cap_defaults_to_config_and_respects_the_overall_cap():
+    db = FakePg()
+    saved = config.ARTIFACT_INLINE_MAX_BYTES
+    config.ARTIFACT_INLINE_MAX_BYTES = 64
+    try:
+        s = artifacts.PostgresStore("postgresql://u@h/db", connect=db.connect)
+        assert s.max_bytes == 64, "postgres caps at the inline ceiling"
+    finally:
+        config.ARTIFACT_INLINE_MAX_BYTES = saved
+    # an explicit overall cap below the inline ceiling still wins (min of the two)
+    s = artifacts.PostgresStore("postgresql://u@h/db", connect=db.connect, max_bytes=8, inline_max_bytes=512)
+    assert s.max_bytes == 8
+    _raises(artifacts.ArtifactTooLarge, s.put_stream, "x.bin", _StreamSource(20))
+
+
+def test_s3_put_stream_uses_upload_fileobj_multipart():
+    saved = _with_s3_config(S3_ENDPOINT=None, S3_REGION=None, S3_ACCESS_KEY_ID=None,
+                            S3_SECRET_ACCESS_KEY=None, S3_URL_STYLE=None)
+    try:
+        b = FakeBoto()
+        s = artifacts.S3Store("s3://lab-uploads/in", boto=b)
+        n = artifacts.CHUNK + 11
+        src = _StreamSource(n)
+        ref = s.put_stream("rec.mp4", src, "video/mp4", size_hint=n)
+        aid, name = artifacts._split(ref)
+        assert len(aid) == 12 and name == "rec.mp4"
+        call = b.s3.calls[0]
+        assert call[:3] == ("upload_fileobj", "lab-uploads", f"in/{aid}/rec.mp4")
+        assert call[3] == {"ContentType": "video/mp4"}, "content type travels as ExtraArgs"
+        assert call[4] >= 2, "boto read the object in parts, never whole"
+        assert s.get(ref) == b"\x01" * n and s.info(ref)["size"] == n
+        # the cap wraps the fileobj boto3 itself reads from, so a lying Content-Length still trips
+        s2 = artifacts.S3Store("s3://lab-uploads", boto=FakeBoto(), max_bytes=1000)
+        e = _raises(artifacts.ArtifactTooLarge, s2.put_stream, "liar.mp4", _StreamSource(5000), "video/mp4")
+        assert "1000" in str(e)
+        src = _StreamSource(10)
+        _raises(artifacts.ArtifactTooLarge, s2.put_stream, "big.mp4", src, "video/mp4", size_hint=2000)
+        assert src.reads == 0
+        _raises(artifacts.ArtifactTooLarge, s2.put, "big.bin", b"x" * 1001)
+    finally:
+        _with_s3_config(**saved)
+
+
+def test_put_and_put_stream_agree_on_the_ref_across_backends():
+    """Same shape, same readback, same info from either path — a caller cannot tell them apart."""
+    import io
+    with tempfile.TemporaryDirectory() as d:
+        db, b = FakePg(), FakeBoto()
+        saved = _with_s3_config(S3_ENDPOINT=None, S3_REGION=None, S3_ACCESS_KEY_ID=None,
+                                S3_SECRET_ACCESS_KEY=None, S3_URL_STYLE=None)
+        try:
+            stores = [artifacts.LocalStore(os.path.join(d, "arts")),
+                      artifacts.PostgresStore("postgresql://u@h/db", connect=db.connect),
+                      artifacts.S3Store("s3://bkt/p", boto=b)]
+            for s in stores:
+                a = s.put("m.xml", b"<x/>", "application/xml")
+                c = s.put_stream("m.xml", io.BytesIO(b"<x/>"), "application/xml")
+                assert a != c, "each write is its own artifact id"
+                assert [artifacts._split(r)[1] for r in (a, c)] == ["m.xml", "m.xml"]
+                assert len(artifacts._split(c)[0]) == 12
+                assert s.get(a) == s.get(c) == b"<x/>"
+                ia, ic = s.info(a), s.info(c)
+                assert ia["size"] == ic["size"] == 4 and ia["backend"] == ic["backend"]
+                assert ia["content_type"] == ic["content_type"] == "application/xml"
+        finally:
+            _with_s3_config(**saved)
 
 
 if __name__ == "__main__":

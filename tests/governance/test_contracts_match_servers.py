@@ -83,6 +83,12 @@ def test_every_registered_server_forwards_trace_context():
 
 
 VENDORS = ("adoit", "bizzdesign", "archi_", "boc")     # EA-tool product names — a PORT must not name one
+# Product names that may not appear in a tool NAME or a gateway ALIAS. Deliberately a SEPARATE list
+# from VENDORS: the downstream test below scans CODE with string literals preserved, and
+# src/lab/substrate/review/app.py says "**Workflow graph**" — sharing one list would fail that test
+# for a reason that has nothing to do with a vendor leaking into a port.
+NAME_VENDORS = VENDORS + ("microsoft", "graph", "sharepoint", "onedrive", "teams", "m365",
+                          "office365", "entra")
 
 
 def test_no_tool_or_alias_names_a_vendor():
@@ -92,7 +98,7 @@ def test_no_tool_or_alias_names_a_vendor():
     re-edited to call the replacement. The vendor lives in the SERVICE (adoit-mcp, ADOIT_MCP_URL,
     its credentials), never in the contract."""
     named = [n for n in sorted(contracts.ALL_TOOLS) + sorted(contracts.SERVERS)
-             if any(v in n.lower() for v in VENDORS)]
+             if any(v in n.lower() for v in NAME_VENDORS)]
     assert named == [], f"vendor name in the tool contract: {named}"
 
 

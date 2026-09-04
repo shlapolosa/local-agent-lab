@@ -15,10 +15,30 @@ MCP servers) and `uploads()` (UPLOADS_URL, default = ARTIFACTS_URL — the input
 Splitting them lets uploads live in a bucket while renders stay in Postgres; with UPLOADS_URL
 unset (local dev) both are the same store and no S3 is needed. Agents never call this module for
 refs — they read objects through the gateway's storage-mcp tools.
+
+Two write paths, one ref:
+  put(name, data, content_type)                      by value  — small objects already in memory
+  put_stream(name, fileobj, content_type, size_hint) by stream — never materialised
+
+`put_stream` exists because an input can be a Teams meeting recording: hundreds of megabytes to
+gigabytes, which `put`'s `bytes` argument would hold in RAM twice on an 8 GB machine. It copies a
+file-like source (a urllib/requests response is one) to the backend in `CHUNK` pieces. `put` does NOT
+delegate to it: each backend's by-value write is a single round trip (one `put_object`, one INSERT,
+one `open().write()`) and routing it through the transfer manager or a spool file would buy nothing.
+What must have one home — the artifact id, the size ceiling and its message — lives in `_BaseStore`,
+so both paths are governed by the same policy.
+
+Size policy: `max_bytes` (default `config.ARTIFACT_MAX_BYTES`) is enforced on BOTH paths — up front
+from `size_hint` when the caller knows the length, and again while streaming through `_CappedReader`,
+because an absent or lying `Content-Length` must not defeat the cap. `PostgresStore` caps far lower
+(`config.ARTIFACT_INLINE_MAX_BYTES`) and REFUSES with an explanation: a bytea row is materialised in
+RAM at both ends, so a recording belongs in a bucket, not in the database.
 """
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import uuid
 from datetime import datetime, timezone
 
@@ -26,17 +46,84 @@ from lab.platform import config
 from lab.platform.filetypes import FILE_TYPES, CONTENT_TYPES, content_type_for, kind_for  # noqa: F401  (re-exported: the one map)
 
 
+CHUNK = 1 << 20          # 1 MiB — the unit every streaming copy moves; nothing bigger is ever held
+
+
 def _ref(aid, name):
     return f"art://{aid}/{name}"
 
 
-class LocalStore:
-    def __init__(self, root):
+class ArtifactTooLarge(ValueError):
+    """Refused: the object is bigger than this store is configured to hold. A ValueError so callers
+    that already treat a bad write as one keep working; catch it by name to fall back to a bucket."""
+
+
+class _CappedReader:
+    """A read-only file wrapper that counts what it hands out and refuses to exceed `cap`.
+
+    Wrapping the SOURCE (rather than counting in our own loop) is what lets a cap apply to a reader
+    we do not drive — boto3's transfer manager pulls the parts itself. An unbounded `read()` is
+    clamped to CHUNK on purpose: this object exists so that nothing is ever materialised whole."""
+
+    def __init__(self, fileobj, cap, message):
+        self._f, self._cap, self._message, self._seen = fileobj, cap, message, 0
+
+    def read(self, n=-1):
+        chunk = self._f.read(CHUNK if n is None or n < 0 else n)
+        self._seen += len(chunk)
+        if self._seen > self._cap:
+            raise ArtifactTooLarge(f"{self._message} — exceeded while streaming (no usable length was declared)")
+        return chunk
+
+
+class _BaseStore:
+    """The write policy every backend shares: the artifact id, and ONE size ceiling honoured by both
+    the by-value and the streaming path. The default comes from config (deployment policy) but enters
+    through the constructor, so a caller or a test can inject its own."""
+
+    def __init__(self, *, max_bytes=None):
+        self.max_bytes = config.ARTIFACT_MAX_BYTES if max_bytes is None else max_bytes
+
+    @staticmethod
+    def _new_id():
+        return uuid.uuid4().hex[:12]
+
+    def _limit_message(self, name):
+        return (f"artifact '{name}' exceeds this store's {self.max_bytes} byte limit "
+                f"(config ARTIFACT_MAX_BYTES, or the store's max_bytes)")
+
+    def _guard(self, name, size):
+        """Refuse a known-oversize object before a byte moves."""
+        if size is not None and size > self.max_bytes:
+            raise ArtifactTooLarge(f"{self._limit_message(name)} — declared {size} bytes")
+
+    def _capped(self, name, fileobj, size_hint):
+        self._guard(name, size_hint)
+        return _CappedReader(fileobj, self.max_bytes, self._limit_message(name))
+
+
+class LocalStore(_BaseStore):
+    def __init__(self, root, *, max_bytes=None):
+        super().__init__(max_bytes=max_bytes)
         self.root = root; os.makedirs(root, exist_ok=True)
 
     def put(self, name, data: bytes, content_type="application/octet-stream") -> str:
-        aid = uuid.uuid4().hex[:12]; d = os.path.join(self.root, aid); os.makedirs(d, exist_ok=True)
+        self._guard(name, len(data))
+        aid = self._new_id(); d = os.path.join(self.root, aid); os.makedirs(d, exist_ok=True)
         open(os.path.join(d, name), "wb").write(data)
+        return _ref(aid, name)
+
+    def put_stream(self, name, fileobj, content_type="application/octet-stream", size_hint=None) -> str:
+        """Chunked copy to disk — the source is never read whole. A refusal (or any failure) takes
+        the half-written directory with it: no ref is ever handed out for a partial object."""
+        src = self._capped(name, fileobj, size_hint)
+        aid = self._new_id(); d = os.path.join(self.root, aid); os.makedirs(d, exist_ok=True)
+        try:
+            with open(os.path.join(d, name), "wb") as f:
+                shutil.copyfileobj(src, f, CHUNK)
+        except BaseException:
+            shutil.rmtree(d, ignore_errors=True)
+            raise
         return _ref(aid, name)
 
     def get(self, ref) -> bytes:
@@ -62,13 +149,19 @@ class LocalStore:
         return out
 
 
-class PostgresStore:
+class PostgresStore(_BaseStore):
     DDL = """CREATE TABLE IF NOT EXISTS lab_artifacts (
                id TEXT PRIMARY KEY, name TEXT NOT NULL, content_type TEXT, size INTEGER,
                created_at TIMESTAMPTZ NOT NULL, data BYTEA NOT NULL)"""
+    SPOOL_MAX_MEMORY = 8 * 1024 * 1024        # a stream bigger than this spools to a temp FILE, not RAM
 
-    def __init__(self, dsn, *, connect=None):
-        """`connect` = a `psycopg.connect`-shaped callable (tests inject an in-memory one)."""
+    def __init__(self, dsn, *, connect=None, max_bytes=None, inline_max_bytes=None):
+        """`connect` = a `psycopg.connect`-shaped callable (tests inject an in-memory one).
+        This backend stores the object INLINE, so its ceiling is the lower of the overall cap and
+        `inline_max_bytes` (config.ARTIFACT_INLINE_MAX_BYTES)."""
+        inline = config.ARTIFACT_INLINE_MAX_BYTES if inline_max_bytes is None else inline_max_bytes
+        overall = config.ARTIFACT_MAX_BYTES if max_bytes is None else max_bytes
+        super().__init__(max_bytes=min(overall, inline))
         if connect is None:
             import psycopg
             connect = psycopg.connect
@@ -79,12 +172,34 @@ class PostgresStore:
     def _conn(self):
         return self._connect(self.dsn, autocommit=True)
 
-    def put(self, name, data: bytes, content_type="application/octet-stream") -> str:
-        aid = uuid.uuid4().hex[:12]
+    def _limit_message(self, name):
+        return (f"artifact '{name}' exceeds the {self.max_bytes} byte inline limit of the postgres "
+                "artifact store, which keeps objects in a bytea column: the row is materialised in "
+                "memory at both ends (and PostgreSQL stops at 1 GB), so a recording-sized object is "
+                "refused rather than stored badly. Configure a bucket for large objects — "
+                "UPLOADS_URL=s3://<bucket>[/prefix] plus the S3_* credentials — and retry.")
+
+    def _insert(self, name, data: bytes, content_type) -> str:
+        aid = self._new_id()
         with self._conn() as c:
             c.execute("INSERT INTO lab_artifacts (id, name, content_type, size, created_at, data) VALUES (%s,%s,%s,%s,%s,%s)",
                       (aid, name, content_type, len(data), datetime.now(timezone.utc), data))
         return _ref(aid, name)
+
+    def put(self, name, data: bytes, content_type="application/octet-stream") -> str:
+        self._guard(name, len(data))
+        return self._insert(name, data, content_type)
+
+    def put_stream(self, name, fileobj, content_type="application/octet-stream", size_hint=None) -> str:
+        """Spool to a SpooledTemporaryFile (RAM up to SPOOL_MAX_MEMORY, then disk) and insert once.
+        Above the inline limit this REFUSES: a multi-gigabyte bytea is the wrong answer, and telling
+        the operator to configure a bucket is better than doing it."""
+        src = self._capped(name, fileobj, size_hint)
+        with tempfile.SpooledTemporaryFile(max_size=self.SPOOL_MAX_MEMORY) as spool:
+            shutil.copyfileobj(src, spool, CHUNK)
+            spool.seek(0)
+            data = spool.read()                   # bounded by the inline cap enforced above
+        return self._insert(name, data, content_type)
 
     def get(self, ref) -> bytes:
         aid, _ = _split(ref)
@@ -111,12 +226,13 @@ class PostgresStore:
                  "created_at": r[4].isoformat(), "backend": "postgres"} for r in rows]
 
 
-class S3Store:
+class S3Store(_BaseStore):
     """S3-compatible bucket: key = <prefix>/<id>/<name>. Railway Bucket / MinIO / Azure Blob (via its
     S3 gateway) all speak this. Credentials come from S3_* env (see src/lab/platform/config.py)."""
 
-    def __init__(self, url, *, boto=None):
+    def __init__(self, url, *, boto=None, max_bytes=None):
         """`boto` = a module with `client(...)` (boto3 by default; tests inject a recorder)."""
+        super().__init__(max_bytes=max_bytes)
         if boto is None:
             import boto3 as boto
         from botocore.config import Config
@@ -136,8 +252,19 @@ class S3Store:
         return "/".join(p for p in (self.prefix, aid, name) if p)
 
     def put(self, name, data: bytes, content_type="application/octet-stream") -> str:
-        aid = uuid.uuid4().hex[:12]
+        self._guard(name, len(data))
+        aid = self._new_id()
         self.s3.put_object(Bucket=self.bucket, Key=self._key(aid, name), Body=data, ContentType=content_type)
+        return _ref(aid, name)
+
+    def put_stream(self, name, fileobj, content_type="application/octet-stream", size_hint=None) -> str:
+        """boto3's `upload_fileobj` — the transfer manager reads the source in parts and switches to
+        a real multipart upload past its threshold, so a gigabyte never lands in this process. The
+        cap rides on the wrapped fileobj boto3 itself reads from, which is the only way to enforce it
+        on a transfer we do not drive; the manager aborts the upload when that raises."""
+        src = self._capped(name, fileobj, size_hint)
+        aid = self._new_id()
+        self.s3.upload_fileobj(src, self.bucket, self._key(aid, name), ExtraArgs={"ContentType": content_type})
         return _ref(aid, name)
 
     def get(self, ref) -> bytes:
@@ -185,6 +312,8 @@ def _split(ref):
     return aid, name
 
 
+# The store PORT, structurally: put / put_stream / get / info / list. Kept a union (not an ABC) —
+# the three implementations already share `_BaseStore` for the write policy they must not diverge on.
 Store = LocalStore | PostgresStore | S3Store
 _stores: dict[str, "Store"] = {}
 

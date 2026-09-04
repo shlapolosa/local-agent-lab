@@ -65,5 +65,15 @@ S3_ACCESS_KEY_ID = _e("S3_ACCESS_KEY_ID")
 S3_SECRET_ACCESS_KEY = _e("S3_SECRET_ACCESS_KEY")
 S3_URL_STYLE = _e("S3_URL_STYLE", "path")             # path | virtual (Railway reports urlStyle)
 
+# --- artifact size policy (the streaming write path: a Teams meeting recording is 100s of MB) ---
+# Deployment policy, not domain logic: the ceiling depends on the bucket/database tier, so it lives
+# here as the DEFAULT and enters each Store through its constructor (`max_bytes=`), never read there.
+ARTIFACT_MAX_BYTES = int(_e("ARTIFACT_MAX_BYTES") or 5 * 1024 ** 3)             # 5 GiB — any backend
+# Postgres holds the object INLINE in a bytea column: the row is materialised in RAM on both sides
+# (and PostgreSQL's own bytea ceiling is 1 GB), so the inline store refuses anything larger and says
+# to configure a bucket. 64 MiB comfortably covers what this backend exists for (specs, XML, SVG,
+# XLSX) on an 8 GB machine, and is far below the point where a bytea row becomes the wrong answer.
+ARTIFACT_INLINE_MAX_BYTES = int(_e("ARTIFACT_INLINE_MAX_BYTES") or 64 * 1024 ** 2)   # 64 MiB — postgres
+
 # --- licensed reference workbooks (BA Guild): never in the repo; a directory outside the tree or var/ ---
 REFERENCE_MODELS_DIR = _e("REFERENCE_MODELS_DIR") or str(VAR_DIR / "reference-sources")
