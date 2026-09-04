@@ -87,6 +87,47 @@ def test_wiring_injects_the_store_and_explicit_kwargs_win():
             c.unwire()
 
 
+# ------------------------------------------------------------------ the collaboration provider
+def test_the_collaboration_adapter_is_chosen_by_a_registry_not_named_in_code():
+    """A second provider (a different collaboration platform) must be ONE registry entry, not an
+    edit in the container, the server and the config — so the container names a KEY and the registry
+    owns the module. The registry itself is the open/closed seam."""
+    from lab.substrate.container import COLLAB_PROVIDERS
+    assert COLLAB_PROVIDERS["graph"] == "lab.substrate.mcp.graph.graph_repository"
+    assert "COLLAB_PROVIDER" in SUBSTRATE_KEYS
+    assert build("graph-mcp").config.collab_provider() == config.COLLAB_PROVIDER
+
+
+def test_an_unknown_or_empty_provider_names_itself_and_the_ones_that_exist():
+    """No silent fallback in the container: `lab.platform.config` is the one env reader and owns the
+    default, so an empty COLLAB_PROVIDER is a misconfiguration to say out loud, not to paper over."""
+    from lab.substrate.container import collab_repository
+    for bad in ("zoom", "", "   "):
+        with pytest.raises(ValueError, match="unknown collaboration provider"):
+            collab_repository(bad)
+    with pytest.raises(ValueError, match="graph"):          # the message lists what IS registered
+        collab_repository("zoom")
+
+
+def test_the_collaboration_provider_is_lazy_and_overridable_like_any_other():
+    """Building the container must not construct a provider client (no credential is read, nothing
+    is imported) and a test swaps it exactly as it swaps redis or the stores."""
+    c = build("graph-mcp")
+    fake = object()
+    with c.collab.override(fake):
+        assert c.collab() is fake
+    assert c.collab.overridden == ()
+
+
+def test_the_registry_builds_the_named_adapter_with_the_overrides_it_is_given():
+    """`collab_repository` is the composition root's one call: it resolves the key to the adapter's
+    own `build()` and passes configuration through, so nothing below it reads the environment."""
+    from lab.substrate.container import collab_repository
+    from lab.core.collab import CollabRepository
+    made = collab_repository("graph", auth_mode="none", tenant_id="", client_id="", client_secret="")
+    assert isinstance(made, CollabRepository)
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))

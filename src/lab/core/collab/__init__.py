@@ -7,12 +7,12 @@ learns which one is wired.
 """
 from lab.core.collab.errors import (CollabError, CollabNotConfigured, CollabThrottled,
                                     CollabUnavailable)
-from lab.core.collab.model import (DEFAULT_LIMIT, MAX_LIMIT, ChangeType, ContentHandle, Drive,
-                                   DriveItem, HandleKind, MediaKind, MediaRecord, Meeting, Page,
-                                   Site, Watch, clamp_limit)
+from lab.core.collab.model import (DEFAULT_LIMIT, MAX_LIMIT, ChangeType, ContentHandle,
+                                   ContentStream, Drive, DriveItem, HandleKind, MediaKind,
+                                   MediaRecord, Meeting, Page, Site, Watch, clamp_limit)
 from lab.core.collab.port import CAPABILITIES, CollabRepository
 
 __all__ = ["CollabRepository", "CAPABILITIES",
-           "ContentHandle", "HandleKind", "Site", "Drive", "DriveItem", "Meeting", "MediaKind",
+           "ContentHandle", "ContentStream", "HandleKind", "Site", "Drive", "DriveItem", "Meeting", "MediaKind",
            "MediaRecord", "ChangeType", "Watch", "Page", "clamp_limit", "DEFAULT_LIMIT", "MAX_LIMIT",
            "CollabError", "CollabUnavailable", "CollabNotConfigured", "CollabThrottled"]

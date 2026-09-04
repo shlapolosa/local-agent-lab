@@ -50,6 +50,8 @@ S3_SECRET_ACCESS_KEY=sk-fake
 UPLOADS_URL=s3://lab-uploads/uploads
 BA_AGENT_KEY=sk-ba-fake
 ENTRA_TENANT_ID=tenant-fake
+GRAPH_CLIENT_ID=graph-app-fake
+GRAPH_CLIENT_SECRET=graph-secret-fake
 GATEWAY_EVENTS_FILE=/nowhere/events.jsonl
 RAILWAY_TOKEN=must-never-ship
 """
@@ -206,7 +208,8 @@ def railway(fake):
         urllib.request.urlopen = real
 
 
-ALL_SUBSTRATE = ["redis", "semantic-mcp", "adoit-mcp", "storage-mcp", "workflow-mcp", "gateway", "review"]
+ALL_SUBSTRATE = ["redis", "semantic-mcp", "adoit-mcp", "storage-mcp", "workflow-mcp", "graph-mcp",
+                 "gateway", "review"]
 
 
 def _project(*names, jaeger=True):
@@ -286,6 +289,7 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     assert gw["SEMANTIC_MCP_URL"] == "http://semantic-mcp.railway.internal:9200/mcp"
     assert gw["STORAGE_MCP_URL"] == "http://storage-mcp.railway.internal:9300/mcp"
     assert gw["WORKFLOW_MCP_URL"] == "http://workflow-mcp.railway.internal:9400/mcp"
+    assert gw["GRAPH_MCP_URL"] == "http://graph-mcp.railway.internal:9500/mcp"
     assert gw["REDIS_URL"] == "redis://redis.railway.internal:6379/0"    # `# CLOUD:` value
     assert gw["LITELLM_MASTER_KEY"] == "sk-master-fake" and gw["OLLAMA_API_KEY"] == "ollama-fake"
     assert not any(k.startswith("S3_") for k in gw) and "UPLOADS_URL" not in gw
@@ -295,6 +299,11 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     assert st["S3_ENDPOINT"] == "https://s3.example" and st["UPLOADS_URL"] == "s3://lab-uploads/uploads"
     assert st["BIND_HOST"] == "::" and st["ARTIFACTS_URL"] == "postgresql://fake/db"   # $VAR expanded
     assert "S3_ENDPOINT" in upserts["svc-review"]["variables"]
+    # graph-mcp is the THIRD holder of bucket credentials: collab_fetch streams what it fetches in
+    gm = upserts["svc-graph-mcp"]["variables"]
+    assert gm["S3_ENDPOINT"] == "https://s3.example" and gm["UPLOADS_URL"] == "s3://lab-uploads/uploads"
+    assert gm["GRAPH_CLIENT_SECRET"] == "graph-secret-fake" and gm["ENTRA_TENANT_ID"] == "tenant-fake"
+    assert "REDIS_URL" not in gm and "LITELLM_MASTER_KEY" not in gm
     assert not any(k.startswith("S3_") for k in upserts["svc-semantic-mcp"]["variables"])
     assert not any(k.startswith("S3_") for k in upserts["svc-adoit-mcp"]["variables"])
     # workflow-mcp publishes/reads workflow:requests and NOTHING else: Redis + trust + tracing only

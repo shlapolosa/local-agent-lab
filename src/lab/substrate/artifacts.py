@@ -19,6 +19,8 @@ refs — they read objects through the gateway's storage-mcp tools.
 Two write paths, one ref:
   put(name, data, content_type)                      by value  — small objects already in memory
   put_stream(name, fileobj, content_type, size_hint) by stream — never materialised
+`IteratorReader` adapts a source that YIELDS chunks (a port's `open()`) to the file-like `put_stream`
+reads, without ever joining them.
 
 `put_stream` exists because an input can be a Teams meeting recording: hundreds of megabytes to
 gigabytes, which `put`'s `bytes` argument would hold in RAM twice on an 8 GB machine. It copies a
@@ -74,6 +76,35 @@ class _CappedReader:
         if self._seen > self._cap:
             raise ArtifactTooLarge(f"{self._message} — exceeded while streaming (no usable length was declared)")
         return chunk
+
+
+_EXHAUSTED = object()          # a sentinel, so an empty chunk mid-stream is not mistaken for the end
+
+
+class IteratorReader:
+    """A `read()`-able file over a chunk ITERATOR — the seam between a source that YIELDS bytes and
+    `put_stream`, which READS them.
+
+    A collaboration provider's `open()` hands back an iterator of chunks; every backend's streaming
+    write wants a file-like. Joining the iterator to bridge them would defeat the entire point, so
+    this holds at most one chunk plus the unread remainder of the last, and an unbounded `read()` is
+    clamped to `CHUNK` for the same reason `_CappedReader` clamps one."""
+
+    def __init__(self, chunks):
+        self._chunks, self._buf = iter(chunks), b""
+        self.count = 0                 # bytes handed out so far — what a caller reports it stored
+
+    def read(self, n=-1):
+        if n is None or n < 0:
+            n = CHUNK
+        while len(self._buf) < n:
+            chunk = next(self._chunks, _EXHAUSTED)
+            if chunk is _EXHAUSTED:
+                break
+            self._buf += chunk
+        out, self._buf = self._buf[:n], self._buf[n:]
+        self.count += len(out)
+        return out
 
 
 class _BaseStore:

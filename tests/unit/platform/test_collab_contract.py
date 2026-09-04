@@ -35,11 +35,47 @@ def test_gateway_qualifies_and_rejects_a_foreign_tool():
 
 def test_the_catalogue_covers_the_planned_surface():
     assert set(CollabTools.names()) == {
-        "collab_capabilities", "collab_sites", "collab_drives", "collab_list", "collab_item",
-        "collab_meetings", "collab_recordings", "collab_transcripts", "collab_fetch",
+        "collab_capabilities", "collab_sites", "collab_drives", "collab_user_drive", "collab_list",
+        "collab_item", "collab_meetings", "collab_recordings", "collab_transcripts", "collab_fetch",
         "collab_watches", "collab_watch", "collab_watch_renew", "collab_unwatch"}
+
+
+def test_the_port_is_registered_so_the_gateway_and_the_smoke_test_can_see_it():
+    """A catalogue that is not in `SERVERS` is invisible to the parity test, to the gateway alias
+    check and to scripts/e2e_smoke.py — i.e. an ungoverned server nothing notices is missing."""
+    from lab.platform.contracts import ALL_TOOLS, SERVERS
+    assert SERVERS[CollabTools.SERVER] is CollabTools
+    assert set(CollabTools.names()) <= ALL_TOOLS
+
+
+def test_a_persons_own_drive_is_part_of_the_read_grant():
+    """A meeting recorded ad hoc is stored in the organiser's own drive, not in any site library, so
+    reaching a person's drive is a READ verb — the only route to such content."""
+    assert CollabTools.user_drive == "collab_user_drive"
+    assert CollabTools.user_drive in CollabTools.READ
 
 
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_the_notification_allowlist_is_parsed_as_a_list_because_an_empty_one_refuses_everything():
+    """A security-relevant parse: `GRAPH_NOTIFICATION_ALLOWLIST` is the only thing standing between a
+    caller-supplied notification URL and egress, so how it splits is worth pinning."""
+    import importlib
+    import os
+    from lab.platform import config
+    saved = dict(os.environ)
+    try:
+        os.environ["GRAPH_NOTIFICATION_ALLOWLIST"] = " https://a.example , https://b.example ,"
+        os.environ["GRAPH_MEETING_USERS"] = "one@lab.example,two@lab.example"
+        importlib.reload(config)
+        assert config.GRAPH_NOTIFICATION_ALLOWLIST == ("https://a.example", "https://b.example")
+        assert config.GRAPH_MEETING_USERS == ("one@lab.example", "two@lab.example")
+        os.environ.pop("GRAPH_NOTIFICATION_ALLOWLIST")
+        importlib.reload(config)
+        assert config.GRAPH_NOTIFICATION_ALLOWLIST == ()          # unset means REFUSE, never allow-all
+    finally:
+        os.environ.clear(); os.environ.update(saved)
+        importlib.reload(config)

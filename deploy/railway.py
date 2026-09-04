@@ -1,7 +1,7 @@
 """Deploy the lab to Railway as two independent tiers (see deploy/README.md):
 
   substrate  — the shared plane: redis (internal), gateway (public), semantic-mcp + adoit-mcp +
-               storage-mcp + workflow-mcp (internal), review (public), plus every approval CHANNEL
+               storage-mcp + workflow-mcp + graph-mcp (internal), review (public), plus every approval CHANNEL
                that is configured (telegram, teams — internal, no ingress). Lives in the project
                alongside Jaeger, so the gateway reaches the MCP servers over Railway private DNS
                (*.railway.internal).
@@ -105,6 +105,11 @@ SUBSTRATE = {
     # workflow:requests events, reads their status and appends approval decisions — no store, no
     # bucket, no ADOIT credential.
     "workflow-mcp": {"cmd": "python -m lab.substrate.mcp.workflow.server", "port": None},
+    # the COLLABORATION port (gateway alias collab_mcp): files and meetings from wherever the
+    # organisation collaborates. "s3": True because collab_fetch WRITES what it fetches into the
+    # upload store — a meeting recording is streamed there and comes back as an art:// ref, so this
+    # is the third holder of bucket credentials alongside storage-mcp (reads) and review (writes).
+    "graph-mcp":    {"cmd": "python -m lab.substrate.mcp.graph.server", "port": None, "s3": True},
     "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
@@ -174,7 +179,7 @@ def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
 # role starts reading a new variable, add it here in the same change, or the container won't see
 # it. This table is also the Azure Container Apps secret-scope map (which Key Vault refs each app
 # gets). The bucket credentials (S3_KEYS) are NOT listed anywhere here on purpose: they are granted
-# solely by a service's `"s3": True` flag (review + storage-mcp), which env_for_role() adds.
+# solely by a service's `"s3": True` flag (review + storage-mcp + graph-mcp), which env_for_role() adds.
 _OTLP = "OTEL_EXPORTER_OTLP_*"                     # every Python role: lab.platform.otel.tracer reads OTEL_EXPORTER_OTLP_ENDPOINT
 ROLE_ENV = {
     "gateway": [                                   # litellm + gateway/{custom_auth,auto_router,pii_guardrail}.py
@@ -183,6 +188,7 @@ ROLE_ENV = {
         "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
+        "GRAPH_MCP_URL",                           # ... incl. the collab_mcp alias's service
         "REDIS_URL",                               # custom_auth.py; litellm falls back to it when REDIS_HOST/PORT/
                                                    # PASSWORD are absent (verified) — those three stay OUT (unchanged
                                                    # from the old drop-set; the cloud Redis has no password)
@@ -217,6 +223,18 @@ ROLE_ENV = {
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # approval_tools.py: the two LINKS a reviewer follows
         _OTLP,                                     # (addresses, not credentials). Deliberately NO
     ],                                             # ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*: refs are never dereferenced here
+    "graph-mcp": [                                 # src/lab/substrate/mcp/graph/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.collab — the COLLABORATION adapter
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "GRAPH_*",                                 # GRAPH_MCP_PORT + the adapter's own settings: client id/secret,
+                                                   # base url, auth mode, meeting user(s), fetch ceiling,
+                                                   # notification allow-list, metered switch (graph_auth/graph_repository)
+        "COLLAB_PROVIDER", "ENTRA_TENANT_ID",      # which adapter the container wires; the app-only token's authority
+        "ARTIFACTS_URL",                           # config.UPLOADS_URL falls back to it when no bucket is configured.
+                                                   # Deliberately NOT DATABASE_URL (the LiteLLM key/spend store's DSN):
+                                                   # ARTIFACTS_URL is already the expanded value, so the fallback needs
+                                                   # only the one key — this role never reaches the registry database.
+        _OTLP,                                     # NO Redis either: it publishes no event and holds no approval
+    ],                                             # + S3_KEYS via the "s3" flag (collab_fetch streams INTO the upload store)
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
         "REDIS_URL",                               # approvals / workflows / runlog streams
@@ -469,8 +487,9 @@ def substrate_env(name, spec, base_env) -> dict:
     env["SEMANTIC_MCP_URL"] = "http://semantic-mcp.railway.internal:9200/mcp"
     env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
     env["WORKFLOW_MCP_URL"] = "http://workflow-mcp.railway.internal:9400/mcp"
+    env["GRAPH_MCP_URL"] = "http://graph-mcp.railway.internal:9500/mcp"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
-    env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: review + storage-mcp ONLY
+    env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))
     return env
 

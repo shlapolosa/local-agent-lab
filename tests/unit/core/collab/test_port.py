@@ -10,12 +10,12 @@ import sys
 import pytest
 
 from lab.core.collab import errors, model, port
-from lab.core.collab.model import (ContentHandle, Drive, DriveItem, MediaKind, MediaRecord, Meeting,
-                                   Page, Site, Watch, clamp_limit)
+from lab.core.collab.model import (ContentHandle, ContentStream, Drive, DriveItem, MediaKind,
+                                   MediaRecord, Meeting, Page, Site, Watch, clamp_limit)
 from lab.core.collab.port import CAPABILITIES, CollabRepository
 
-PORT_METHODS = ("capabilities", "sites", "drives", "items", "item", "open", "meetings", "recordings",
-                "transcripts", "watches", "watch", "renew", "unwatch")
+PORT_METHODS = ("capabilities", "sites", "drives", "user_drive", "items", "item", "open", "meetings",
+                "recordings", "transcripts", "watches", "watch", "renew", "unwatch")
 
 
 class _Fake:
@@ -31,6 +31,9 @@ class _Fake:
     def drives(self, site_id, limit=None, cursor=None):
         return Page(items=(Drive("d1", "Documents", site_id),))
 
+    def user_drive(self, user_id):
+        return Drive("d2", "Files", owner=user_id)
+
     def items(self, drive_id, path="", limit=None, cursor=None):
         return Page(items=(DriveItem("i1", "policy.docx", drive_id, path=path),), cursor="more")
 
@@ -38,7 +41,8 @@ class _Fake:
         return DriveItem(handle.id, "policy.docx", handle.scope)
 
     def open(self, handle):
-        yield b"bytes for " + str(handle).encode()
+        body = b"bytes for " + str(handle).encode()
+        return ContentStream(iter([body]), "application/octet-stream", len(body))
 
     def meetings(self, since="", until="", organizer="", limit=None, cursor=None):
         return Page(items=(Meeting("m1", "EA review", organizer or "maria", since, until),))
@@ -91,6 +95,7 @@ def test_the_protocol_itself_holds_no_behaviour():
 
     stub = Stub()
     assert stub.capabilities() is None and stub.sites() is None and stub.drives("s1") is None
+    assert stub.user_drive("maria@lab.example") is None
     assert stub.items("d1") is None and stub.item(ContentHandle.item("d", "i")) is None
     assert stub.open(ContentHandle.item("d", "i")) is None and stub.meetings() is None
     assert stub.recordings("m1") is None and stub.transcripts("m1") is None
@@ -106,14 +111,28 @@ def test_capabilities_answers_for_every_declared_area_with_a_typed_reason_or_non
     assert "Remedy" in caps["recordings"].sentence
 
 
+def test_a_persons_own_drive_is_reachable_without_a_site():
+    """The gap live testing exposed: `drives()` can only reach a place's document libraries, and an
+    ad-hoc meeting's recording is stored in the ORGANISER's own drive, which belongs to no site. So
+    the port has a second, singular way in — a person has exactly one default drive, so this is a
+    lookup, not a listing."""
+    drive = _Fake().user_drive("maria@lab.example")
+    assert isinstance(drive, Drive) and drive.id and drive.owner == "maria@lab.example"
+    assert drive.site_id == ""                       # a personal drive belongs to no site
+
+
 def test_the_reading_verbs_return_domain_objects_page_by_page():
     fake = _Fake()
     assert [s.id for s in fake.sites()] == ["s1"]
     assert [d.id for d in fake.drives("s1")] == ["d1"]
+    assert fake.user_drive("maria@lab.example").owner == "maria@lab.example"
     listing = fake.items("d1", path="Policies")
     assert listing.more and listing.items[0].path == "Policies"
     assert fake.item(ContentHandle.item("d1", "i1")).drive_id == "d1"
-    assert b"".join(fake.open(ContentHandle.item("d1", "i1"))) == b"bytes for collab://item/d1/i1"
+    stream = fake.open(ContentHandle.item("d1", "i1"))
+    assert b"".join(stream) == b"bytes for collab://item/d1/i1"      # iterable, so joining still reads it
+    assert fake.open(ContentHandle.item("d1", "i1")).size == 29      # ... and it says how big it is
+    assert fake.open(ContentHandle.item("d1", "i1")).media_type == "application/octet-stream"
 
 
 def test_the_meeting_verbs_answer_with_one_media_shape_for_both_kinds():

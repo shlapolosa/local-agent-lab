@@ -166,6 +166,7 @@ class CollabTools(ToolCatalogue):
     capabilities = "collab_capabilities"     # what THIS tenant/credential actually allows, and why not
     sites = "collab_sites"
     drives = "collab_drives"
+    user_drive = "collab_user_drive"         # a PERSON's own drive: content no team ever filed
     list = "collab_list"
     item = "collab_item"
     meetings = "collab_meetings"
@@ -177,7 +178,8 @@ class CollabTools(ToolCatalogue):
     watch_renew = "collab_watch_renew"
     unwatch = "collab_unwatch"
 
-    READ = (capabilities, sites, drives, list, item, meetings, recordings, transcripts, fetch, watches)
+    READ = (capabilities, sites, drives, user_drive, list, item, meetings, recordings, transcripts,
+            fetch, watches)
     WRITE = (watch, watch_renew, unwatch)    # tuples, so `names()`'s string filter ignores them
 
 
@@ -479,12 +481,12 @@ PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE,)}
 # ----------------------------------------------------------------------------- the registry of servers
 # Last, because WorkflowTools' tool names are derived from PROCESSES above.
 SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
-                                                                 WorkflowTools)}
+                                                                 WorkflowTools, CollabTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "ApprovalTools", "SERVERS", "ALL_TOOLS",
+           "ApprovalTools", "CollabTools", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",

@@ -18,6 +18,7 @@ ADOIT_MCP_URL    = _e("ADOIT_MCP_URL", "http://127.0.0.1:9100/mcp")     # as see
 SEMANTIC_MCP_URL = _e("SEMANTIC_MCP_URL", "http://127.0.0.1:9200/mcp")
 STORAGE_MCP_URL  = _e("STORAGE_MCP_URL", "http://127.0.0.1:9300/mcp")   # read-only governed object store
 WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # submit/status/result of every business process
+GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the COLLABORATION port (alias collab_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
@@ -31,6 +32,7 @@ ADOIT_MCP_PORT    = int(_e("ADOIT_MCP_PORT", "9100"))
 SEMANTIC_MCP_PORT = int(_e("SEMANTIC_MCP_PORT", "9200"))
 STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
+GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 
 # --- host tooling ---
 # Rendering a .vsdx page to a picture needs LibreOffice on the HOST running storage-mcp. It is an
@@ -77,3 +79,37 @@ ARTIFACT_INLINE_MAX_BYTES = int(_e("ARTIFACT_INLINE_MAX_BYTES") or 64 * 1024 ** 
 
 # --- licensed reference workbooks (BA Guild): never in the repo; a directory outside the tree or var/ ---
 REFERENCE_MODELS_DIR = _e("REFERENCE_MODELS_DIR") or str(VAR_DIR / "reference-sources")
+
+# --- collaboration provider (Microsoft Graph adapter: src/lab/substrate/mcp/graph/) ---
+# WHICH adapter the substrate wires behind the vendor-neutral `collab_mcp` port. The name is a key
+# in `lab.substrate.container.COLLAB_PROVIDERS`, so adding a second collaboration platform is one
+# registry entry plus its own `GRAPH_*`-equivalent settings — never an edit in the server.
+COLLAB_PROVIDER = _e("COLLAB_PROVIDER", "graph")       # THE default lives here, nowhere else
+
+# The tenant is the lab's existing Entra tenant — there is no second tenant setting. What differs
+# from an agent app registration is only what it is GRANTED: Microsoft Graph APPLICATION permissions
+# instead of the gateway's own app roles. The adapter authenticates app-only: the caller's credential
+# authorises the call to the MCP server, the server's own identity authorises the call to Graph, so
+# the app's permissions are the ceiling for every caller and per-caller narrowing is done at the
+# gateway with per-team tool permissions.
+ENTRA_TENANT_ID = _e("ENTRA_TENANT_ID", "")           # shared with the gateway's JWT validation
+GRAPH_BASE_URL = _e("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0")
+GRAPH_AUTH_MODE = _e("GRAPH_AUTH_MODE", "app")        # app (client credentials) | static (a token) | none
+GRAPH_CLIENT_ID = _e("GRAPH_CLIENT_ID")               # the app registration holding the Graph grants
+GRAPH_CLIENT_SECRET = _e("GRAPH_CLIENT_SECRET")       # a long-lived SECRET, never a long-lived token
+GRAPH_ACCESS_TOKEN = _e("GRAPH_ACCESS_TOKEN")         # mode=static only: a token from `az`, for probing
+GRAPH_MEETING_USER = _e("GRAPH_MEETING_USER")         # whose calendar/meetings app-only reads default to
+# …and the full set that may be read at all. App-only reaches every mailbox the Teams application
+# access policy covers, so this is a BOUND on the `organizer` argument, not just a default. Unset =
+# GRAPH_MEETING_USER alone.
+GRAPH_MEETING_USERS = tuple(u.strip() for u in (_e("GRAPH_MEETING_USERS") or "").split(",") if u.strip())
+GRAPH_MAX_FETCH_BYTES = int(_e("GRAPH_MAX_FETCH_BYTES") or 2 * 1024 ** 3)   # 2 GiB — a long recording
+# Change-notification destinations: egress to a caller-supplied URL, so an EMPTY list REFUSES every
+# subscription rather than allowing all. Comma-separated URL prefixes.
+GRAPH_NOTIFICATION_ALLOWLIST = tuple(u.strip() for u in (_e("GRAPH_NOTIFICATION_ALLOWLIST") or "").split(",") if u.strip())
+# Metering: since 25 Aug 2025 the Teams Graph APIs are NO LONGER metered and the `model` parameter is
+# ignored (https://learn.microsoft.com/graph/metered-api-list — only driveItem:assignSensitivityLabel
+# remains billed). What this flag still gates is the TENANT-WIDE meeting feeds
+# (/communications/onlineMeetings/getAllRecordings|getAllTranscripts and subscriptions on them), which
+# are BETA-only, unbounded in blast radius, and the historical metered surface — off by default.
+GRAPH_ALLOW_METERED = _bool(_e("GRAPH_ALLOW_METERED"))

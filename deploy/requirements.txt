@@ -19,11 +19,12 @@ agent-framework-openai==1.14.1  # `agent_framework.openai`: OpenAIChatClient
 mcp>=1.29                        # MCP SDK — agent_framework exports MCPStreamableHTTPTool from it (not pulled by fastmcp-slim)
 vsdx>=0.6                        # read Visio .vsdx diagrams (visio-to-archimate BA ingest)
 jsonschema>=4                   # validate the BA-output contract
-msal>=1.31                      # agent identity: Entra client-credentials (shared/identity.py)
-python-docx>=1.1                # BA reads requirements .docx (processes/visio_to_archimate/inputs.py)
+msal>=1.31                      # Entra client-credentials: lab.workloads.identity (agents) +
+                                #  lab.substrate.mcp.graph.graph_auth (the collaboration adapter, app-only)
+python-docx>=1.1                # BA reads requirements .docx (lab.workloads.visio_to_archimate.inputs)
 pypdf>=4                        # BA reads requirements .pdf
-boto3>=1.40,<2                  # S3-compatible upload store (Railway Bucket / Azure Blob): shared/artifacts.py S3Store
-Pillow>=10                      # storage-mcp image normalisation (shared/docparse.py)
+boto3>=1.40,<2                  # S3-compatible upload store (Railway Bucket / Azure Blob): lab.substrate.artifacts S3Store
+Pillow>=10                      # storage-mcp image normalisation (lab.platform.docparse)
 dependency-injector>=4.49,<5    # composition roots: lab.platform.container + lab.substrate.container (providers live only there)
 # PDF rasteriser for the .vsdx -> PNG representation (lab/platform/render_vsdx.py: pypdfium2 preferred,
 # pymupdf accepted). It now HAS a caller (storage_render_vsdx), but rendering also needs LIBREOFFICE in

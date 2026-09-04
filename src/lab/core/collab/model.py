@@ -26,7 +26,8 @@ from enum import StrEnum
 from typing import Any, Generic, Iterator, TypeVar
 
 __all__ = ["DEFAULT_LIMIT", "MAX_LIMIT", "clamp_limit", "HandleKind", "ContentHandle", "Site", "Drive",
-           "DriveItem", "Meeting", "MediaKind", "MediaRecord", "ChangeType", "Watch", "Page"]
+           "DriveItem", "Meeting", "MediaKind", "MediaRecord", "ChangeType", "Watch", "Page",
+           "ContentStream"]
 
 # A listing's result is read by an agent, so the page size is capped in ONE place — the port — and
 # every adapter and tool clamps through it rather than trusting a caller's number.
@@ -132,11 +133,20 @@ class Site:
 
 @dataclass(frozen=True)
 class Drive:
-    """A document library inside a site (`site_id` is empty for a drive reached on its own)."""
+    """A place files live. It hangs off a site (`site_id` — a team's document library) or off a
+    person (`owner` — their own drive), and which one decides where a caller looks for content: a
+    meeting recorded ad hoc is stored in the ORGANISER's own drive, which belongs to no site at all,
+    so the distinction is load-bearing rather than cosmetic. A provider may report BOTH (a site
+    library often names an owner) and may report neither; the fields are evidence, not a partition.
+
+    `owner` is an IDENTIFIER, never a display label — it is passed back to `user_drive()` and used to
+    address a person, so a provider that offers only a human-readable name reports no owner at all
+    rather than one that cannot be resolved."""
 
     id: str
     name: str
     site_id: str = ""
+    owner: str = ""
 
     def __post_init__(self) -> None:
         _require_id("drive", self.id)
@@ -244,6 +254,28 @@ class Watch:
         if not events:
             raise ValueError("a watch needs at least one change to listen for")
         object.__setattr__(self, "events", events)
+
+
+# ----------------------------------------------------------------------------- content
+@dataclass(frozen=True)
+class ContentStream:
+    """The bytes of one piece of content, plus what the provider SAID about them.
+
+    `open()` returns this rather than a bare iterator because the two facts that travel with a
+    download are exactly the two a store needs and a caller cannot otherwise learn: the media type
+    (a listing knows it, a fetch by handle alone does not) and the declared `size` (`0` when the
+    provider declared none). Without the size a store cannot refuse an over-large object BEFORE the
+    download is paid for — which is the whole reason a recording is streamed rather than buffered.
+
+    It is iterable, so `b"".join(stream)` reads it whole where that is genuinely wanted; the chunks
+    are consumed once, like any stream."""
+
+    chunks: Iterator[bytes]
+    media_type: str = ""
+    size: int = 0
+
+    def __iter__(self) -> Iterator[bytes]:
+        return iter(self.chunks)
 
 
 # ----------------------------------------------------------------------------- paging

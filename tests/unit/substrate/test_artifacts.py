@@ -219,7 +219,11 @@ def test_s3_store_on_fake_boto():
         _raises(KeyError, s.get, "art://nope/d.vsdx")
         _raises(KeyError, s.info, "art://nope/d.vsdx")
         s.put("r.docx", b"12345"); s.put("r2.md", b"#")
-        b.s3.objects["in/box/dangling"] = (b"", "", datetime(2026, 1, 1, tzinfo=timezone.utc))   # no "/name" -> skipped
+        # The sentinel must sort AFTER every real key, and artifact ids are random hex (0-9a-f), so
+        # a name starting past 'f' is the only stable way to say so. Named "dangling" it sorted into
+        # the first 2-key page in ~8% of runs, that page then yielded one usable object, the store
+        # paged again, and the "a full first page ends the walk" assertion below failed at random.
+        b.s3.objects["in/box/zzz-dangling"] = (b"", "", datetime(2026, 1, 1, tzinfo=timezone.utc))   # no "/name" -> skipped
         lst = s.list()
         assert [i["name"] for i in lst] == ["r2.md", "r.docx", "d.vsdx"], "newest first"
         assert lst[0]["content_type"] == "text/markdown" and lst[0]["backend"] == "s3"
@@ -328,6 +332,31 @@ def test_capped_reader_clamps_an_unbounded_read():
     r = artifacts._CappedReader(_StreamSource(artifacts.CHUNK * 3), artifacts.CHUNK * 3, "too big")
     assert len(r.read()) == artifacts.CHUNK and len(r.read(-1)) == artifacts.CHUNK
     assert len(r.read(10)) == 10
+
+
+def test_iterator_reader_turns_a_chunk_generator_into_a_file_the_stores_can_read():
+    """The seam between a port that YIELDS chunks (`CollabRepository.open`) and `put_stream`, which
+    READS them. It must never join the whole iterator: an unbounded `read()` answers one CHUNK."""
+    made = artifacts.IteratorReader(iter([b"abc", b"de", b"f"]))
+    assert made.read(2) == b"ab" and made.read(2) == b"cd"          # re-chunked across boundaries
+    assert made.read(10) == b"ef"                                    # short read at the end
+    assert made.read(10) == b"" and made.read(10) == b""             # exhausted, and stays exhausted
+    assert made.count == 6            # it counts what it handed out, so a caller can report the size
+
+
+def test_iterator_reader_never_materialises_the_whole_stream():
+    def endless():
+        while True:
+            yield b"\x01" * 1024
+    made = artifacts.IteratorReader(endless())
+    assert len(made.read()) == artifacts.CHUNK and len(made.read(-1)) == artifacts.CHUNK
+
+
+def test_iterator_reader_ignores_empty_chunks_without_ending_early():
+    """A provider may yield an empty chunk mid-stream (a keep-alive, a zero-length part); only the
+    ITERATOR running out ends the file."""
+    made = artifacts.IteratorReader(iter([b"", b"ab", b"", b"c"]))
+    assert made.read(10) == b"abc" and made.read(10) == b""
 
 
 def test_local_store_put_stream_is_chunked_and_ref_shaped_like_put():

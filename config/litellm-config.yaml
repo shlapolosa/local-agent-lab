@@ -19,6 +19,20 @@
 #                                                           READ / WRITE are these two sets)
 #   An agent that can submit a run AND approve it is not human-in-the-loop at all — never
 #   grant workflow_mcp to a workload's own agents, and never without the tool list.
+# PER-TOOL ACL — REQUIRED on collab_mcp too, for the same reason in a different shape. Its
+#   READ tools query a collaboration tenant and fetch content into the upload store; its
+#   THREE WRITE tools (collab_watch / collab_watch_renew / collab_unwatch) manage change-
+#   notification SUBSCRIPTIONS, which are egress to a caller-supplied URL and durable objects
+#   at the provider that outlive the run that made them. Never grant those to a workload's own
+#   agents (lab.platform.contracts.CollabTools READ / WRITE are these two sets):
+#     read-only  {"mcp_servers": ["collab_mcp"], "mcp_tool_permissions":
+#                 {"collab_mcp": ["collab_capabilities", "collab_sites", "collab_drives",
+#                                 "collab_user_drive", "collab_list", "collab_item",
+#                                 "collab_meetings", "collab_recordings", "collab_transcripts",
+#                                 "collab_fetch", "collab_watches"]}}
+#     + watch    … the same list + "collab_watch", "collab_watch_renew", "collab_unwatch"
+#   The server holds its OWN provider credential (app-only), so the app registration's
+#   permissions are the ceiling for EVERY caller — this ACL is where per-caller narrowing lives.
 # Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
 
 model_list:
@@ -103,6 +117,13 @@ mcp_servers:                          # addresses + trust come from the environm
     auth_type: bearer_token           # immediately (a run takes 600-1000 s), status/result poll it.
     authentication_token: os.environ/MCP_SHARED_SECRET   # + the APPROVAL GATE a run pauses at
     description: Business processes as governed tools — submit a run, poll its status, read its results (async; inputs are art:// refs); plus the human-in-the-loop approval gate — list/read what is awaiting a person and record THEIR decision (approvals_decide needs the signed-in human as `actor`; see the per-tool ACL note at the top of this file)
+    extra_headers: ["traceparent", "tracestate"]
+  collab_mcp:                         # the COLLABORATION port — files and meetings, vendor-neutral:
+    url: os.environ/GRAPH_MCP_URL     # the SERVICE behind this alias is graph-mcp (Microsoft Graph,
+    transport: http                   # GRAPH_* credentials); another collaboration platform is a
+    auth_type: bearer_token           # different adapter under THIS alias — no workload change.
+    authentication_token: os.environ/MCP_SHARED_SECRET   # + a PER-TOOL ACL: see the note at the top
+    description: Collaboration — the files people keep and the meetings they hold; find sites, document libraries and a person's own drive, list files and read their metadata, list meetings with their recordings and transcripts, and fetch any of it into the lab's upload store as an art:// reference (content is never returned inline); collab_capabilities reports what this tenant actually allows and why not
     extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router

@@ -266,6 +266,7 @@ def test_stores_come_from_the_container_and_can_be_overridden(kit):
     srv, _ = kit
     assert srv.container.config.service_name() == "kit-mcp"
     assert srv.artifacts is srv.container.artifacts and srv.uploads is srv.container.uploads, "the providers"
+    assert srv.collab is srv.container.collab, "the collaboration provider, held the same way"
     a, u = srv.artifacts(), srv.uploads()
     assert isinstance(a, artifacts.LocalStore) and isinstance(u, artifacts.LocalStore) and a is not u
     assert a is srv.artifacts(), "singleton per container"

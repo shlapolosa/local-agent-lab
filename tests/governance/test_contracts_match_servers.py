@@ -26,6 +26,7 @@ SERVER_MODULES = {                       # gateway alias -> the server module th
     "semantic_mcp": "lab.substrate.mcp.semantic.server",
     "ea_mcp": "lab.substrate.mcp.adoit.server",   # the ADOIT ADAPTER satisfying the vendor-neutral EA port
     "workflow_mcp": "lab.substrate.mcp.workflow.server",
+    "collab_mcp": "lab.substrate.mcp.graph.server",   # the COLLABORATION port; today's adapter is Microsoft Graph
 }
 
 
@@ -155,25 +156,44 @@ def test_nothing_downstream_of_the_ea_port_names_a_vendor_or_its_file_format():
     assert offenders == {}, f"vendor/file-format knowledge downstream of the port: {offenders}"
 
 
-def test_no_grant_hands_a_team_the_human_approval_write_by_accident():
-    """workflow_mcp carries BOTH the process tools and the approval gate, so a team granted the
-    SERVER without a per-tool ACL could approve the very run it submitted — the human-in-the-loop
-    invariant, gone. Any grant of workflow_mcp in the repo must therefore name its tools
-    (`mcp_tool_permissions`), and only a channel that authenticates a person may name
-    `approvals_decide`. Today no provisioning script grants workflow_mcp at all; this is the ratchet
-    that keeps a future one honest."""
+def split_catalogues() -> dict[str, type]:
+    """Every catalogue that declares a READ/WRITE grant split — derived from the registry, so a new
+    one is covered the moment it is registered instead of the day someone remembers this test."""
+    return {c.SERVER: c for c in contracts.SERVERS.values() if getattr(c, "WRITE", ())} | \
+           {contracts.ApprovalTools.SERVER: contracts.ApprovalTools}
+
+
+def test_a_split_catalogue_really_splits_its_tools_in_two():
+    """The shape the ACL depends on: READ and WRITE partition the catalogue, so a grant built from
+    them can neither omit a tool nor hand one over twice."""
+    assert set(split_catalogues()) >= {"workflow_mcp", "collab_mcp"}
+    assert contracts.ApprovalTools.WRITE == ("approvals_decide",)      # exactly one tool writes a decision
+    assert set(contracts.ApprovalTools.READ) < contracts.WorkflowTools.names()
+    for alias, cat in split_catalogues().items():
+        read, write = set(cat.READ), set(cat.WRITE)
+        assert read and write and not (read & write), alias
+        assert read | write == set(cat.names()) or cat is contracts.ApprovalTools, alias
+
+
+def test_no_grant_hands_a_team_a_guarded_write_by_accident():
+    """A catalogue with a WRITE grant carries tools that must NOT reach a workload's own agents:
+    `approvals_decide` records a PERSON's decision to release an EA-repository write, and
+    `collab_watch` creates egress to a caller-supplied URL plus a durable provider-side object that
+    outlives the run. Granting such a SERVER without naming its tools (`mcp_tool_permissions`) hands
+    those over silently — a submitting agent approving its own run, or an agent subscribing the
+    tenant to a destination of its choosing. Today no provisioning script grants either server; this
+    is the ratchet that keeps a future one honest, for every split catalogue there ever is."""
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     offenders = []
     for base, _, files in os.walk(os.path.join(root, "scripts")):
         for f in (x for x in files if x.endswith(".py")):
             src = open(os.path.join(base, f), encoding="utf-8").read()
-            for line in src.splitlines():
-                if '"workflow_mcp"' in line and "mcp_servers" in line and "mcp_tool_permissions" not in src:
-                    offenders.append(f"{f}: {line.strip()}")
-    assert offenders == [], ("workflow_mcp granted without a per-tool ACL — a submitting agent could "
-                            f"approve its own run: {offenders}")
-    assert contracts.ApprovalTools.WRITE == ("approvals_decide",)      # exactly one tool writes a decision
-    assert set(contracts.ApprovalTools.READ) < contracts.WorkflowTools.names()
+            for alias in split_catalogues():
+                for line in src.splitlines():
+                    if f'"{alias}"' in line and "mcp_servers" in line and "mcp_tool_permissions" not in src:
+                        offenders.append(f"{f}: {line.strip()}")
+    assert offenders == [], ("a server with a guarded WRITE grant was granted without a per-tool "
+                            f"ACL: {offenders}")
 
 
 def test_every_gateway_server_alias_has_a_contract():

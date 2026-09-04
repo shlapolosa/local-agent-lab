@@ -72,6 +72,17 @@ def test_a_site_and_a_drive_are_identified_values():
     assert Drive("d1", "Documents").site_id == ""
 
 
+def test_a_drive_says_whether_a_place_or_a_person_owns_it():
+    """A drive hangs off a SITE or off a PERSON, and which one decides where its content is found —
+    a meeting recorded ad hoc lands in the organiser's personal drive, not in any site's library. So
+    the object carries its owner rather than leaving the caller to remember how it was reached."""
+    library = Drive("d1", "Documents", site_id="s1")
+    personal = Drive("d2", "Files", owner="maria@lab.example")
+    assert (library.owner, library.site_id) == ("", "s1")
+    assert (personal.owner, personal.site_id) == ("maria@lab.example", "")
+    assert {personal, Drive("d2", "Files", owner="maria@lab.example")} == {personal}   # still hashable
+
+
 @pytest.mark.parametrize("factory", [lambda: Site("", "n"), lambda: Drive(" ", "n"),
                                      lambda: DriveItem("", "n", "d"), lambda: Meeting(""),
                                      lambda: MediaRecord("", MediaKind.RECORDING, "m"),

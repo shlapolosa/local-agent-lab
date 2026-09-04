@@ -1,9 +1,10 @@
 # SUBSTRATE — the shared platform plane, deployed ONCE and referenced by every workload.
-# Governance (gateway), shared tools (semantic-mcp, adoit-mcp), the human approval gate (review),
+# Governance (gateway), shared tools (semantic-mcp, adoit-mcp, storage-mcp, workflow-mcp, graph-mcp),
+# the human approval gate (review),
 # and local tracing. All durable state lives OUTSIDE this compose (Neon, Redis Cloud, artifact
 # store in Postgres); on Railway, tracing is the remote Jaeger instead of the local one here.
 #
-# The gateway is the ONLY public door a workload uses. The two MCP servers are internal to the
+# The gateway is the ONLY public door a workload uses. Every MCP server is internal to the
 # substrate network — workloads reach their tools only THROUGH the gateway (/mcp), never directly.
 #
 # Usage (local, needs a Docker engine):
@@ -18,6 +19,7 @@ x-sub: &sub
     ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
     SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
     STORAGE_MCP_URL: http://storage-mcp:9300/mcp
+    GRAPH_MCP_URL: http://graph-mcp:9500/mcp
     REVIEW_APP_URL: ${REVIEW_APP_URL:-http://review:8501}
     JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
     # the substrate's own Redis (service above) — overrides the machine-local .env value, which
@@ -72,6 +74,9 @@ services:
   workflow-mcp:               # the governed FRONT DOOR to every business process (submit/status/result
     <<: *sub                  # + the approval tools). Redis + tracing only — holds NO store credential.
     command: ["python", "-m", "lab.substrate.mcp.workflow.server"]
+  graph-mcp:                  # the COLLABORATION port (gateway alias collab_mcp) — internal only.
+    <<: *sub                  # Holds the provider credential (GRAPH_*) AND bucket credentials:
+    command: ["python", "-m", "lab.substrate.mcp.graph.server"]   # collab_fetch streams content in.
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]
@@ -82,6 +87,7 @@ services:
       SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
       STORAGE_MCP_URL: http://storage-mcp:9300/mcp
       WORKFLOW_MCP_URL: http://workflow-mcp:9400/mcp
+      GRAPH_MCP_URL: http://graph-mcp:9500/mcp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
       OTEL_SERVICE_NAME: litellm-gateway
@@ -91,7 +97,7 @@ services:
       # verified). Skip schema management in containers; migrate the DB once, natively.
       DISABLE_SCHEMA_UPDATE: "true"
     ports: ["4000:4000"]
-    depends_on: [adoit-mcp, semantic-mcp, storage-mcp, workflow-mcp]
+    depends_on: [adoit-mcp, semantic-mcp, storage-mcp, workflow-mcp, graph-mcp]
   review:                     # human approval gate (cross-cutting) — public, password-gated
     <<: *sub
     command: ["streamlit", "run", "src/lab/substrate/review/app.py", "--server.port", "8501", "--server.headless", "true"]

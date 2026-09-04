@@ -11,7 +11,9 @@ depend on, structural typing so a test double is a plain object with the right m
 Three properties every implementation must honour:
 
   * **Content by handle, never inline.** A listing mints a `ContentHandle`; `open()` is the one verb
-    that produces bytes, as a STREAM, so a recording is never held in memory whole.
+    that produces bytes, as a STREAM (a `ContentStream`: the chunks plus the media type and declared
+    size the provider reported), so a recording is never held in memory whole and an over-large one
+    can be refused before it is downloaded.
   * **Paged with an opaque cursor, hard-capped.** Callers pass `limit`/`cursor` and echo the cursor
     back; the size is clamped through `model.clamp_limit` because a listing is read by an agent.
   * **A refusal is typed.** Anything the provider will not serve raises (or, from `capabilities()`,
@@ -24,10 +26,11 @@ it, so it is granted apart from reading and is not for a workload's own agents.
 """
 from __future__ import annotations
 
-from typing import Iterator, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from lab.core.collab.errors import CollabUnavailable
-from lab.core.collab.model import ChangeType, ContentHandle, Drive, DriveItem, MediaRecord, Meeting, Page, Site, Watch
+from lab.core.collab.model import (ChangeType, ContentHandle, ContentStream, Drive, DriveItem,
+                                   MediaRecord, Meeting, Page, Site, Watch)
 
 __all__ = ["CAPABILITIES", "CollabRepository"]
 
@@ -58,6 +61,14 @@ class CollabRepository(Protocol):
         """The document libraries of one site — a site usually has one default library and may have
         several. `site_id` is a `Site.id` this port handed out, not a path a caller composed."""
 
+    def user_drive(self, user_id: str) -> Drive:
+        """The drive that belongs to one PERSON, by their identifier in the provider's directory —
+        the second way in, because `drives()` reaches only the libraries of a place and a person's
+        own files sit in no place. It is singular, not a page: a person has exactly one default
+        drive. Empty `user_id` is a caller error (`ValueError`); a refusal is a `CollabUnavailable`.
+        This is how content nobody filed in a shared library is reached at all — an ad-hoc meeting's
+        recording is stored by its organiser, not by any team."""
+
     def items(self, drive_id: str, path: str = "", limit: int | None = None,
               cursor: str | None = None) -> Page[DriveItem]:
         """The folders and files directly inside `path` of a drive ("" is the drive root). Listing is
@@ -67,10 +78,17 @@ class CollabRepository(Protocol):
         """The metadata of one file, by the handle a listing minted for it — name, size, modified.
         Raises `ValueError` for a handle of the wrong kind, `CollabUnavailable` when it cannot be read."""
 
-    def open(self, handle: ContentHandle) -> Iterator[bytes]:
-        """The content, STREAMED in chunks — the single verb that produces bytes, for every kind of
-        handle (a file, a recording, a transcript). It streams because a recording does not fit in
-        memory; the caller writes the chunks straight into the store and keeps only the reference."""
+    def open(self, handle: ContentHandle) -> ContentStream:
+        """The content, STREAMED — the single verb that produces bytes, for every kind of handle (a
+        file, a recording, a transcript). It streams because a recording does not fit in memory; the
+        caller writes the chunks straight into the store and keeps only the reference.
+
+        It answers a `ContentStream`, not a bare iterator, because the provider knows two things at
+        this moment that no later call can recover: the media TYPE (a fetch by handle alone has no
+        listing to read it from) and the declared SIZE. Without the size a store cannot refuse an
+        over-large object until the download has already been paid for, which defeats the point of
+        streaming; an implementation reports `0` when the provider declares nothing rather than
+        guessing."""
 
     def meetings(self, since: str = "", until: str = "", organizer: str = "",
                  limit: int | None = None, cursor: str | None = None) -> Page[Meeting]:

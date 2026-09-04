@@ -150,11 +150,25 @@ These rules define the lab; do not violate them when adding code:
 - **Destructive/write tools require human approval** via the workflow engine's approval gate.
 - **Workloads hold no store credentials.** Inputs reach a workload as `art://` refs and are read
   ONLY through the gateway's read-only **storage-mcp**; its own spec goes to `semantic_store_spec`.
-  Bucket/DB credentials live in the substrate (storage-mcp, the review app that uploads) and
+  Bucket/DB credentials live in the substrate (storage-mcp reads, the review app and graph-mcp write) and
   `deploy/railway.py configure_workload()` strips them from every workload service.
 - **Every workflow host sets a distinct OTel service name** (e.g. `process-1-intake`) so concurrent processes can be traced and audited independently.
 - **Every MCP server lives in the SUBSTRATE; workloads are MCP CLIENTS only.** Five servers today:
-  `adoit-mcp` (:9100), `semantic-mcp` (:9200), `storage-mcp` (:9300), `workflow-mcp` (:9400). A domain
+  `adoit-mcp` (:9100), `semantic-mcp` (:9200), `storage-mcp` (:9300), `workflow-mcp` (:9400),
+  `graph-mcp` (:9500). The vendor-name ban now also covers microsoft/graph/sharepoint/onedrive/teams/
+  m365/office365/entra — `graph-mcp` serves the neutral alias **`collab_mcp`** (catalogue `CollabTools`),
+  whose PORT is `lab.core.collab.CollabRepository` and whose adapter is chosen from `COLLAB_PROVIDERS`
+  by the `COLLAB_PROVIDER` setting: a Google Workspace or Box adapter is one registry line.
+  **Content is never returned inline** — a listing mints a `collab://` handle and `collab_fetch` is the
+  ONLY verb that moves bytes, streaming them into the upload store and returning an `art://` ref the
+  workload reads through storage-mcp (a recording is gigabytes; an agent's context is not).
+  **`collab_mcp` and `workflow_mcp` each split READ from WRITE** — subscription management is egress to
+  a CALLER-SUPPLIED url plus a durable tenant-side object, so it needs its own grant and must never
+  reach a workload's own agents (ratcheted for every catalogue carrying a `WRITE` tuple).
+  **Provider identity, not the caller's**: the caller's credential authorises the call to the MCP; the
+  SERVER's own app registration authorises the call to the provider. So the app's permissions are the
+  ceiling for every caller, per-caller narrowing is the gateway's per-tool ACL, and the provider-side
+  audit names the application. On-behalf-of stays blocked on identity propagation gateway->MCP. A domain
   dependency's ADAPTER is its MCP server and the PORT is its tool contract (`lab.platform.contracts`) —
   swapping ADOIT for another EA tool means a different server satisfying the same tools, re-registered;
   no workload changes. The EA-repository port is **vendor-neutral**: alias `ea_mcp`, tools
@@ -773,7 +787,8 @@ localhost, so `config/jaeger-railway.yaml` (0.0.0.0 receivers, memstore) is inje
 `JAEGER_CONFIG` variable with start command `/cmd/jaeger/jaeger-linux --config env:JAEGER_CONFIG`
 (Railway replaces the entrypoint; the binary path comes from the image config). In-memory
 storage. **Both endpoints are public and unauthenticated** — acceptable for a lab whose spans
-carry no PII, not for anything else; front them with auth before workflow hosts emit real data.
+carry no PII (a RULE now, not a hope: collab spans carry provider ids, counts and shapes only — never
+a principal, a UPN or caller free text — enforced by a test that fails if one reaches a span), not for anything else; front them with auth before workflow hosts emit real data.
 The native binary in `var/tools/jaeger/` is the local fallback: `lab.sh` starts it only when
 `OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost. **Railway is metered (trial credit): stop it
 when not in use** — `lab.sh down` removes the Railway deployment and `lab.sh up` redeploys it

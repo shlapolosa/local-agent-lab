@@ -120,7 +120,7 @@ FAKE = {
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
     # shared trust / coordinates
     "MCP_SHARED_SECRET": "sec", "BIND_HOST": "::",
-    "ADOIT_MCP_URL": "u", "SEMANTIC_MCP_URL": "u", "STORAGE_MCP_URL": "u",
+    "ADOIT_MCP_URL": "u", "SEMANTIC_MCP_URL": "u", "STORAGE_MCP_URL": "u", "GRAPH_MCP_URL": "u",
     "GATEWAY_URL": "https://gw", "REVIEW_APP_URL": "https://rv", "JAEGER_UI_URL": "https://jg",
     "REDIS_URL": "redis://redis:6379/0", "ARTIFACTS_URL": "pg",
     # ADOIT
@@ -138,6 +138,11 @@ FAKE = {
     "AGENT_RESPONSES_STORE": "false", "VISIO_DIAGRAM": "art://x/y.vsdx", "VISIO_REQUIREMENTS": "",
     "BA_MAX_DOC_CHARS": "60000", "BA_MODE": "json", "ARCHITECT_MODE": "json",
     "TELEGRAM_BOT_TOKEN": "tg", "TELEGRAM_CHAT_ID": "tg", "TEAMS_WEBHOOK_URL": "https://hook",
+    # collaboration adapter (graph-mcp)
+    "COLLAB_PROVIDER": "graph", "GRAPH_CLIENT_ID": "g", "GRAPH_CLIENT_SECRET": "g",
+    "GRAPH_AUTH_MODE": "app", "GRAPH_BASE_URL": "https://graph.example", "GRAPH_MEETING_USER": "c@l",
+    "GRAPH_NOTIFICATION_ALLOWLIST": "https://flow.example", "GRAPH_ALLOW_METERED": "false",
+    "GRAPH_MCP_PORT": "9500",
 }
 MANAGEMENT = {k for k in FAKE if k.startswith(("RAILWAY_", "NEON_", "OCI_"))}
 
@@ -152,7 +157,8 @@ def test_workload_receives_no_substrate_secrets():
               "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "ADOIT_MCP_URL", "SEMANTIC_MCP_URL",
               "STORAGE_MCP_URL", "BIND_HOST", "REVIEW_APP_PASSWORD", "EA_AGENT_KEY", "ENTRA_CLIENT_TO_KEY"):
         assert k not in env, k
-    assert not _has(env, "ADOIT_", "MICROSOFT_", "S3_", "TELEGRAM_", "REDIS_HOST", "REDIS_PASSWORD")
+    assert not _has(env, "ADOIT_", "MICROSOFT_", "S3_", "TELEGRAM_", "REDIS_HOST", "REDIS_PASSWORD",
+                    "GRAPH_", "COLLAB_")     # the collaboration credential is the substrate's alone
     for k in ("GATEWAY_URL", "REVIEW_APP_URL", "JAEGER_UI_URL", "REDIS_URL", "OTEL_EXPORTER_OTLP_ENDPOINT",
               "BA_AGENT_KEY", "BA_AGENT_CLIENT_ID", "BA_AGENT_CLIENT_SECRET",
               "ARCHITECT_AGENT_KEY", "ARCHITECT_AGENT_CLIENT_ID", "ARCHITECT_AGENT_CLIENT_SECRET",
@@ -168,7 +174,7 @@ def test_gateway_receives_exactly_what_it_consumes():
     assert set(env) == {
         "LITELLM_MASTER_KEY", "LITELLM_MCP_CLIENT_TIMEOUT", "LITELLM_MCP_TOOL_LISTING_TIMEOUT",
         "DATABASE_URL", "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "MCP_SHARED_SECRET",
-        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "REDIS_URL",
+        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "GRAPH_MCP_URL", "REDIS_URL",
         "OTEL_EXPORTER", "OTEL_ENDPOINT", "OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT",
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE", "ENTRA_CLIENT_TO_KEY", "DEVELOPERS_TEAM_ID",
         "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_TENANT", "PROXY_BASE_URL",
@@ -177,6 +183,8 @@ def test_gateway_receives_exactly_what_it_consumes():
     # the ADOIT credentials never reach the gateway (only the adoit-mcp ADDRESS does).
     assert not _has(env, "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "S3_", "BA_", "ARCHITECT_",
                     "ADOIT_BASE_URL", "ADOIT_USERNAME", "ADOIT_PASSWORD", "ADOIT_REPO_ID", "ADOIT_REST_WRITE")
+    # the gateway learns the collaboration server's ADDRESS, never the credential behind it
+    assert "GRAPH_CLIENT_SECRET" not in env and "GRAPH_CLIENT_ID" not in env
 
 
 def test_adoit_mcp_receives_exactly_what_it_consumes():
@@ -195,6 +203,28 @@ def test_workflow_mcp_holds_redis_and_two_links_and_no_store():
     assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
                         "REVIEW_APP_URL", "JAEGER_UI_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not _has(env, "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_")
+
+
+def test_graph_mcp_holds_its_provider_credential_the_bucket_and_nothing_else():
+    """The COLLABORATION adapter: its own app-only credential, the upload store it streams fetched
+    content into, and tracing. NO Redis (it publishes no event and holds no approval), no gateway or
+    model secret, no ADOIT credential — and its own secret must not leak to any other role."""
+    env = railway.env_for_role("graph-mcp", FAKE, s3=True)
+    assert set(env) == {
+        "MCP_SHARED_SECRET", "BIND_HOST", "COLLAB_PROVIDER", "ENTRA_TENANT_ID",
+        "GRAPH_MCP_URL", "GRAPH_MCP_PORT", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET",
+        "GRAPH_AUTH_MODE", "GRAPH_BASE_URL", "GRAPH_MEETING_USER",
+        "GRAPH_NOTIFICATION_ALLOWLIST", "GRAPH_ALLOW_METERED",
+        "ARTIFACTS_URL", "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE",
+        "UPLOADS_URL"}
+    # DATABASE_URL is the LiteLLM key/spend store's DSN — the most sensitive secret in the substrate,
+    # and this role has no use for it (ARTIFACTS_URL already carries the expanded value it falls back to)
+    assert "REDIS_URL" not in env and "DATABASE_URL" not in env
+    assert not _has(env, "ADOIT_", "LITELLM_", "OLLAMA_", "BA_", "ARCHITECT_", "MICROSOFT_")
+    for role in railway.ROLE_ENV:
+        if role != "graph-mcp":
+            assert "GRAPH_CLIENT_SECRET" not in railway.env_for_role(role, FAKE, s3=True), role
 
 
 def test_semantic_mcp_is_credential_free():

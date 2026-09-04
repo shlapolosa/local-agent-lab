@@ -2,7 +2,7 @@
 # lab.sh — bring the local agent lab up/down in one command.
 #   ./lab.sh up      start redis (brew, or check the cloud one), jaeger (native, or DEPLOY the Railway one when
 #                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), storage-mcp (:9300),
-#                    workflow-mcp (:9400), gateway (:4000), review app (:8501), and every CONFIGURED
+#                    workflow-mcp (:9400), graph-mcp (:9500), gateway (:4000), review app (:8501), and every CONFIGURED
 #                    approval channel (telegram, teams — skipped with a line when their .env settings are absent)
 #   ./lab.sh down    stop everything — the MCP servers, gateway, review app, every approval channel,
 #                    the consumer and the metered Railway Jaeger deployment (redis is left to brew)
@@ -24,7 +24,8 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
   export BIND_HOST="${BIND_HOST:-127.0.0.1}"
   export ADOIT_MCP_URL="${ADOIT_MCP_URL:-http://127.0.0.1:9100/mcp}" SEMANTIC_MCP_URL="${SEMANTIC_MCP_URL:-http://127.0.0.1:9200/mcp}" \
          STORAGE_MCP_URL="${STORAGE_MCP_URL:-http://127.0.0.1:9300/mcp}" \
-         WORKFLOW_MCP_URL="${WORKFLOW_MCP_URL:-http://127.0.0.1:9400/mcp}"; }
+         WORKFLOW_MCP_URL="${WORKFLOW_MCP_URL:-http://127.0.0.1:9400/mcp}" \
+         GRAPH_MCP_URL="${GRAPH_MCP_URL:-http://127.0.0.1:9500/mcp}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
@@ -136,6 +137,13 @@ up() {
   start_mcp storage-mcp  lab.substrate.mcp.storage.server  9300   # READ-ONLY upload store: the only way a workload reads an input
   start_mcp workflow-mcp lab.substrate.mcp.workflow.server 9400   # business processes: <process>_submit/_status/_result (async)
                                                                   # + the approval gate: approvals_list/_get/_decide (human)
+  # graph-mcp is started ALWAYS, unlike the approval channels, and that is deliberate: with no
+  # GRAPH_CLIENT_ID it still answers collab_capabilities with the exact settings and grants that are
+  # missing, which is the provisioning experience. A skipped server would instead make the gateway
+  # report zero collab_* tools, which looks like a grant problem and is the confusion this whole
+  # server is built to prevent.
+  start_mcp graph-mcp    lab.substrate.mcp.graph.server    9500   # collaboration (alias collab_mcp): files + meetings by handle,
+                                                                  # collab_fetch streams content into the upload store
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
@@ -196,18 +204,18 @@ channels() {
 
 down() {
   for_each_channel stop_channel
-  for s in wf-visio review litellm workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
+  for s in wf-visio review litellm graph-mcp workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
-  for m in adoit semantic storage workflow; do pkill -f "lab.substrate.mcp.$m.server" 2>/dev/null || true; done
+  for m in adoit semantic storage workflow graph; do pkill -f "lab.substrate.mcp.$m.server" 2>/dev/null || true; done
   pkill -f "lab.workloads.visio_to_archimate.consumer" 2>/dev/null || true
 }
 
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp graph-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   # the review app is reported by its HEALTH endpoint, not its pid file: streamlit's recorded pid
   # goes stale across a manual restart while the app keeps serving :8501 (observed), and "stopped"
   # for a running approval UI is exactly the wrong answer

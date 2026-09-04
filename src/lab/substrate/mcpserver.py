@@ -2,7 +2,8 @@
 storage-mcp, workflow-mcp), so the governance-relevant plumbing cannot drift between them:
 
   * `LabServer` (Facade + Template Method) — composes the server from the substrate container
-    (`lab.substrate.container.build(service)`: config, redis, tracer, artifact + upload stores), owns
+    (`lab.substrate.container.build(service)`: config, redis, tracer, artifact + upload stores, the
+    collaboration provider), owns
     the `FastMCP` instance and wraps every tool in ONE span named after the function (attributes
     `mcp.tool`, `mcp.server`; ERROR status + the exception recorded on failure; the result untouched).
     Tools that add domain attributes use `span()` — the current span — instead of opening their own.
@@ -66,6 +67,7 @@ class LabServer:
         self.tracer = self.container.tracer
         self.artifacts = self.container.artifacts
         self.uploads = self.container.uploads
+        self.collab = self.container.collab      # the collaboration provider (files + meetings)
         self.mcp = FastMCP(service)
 
     def tool(self, *args, **kwargs):
