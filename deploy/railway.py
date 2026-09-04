@@ -1,8 +1,9 @@
 """Deploy the lab to Railway as two independent tiers (see deploy/README.md):
 
-  substrate  — the shared plane: gateway (public), semantic-mcp + adoit-mcp (internal),
-               review (public). Lives in the existing project alongside Jaeger, so the
-               gateway reaches the MCP servers over Railway private DNS (*.railway.internal).
+  substrate  — the shared plane: redis (internal), gateway (public), semantic-mcp + adoit-mcp +
+               storage-mcp (internal), review (public). Lives in the existing project alongside
+               Jaeger, so the gateway reaches the MCP servers over Railway private DNS
+               (*.railway.internal).
   workload   — a business process (e.g. visio) as its OWN service, referencing the substrate
                ONLY via the gateway's PUBLIC domain + the shared managed backends — never the
                MCP servers (internal to the substrate) or another workload. Run-to-completion
@@ -13,10 +14,14 @@ Builds `deploy/Dockerfile` from the PUBLIC GitHub repo (no local Docker, no GitH
 Config/secrets come from `.env`: active `KEY=value` lines, with `# CLOUD: KEY=value` comment
 values overriding the machine-local ones (Redis Cloud, Railway Jaeger). Secrets stay only in
 `.env`, never in this script. Idempotent: services are found by name and updated in place.
+LEAST PRIVILEGE: each service receives ONLY the keys its role reads — `ROLE_ENV` below is the
+per-role allowlist (the Container Apps secret-scope table); `substrate env` / `workload <n> env`
+print exactly what each service gets, offline, for review.
 
-Usage: set -a && source .env && set +a && python deploy/railway.py substrate up|down|status
-       set -a && source .env && set +a && python deploy/railway.py workload visio up|down|status
+Usage: set -a && source .env && set +a && python deploy/railway.py substrate up|down|status|env
+       set -a && source .env && set +a && python deploy/railway.py workload visio up|down|status|env
 """
+import fnmatch
 import json
 import os
 import re
@@ -25,22 +30,55 @@ import urllib.request
 
 REPO = "shlapolosa/local-agent-lab"
 BRANCH = "main"
+
+# --- how the image gets built -------------------------------------------------------------------
+# "image" (default): ONE image is built in CI (.github/workflows/image.yml) and pushed to GHCR;
+#   every service — six substrate roles + each workload — is an IMAGE service pulling that same
+#   immutable tag and differing only in start command + env. Railway builds nothing, so a deploy is
+#   six pulls instead of six identical Dockerfile builds, and every role provably runs the same bits.
+# "repo" (LAB_BUILD=repo): the original path — each service builds deploy/Dockerfile from GitHub.
+#   Kept as the no-registry fallback; note Railway REQUIRES cache-mount ids of the form
+#   `s/<serviceId>-<name>`, which one shared Dockerfile cannot satisfy, so repo builds are slower.
+# The image must be readable by Railway: make the GHCR package public (it mirrors this public repo),
+# or set a registry credential on the services.
+BUILD_MODE = os.environ.get("LAB_BUILD", "image")           # image | repo
+IMAGE_TAG = os.environ.get("LAB_IMAGE_TAG", BRANCH)         # a git sha pins a rollback
+IMAGE = os.environ.get("LAB_IMAGE") or f"ghcr.io/{REPO}:{IMAGE_TAG}"
+
+
+def _source():
+    """The service `source` for repo-built roles: a registry image, or this GitHub repo."""
+    return {"image": IMAGE} if BUILD_MODE == "image" else {"repo": REPO}
+
+
+def _build_input(cmd):
+    """Service-instance fields that select WHAT runs: a prebuilt image, or a Dockerfile build."""
+    return {"source": {"image": IMAGE}} if BUILD_MODE == "image" else {"dockerfilePath": "deploy/Dockerfile"}
 API = "https://backboard.railway.com/graphql/v2"
+# Railway credentials are read lazily (`.get`) so the module imports WITHOUT them — the env parser
+# + ROLE_ENV are reused offline by scripts/e2e_smoke.py and tests/deploy/test_railway_env.py. Every network
+# command checks them first (`_require_railway()`).
 H = {"User-Agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/128 Safari/537.36",
      "Content-Type": "application/json", "Accept": "application/json",
-     "Project-Access-Token": os.environ["RAILWAY_TOKEN"]}
-PROJECT = os.environ["RAILWAY_PROJECT_ID"]
-ENV = os.environ["RAILWAY_ENVIRONMENT_ID"]
+     "Project-Access-Token": os.environ.get("RAILWAY_TOKEN", "")}
+PROJECT = os.environ.get("RAILWAY_PROJECT_ID", "")
+ENV = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _require_railway():
+    missing = [k for k in ("RAILWAY_TOKEN", "RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID") if not os.environ.get(k)]
+    if missing:
+        raise SystemExit(f"missing {', '.join(missing)} — set -a && source .env && set +a first")
 
 # --- substrate services: name -> role command, ingress, health ---
 SUBSTRATE = {
-    "semantic-mcp": {"cmd": "python mcp/semantic_mcp/server.py", "port": None},
-    "adoit-mcp":    {"cmd": "python mcp/adoit_mcp/server.py", "port": None},
+    "semantic-mcp": {"cmd": "python -m lab.substrate.mcp.semantic.server", "port": None},
+    "adoit-mcp":    {"cmd": "python -m lab.substrate.mcp.adoit.server", "port": None},
     # READ-ONLY governed object store. "s3": True = this service (and only such services) receives the
     # bucket credentials (S3_* + UPLOADS_URL); every other service — and every workload — gets none.
-    "storage-mcp":  {"cmd": "python mcp/storage_mcp/server.py", "port": None, "s3": True},
-    "gateway":      {"cmd": "litellm --config gateway/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
+    "storage-mcp":  {"cmd": "python -m lab.substrate.mcp.storage.server", "port": None, "s3": True},
+    "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
                      # Railway uses TWO different network paths to a container: the PUBLIC edge reaches it
@@ -57,11 +95,95 @@ SUBSTRATE = {
                      # Neon is already migrated by the native bootstrap; skip the ~152-migration cold-start
                      # replay a fresh container otherwise runs against remote Neon.
                      "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
-    "review":       {"cmd": "streamlit run review/app.py --server.port 8501 "
+    "review":       {"cmd": "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
                             "--server.address :: --server.headless true", "port": 8501,
                      "s3": True},   # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
 }
 S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
+
+# --- per-role environment ALLOWLIST (least privilege; review B-H2) ---
+# A service receives ONLY the `.env` keys (after `# CLOUD:` override + $VAR expansion, plus the
+# coordinates configure() layers on) that match its role's glob patterns — nothing is popped from
+# a full copy any more. Derived from the code that READS env in each role (cited per line); when a
+# role starts reading a new variable, add it here in the same change, or the container won't see
+# it. This table is also the Azure Container Apps secret-scope map (which Key Vault refs each app
+# gets). The bucket credentials (S3_KEYS) are NOT listed anywhere here on purpose: they are granted
+# solely by a service's `"s3": True` flag (review + storage-mcp), which env_for_role() adds.
+_OTLP = "OTEL_EXPORTER_OTLP_*"                     # every Python role: lab.platform.otel.tracer reads OTEL_EXPORTER_OTLP_ENDPOINT
+ROLE_ENV = {
+    "gateway": [                                   # litellm + gateway/{custom_auth,auto_router,pii_guardrail}.py
+        "LITELLM_*",                               # master key, LITELLM_MCP_CLIENT_TIMEOUT / TOOL_LISTING_TIMEOUT (litellm env)
+        "DATABASE_URL",                            # key/team/spend store (litellm)
+        "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
+        "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
+        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
+        "REDIS_URL",                               # custom_auth.py; litellm falls back to it when REDIS_HOST/PORT/
+                                                   # PASSWORD are absent (verified) — those three stay OUT (unchanged
+                                                   # from the old drop-set; the cloud Redis has no password)
+        "OTEL_*",                                  # OTEL_EXPORTER / OTEL_ENDPOINT / OTEL_SERVICE_NAME (litellm otel callback)
+        "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE", "ENTRA_CLIENT_TO_KEY", "DEVELOPERS_TEAM_ID",   # custom_auth.py
+        "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_TENANT", "PROXY_BASE_URL",     # litellm UI SSO
+        "DISABLE_SCHEMA_UPDATE",                   # spec env (see SUBSTRATE["gateway"])
+    ],
+    "adoit-mcp": [                                 # src/lab/substrate/mcp/adoit/{server,adoit_rest}.py + lab.substrate.{approvals,artifacts,mcpauth} + lab.platform.config
+        "ADOIT_BASE_URL", "ADOIT_USERNAME", "ADOIT_PASSWORD", "ADOIT_REPO_ID",   # ADOIT REST credentials (this role ONLY)
+        "ADOIT_REST_WRITE",                        # config.ADOIT_REST_WRITE write-path toggle
+        "MCP_SHARED_SECRET", "BIND_HOST", "ADOIT_MCP_PORT",   # mcpauth bearer; uvicorn bind
+        "REDIS_URL",                               # approvals.request() (adoit_request_import)
+        "ARTIFACTS_URL", "DATABASE_URL",           # artifacts.store() (renders -> art:// refs; DATABASE_URL is config's fallback)
+        "REVIEW_APP_URL",                          # tool results link the reviewer to the review app
+        _OTLP, "REFERENCE_MODELS_DIR",             # tracing; src/lab/core/semantic/reference/baguild.py workbook dir (optional)
+    ],
+    "semantic-mcp": [                              # src/lab/substrate/mcp/semantic/server.py — credential-free, read-only
+        "MCP_SHARED_SECRET", "BIND_HOST", "SEMANTIC_MCP_PORT",
+        "ARTIFACTS_URL", "DATABASE_URL",           # semantic_store_spec / semantic_export_archimate write spec refs
+        _OTLP, "REFERENCE_MODELS_DIR",
+    ],
+    "storage-mcp": [                               # src/lab/substrate/mcp/storage/server.py + lab.substrate.artifacts + lab.platform.docparse — READ-ONLY upload store
+        "MCP_SHARED_SECRET", "BIND_HOST", "STORAGE_MCP_PORT",
+        "ARTIFACTS_URL", "DATABASE_URL",           # config.UPLOADS_URL falls back to ARTIFACTS_URL when no bucket is configured
+        "BA_MAX_*",                                # docparse.py size limits (BA_MAX_DOC_CHARS, BA_MAX_EMBEDDED_IMAGES)
+        _OTLP,
+    ],                                             # + S3_KEYS via the "s3" flag (the only writer/reader pair of the bucket)
+    "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
+        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
+        "REDIS_URL",                               # approvals / workflows / runlog streams
+        "ARTIFACTS_URL", "DATABASE_URL",           # reads xml/svg refs of a request
+        "JAEGER_UI_URL",                           # trace links
+    ],                                             # + S3_KEYS via the "s3" flag (Submit page uploads straight to the bucket)
+    "telegram": [                                  # src/lab/substrate/channels/telegram.py (not deployed by this script; documented for parity)
+        "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "REDIS_URL", "REVIEW_APP_URL",
+    ],
+    "workload": [                                  # src/lab/workloads/visio_to_archimate/{host,consumer,agents,workflow}.py + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
+        "GATEWAY_URL",                             # the ONLY substrate coordinate (LLM + MCP via the gateway)
+        "REVIEW_APP_URL", "JAEGER_UI_URL",         # reported to the human (host.py prints; consumer writes back)
+        "REDIS_URL",                               # workflows.py (consume requests) + runlog.py (live node status)
+        _OTLP,                                     # lab.platform.otel.tracer; service name is set in code, not from env
+        "BA_*", "ARCHITECT_*",                     # identity.agent_headers(): <PREFIX>_CLIENT_ID/SECRET/KEY; BA_MODE, BA_RUN_TIMEOUT,
+                                                   # BA_MAX_* (docparse), ARCHITECT_MODE (workflow.py)
+        "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE",   # identity.py MSAL authority + scope
+        "AGENT_*",                                 # agents.py: AGENT_RESPONSES_STORE / REQUEST_TIMEOUT / MAX_RETRIES / MAX_OUTPUT_TOKENS
+        "VISIO_AGENT_MODEL", "VISIO_DIAGRAM", "VISIO_REQUIREMENTS",   # agents.py model; host.py cloud-job inputs (NOT VISIO_TEAM_ID etc.)
+        "WF_CONSUMER",                             # consumer.py replica name (spec env)
+    ],
+    # image services built from nothing in this repo: they get NO .env keys at all
+    "redis": [],
+    "jaeger": [],
+}
+
+
+def env_for_role(role: str, base: dict, s3: bool = False) -> dict:
+    """Select from `base` (parsed .env + layered coordinates) exactly the keys ROLE_ENV[role]
+    allows, plus S3_KEYS iff the service is flagged `s3`. Unknown role -> KeyError (never ship a
+    full env by accident). Empty values are dropped (Railway would store them as empty strings)."""
+    pats = list(ROLE_ENV[role]) + (list(S3_KEYS) if s3 else [])
+    return {k: v for k, v in base.items()
+            if v != "" and any(fnmatch.fnmatchcase(k, p) for p in pats)}
+
+
+def _print_env_keys(label: str, env: dict):
+    """Audit line: the exact key names (never values) a service receives."""
+    print(f"  {label:13} env ({len(env)}): {', '.join(sorted(env))}")
 
 
 JAEGER_NAME = "local-agent-lab"   # pre-existing Jaeger service (Docker image; NOT built from our repo)
@@ -75,35 +197,53 @@ def gql(query, variables=None):
     return r["data"]
 
 
-def load_env_for_cloud() -> dict:
-    """Active KEY=value from .env, with `# CLOUD: KEY=value` values winning; drop management/meta
-    keys the runtime doesn't need. Container overrides are layered on per service by the caller."""
-    active, cloud = {}, {}
-    for raw in open(os.path.join(ROOT, ".env")):
+def _value(v: str) -> str:
+    """One .env value the way the shell sees it: a quoted value keeps everything inside the quotes
+    (a `#` in JSON is data); an unquoted one loses a trailing inline note ("value   # note") — a
+    URL once shipped WITH its note because Railway passes values verbatim."""
+    v = v.strip()
+    if v[:1] in ("'", '"'):
+        return v.strip("'\"")
+    return re.sub(r"\s+#.*$", "", v).strip()
+
+
+def parse_env(path: str | None = None, cloud: bool = True) -> dict:
+    """KEY=value from .env. `cloud=True` (the deploy profile) lets `# CLOUD: KEY=value` comment
+    lines WIN over the active machine-local ones; `cloud=False` reads the active lines only (what
+    `source .env` gives a local process). Either way `$VAR` / `${VAR}` refs are expanded against
+    the parsed values — the shell does this on `source .env`, but Railway passes values verbatim,
+    so e.g. ARTIFACTS_URL=$DATABASE_URL would otherwise reach the container as the literal
+    "$DATABASE_URL" (psycopg: missing "=" ...). Two passes resolve one level of chaining; unknown
+    refs are left untouched. Selection per service is NOT done here — see env_for_role()."""
+    active, overrides = {}, {}
+    for raw in open(path or os.path.join(ROOT, ".env")):
         line = raw.rstrip("\n")
         m = re.match(r"# CLOUD:\s*([A-Z0-9_]+)=(.*)$", line)
         if m:
-            # drop a trailing inline comment ("value   # note") — a URL once shipped WITH its note
-            cloud[m.group(1)] = re.sub(r"\s+#.*$", "", m.group(2)).strip().strip("'\"")
+            # drop a trailing inline comment first, then quotes (unchanged CLOUD-line semantics)
+            overrides[m.group(1)] = re.sub(r"\s+#.*$", "", m.group(2)).strip().strip("'\"")
             continue
         if line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
         k = k.strip()
         if re.match(r"^[A-Z0-9_]+$", k):
-            active[k] = v.strip().strip("'\"")
-    active.update(cloud)                                   # cloud values override local
-    # Expand `$VAR` / `${VAR}` references against the parsed values — the shell does this on
-    # `source .env`, but Railway passes values verbatim, so e.g. ARTIFACTS_URL=$DATABASE_URL would
-    # otherwise reach the container as the literal "$DATABASE_URL" (psycopg: missing "=" ...). Two
-    # passes resolve one level of chaining; unknown refs are left untouched.
+            active[k] = _value(v)
+    if cloud:
+        active.update(overrides)                           # cloud values override local
+
     def expand(v):
         return re.sub(r"\$\{?([A-Z_][A-Z0-9_]*)\}?", lambda m: active.get(m.group(1), m.group(0)), v)
     for _ in range(2):
         active = {k: expand(v) for k, v in active.items()}
-    drop = {"RAILWAY_TOKEN", "RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID", "NEON_API_KEY",
-            "NEON_PROJECT_ID", "NEON_ORG_ID", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"}
-    return {k: v for k, v in active.items() if k not in drop and v != ""}
+    return active
+
+
+def load_env_for_cloud(path: str | None = None) -> dict:
+    """The deploy profile of .env (`# CLOUD:` wins, $VAR expanded, empty values dropped). This is
+    the POOL a service is selected from — env_for_role() decides what each one actually gets, so
+    management keys (RAILWAY_*, NEON_*, OCI_*, provisioning ids) never ship without a drop-list."""
+    return {k: v for k, v in parse_env(path, cloud=True).items() if v != ""}
 
 
 def services():
@@ -115,9 +255,10 @@ def ensure_service(name):
     existing = services()
     if name in existing:
         return existing[name], False
-    d = gql('mutation($in:ServiceCreateInput!){ serviceCreate(input:$in){ id } }',
-            {"in": {"projectId": PROJECT, "name": name, "branch": BRANCH,
-                    "source": {"repo": REPO}}})
+    create = {"projectId": PROJECT, "name": name, "source": _source()}
+    if BUILD_MODE != "image":
+        create["branch"] = BRANCH                      # a repo service tracks a branch; an image has a tag
+    d = gql('mutation($in:ServiceCreateInput!){ serviceCreate(input:$in){ id } }', {"in": create})
     return d["serviceCreate"]["id"], True
 
 
@@ -235,23 +376,30 @@ def bucket_status():
         print("  (no buckets — run: railway.py bucket up)")
 
 
-def configure(sid, spec, base_env):
+def substrate_env(name, spec, base_env) -> dict:
+    """The exact variables substrate service `name` receives: the substrate coordinates layered on
+    the .env pool, then the role allowlist (S3_KEYS only for services flagged "s3"), then the
+    service's own fixed overrides. Pure — used by `up` (to upsert) and `env` (to audit offline)."""
     env = dict(base_env)
     env["BIND_HOST"] = "::"                                 # IPv6 for Railway private networking
     env["ADOIT_MCP_URL"] = "http://adoit-mcp.railway.internal:9100/mcp"
     env["SEMANTIC_MCP_URL"] = "http://semantic-mcp.railway.internal:9200/mcp"
     env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
-    if not spec.get("s3"):                                  # bucket credentials: review + storage-mcp ONLY
-        for k in S3_KEYS:
-            env.pop(k, None)
+    env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: review + storage-mcp ONLY
     env.update(spec.get("env", {}))
+    return env
+
+
+def configure(sid, name, spec, base_env):
+    env = substrate_env(name, spec, base_env)
+    _print_env_keys(name, env)
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
                 "variables": env, "replace": True, "skipDeploys": True}})
     # Always send healthcheckPath — empty string CLEARS any stale probe. The gateway must have NO
     # healthcheck (its IPv6 probe fights the IPv4 0.0.0.0 bind and kills the deploy); see SUBSTRATE.
-    upd = {"dockerfilePath": "deploy/Dockerfile", "startCommand": spec["cmd"],
+    upd = {**_build_input(spec["cmd"]), "startCommand": spec["cmd"],
            "healthcheckPath": spec.get("health", "")}
     gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
         'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
@@ -275,6 +423,7 @@ def domain_of(sid):
 
 
 def deploy(sid, latest=True):
+    latest = latest and BUILD_MODE != "image"          # image services have no commit to fetch
     # latestCommit:true makes Railway FETCH the newest commit of the tracked branch (without a
     # GitHub webhook it otherwise rebuilds the snapshot from service-creation time). Image services
     # (Jaeger) have no repo — plain redeploy.
@@ -306,12 +455,13 @@ def ensure_jaeger(ids):
 
 def substrate_up():
     base = load_env_for_cloud()
-    print(f"deploying substrate ({len(SUBSTRATE)} services + redis + jaeger) from {REPO}@{BRANCH}")
+    print(f"deploying substrate ({len(SUBSTRATE)} services + redis + jaeger) from "
+          f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
     ensure_redis()                                         # first: gateway/MCP/review depend on it
     for name, spec in SUBSTRATE.items():
         sid, created = ensure_service(name)
         print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
-        configure(sid, spec, base)
+        configure(sid, name, spec, base)
         deploy(sid)
     ensure_jaeger(services())                              # observability is part of the substrate
     print("\ntriggered builds. Public URLs (once healthy):")
@@ -320,6 +470,17 @@ def substrate_up():
         print(f"  {name:8} https://{domain_of(ids[name]) or '(pending)'}")
     print(f"  jaeger   {os.environ.get('JAEGER_UI_URL', '(see .env)')}")
     print("Watch builds: railway dashboard, or `python deploy/railway.py substrate status`.")
+
+
+def substrate_env_report():
+    """OFFLINE audit: the exact key names each substrate service receives from the current .env
+    (what the next `substrate up` upserts). Values are never printed."""
+    base = load_env_for_cloud()
+    print(f"substrate env allowlist (from .env, `# CLOUD:` profile; {len(base)} keys in the pool)")
+    for name in (REDIS_NAME, JAEGER_NAME):
+        _print_env_keys("jaeger" if name == JAEGER_NAME else name, {})
+    for name, spec in SUBSTRATE.items():
+        _print_env_keys(name, substrate_env(name, spec, base))
 
 
 def substrate_status():
@@ -333,6 +494,8 @@ def substrate_status():
         st = latest(sid)["status"]
         dom = domain_of(sid)
         print(f"  {label:13} {st.lower():10} {('https://'+dom) if dom else '(internal)'}")
+    print()
+    substrate_env_report()
 
 
 def substrate_down():
@@ -354,8 +517,8 @@ def substrate_down():
 
 # --- workloads: each business process is its OWN service, deployed independently ON the substrate ---
 # The two-tier contract: a workload reaches the substrate ONLY through the gateway's PUBLIC domain
-# plus the shared managed backends (Neon, Redis Cloud, Railway Jaeger) from .env — never the MCP
-# servers (internal to the substrate) or another workload; cross-workflow coupling goes via events
+# plus the shared Redis (streams) and the tracing sink from .env — see ROLE_ENV["workload"]; never
+# Neon, the bucket, the MCP servers (internal to the substrate) or another workload; cross-workflow coupling goes via events
 # (Redis Streams) or A2A through the gateway. The public URL is the door by design (and the gateway
 # binds IPv4 — see SUBSTRATE — so its *.railway.internal name would not be reachable anyway).
 WORKLOADS = {
@@ -364,7 +527,7 @@ WORKLOADS = {
     # read through the gateway's storage-mcp; this container holds no store credentials.
     "visio": {
         "service": "wf-visio",
-        "cmd": "python -m processes.visio_to_archimate.consumer",
+        "cmd": "python -m lab.workloads.visio_to_archimate.consumer",
         "restart": "ALWAYS",
         "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
         "markers": ("consumer ready", "request "),   # what workload_status reads from the logs
@@ -372,14 +535,14 @@ WORKLOADS = {
     # The one-shot job (demo / smoke): run to completion on the generated fixture, or on real
     # uploaded refs via `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=` in .env.
     # Railway has no volume mounts and both fixture inputs are git-ignored GENERATED files
-    # (architecture/lab_model.json, then the .vsdx built from it): generate both at start.
+    # (var/out/architecture/lab_model.json, then the .vsdx built from it): generate both at start.
     # `sh -c` is REQUIRED: Railway execs a Dockerfile start command without a shell, so a bare
     # `a && b && c` runs only `a` (the rest arrives as ignored argv) and exits 0 — verified twice.
     "visio-job": {
         "service": "wf-visio-job",
-        "cmd": "sh -c 'python architecture/lab_model.py && "
-               "python -m processes.visio_to_archimate.make_sample_vsdx && "
-               "python -m processes.visio_to_archimate.host'",
+        "cmd": "sh -c 'python scripts/lab_model.py && "
+               "python -m lab.workloads.visio_to_archimate.make_sample_vsdx && "
+               "python -m lab.workloads.visio_to_archimate.host'",
         "restart": "NEVER",   # exit 0 means done, not crashed; re-run = redeploy
         "env": {"AGENT_RESPONSES_STORE": "false"},
     },
@@ -391,26 +554,31 @@ def _public(ids, name):
     return f"https://{d}" if d else None
 
 
-def configure_workload(sid, spec, base_env, ids):
+def workload_env(spec, base_env, gw, review=None) -> dict:
+    """The exact variables a workload receives. The two-tier isolation invariant is the ALLOWLIST
+    itself (ROLE_ENV["workload"]): no MCP server addresses (it reaches tools only via the gateway),
+    no store credentials (inputs are art:// refs read through storage-mcp, its spec goes to
+    semantic-mcp), no gateway/ADOIT/bucket secrets. Pure — used by `up` and `env`."""
     env = dict(base_env)
+    env["GATEWAY_URL"] = gw                                     # the ONLY substrate coordinate
+    env["REVIEW_APP_URL"] = review or env.get("REVIEW_APP_URL", "")
+    env = env_for_role("workload", env)
+    env.update(spec.get("env", {}))
+    return env
+
+
+def configure_workload(sid, spec, base_env, ids):
     gw = _public(ids, "gateway")
     if not gw:
         raise SystemExit("substrate gateway has no public domain — deploy the substrate first")
-    env["GATEWAY_URL"] = gw                                     # the ONLY substrate coordinate
-    env["REVIEW_APP_URL"] = _public(ids, "review") or env.get("REVIEW_APP_URL", "")
-    # The two-tier isolation invariant, enforced: a workload never sees the MCP servers (it reaches
-    # them only via the gateway) and holds NO store credentials — its inputs are art:// refs read
-    # through storage-mcp, its spec goes to semantic-mcp, both via the gateway.
-    for k in ("ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "BIND_HOST",
-              "DATABASE_URL", "ARTIFACTS_URL", *S3_KEYS):
-        env.pop(k, None)
-    env.update(spec.get("env", {}))
+    env = workload_env(spec, base_env, gw, _public(ids, "review"))
+    _print_env_keys(spec["service"], env)
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
                 "variables": env, "replace": True, "skipDeploys": True}})
     gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
         'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
-        {"s": sid, "e": ENV, "in": {"dockerfilePath": "deploy/Dockerfile", "startCommand": spec["cmd"],
+        {"s": sid, "e": ENV, "in": {**_build_input(spec["cmd"]), "startCommand": spec["cmd"],
                                     "healthcheckPath": "",        # a job serves nothing to probe
                                     "restartPolicyType": spec.get("restart", "ON_FAILURE")}})
     return gw
@@ -422,11 +590,21 @@ def workload_up(name):
     base = load_env_for_cloud()
     sid, created = ensure_service(spec["service"])
     print(f"deploying workload '{name}' as service {spec['service']} "
-          f"({'created' if created else 'exists '} {sid[:8]}) from {REPO}@{BRANCH}")
+          f"({'created' if created else 'exists '} {sid[:8]}) from "
+          f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
     gw = configure_workload(sid, spec, base, ids)
     deploy(sid)
     print(f"  references substrate gateway {gw}; restart={spec.get('restart')}; no ingress (job)")
     print(f"  watch: python deploy/railway.py workload {name} status   (logs: Railway dashboard)")
+
+
+def workload_env_report(name):
+    """OFFLINE audit: the exact key names workload `name` receives (gateway/review URLs shown as
+    placeholders — the real public domains are resolved at `up`)."""
+    spec = WORKLOADS[name]
+    env = workload_env(spec, load_env_for_cloud(), "https://<gateway public domain>", "https://<review public domain>")
+    print(f"workload '{name}' env allowlist (from .env, `# CLOUD:` profile)")
+    _print_env_keys(spec["service"], env)
 
 
 def workload_status(name):
@@ -455,9 +633,11 @@ def workload_status(name):
             verdict = "FAILED — " + err.strip()[:140]
         elif msgs:
             verdict = "running / in progress"
-    except Exception:
+    except (Exception, SystemExit):       # gql() aborts with SystemExit: a failed log fetch is not a failed run
         pass
     print(f"  {spec['service']:13} {d['status'].lower():10} {verdict}")
+    print()
+    workload_env_report(name)
 
 
 def workload_down(name):
@@ -474,18 +654,20 @@ def workload_down(name):
 
 
 if __name__ == "__main__":
-    usage = ("usage: railway.py substrate up|down|status\n"
-             "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status\n"
-             "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)")
+    usage = ("usage: railway.py substrate up|down|status|env\n"
+             "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status|env\n"
+             "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)\n"
+             "       (`env` = offline audit of the exact key names each service receives; no Railway call)")
     tier = sys.argv[1] if len(sys.argv) > 1 else ""
+    cmd = (sys.argv[3] if tier == "workload" else sys.argv[2]) if len(sys.argv) > (3 if tier == "workload" else 2) else "status"
+    if cmd != "env":
+        _require_railway()                                 # every other command talks to Railway
     if tier == "substrate":
-        cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
-        {"up": substrate_up, "down": substrate_down, "status": substrate_status}[cmd]()
+        {"up": substrate_up, "down": substrate_down, "status": substrate_status, "env": substrate_env_report}[cmd]()
     elif tier == "bucket":
-        cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
         {"up": ensure_bucket, "status": bucket_status}[cmd]()
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:
-        cmd = sys.argv[3] if len(sys.argv) > 3 else "status"
-        {"up": workload_up, "down": workload_down, "status": workload_status}[cmd](sys.argv[2])
+        {"up": workload_up, "down": workload_down, "status": workload_status,
+         "env": workload_env_report}[cmd](sys.argv[2])
     else:
         raise SystemExit(usage)

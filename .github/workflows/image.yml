@@ -1,0 +1,78 @@
+# ONE image for every lab role — built here, pulled by every Railway service.
+#
+# Why: each of the six substrate services plus each workload used to build deploy/Dockerfile from
+# this repo independently — six identical builds per deploy, each paying its own export/push
+# (measured 14-20 s) and its own prisma step. Building once and deploying the same immutable tag
+# turns a deploy into six pulls, and guarantees every role runs identical bits.
+#
+# Railway pulls `ghcr.io/<owner>/<repo>:main` (deploy/railway.py IMAGE). The GHCR package must be
+# PUBLIC for an unauthenticated pull — set it once under Packages -> Package settings -> Change
+# visibility. Otherwise give the Railway services a registry credential.
+#
+# Roll back or pin: LAB_IMAGE_TAG=sha-<short sha> python deploy/railway.py substrate up
+name: image
+
+on:
+  push:
+    branches: [main]
+    paths:                       # docs/tests never change the image
+      - "src/**"
+      - "skills/**"
+      - "config/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "deploy/Dockerfile"
+      - "deploy/requirements.txt"
+      - ".github/workflows/image.yml"
+  workflow_dispatch:             # manual rebuild (e.g. after changing the base image)
+
+concurrency:                     # a newer commit supersedes an in-flight build
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write            # push to GHCR as the workflow's own token
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64        # Railway runs amd64; a second arch doubles build time
+          cache-from: type=gha
+          cache-to: type=gha,mode=max   # layer cache across runs: only changed layers rebuild
+
+      - name: smoke — every role's module imports in the built image
+        run: |
+          docker run --rm --entrypoint python \
+            ghcr.io/${{ github.repository }}:sha-$(git rev-parse --short HEAD) -c "
+          import importlib
+          for m in ('lab.substrate.mcp.adoit.server', 'lab.substrate.mcp.semantic.server',
+                    'lab.substrate.mcp.storage.server', 'lab.substrate.channels.telegram',
+                    'lab.workloads.visio_to_archimate.consumer', 'lab.substrate.gateway.custom_auth'):
+              importlib.import_module(m); print('ok', m)
+          "

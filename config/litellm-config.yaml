@@ -1,0 +1,127 @@
+# LiteLLM gateway — the lab's governance plane (APIM analogue).
+# All three traffic classes converge here: /v1 (LLM), /mcp (tools), A2A (later).
+# Key store: Neon Postgres (DATABASE_URL in .env). Teams/virtual keys/budgets are live —
+# bootstrap with scripts/bootstrap_registry.py; grant MCP access per team via /team/update
+# object_permission.mcp_servers. Master key = admin plane only; agents use virtual keys.
+# Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
+
+model_list:
+  # --- Anthropic models for developers (upstream credential injected by the gateway) ---
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_UPSTREAM_API_KEY
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_UPSTREAM_API_KEY
+  # --- more Ollama Cloud models for developers (OpenAI-compatible) ---
+  - model_name: kimi-k3
+    litellm_params:
+      model: openai/kimi-k3
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000015
+      output_cost_per_token: 0.00000060
+    model_info:                        # Ollama Cloud /api/show declares 'vision' for this model;
+      supports_vision: true            # image parts pass through the gateway (verified) — the BA
+                                       # reads diagram images inline with it
+      supports_function_calling: true
+  - model_name: kimi-k2.7-code          # coding-focused, ~30% lower thinking-token usage
+    model_info: {supports_vision: true, supports_function_calling: true}   # per Ollama /api/show
+    litellm_params:
+      model: openai/kimi-k2.7-code
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000015
+      output_cost_per_token: 0.00000060
+  # --- `auto` resolves via src/lab/substrate/gateway/auto_router.py BEFORE routing; this entry makes it a
+  #     listable model and the fallback if the hook is ever disabled ---
+  - model_name: auto
+    model_info: {supports_vision: true, supports_function_calling: true}   # glm-5.3-flash underneath
+    litellm_params:
+      model: openai/glm-5.3-flash
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+  - model_name: gpt-oss-120b            # lab default reasoning model
+    litellm_params:
+      model: openai/gpt-oss:120b        # Ollama Cloud is OpenAI-compatible
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000015   # nominal USD/token so budgets meter (Ollama Cloud is flat-rate)
+      output_cost_per_token: 0.00000060
+  - model_name: glm-flash               # cheap/fast utility model
+    model_info: {supports_vision: true, supports_function_calling: true}   # per Ollama /api/show
+    litellm_params:
+      model: openai/glm-5.3-flash
+      api_base: https://ollama.com/v1
+      api_key: os.environ/OLLAMA_API_KEY
+      input_cost_per_token: 0.00000005
+      output_cost_per_token: 0.00000020
+
+mcp_servers:                          # addresses + trust come from the environment (cloud shape)
+  adoit_mcp:
+    url: os.environ/ADOIT_MCP_URL      # default http://127.0.0.1:9100/mcp (src/lab/platform/config.py)
+    transport: http
+    auth_type: bearer_token
+    authentication_token: os.environ/MCP_SHARED_SECRET
+    description: ArchiMate engine + ADOIT:CE facade (reads via REST, writes via governed UI import)
+    extra_headers: ["traceparent", "tracestate"]   # forward W3C trace context -> one trace across all hops
+  semantic_mcp:
+    url: os.environ/SEMANTIC_MCP_URL
+    transport: http
+    auth_type: bearer_token
+    authentication_token: os.environ/MCP_SHARED_SECRET
+    description: Semantic layer — vocabularies as data (ArchiMate 3.1 first), classification, exact relationship legality, SPARQL over models
+    extra_headers: ["traceparent", "tracestate"]
+  storage_mcp:                        # READ-ONLY governed access to the upload store (bucket): the
+    url: os.environ/STORAGE_MCP_URL   # only way an agent/workload reaches an input object — the
+    transport: http                   # bucket credentials live in storage-mcp, never in a workload
+    auth_type: bearer_token
+    authentication_token: os.environ/MCP_SHARED_SECRET
+    description: Governed read-only object store — list/info/get(normalised image)/read_document/read_vsdx/extract_figures over art:// refs
+    extra_headers: ["traceparent", "tracestate"]
+
+router_settings:                      # Redis: shared state for rate limits, budgets, router
+  redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)
+  redis_port: os.environ/REDIS_PORT
+  redis_password: os.environ/REDIS_PASSWORD
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  background_health_checks: true       # populates the UI Health tab; each cycle pings every model
+  health_check_interval: 3600          # hourly — pings cost a few tokens per model (incl. Anthropic)
+  custom_auth: lab.substrate.gateway.custom_auth.user_api_key_auth   # Entra JWTs (APIM validate-jwt analogue); static keys fall through
+
+litellm_settings:
+  drop_params: true
+  default_internal_user_params:        # SSO (Entra) sign-ins: non-admin devs, self-serve a durable key
+    user_role: "internal_user"
+    max_budget: 10.0
+    budget_duration: "30d"
+    models: ["gpt-oss-120b", "glm-flash", "kimi-k3", "kimi-k2.7-code", "claude-sonnet-5", "claude-haiku-4-5", "auto"]
+  callbacks: ["otel"]                 # every gateway call -> OTLP span (joins the caller's trace)
+  cache: true                         # Redis backs limiter/budget/router state ...
+  cache_params:
+    type: redis
+    host: os.environ/REDIS_HOST
+    port: os.environ/REDIS_PORT
+    password: os.environ/REDIS_PASSWORD
+    supported_call_types: []          # ... but never caches LLM responses
+
+# PII / secret protection — REVERSIBLE PSEUDONYMIZATION (agreed policy, no blocking):
+# outbound prompts have every match replaced by [TYPE#n] before egress (model never sees the
+# real value); the gateway restores originals in the response. Mapping lives only in request
+# metadata on this gateway. Patterns come from LiteLLM's prebuilt library incl. UAE ids.
+# Streaming responses keep placeholders (safe; restore-on-stream is a later refinement).
+guardrails:
+  - guardrail_name: auto-router
+    litellm_params:
+      guardrail: lab.substrate.gateway.auto_router.AutoRouter
+      mode: pre_call
+      default_on: true
+  - guardrail_name: reversible-pii
+    litellm_params:
+      guardrail: lab.substrate.gateway.pii_guardrail.ReversiblePII
+      mode: [pre_call, post_call]
+      default_on: true

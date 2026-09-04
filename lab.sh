@@ -10,7 +10,7 @@
 # ambient shell keys must never reach the governance plane (see CLAUDE.md, Gateway Registry).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"; cd "$ROOT"
-LOGS="$ROOT/logs"; RUN="$ROOT/.lab"; mkdir -p "$LOGS" "$RUN"
+LOGS="$ROOT/var/logs"; RUN="$ROOT/var/run"; mkdir -p "$LOGS" "$RUN"
 PY="$ROOT/.venv/bin/python"; LITELLM="$ROOT/.venv/bin/litellm"
 export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 
@@ -65,7 +65,7 @@ PY
 }
 
 up() {
-  load_env; need "$PY" "python3.12 -m venv .venv && .venv/bin/pip install 'litellm[proxy]' fastmcp prisma"
+  load_env; need "$PY" "python3.12 -m venv .venv && .venv/bin/pip install -r deploy/requirements.txt -e ."
   # redis: governance state (rate limits, budgets, router) + approval streams.
   # REDIS_URL set -> managed/cloud instance (just check it); unset -> local Homebrew service
   if [ -n "${REDIS_URL:-}" ]; then
@@ -74,33 +74,33 @@ up() {
   elif redis-cli -h "${REDIS_HOST:-127.0.0.1}" -p "${REDIS_PORT:-6379}" ping 2>/dev/null | /usr/bin/grep -q PONG; then
     echo "redis        ok  ${REDIS_HOST:-127.0.0.1}:${REDIS_PORT:-6379}"
   else brew services start redis >/dev/null && sleep 2 && echo "redis        started (brew services)"; fi
-  # jaeger: native v2 all-in-one binary (tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail.
+  # jaeger: native v2 all-in-one binary (var/tools/jaeger, ~50 MB RAM — no Colima VM); traces = audit trail.
   # A remote OTEL_EXPORTER_OTLP_ENDPOINT (e.g. Jaeger on Railway, App Insights) means no local jaeger.
   if remote_tracing; then
     railway_jaeger up || { echo "jaeger       remote tracing endpoint down — stopping"; exit 1; }
   elif alive jaeger; then echo "jaeger       ok  already running (pid $(cat $RUN/jaeger.pid))"; else
-    need tools/jaeger/jaeger "download jaeger-2.x-darwin-arm64 from github.com/jaegertracing/jaeger/releases into tools/jaeger/"
-    nohup ./tools/jaeger/jaeger >"$LOGS/jaeger.log" 2>&1 & echo $! >"$RUN/jaeger.pid"
+    need var/tools/jaeger/jaeger "download jaeger-2.x-darwin-arm64 from github.com/jaegertracing/jaeger/releases into var/tools/jaeger/"
+    nohup ./var/tools/jaeger/jaeger >"$LOGS/jaeger.log" 2>&1 & echo $! >"$RUN/jaeger.pid"
     wait_http "http://127.0.0.1:16686/api/services" "data" 20 && echo "jaeger       started  http://127.0.0.1:16686 (OTLP :4318)" \
-      || { echo "jaeger       FAILED — see logs/jaeger.log"; exit 1; }; fi
+      || { echo "jaeger       FAILED — see var/logs/jaeger.log"; exit 1; }; fi
   # adoit-mcp: ArchiMate engine + ADOIT facade, registered with the gateway's MCP registry
   if alive adoit-mcp; then echo "adoit-mcp    ok  already running (pid $(cat $RUN/adoit-mcp.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" mcp/adoit_mcp/server.py >"$LOGS/adoit-mcp.log" 2>&1 & echo $! >"$RUN/adoit-mcp.pid"
+    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.mcp.adoit.server >"$LOGS/adoit-mcp.log" 2>&1 & echo $! >"$RUN/adoit-mcp.pid"
     wait_http "http://127.0.0.1:9100/mcp" "" 20 || true; echo "adoit-mcp    started  http://127.0.0.1:9100/mcp"; fi
   # semantic-mcp: vocabularies / classification / legality / SPARQL (read-only, granted to all teams)
   if alive semantic-mcp; then echo "semantic-mcp ok  already running (pid $(cat $RUN/semantic-mcp.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" mcp/semantic_mcp/server.py >"$LOGS/semantic-mcp.log" 2>&1 & echo $! >"$RUN/semantic-mcp.pid"
+    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.mcp.semantic.server >"$LOGS/semantic-mcp.log" 2>&1 & echo $! >"$RUN/semantic-mcp.pid"
     wait_http "http://127.0.0.1:9200/mcp" "" 20 || true; echo "semantic-mcp started  http://127.0.0.1:9200/mcp"; fi
   # storage-mcp: READ-ONLY governed access to the upload store — the only way a workload reads an input object
   if alive storage-mcp; then echo "storage-mcp ok  already running (pid $(cat $RUN/storage-mcp.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" mcp/storage_mcp/server.py >"$LOGS/storage-mcp.log" 2>&1 & echo $! >"$RUN/storage-mcp.pid"
+    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.mcp.storage.server >"$LOGS/storage-mcp.log" 2>&1 & echo $! >"$RUN/storage-mcp.pid"
     wait_http "http://127.0.0.1:9300/mcp" "" 20 || true; echo "storage-mcp started  http://127.0.0.1:9300/mcp"; fi
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
-    env -u ANTHROPIC_API_KEY nohup "$LITELLM" --config gateway/litellm-config.yaml --port 4000 >"$LOGS/litellm.log" 2>&1 & echo $! >"$RUN/litellm.pid"
+    env -u ANTHROPIC_API_KEY nohup "$LITELLM" --config config/litellm-config.yaml --port 4000 >"$LOGS/litellm.log" 2>&1 & echo $! >"$RUN/litellm.pid"
     printf "gateway      starting"; wait_http "http://127.0.0.1:4000/health/readiness" '"connected"' 90 \
-      && echo "  http://127.0.0.1:4000  (db connected)" || { echo "  FAILED — see logs/litellm.log"; exit 1; }; fi
+      && echo "  http://127.0.0.1:4000  (db connected)" || { echo "  FAILED — see var/logs/litellm.log"; exit 1; }; fi
   review
   render_clients
   status_gateway
@@ -111,11 +111,11 @@ status_gateway() {
   local auth="Authorization: Bearer ${LITELLM_MASTER_KEY:-}"
   echo "models       $(curl -s http://127.0.0.1:4000/v1/models -H "$auth" | $PY -c 'import json,sys; print(", ".join(m["id"] for m in json.load(sys.stdin)["data"]))' 2>/dev/null || echo '?')"
   echo "mcp servers  $($PY - <<PYEOF 2>/dev/null || echo '?'
-import yaml; print(", ".join(yaml.safe_load(open("gateway/litellm-config.yaml")).get("mcp_servers",{}).keys()))
+import yaml; print(", ".join(yaml.safe_load(open("config/litellm-config.yaml")).get("mcp_servers",{}).keys()))
 PYEOF
 )"
   echo "skills       $(curl -s "http://127.0.0.1:4000/v1/skills?beta=true&custom_llm_provider=litellm_proxy" -H "$auth" | $PY -c 'import json,sys; print(", ".join(s["display_title"] for s in json.load(sys.stdin).get("data",[])) or "none")' 2>/dev/null || echo '?')"
-  echo "approvals    pending: $(env -u ANTHROPIC_API_KEY $PY shared/approvals.py count 2>/dev/null || echo '?')  (./lab.sh review | python shared/approvals.py list)"
+  echo "approvals    pending: $(env -u ANTHROPIC_API_KEY $PY -m lab.substrate.approvals count 2>/dev/null || echo '?')  (./lab.sh review | python -m lab.substrate.approvals list)"
   echo "registry ui  http://127.0.0.1:4000/ui  (admin / master key)"
   echo "traces ui    ${JAEGER_UI_URL:-http://127.0.0.1:16686}  services: $(curl -s --max-time 5 "${JAEGER_UI_URL:-http://127.0.0.1:16686}/api/services" | $PY -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("data") or []) or "none yet")' 2>/dev/null || echo '?')"
 }
@@ -126,7 +126,7 @@ PYEOF
 render_clients() {
   load_env
   local n=0
-  for tpl in clients/*/settings.template.json; do
+  for tpl in config/clients/*/settings.template.json; do
     [ -e "$tpl" ] || continue
     out="${tpl%.template.json}.json"
     sed -e "s#\${GATEWAY_URL}#${GATEWAY_URL:-http://127.0.0.1:4000}#g" \
@@ -134,27 +134,27 @@ render_clients() {
     n=$((n+1))
   done
   echo "clients      rendered $n settings from templates (GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:4000})"
-  echo "             copy clients/claude-code/settings.json -> your project's .claude/settings.json"
+  echo "             copy config/clients/claude-code/settings.json -> your project's .claude/settings.json"
 }
 
 review() {
   load_env
   if alive review; then echo "review app   ok  http://127.0.0.1:8501 (pid $(cat $RUN/review.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$ROOT/.venv/bin/streamlit" run review/app.py --server.port 8501 --server.headless true \
+    env -u ANTHROPIC_API_KEY nohup "$ROOT/.venv/bin/streamlit" run src/lab/substrate/review/app.py --server.port 8501 --server.headless true \
       >"$LOGS/review.log" 2>&1 & echo $! >"$RUN/review.pid"
     wait_http "http://127.0.0.1:8501/healthz" "ok" 30 && echo "review app   started  http://127.0.0.1:8501" \
-      || { echo "review app   FAILED — see logs/review.log"; exit 1; }; fi
+      || { echo "review app   FAILED — see var/logs/review.log"; exit 1; }; fi
 }
 
 down() {
   for s in wf-visio review litellm storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
-  pkill -f "litellm --config gateway/litellm-config.yaml" 2>/dev/null || true
-  pkill -f "mcp/adoit_mcp/server.py" 2>/dev/null || true
-  pkill -f "mcp/semantic_mcp/server.py" 2>/dev/null || true
-  pkill -f "mcp/storage_mcp/server.py" 2>/dev/null || true
-  pkill -f "processes.visio_to_archimate.consumer" 2>/dev/null || true
+  pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
+  pkill -f "lab.substrate.mcp.adoit.server" 2>/dev/null || true
+  pkill -f "lab.substrate.mcp.semantic.server" 2>/dev/null || true
+  pkill -f "lab.substrate.mcp.storage.server" 2>/dev/null || true
+  pkill -f "lab.workloads.visio_to_archimate.consumer" 2>/dev/null || true
 }
 
 status() {
@@ -174,7 +174,7 @@ cloud() { load_env; env -u ANTHROPIC_API_KEY "$PY" deploy/railway.py "$@"; }
 consumer() {   # the long-lived visio workload host: consumes workflow:requests (Submit page -> run)
   load_env
   if alive wf-visio; then echo "wf-visio ok  already running (pid $(cat $RUN/wf-visio.pid))"; return; fi
-  env -u ANTHROPIC_API_KEY nohup "$PY" -m processes.visio_to_archimate.consumer >"$LOGS/wf-visio.log" 2>&1 & echo $! >"$RUN/wf-visio.pid"
+  env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.workloads.visio_to_archimate.consumer >"$LOGS/wf-visio.log" 2>&1 & echo $! >"$RUN/wf-visio.pid"
   echo "wf-visio started  (consumer of workflow:requests; log: $LOGS/wf-visio.log)"
 }
 

@@ -1,0 +1,15 @@
+# Production-code coverage (CLAUDE.md: TDD for production code; spikes/scripts/probes exempt).
+# Run: tests/run.sh [--cov]     Target: >= 95 % of production code (user decision, Sep 3 2026).
+[run]
+branch = True
+data_file = var/coverage/.coverage
+source = src/lab, deploy
+omit =
+    tests/*
+    src/lab/workloads/visio_to_archimate/make_sample_vsdx.py
+[report]
+fail_under = 95
+omit =
+    tests/*
+skip_empty = True
+show_missing = False

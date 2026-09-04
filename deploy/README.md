@@ -3,9 +3,10 @@
 Two tiers, deployed and torn down **independently** (mirrors the Azure org split: a platform team
 runs the shared plane once; each product team ships its workload onto it):
 
-- **Substrate** = the shared platform plane: `gateway` (governance, public), `semantic-mcp` +
-  `adoit-mcp` (shared tools, internal), `review` (approval gate, public). Deployed once.
-- **Workloads** = business processes (`processes/<name>/`), each its own container set, referencing
+- **Substrate** = the shared platform plane: `redis` (limiter state + streams, internal),
+  `gateway` (governance, public), `semantic-mcp` + `adoit-mcp` + `storage-mcp` (shared tools,
+  internal), `review` (approval gate + Submit, public), `jaeger` (tracing). Deployed once.
+- **Workloads** = business processes (`src/lab/workloads/<name>/`), each its own container set, referencing
   the substrate ONLY through the gateway's public domain + the shared managed backends. Spin up/down
   on their own. Cross-workflow deps go via **events (Redis Streams)** or **A2A through the gateway** —
   never direct container coupling — and degrade gracefully.
@@ -23,7 +24,7 @@ Railway** (tracing). The tiers are stateless containers over that.
 # substrate first (shared network `substrate`)
 docker compose --env-file .env -f deploy/substrate/compose.yml up --build
 # then any workload, independently, joining the substrate network
-docker compose --env-file .env -f processes/visio_to_archimate/deploy/compose.yml up --build
+docker compose --env-file .env -f deploy/workloads/visio_to_archimate/compose.yml up --build
 ```
 One image, role-by-command: `deploy/Dockerfile`.
 
@@ -34,15 +35,24 @@ Config comes from `.env`: active `KEY=value` lines, with `# CLOUD: KEY=value` co
 machine-local ones (Redis Cloud, Railway Jaeger) — secrets never leave `.env`.
 
 ```bash
-./lab.sh cloud substrate up        # create/deploy gateway + 2 MCP + review; prints public URLs
-./lab.sh cloud substrate status    # build/deploy state per service
+./lab.sh cloud substrate up        # create/deploy redis + gateway + 3 MCP (semantic, adoit, storage) + review + jaeger; prints public URLs
+./lab.sh cloud substrate status    # build/deploy state per service (+ the env-key audit below)
 ./lab.sh cloud substrate down      # stop (metered) — config/variables/domain kept
+./lab.sh cloud substrate env       # OFFLINE: the exact env KEY NAMES each service receives (no Railway call)
 ```
 
+- **Least privilege (per-role env allowlist):** a service receives ONLY the `.env` keys its role
+  reads — `ROLE_ENV` in `deploy/railway.py` (gateway / adoit-mcp / semantic-mcp / storage-mcp /
+  review / workload; glob patterns, each line cites the code that reads the key). The bucket
+  credentials (`S3_*` + `UPLOADS_URL`) are granted only by a service's `"s3": True` flag (review +
+  storage-mcp); a workload gets no `ADOIT_*`, no `LITELLM_MASTER_KEY`, no upstream model keys, no
+  `MCP_SHARED_SECRET`, no `DATABASE_URL`, no bucket. `substrate env` / `workload <n> env` print the
+  key names for review; `up` prints the same line as it upserts. On Azure this table is the
+  Key-Vault-reference scope per Container App. `tests/deploy/test_railway_env.py` pins it (offline).
 - **Networking:** the substrate lives in one Railway project/environment, so the gateway reaches the
-  MCP servers over private DNS (`adoit-mcp.railway.internal:9100`, `semantic-mcp…:9200`). The MCP
-  servers get **no public domain**; only `gateway` (targetPort 4000) and `review` (8501) do.
-  Services bind `::` (`BIND_HOST=::`) — Railway private networking is IPv6.
+  MCP servers over private DNS (`adoit-mcp.railway.internal:9100`, `semantic-mcp…:9200`,
+  `storage-mcp…:9300`). The MCP servers get **no public domain**; only `gateway` (targetPort 4000)
+  and `review` (8501) do. Services bind `::` (`BIND_HOST=::`) — Railway private networking is IPv6.
 - **Trust:** `MCP_SHARED_SECRET` is mandatory (servers enforce it, gateway sends it) since
   `BIND_HOST` is not loopback. Review app behind `REVIEW_APP_PASSWORD` (Azure equivalent: Container
   Apps Entra auth in front).
@@ -54,9 +64,9 @@ A workload is its **own Railway service** that references the plane, it doesn't 
 gets ONLY the gateway's public domain + the shared backends (never the MCP servers):
 ```bash
 set -a && source .env && set +a
-python deploy/railway.py workload visio up|down|status     # service wf-visio, a run-to-completion job
+python deploy/railway.py workload visio up|down|status|env # service wf-visio, the long-lived consumer (visio-job = one-shot)
 # or, from anywhere, the same thing by hand:
-GATEWAY_URL=https://<gateway-domain> .venv/bin/python -m processes.visio_to_archimate.host
+GATEWAY_URL=https://<gateway-domain> .venv/bin/python -m lab.workloads.visio_to_archimate.host
 ```
 Agents authenticate (Entra JWT / per-agent key), tools run via the substrate MCP servers through the
 gateway, the approval stages into the substrate review app, and the run traces to Railway Jaeger —
@@ -66,21 +76,21 @@ gateway and both MCP servers). Railway job gotchas, all verified the hard way:
   `sh -c '…'` (`railway.py` does this);
 - a `restartPolicyType=NEVER` job shows **SUCCESS whether it finished or crashed** — `workload status`
   reads the run's own log markers (`approval requested:` / `Traceback`) instead of trusting it;
-- **no volume mounts**, so git-ignored generated inputs (`architecture/lab_model.json`, then the
+- **no volume mounts**, so git-ignored generated inputs (`var/out/architecture/lab_model.json`, then the
   `.vsdx` fixture) are generated at container start; re-run = redeploy (or set `cronSchedule`).
 - **Inputs go in by reference, and a person starts the run.** The review app's **Submit** mode
   uploads a diagram (`.vsdx` or image) + requirements docs straight into the **upload store**
   (`UPLOADS_URL` — a Railway **Bucket** via `python deploy/railway.py bucket up`, which writes the
   `# CLOUD: S3_*` lines; locally the Postgres artifact store, no S3 needed) and an explicit **Run**
-  publishes a `workflow:requests` event (`shared/workflows.py`, Redis Streams). The long-lived
-  `wf-visio` service (`processes/visio_to_archimate/consumer.py`, `restart=ALWAYS`) consumes it and
+  publishes a `workflow:requests` event (`src/lab/platform/workflows.py`, Redis Streams). The long-lived
+  `wf-visio` service (`src/lab/workloads/visio_to_archimate/consumer.py`, `restart=ALWAYS`) consumes it and
   writes status → trace → approval back, which the Submit page shows. **The workload never holds
   store credentials**: refs are read through the gateway's read-only **storage-mcp** (`:9300`;
   `storage_read_vsdx` / `storage_read_document` for the BA, `storage_get` /
   `storage_extract_figures` for the images the workflow attaches, normalised server-side to
   ≤1600 px), and its spec is stored via `semantic_store_spec`. CLI alternatives stay:
-  `python -m processes.visio_to_archimate.inputs upload <files>` → refs, `python
-  shared/workflows.py request visio_to_archimate <refs…>`, or the one-shot `workload visio-job` with
+  `python -m lab.substrate.review.uploads upload <files>` → refs, `python
+  src/lab/platform/workflows.py request visio_to_archimate <refs…>`, or the one-shot `workload visio-job` with
   `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=`.
 - **Large workloads span containers by decomposition, not by splitting one graph**: one AF host per
   sub-process/agent (own container, OTel service name, key), coupled via A2A through the gateway or
@@ -95,6 +105,6 @@ Redis (the limiter's ~20 round trips per request are the latency-sensitive path)
 
 ## Known limitation
 
-Licensed BA Guild reference workbooks (git-ignored `semantic/reference/sources/`) aren't in the repo
+Licensed BA Guild reference workbooks (git-ignored `var/reference-sources/`) aren't in the repo
 and there's no Railway volume, so `semantic-mcp`'s **capability-export** is degraded in the cloud.
 Classification / validation / render and the Visio→ArchiMate workflow are unaffected.

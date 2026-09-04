@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://local-agent-lab/schemas/resolve.schema.json",
+  "title": "Existing-architecture resolution",
+  "description": "The typed contract the resolve_existing resolver agent emits BEFORE the Architect designs. It decides whether the described system is NEW to the EA repository or an UPDATE to something already modelled, names the domain/folder the work belongs to, and matches BA element names to existing ADOIT objects so the Architect reuses their ids instead of duplicating them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "domain", "matched"],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["NEW", "UPDATE"],
+      "description": "`UPDATE` if the input clearly extends or revises a system/domain already present in the repository; otherwise `NEW`."
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The application/domain/system this work belongs to — an existing group/model name when candidates share one, else a concise new domain derived from the system name. Becomes the folder the model is organised under."
+    },
+    "base_model": {
+      "type": ["string", "null"],
+      "description": "Optional: the existing model name when `decision` is UPDATE, else null."
+    },
+    "matched": {
+      "type": "object",
+      "description": "Open map of BA element name -> the existing ADOIT object it matches. Only genuine matches; new elements are omitted. Empty object when nothing matched.",
+      "additionalProperties": { "$ref": "#/definitions/match" }
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Optional: one or two sentences a human reviewer will read explaining the decision and matches."
+    }
+  },
+  "definitions": {
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adoit_id"],
+      "properties": {
+        "adoit_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact id of the existing ADOIT object, reused verbatim by the Architect."
+        },
+        "adoit_name": {
+          "type": "string",
+          "description": "The existing object's exact name in ADOIT."
+        },
+        "class": {
+          "type": "string",
+          "description": "The existing object's ArchiMate type."
+        }
+      }
+    }
+  }
+}

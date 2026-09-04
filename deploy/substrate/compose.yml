@@ -8,7 +8,7 @@
 #
 # Usage (local, needs a Docker engine):
 #   docker compose --env-file ../../.env -f deploy/substrate/compose.yml up --build
-# Workloads then join this network (see processes/<name>/deploy/compose.yml).
+# Workloads then join this network (see deploy/workloads/<name>/compose.yml).
 x-sub: &sub
   build: { context: ../.., dockerfile: deploy/Dockerfile }
   env_file: [../../.env]
@@ -22,7 +22,7 @@ x-sub: &sub
     JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
     # the substrate's own Redis (service above) — overrides the machine-local .env value, which
     # inside a container would point at the container itself. HOST/PORT/PASSWORD feed litellm's
-    # router_settings; URL feeds everything else (shared/approvals.py, litellm cache).
+    # router_settings; URL feeds everything else (src/lab/substrate/approvals.py, litellm cache).
     REDIS_URL: redis://redis:6379/0
     REDIS_HOST: redis
     REDIS_PORT: "6379"
@@ -60,18 +60,18 @@ services:
     restart: unless-stopped
   semantic-mcp:               # shared read-only vocabulary/validation — internal only
     <<: *sub
-    command: ["python", "mcp/semantic_mcp/server.py"]
+    command: ["python", "-m", "lab.substrate.mcp.semantic.server"]
     volumes: ["../../semantic/reference/sources:/app/semantic/reference/sources:ro"]
   adoit-mcp:                  # shared governed EA-repository facade — internal only
     <<: *sub
-    command: ["python", "mcp/adoit_mcp/server.py"]
+    command: ["python", "-m", "lab.substrate.mcp.adoit.server"]
     volumes: ["../../semantic/reference/sources:/app/semantic/reference/sources:ro"]
   storage-mcp:                # READ-ONLY governed object store (uploads) — internal only. Holds the
     <<: *sub                  # bucket credentials (S3_*/UPLOADS_URL from .env); workloads never do.
-    command: ["python", "mcp/storage_mcp/server.py"]
+    command: ["python", "-m", "lab.substrate.mcp.storage.server"]
   gateway:                    # the single governance plane — the only public door
     <<: *sub
-    command: ["litellm", "--config", "gateway/litellm-config.yaml", "--port", "4000"]
+    command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]
     environment:
       BIND_HOST: 0.0.0.0
       GATEWAY_URL: http://gateway:4000
@@ -81,7 +81,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
       OTEL_SERVICE_NAME: litellm-gateway
-      # Neon is already migrated by the native bootstrap (gateway/bootstrap_registry.py). A container
+      # Neon is already migrated by the native bootstrap (scripts/bootstrap_registry.py). A container
       # has no local prisma migration state, so WITHOUT this it re-baselines + resolves all ~152
       # migrations one-by-one against REMOTE Neon on every cold start (~20s each ≈ tens of minutes,
       # verified). Skip schema management in containers; migrate the DB once, natively.
@@ -90,5 +90,5 @@ services:
     depends_on: [adoit-mcp, semantic-mcp, storage-mcp]
   review:                     # human approval gate (cross-cutting) — public, password-gated
     <<: *sub
-    command: ["streamlit", "run", "review/app.py", "--server.port", "8501", "--server.headless", "true"]
+    command: ["streamlit", "run", "src/lab/substrate/review/app.py", "--server.port", "8501", "--server.headless", "true"]
     ports: ["8501:8501"]

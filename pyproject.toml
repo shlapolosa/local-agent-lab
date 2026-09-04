@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lab"
+version = "0.1.0"
+description = "Local agentic prototyping lab — pattern parity with Azure (core / platform / substrate / workloads)"
+requires-python = ">=3.12"
+# Runtime dependencies stay in deploy/requirements.txt (one pinned list for the venv and the image);
+# `pip install -r deploy/requirements.txt -e .` installs both. Dev/test extras: deploy/requirements-dev.txt.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"lab.core.semantic.archimate" = ["*.json", "*.xml"]
+"lab.core.archimate" = ["xsd/*.xsd"]
+"lab.substrate.mcp.adoit" = ["templates/*.xlsx"]
+"lab.workloads.visio_to_archimate" = ["prompts/*.md", "schemas/*.json", "references/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+addopts = "--import-mode=importlib"

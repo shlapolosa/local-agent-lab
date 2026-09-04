@@ -1,0 +1,47 @@
+# WORKLOAD — the Visio->ArchiMate business process, deployed INDEPENDENTLY of other workloads.
+# It references the shared SUBSTRATE (deploy/substrate/compose.yml) and talks to it ONLY through
+# the governance gateway (LLM + MCP tools via GATEWAY_URL/mcp) plus Redis (the request/approval
+# streams) and tracing. It never reaches the MCP servers, the object store or another workload
+# directly: inputs are art:// refs read through storage-mcp via the gateway, and the workload holds
+# NO store credentials (DATABASE_URL / ARTIFACTS_URL / UPLOADS_URL / S3_* are not given to it).
+#
+# Two shapes of the same image:
+#   visio-host  the long-lived host: consumes workflow:requests (what the review app's Submit page
+#               publishes) and runs the workflow per event — the normal cloud shape
+#   visio-job   run-to-completion on the generated fixture (or VISIO_DIAGRAM/VISIO_REQUIREMENTS refs)
+#
+# Usage (local; the substrate must already be up):
+#   docker compose --env-file ../../../.env -f deploy/workloads/visio_to_archimate/compose.yml up --build visio-host
+#   docker compose --env-file ../../../.env -f deploy/workloads/visio_to_archimate/compose.yml run --rm visio-job
+# On Railway: separate services (deploy/railway.py workload visio|visio-job up); GATEWAY_URL is the
+# substrate gateway's public domain.
+networks:
+  substrate:
+    external: true            # join the running substrate network (name: substrate)
+
+x-wf: &wf
+  build: { context: ../../.., dockerfile: deploy/Dockerfile }
+  env_file: [../../../.env]
+  environment:
+    # the ONLY substrate coordinates this workload needs: the gateway + Redis + tracing.
+    GATEWAY_URL: ${GATEWAY_URL:-http://gateway:4000}          # substrate gateway (public domain on Railway)
+    REDIS_URL: redis://redis:6379/0                            # the substrate's Redis (request/approval streams)
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+    OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+    AGENT_RESPONSES_STORE: ${AGENT_RESPONSES_STORE:-false}
+    # explicitly NOT a store client (compose env_file still hands it .env — credential scoping is
+    # enforced on Railway, where configure_workload() strips these; see deploy/railway.py)
+    DATABASE_URL: ""
+    ARTIFACTS_URL: ""
+    UPLOADS_URL: ""
+  networks: [substrate]
+
+services:
+  visio-host:
+    <<: *wf
+    command: ["python", "-m", "lab.workloads.visio_to_archimate.consumer"]
+    restart: unless-stopped   # long-lived: waits on workflow:requests
+  visio-job:
+    <<: *wf
+    command: ["sh", "-c", "python scripts/lab_model.py && python -m lab.workloads.visio_to_archimate.make_sample_vsdx && python -m lab.workloads.visio_to_archimate.host"]
+    restart: "no"             # run-to-completion: reads the fixture (or VISIO_* refs), stages the ADOIT import, exits

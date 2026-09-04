@@ -1,0 +1,402 @@
+"""Architecture Review — the human channel for the lab's business processes.
+
+Three modes (sidebar), one function each, dispatched by the PAGES table in main():
+  Review  — the approval gate for EA repository writes: reads approval requests from Redis Streams
+            (consumer group "review-app"), renders the model's views + summary, records approve /
+            request changes / decline; the decision flows back on approvals:decisions.
+  Submit  — start a run: upload a system diagram (.vsdx or image) plus requirements documents;
+            they are stored in the UPLOAD store (a bucket in the cloud) as art:// refs and an
+            explicit Run publishes a durable workflow:requests event that the long-lived workload
+            host consumes (src/lab/platform/workflows.py). The run's trace, approval and outputs are shown
+            here as the consumer writes them back. Only refs cross into the workload — it reads
+            them through the gateway's storage-mcp tools, never with store credentials.
+  Runs    — live run visibility: every workflow host reports its current node through
+            src/lab/platform/runlog.py (Redis hash per run + unbuffered stdout lines), so a CLI run is no
+            longer a black box. Lists active + recent runs with trace links, and for one run the
+            node timeline and the workflow graph (Mermaid, exported by src/lab/workloads/workflowviz.py)
+            with the current node highlighted.
+
+Run: ./lab.sh review   (streamlit, http://127.0.0.1:8501)
+Streamlit executes this file as __main__; importing it (tests) only defines the helpers. Stores come
+from the substrate container built once at import (`container.artifacts()` for renders,
+`container.uploads()` for submitted inputs) — tests override its providers.
+"""
+import base64
+import os
+import re
+import xml.etree.ElementTree as ET
+from html import escape
+
+import streamlit as st
+
+from lab.platform import config, runlog, workflows
+from lab.platform.filetypes import content_type_for
+from lab.substrate import approvals
+from lab.substrate.container import build
+
+container = build("review-app")
+JAEGER = config.JAEGER_UI_URL.rstrip("/") + "/trace/"
+NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
+DIAGRAM_TYPES = ["vsdx", "png", "jpg", "jpeg", "gif", "webp"]
+REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
+
+
+# ============================================================================ Submit mode
+def _submit_page(reviewer):
+    st.title("Submit a diagram for conversion")
+    st.caption("Upload a system diagram and its requirements. Files are stored by reference; the "
+               "workflow reads them through the governed gateway. Nothing runs until you press Run.")
+    refs = st.session_state.setdefault("submit_refs", {"diagram": None, "requirements": []})
+
+    c1, c2 = st.columns(2)
+    diagram = c1.file_uploader("System diagram (.vsdx or image)", type=DIAGRAM_TYPES, key="up_diagram")
+    reqs = c2.file_uploader("Requirements documents", type=REQUIREMENT_TYPES,
+                            accept_multiple_files=True, key="up_reqs")
+    if st.button("⬆️ Upload", disabled=not diagram) and diagram is not None:
+        store = container.uploads()
+        # keep the original filename: the workflow decides vsdx/image/document from its suffix
+        refs["diagram"] = store.put(diagram.name, diagram.getvalue(), content_type_for(diagram.name))
+        refs["requirements"] = [store.put(f.name, f.getvalue(), content_type_for(f.name))
+                                for f in (reqs or [])]
+        st.session_state["submit_rid"] = None
+        st.success("Stored. Review the references below, then press Run.")
+
+    if refs["diagram"]:
+        st.write("**Diagram**", f'`{refs["diagram"]}`')
+        for r in refs["requirements"]:
+            st.write("**Requirements**", f"`{r}`")
+        if st.button("▶️ Run visio_to_archimate", type="primary"):
+            rid = workflows.request("visio_to_archimate",
+                                    {"diagram": refs["diagram"], "requirements": refs["requirements"]},
+                                    requester=reviewer)
+            st.session_state["submit_rid"] = rid
+            st.rerun()
+
+    rid = st.session_state.get("submit_rid")
+    if rid:
+        _run_status(rid)
+
+    st.divider()
+    st.subheader("Recent submissions")
+    for s in workflows.recent(10):
+        inp = s.get("inputs") or {}
+        line = (f'`{s.get("request_id")}` **{s.get("status", "?")}** — {os.path.basename(inp.get("diagram", "") or "")} '
+                f'+ {len(inp.get("requirements") or [])} doc(s) ({s.get("requester")}, {s.get("created_at")})')
+        if s.get("approval_id"):
+            line += f' → approval `{s["approval_id"]}`'
+        st.write(line)
+
+
+@st.fragment(run_every=5)
+def _run_status(rid):
+    s = workflows.status(rid)
+    if not s:
+        st.warning(f"unknown request {rid}"); return
+    status = s.get("status", "pending")
+    icon = {"pending": "⏳", "running": "🏃", "done": "✅", "failed": "⛔"}.get(status, "•")
+    st.subheader(f"{icon} Run `{rid}` — {status}")
+    cols = st.columns(4)
+    cols[0].write(f'**Requested** {s.get("created_at", "")}')
+    cols[1].write(f'**Started** {s.get("started_at", "—")}')
+    cols[2].write(f'**Finished** {s.get("finished_at", "—")}')
+    cols[3].write(f'**Consumer** {s.get("consumer", "—")}')
+    if s.get("trace_id"):
+        st.write(f'**Trace** [{s["trace_id"][:16]}…]({JAEGER}{s["trace_id"]})')
+    if status == "pending":
+        st.info("Waiting for a workload host to pick this up (the wf-visio consumer).")
+    elif status == "running":
+        st.info("BA → Architect → validate/render in progress…")
+    elif status == "done":
+        summ = s.get("summary") or {}
+        m = st.columns(4)
+        for col, k in zip(m, ("elements", "relations", "views", "semantic_warnings")):
+            col.metric(k, summ.get(k, "—"))
+        st.success(f'Model staged for approval `{s.get("approval_id")}` — switch to **Review** mode to decide.')
+        if s.get("xml_ref"):
+            st.write(f'Artifact `{s["xml_ref"]}`')
+    elif status == "failed":
+        st.error(s.get("error", "failed"))
+
+
+# ============================================================================ Runs mode
+STATUS_ICON = {"running": "🏃", "done": "✅", "failed": "⛔", "start": "▶️", "fail": "⛔"}
+NODE_STYLE = {"done": "fill:#d4edda,stroke:#28a745", "running": "fill:#fff3cd,stroke:#ffc107,stroke-width:3px",
+              "failed": "fill:#f8d7da,stroke:#dc3545,stroke-width:3px"}
+
+
+def _fmt_elapsed(s):
+    try:
+        s = float(s)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{s:.0f}s" if s < 90 else f"{s / 60:.1f}m"
+
+
+def _run_row(h):
+    node = h.get("node") or ""
+    if h.get("status") == "running" and node:
+        node = f"{node} ({h.get('node_status', '')})"
+    return {"run": h.get("run_id", ""), "process": h.get("process", ""),
+            "input": os.path.basename(h.get("input", "") or ""), "status": h.get("status", ""),
+            "current node": node, "started": (h.get("started_at") or "")[:19].replace("T", " "),
+            "elapsed": _fmt_elapsed(h.get("elapsed")),
+            "trace": (JAEGER + h["trace_id"]) if h.get("trace_id") else None}
+
+
+def _node_states(h):
+    """name -> done | running | failed, from the ordered node timeline."""
+    states = {}
+    for n in h.get("nodes") or []:
+        states[n["name"]] = {"start": "running", "done": "done", "fail": "failed"}[n["status"]]
+    return states
+
+
+def _mermaid_with_state(src, states):
+    lines = [src.rstrip()]
+    for name, state in states.items():
+        if state in NODE_STYLE and re.search(rf"^\s*{re.escape(name)}\[", src, re.M):
+            lines.append(f"  style {name} {NODE_STYLE[state]};")
+    return "\n".join(lines)
+
+
+def _render_mermaid(src):
+    """Render in an iframe with mermaid.js (Streamlit's markdown has no mermaid); source below."""
+    try:
+        html = ('<script type="module">import mermaid from '
+                '"https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";'
+                'mermaid.initialize({startOnLoad:true,theme:"neutral"});</script>'
+                f'<pre class="mermaid" style="margin:0">{escape(src)}</pre>')   # mermaid entity-decodes
+        height = min(80 + 90 * (src.count("-->") + 1), 720)
+        if hasattr(st, "iframe"):                # Streamlit >= 1.6x; components.v1.html is deprecated
+            st.iframe(html, height=height)
+        else:
+            import streamlit.components.v1 as components
+            components.html(html, height=height, scrolling=True)
+    except Exception as e:                       # noqa: BLE001 — never lose the board over a diagram
+        st.caption(f"diagram not rendered ({e}); source below")
+    with st.expander("Mermaid source"):
+        st.code(src, language="mermaid")
+
+
+def _runs_board():
+    act, rec = runlog.active(), runlog.recent(20)
+    c1, c2, c3 = st.columns([1, 1, 4])
+    c1.metric("Active", len(act)); c2.metric("Recent", len(rec))
+    c3.caption("A workflow host reports every node transition through `src/lab/platform/runlog.py` "
+               "(`run:<id>` in Redis + one unbuffered stdout line). Rows expire after 7 days.")
+    if not act and not rec:
+        st.info("No runs recorded yet. Start one with `python -m lab.workloads.visio_to_archimate.host …` "
+                "or from **Submit** mode; it appears here the moment its first node starts.")
+        return
+    rows = [_run_row(h) for h in act + rec]
+    st.dataframe(rows, hide_index=True, width="stretch",
+                 column_config={"trace": st.column_config.LinkColumn("trace", display_text="open in Jaeger")})
+
+    ids = [r["run"] for r in rows]
+    default = st.session_state.get("runs_selected")
+    sel = st.selectbox("Run", ids, index=ids.index(default) if default in ids else 0)
+    st.session_state["runs_selected"] = sel
+    h = runlog.get(sel)
+    if not h:
+        st.warning(f"run {sel} expired"); return
+
+    icon = STATUS_ICON.get(h.get("status"), "•")
+    st.subheader(f'{icon} `{sel}` — {h.get("status")}' + (f' · at **{h["node"]}**' if h.get("status") == "running" else ""))
+    m = st.columns(5)
+    m[0].write(f'**Process** {h.get("process", "")}'); m[1].write(f'**Input** `{h.get("input", "")}`')
+    m[2].write(f'**Started** {h.get("started_at", "—")}'); m[3].write(f'**Finished** {h.get("finished_at", "—")}')
+    m[4].write(f'**Elapsed** {_fmt_elapsed(h.get("elapsed"))}')
+    if h.get("trace_id"):
+        st.write(f'**Trace** [{h["trace_id"][:16]}…]({JAEGER}{h["trace_id"]})')
+    if h.get("error"):
+        st.error(h["error"])
+    for k in ("request_id", "approval_id", "xml_ref"):
+        if h.get(k):
+            st.write(f"**{k}** `{h[k]}`")
+
+    left, right = st.columns([2, 3])
+    with left:
+        st.markdown("**Node timeline**")
+        timeline = [{"": STATUS_ICON.get(n["status"], "•"), "node": n["name"], "status": n["status"],
+                     "at": n["ts"][11:19], "elapsed": _fmt_elapsed(n["attrs"].get("elapsed")),
+                     "detail": ", ".join(f"{k}={v}" for k, v in n["attrs"].items() if k != "elapsed")}
+                    for n in h.get("nodes") or []]
+        if timeline:
+            st.dataframe(timeline, hide_index=True, width="stretch")
+        else:
+            st.caption("no node reported yet")
+    with right:
+        st.markdown("**Workflow graph**")
+        if h.get("mermaid"):
+            _render_mermaid(_mermaid_with_state(h["mermaid"], _node_states(h)))
+        else:
+            st.caption("no graph stored on this run (the host stores `mermaid` via "
+                       "`lab.workloads.workflowviz.mermaid(workflow)` at start)")
+
+
+@st.fragment(run_every=5)
+def _runs_board_live():
+    _runs_board()
+
+
+def _runs_page(_reviewer):
+    st.title("Runs")
+    top = st.columns([1, 1, 6])
+    if top[0].button("🔄 Refresh"):
+        st.rerun()
+    auto = top[1].toggle("Auto (5 s)", value=True, key="runs_auto")
+    if auto:
+        _runs_board_live()          # st.fragment re-runs only this board every 5 s
+    else:
+        _runs_board()
+
+
+# ============================================================================ Review mode
+def _xml_bytes(p):
+    """(bytes, filename) of the model XML from the artifact store; (None, None) if unavailable."""
+    if not p.get("xml_ref"):
+        return None, None
+    try:
+        return container.artifacts().get(p["xml_ref"]), p["xml_ref"].split("/")[-1]
+    except Exception as e:      # an old approval whose artifact expired/was purged must not crash the gate
+        st.warning(f"model artifact unavailable for this request: {e}")
+        return None, None
+
+
+def _model_contents(p):
+    xml_bytes, xml_name = _xml_bytes(p)
+    if not xml_bytes:
+        st.error(f"model artifact not available: {p.get('xml_ref')}")
+        return
+    root = ET.fromstring(xml_bytes)
+    els = root.findall(".//a:elements/a:element", NS)
+    rels = root.findall(".//a:relationships/a:relationship", NS)
+    with st.expander(f"Model contents — {len(els)} elements, {len(rels)} relationships"):
+        by_type = {}
+        for e in els:
+            by_type.setdefault(e.get("{http://www.w3.org/2001/XMLSchema-instance}type"), []).append(
+                e.find("a:name", NS).text)
+        for t in sorted(by_type):
+            st.write(f"**{t}**: " + ", ".join(sorted(by_type[t])))
+    st.download_button("Download .archimate.xml (views/diagrams)", xml_bytes, file_name=xml_name, mime="application/xml")
+
+
+def _object_file(p, summ):
+    """The Excel object file: creates + updates existing objects, matched by name."""
+    if not p.get("xlsx_ref"):
+        return
+    try:
+        xlsx_bytes = container.artifacts().get(p["xlsx_ref"])
+        st.download_button(
+            f"Download objects .xlsx ({summ.get('excel_objects', '?')} objects — create/update)",
+            xlsx_bytes, file_name=p["xlsx_ref"].split("/")[-1],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.caption("Import via ADOIT → Object Catalogue → right-click a group → Import/Export → "
+                   "Import objects from Excel. Objects are matched by **name** (created if new, updated "
+                   "if present). Import the ArchiMate XML above for the views/diagrams.")
+    except Exception as e:
+        st.warning(f"object Excel file not available: {e}")
+
+
+def _views(p):
+    views = []                                   # [(label, bytes)]
+    for label, ref in (p.get("svg_refs") or {}).items():
+        try:
+            views.append((label, container.artifacts().get(ref)))
+        except Exception as e:                   # noqa: BLE001
+            st.warning(f"view {label}: {e}")
+    if not views:
+        return
+    tabs = st.tabs([v[0] for v in views])
+    for tab, (_, svg_bytes) in zip(tabs, views):
+        with tab:
+            data = base64.b64encode(svg_bytes).decode()
+            st.markdown(f'<div style="overflow:auto;max-height:75vh;border:1px solid #ccc">'
+                        f'<img src="data:image/svg+xml;base64,{data}"/></div>', unsafe_allow_html=True)
+
+
+def _review_page(reviewer):
+    # drain this channel's unseen events (mark delivered) — the pending set drives the UI
+    for eid, _ in approvals.channel_events("review-app", block_ms=0):
+        approvals.ack("review-app", eid)
+
+    st.title("Architecture Review")
+    items = approvals.pending()
+    st.sidebar.metric("Pending", len(items))
+    if not items:
+        st.info("No models awaiting review. Runs that call `adoit_request_import` will appear here "
+                "(start one from **Submit** mode).")
+        st.subheader("Recent decisions")
+        for h in approvals.history(20):
+            st.write(f'`{h["request_id"]}` **{h["decision"]}** by {h["actor"]} via {h["channel"]} — {h["comment"]} ({h["decided_at"]})')
+        return
+
+    labels = [f'{i["subject"]} · {i["request_id"]}' for i in items]
+    choice = st.sidebar.radio("Requests", labels)
+    req = items[labels.index(choice)]
+    p = req["payload"]
+
+    st.subheader(req["subject"])
+    c1, c2, c3, c4 = st.columns(4)
+    c1.write(f'**Request** `{req["request_id"]}`'); c2.write(f'**From** {req["requester"]}')
+    c3.write(f'**Status** {req["status"]}'); c4.write(f'**Created** {req["created_at"]}')
+    if req.get("trace_id"):
+        st.write(f'**Trace** [{req["trace_id"][:16]}…]({JAEGER}{req["trace_id"]}) — the run that produced this model')
+    if req.get("comment"):
+        st.warning(f'Last comment ({req.get("decided_by")} via {req.get("decided_via")}): {req["comment"]}')
+
+    summ = p.get("summary", {})
+    # existing-architecture resolution — is this NEW or an UPDATE to something already in ADOIT?
+    decision = summ.get("decision")
+    if decision:
+        if decision == "UPDATE":
+            base = summ.get("base_model") or summ.get("domain")
+            st.warning(f'**UPDATE** to **{base}** (domain: {summ.get("domain")}) — '
+                       f'{summ.get("matched_existing", 0)} existing element(s) reused, '
+                       f'{summ.get("new_elements", 0)} new. Approving reuses the existing ADOIT object ids.')
+        else:
+            st.success(f'**NEW** model in domain **{summ.get("domain")}** — {summ.get("new_elements", summ.get("elements"))} new element(s).')
+        if summ.get("resolve_rationale"):
+            st.caption(summ["resolve_rationale"])
+    m = st.columns(5)
+    for col, k in zip(m, ("elements", "relations", "views", "violations", "warnings")):
+        col.metric(k, summ.get(k, "—"))
+
+    _model_contents(p)
+    _object_file(p, summ)
+    _views(p)
+
+    # --- decision ---
+    st.divider()
+    comment = st.text_area("Comment (required for changes / decline)")
+    b1, b2, b3 = st.columns(3)
+
+    def _decide(d):
+        if d != "approve" and not comment.strip():
+            st.error("A comment is required for that decision."); return
+        approvals.decide(req["request_id"], d, reviewer, "review-app", comment.strip())
+        st.success(f"Recorded: {d}"); st.rerun()
+    if b1.button("✅ Approve — release for import", type="primary"): _decide("approve")
+    if b2.button("✏️ Request changes"): _decide("update")
+    if b3.button("⛔ Decline"): _decide("decline")
+
+
+# ============================================================================ page
+PAGES = {"Review": _review_page, "Submit": _submit_page, "Runs": _runs_page}
+
+
+def main():
+    st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
+    if config.REVIEW_APP_PASSWORD:      # minimal gate; production fronts this app with Entra / an identity-aware proxy
+        if st.session_state.get("authed") is not True:
+            pw = st.text_input("Review app password", type="password")
+            if pw == config.REVIEW_APP_PASSWORD:
+                st.session_state["authed"] = True; st.rerun()
+            st.stop()
+    reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer"))
+    mode = st.sidebar.radio("Mode", list(PAGES), horizontal=True)
+    PAGES[mode](reviewer)
+
+
+if __name__ == "__main__":
+    main()

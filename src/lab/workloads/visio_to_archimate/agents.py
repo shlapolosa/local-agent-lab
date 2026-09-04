@@ -1,0 +1,160 @@
+"""The two agents of the Visio->ArchiMate workflow, as Microsoft Agent Framework ChatAgents
+pointed at the lab gateway. Each agent authenticates with its own credential; spend attributes
+per agent key.
+
+Client & state (see [[agent-framework-tool-calling]] / CLAUDE.md): we use the modern OpenAI
+**Responses API** (`OpenAIChatClient`), but forced STATELESS via `store=False`. Reason: the
+gateway's Ollama Cloud upstream implements only the non-stateful flavor of `/v1/responses`
+(`store`/`previous_response_id`/`conversation` are inert — verified), so AF's default stateful
+turn (previous_response_id + delta) yields an empty post-tool message. `store=False` makes AF
+resend full context each turn (stateless replay), which works. The toggle is `AGENT_RESPONSES_STORE`
+in `.env` (false for our Ollama-backed gateway; set true only against a Responses-stateful backend
+like Azure OpenAI / Foundry). We can't derive the upstream from the client (AF sees only the
+gateway URL), hence the explicit env switch — consistent with the lab's one-.env-toggle style.
+
+Instructions are composed from the greenfield prompts + method + the registered visio-reader skill.
+"""
+import os
+from pathlib import Path
+
+from agent_framework import Agent, ChatOptions
+from agent_framework.openai import OpenAIChatClient
+
+from lab.platform import config
+from lab.platform.contracts import AdoitTools, SemanticTools, StorageTools
+
+HERE = Path(__file__).resolve().parent
+SKILLS = config.REPO_ROOT / "skills"          # the registered skills' SKILL.md (single source of truth)
+MODEL = os.environ.get("VISIO_AGENT_MODEL", "kimi-k3")
+# store=True only when the gateway's upstream actually persists Responses state (Azure/Foundry/OpenAI).
+STORE = os.environ.get("AGENT_RESPONSES_STORE", "false").strip().lower() in ("1", "true", "yes")
+
+
+def _read(rel: str) -> str:
+    return (HERE / rel).read_text()
+
+
+def _strip_frontmatter(md: str) -> str:
+    if md.lstrip().startswith("---"):
+        return md.split("---", 2)[2].strip()
+    return md
+
+
+def ba_instructions() -> str:
+    skill = _strip_frontmatter((SKILLS / "visio-reader" / "SKILL.md").read_text())
+    return "\n\n".join([
+        _read("prompts/ba.md"),
+        "## Conversion method\n\n" + _read("references/method.md"),
+        "## Visio-reading skill\n\n" + skill,
+    ])
+
+
+def ba_tools_addendum() -> str:
+    """BA_MODE=tools: appended to ba_instructions — the model BUILDS its output through the small
+    validated accumulator tools (ba_tools.py) instead of emitting one giant JSON document."""
+    return "\n\n" + _read("prompts/ba_tools.md")
+
+
+def architect_tools_addendum() -> str:
+    """ARCHITECT_MODE=tools: appended to architect_instructions — the model BUILDS the spec through the
+    accumulator tools (architect_tools.py) with per-call ArchiMate legality, instead of one giant JSON."""
+    return "\n\n" + _read("prompts/architect_tools.md")
+
+
+def architect_instructions() -> str:
+    return "\n\n".join([
+        _read("prompts/architect.md"),
+        "## Conversion method\n\n" + _read("references/method.md"),
+    ])
+
+
+def resolve_instructions() -> str:
+    return _read("prompts/resolve.md")
+
+
+def read_vsdx_tool():
+    """LOCAL-DEV ONLY: a function tool the BA calls to read a Visio file from a filesystem path
+    (no egress). Refs are never read here — for art:// inputs the BA gets the gateway's
+    storage_mcp tools instead (ba_tools), so a workload holds no store credentials."""
+    from . import inputs as I
+
+    def read_vsdx(source: str) -> dict:
+        """Read a Microsoft Visio .vsdx diagram into {pages, shapes, connectors}. `source` is the
+        exact path you were given. Call this BEFORE describing the system."""
+        return I.read_vsdx(source)
+
+    return read_vsdx
+
+
+def read_document_tool():
+    """LOCAL-DEV ONLY: a function tool the BA calls to read a requirements document from a path —
+    parsed locally, returned as plain text; that text then reaches the model through the gateway,
+    where the PII guardrail applies like any other prompt content."""
+    from . import inputs as I
+
+    def read_document(source: str) -> str:
+        """Read a requirements document (.docx, .pdf, .md, .txt, .csv) into plain text. `source` is
+        the exact path you were given. Read EVERY requirements document you were given BEFORE
+        producing the system description, and use it to name behaviours, data, rules and actors
+        the diagram only implies."""
+        return I.read_document(source)
+
+    return read_document
+
+
+# exact governed READ tools the BA may call on the upload store (gateway-qualified names, from the contract)
+BA_MCP_TOOLS = [StorageTools.gateway(StorageTools.read_document), StorageTools.gateway(StorageTools.read_vsdx)]
+
+
+def ba_tools(headers: dict):
+    """The BA's in-agent tools for art:// inputs = the gateway MCP filtered to the two read tools,
+    called with the BA's own identity (its team holds the storage_mcp grant). Async-context tool —
+    open it (`async with`) around the agent run. Images are NOT a BA tool: the workflow node fetches
+    them (storage_get / storage_extract_figures, also via the gateway) and attaches them inline."""
+    from agent_framework import MCPStreamableHTTPTool
+    return MCPStreamableHTTPTool(
+        name="storage", url=config.GATEWAY_MCP_URL, allowed_tools=BA_MCP_TOOLS,
+        header_provider=lambda _ctx: dict(headers), approval_mode="never_require")
+
+
+# exact governed tools the Architect may call (gateway-qualified names, from the contract); NOT the import staging
+ARCHITECT_MCP_TOOLS = [SemanticTools.gateway(SemanticTools.validate_model), AdoitTools.gateway(AdoitTools.render)]
+
+
+def architect_tools(headers: dict):
+    """The Architect's in-agent tools = the gateway MCP, filtered to validate + render, called with
+    the Architect's own identity (its key holds the grants). Returned as an async-context MCP tool;
+    open it (`async with`) around the agent run. The human-gated import staging stays deterministic
+    and is deliberately excluded from allowed_tools."""
+    from agent_framework import MCPStreamableHTTPTool
+    return MCPStreamableHTTPTool(
+        name="ea-tools", url=config.GATEWAY_MCP_URL, allowed_tools=ARCHITECT_MCP_TOOLS,
+        header_provider=lambda _ctx: dict(headers), approval_mode="never_require")
+
+
+def make_agent(name: str, instructions: str, credential: str,
+               traceparent: dict | None = None, tools=None) -> Agent:
+    """One ChatAgent -> gateway /v1 (Responses API, stateless) with the agent's own credential.
+    `traceparent` (W3C headers) rides as default_headers so gateway LLM spans join the run's trace.
+    `tools` optionally attaches in-agent function/MCP tools (agentic mode)."""
+    # A real per-request timeout + bounded output: without them a stalled turn hangs the host
+    # forever (observed: a BA run sat 2.5 h on one in-flight /v1/responses call), and kimi-k3's
+    # reasoning can emit ~8k tokens per turn, which store=False then resends every turn.
+    # The output cap must LEAVE ROOM for that reasoning: it counts toward max_output_tokens. A
+    # 6000 cap ended a tiny BA turn finish=incomplete with no text; 16000 still exhausted on a
+    # DENSE 1600px diagram (out=16000, finish=incomplete, no JSON — verified) because kimi-k3
+    # reasons for thousands of tokens about a busy image before answering. 32000 fits image
+    # reasoning + the JSON; kimi-k3 ignores reasoning_effort via Ollama (verified), so the cap is
+    # the only lever, and the wall-clock timeout (not the cap) protects against a hang.
+    from openai import AsyncOpenAI
+    http = AsyncOpenAI(
+        api_key=credential, base_url=config.GATEWAY_URL.rstrip("/") + "/v1/",
+        default_headers=dict(traceparent or {}),
+        timeout=float(os.environ.get("AGENT_REQUEST_TIMEOUT", "300")),
+        # 3 retries with the SDK's backoff ride out a transient 429/5xx from the gateway (a per-key
+        # token window resetting) without masking a real outage — the timeout still bounds each try.
+        max_retries=int(os.environ.get("AGENT_MAX_RETRIES", "3")))
+    client = OpenAIChatClient(model=MODEL, api_key=credential, async_client=http)
+    return Agent(client=client, name=name, instructions=instructions, tools=tools,
+                 default_options=ChatOptions(
+                     store=STORE, max_tokens=int(os.environ.get("AGENT_MAX_OUTPUT_TOKENS", "32000"))))

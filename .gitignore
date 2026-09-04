@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.claude/settings.local.json
 
 # Python
 __pycache__/
@@ -12,32 +13,20 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
 
-# macOS
+# macOS / editors
 .DS_Store
-
-# Editors
 .idea/
 .vscode/
 
-# Local artifacts
+# Lab runtime, generated files, third-party binaries, licensed reference workbooks — ALL under var/
+# (logs/ run/ artifacts/ out/ inputs/ tools/ coverage/ reference-sources/); see CLAUDE.md
+var/
 *.log
 
-# Lab runtime / generated
-logs/
-.lab/
-architecture/out/
-architecture/lab_model.json
+# skill workspace (scratch models, not a skill)
 .claude/skills/archimate-adoit-workspace/
 
-# third-party binaries
-tools/
-
-# licensed reference models (BA Guild) — never commit
-semantic/reference/sources/
-semantic/store/
-
 # Rendered (env-specific) client settings — regenerate with ./lab.sh clients
-clients/**/settings.json
-processes/**/visio-in/*.vsdx
-processes/**/out/
+config/clients/**/settings.json

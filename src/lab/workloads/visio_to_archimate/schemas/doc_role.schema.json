@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://local-agent-lab/schemas/doc_role.schema.json",
+  "x-status": "planned — no consuming step yet (doc-role classify); wire or delete with the ingestion refactor",
+  "title": "Document role classification",
+  "description": "The typed contract the doc-role classify agent step emits for an uploaded document: whether it is the primary design/diagram artefact of the system or a supporting requirements document. `role` drives how the document is read downstream (design becomes the diagram/structure source; requirements become evidence, not new boxes).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "role"
+  ],
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "design",
+        "requirements"
+      ],
+      "description": "Classification of the document: `design` = the primary design/diagram artefact of the system; `requirements` = a supporting requirements document (evidence)."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Optional: the classifier's confidence in `role`, from 0 (none) to 1 (certain)."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Optional: one or two sentences explaining the classification, for a human reviewer."
+    }
+  }
+}

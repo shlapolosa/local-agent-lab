@@ -1,15 +1,13 @@
-# Local dev cruft that must never enter the image build context.
+# Only what the image needs is COPY'd (deploy/Dockerfile); this keeps the build context small.
 .venv/
 .git/
-.lab/
-logs/
-out/
-architecture/out/
+var/
 **/__pycache__/
 *.pyc
 .env
 *.log
 node_modules/
 .DS_Store
-# licensed reference workbooks are mounted as a volume, not baked in
-semantic/reference/sources/
+tests/
+docs/
+.claude/

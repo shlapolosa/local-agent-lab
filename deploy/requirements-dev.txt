@@ -1,0 +1,4 @@
+# Test/dev-only extras (not in the image): tests/run.sh prefers pytest when present.
+pytest>=8
+pytest-cov>=5
+coverage>=7
