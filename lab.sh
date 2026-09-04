@@ -2,7 +2,7 @@
 # lab.sh — bring the local agent lab up/down in one command.
 #   ./lab.sh up      start redis (brew, or check the cloud one), jaeger (native, or DEPLOY the Railway one when
 #                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), storage-mcp (:9300),
-#                    workflow-mcp (:9400), graph-mcp (:9500), gateway (:4000), review app (:8501), and every CONFIGURED
+#                    workflow-mcp (:9400), graph-mcp (:9500), speech-mcp (:9600), gateway (:4000), review app (:8501), and every CONFIGURED
 #                    approval channel (telegram, teams — skipped with a line when their .env settings are absent)
 #   ./lab.sh down    stop everything — the MCP servers, gateway, review app, every approval channel,
 #                    the consumer and the metered Railway Jaeger deployment (redis is left to brew)
@@ -25,7 +25,8 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
   export ADOIT_MCP_URL="${ADOIT_MCP_URL:-http://127.0.0.1:9100/mcp}" SEMANTIC_MCP_URL="${SEMANTIC_MCP_URL:-http://127.0.0.1:9200/mcp}" \
          STORAGE_MCP_URL="${STORAGE_MCP_URL:-http://127.0.0.1:9300/mcp}" \
          WORKFLOW_MCP_URL="${WORKFLOW_MCP_URL:-http://127.0.0.1:9400/mcp}" \
-         GRAPH_MCP_URL="${GRAPH_MCP_URL:-http://127.0.0.1:9500/mcp}"; }
+         GRAPH_MCP_URL="${GRAPH_MCP_URL:-http://127.0.0.1:9500/mcp}" \
+         SPEECH_MCP_URL="${SPEECH_MCP_URL:-http://127.0.0.1:9600/mcp}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
@@ -144,6 +145,23 @@ up() {
   # server is built to prevent.
   start_mcp graph-mcp    lab.substrate.mcp.graph.server    9500   # collaboration (alias collab_mcp): files + meetings by handle,
                                                                   # collab_fetch streams content into the upload store
+  # speech-mcp is started ALWAYS, for the same reason: with no provider credential it still answers
+  # speech_capabilities with the settings that are missing, and with AUDIO_EXTRACT_BIN unset it says
+  # so rather than failing a video mysteriously. Silence would look like a grant problem instead.
+  start_mcp speech-mcp   lab.substrate.mcp.speech.server   9600   # speech (alias speech_mcp): a recording ->
+                                                                  # timed, speaker-labelled words, returned by ref
+  # the continuation runner: approving an approval starts the run it releases. Started ALWAYS —
+  # it holds no credential, and without it an approved question is answered and nothing happens,
+  # which is the most confusing possible failure (the human did their part and the lab looks idle).
+  # No port to probe, so its own first log line is the readiness signal, like a channel's.
+  if alive continuations; then printf "%-12s ok  already running (pid %s)\n" continuations "$(cat "$RUN/continuations.pid")"; else
+    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.continuations >"$LOGS/continuations.log" 2>&1 & echo $! >"$RUN/continuations.pid"
+    for i in 1 2 3; do /usr/bin/grep -q "continuation runner ready" "$LOGS/continuations.log" 2>/dev/null && break; sleep 1; done
+    if /usr/bin/grep -q "continuation runner ready" "$LOGS/continuations.log" 2>/dev/null; then
+      printf "%-12s started  (approved approvals start their next run)\n" continuations
+    else printf "%-12s WARN     did not report ready — see %s\n" continuations "$LOGS/continuations.log"; fi
+  fi
+
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
@@ -204,7 +222,7 @@ channels() {
 
 down() {
   for_each_channel stop_channel
-  for s in wf-visio review litellm graph-mcp workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
+  for s in wf-visio review litellm continuations speech-mcp graph-mcp workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
@@ -215,7 +233,7 @@ down() {
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp graph-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp graph-mcp speech-mcp continuations litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   # the review app is reported by its HEALTH endpoint, not its pid file: streamlit's recorded pid
   # goes stale across a manual restart while the app keeps serving :8501 (observed), and "stopped"
   # for a running approval UI is exactly the wrong answer

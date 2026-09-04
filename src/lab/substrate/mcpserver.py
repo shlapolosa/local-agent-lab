@@ -68,6 +68,7 @@ class LabServer:
         self.artifacts = self.container.artifacts
         self.uploads = self.container.uploads
         self.collab = self.container.collab      # the collaboration provider (files + meetings)
+        self.speech = self.container.speech      # the speech provider (talk -> attributable words)
         self.mcp = FastMCP(service)
 
     def tool(self, *args, **kwargs):

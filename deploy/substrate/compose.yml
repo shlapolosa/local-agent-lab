@@ -77,6 +77,18 @@ services:
   graph-mcp:                  # the COLLABORATION port (gateway alias collab_mcp) — internal only.
     <<: *sub                  # Holds the provider credential (GRAPH_*) AND bucket credentials:
     command: ["python", "-m", "lab.substrate.mcp.graph.server"]   # collab_fetch streams content in.
+  speech-mcp:                 # the SPEECH port (gateway alias speech_mcp) — internal only. Holds the
+    <<: *svc                  # speech credential AND bucket keys: it reads the audio out of the upload
+    command: python -m lab.substrate.mcp.speech.server   # store and writes the segment timeline back
+    environment:              # as an art:// ref. No Redis: it publishes no event and holds no approval.
+      <<: *env
+      AUDIO_EXTRACT_BIN: ${AUDIO_EXTRACT_BIN:-ffmpeg}    # a meeting recording is VIDEO; providers take audio
+
+  continuations:              # approving an approval starts the run it releases. Redis only:
+    <<: *svc                  # no store, no bucket, no model, no provider credential, no ingress.
+    command: python -m lab.substrate.continuations
+    environment: { <<: *env }
+
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]

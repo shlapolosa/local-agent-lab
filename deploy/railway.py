@@ -110,6 +110,14 @@ SUBSTRATE = {
     # upload store — a meeting recording is streamed there and comes back as an art:// ref, so this
     # is the third holder of bucket credentials alongside storage-mcp (reads) and review (writes).
     "graph-mcp":    {"cmd": "python -m lab.substrate.mcp.graph.server", "port": None, "s3": True},
+    # the SPEECH port (gateway alias speech_mcp): a recording becomes timed, speaker-labelled words.
+    # "s3": True because it READS the audio out of the upload store and WRITES the segment timeline
+    # back as an art:// ref — an hour of speech is never a tool result. It holds the speech
+    # credential and nothing else; it publishes no event, so it gets no Redis.
+    "speech-mcp":   {"cmd": "python -m lab.substrate.mcp.speech.server", "port": None, "s3": True},
+    # what turns "a human approved" into "the next run started". Redis ONLY: it reads the decisions
+    # stream and publishes a workflow request, holds no credential of any kind, and has no ingress.
+    "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
     "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
@@ -188,7 +196,7 @@ ROLE_ENV = {
         "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
-        "GRAPH_MCP_URL",                           # ... incl. the collab_mcp alias's service
+        "GRAPH_MCP_URL", "SPEECH_MCP_URL",         # ... incl. the collab_mcp and speech_mcp aliases' services
         "REDIS_URL",                               # custom_auth.py; litellm falls back to it when REDIS_HOST/PORT/
                                                    # PASSWORD are absent (verified) — those three stay OUT (unchanged
                                                    # from the old drop-set; the cloud Redis has no password)
@@ -235,6 +243,21 @@ ROLE_ENV = {
                                                    # only the one key — this role never reaches the registry database.
         _OTLP,                                     # NO Redis either: it publishes no event and holds no approval
     ],                                             # + S3_KEYS via the "s3" flag (collab_fetch streams INTO the upload store)
+    "speech-mcp": [                                # src/lab/substrate/mcp/speech/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.speech — the SPEECH adapter
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "SPEECH_MCP_PORT", "SPEECH_PROVIDER",      # which port it serves; which adapter the container wires
+        "MUNSIT_*",                                # the provider's own credential + base url (repository.build)
+        "AUDIO_EXTRACT_BIN",                       # the host tool that pulls audio out of a video recording;
+                                                   # unset = video refused with a sentence, audio still works
+        "ARTIFACTS_URL",                           # config.UPLOADS_URL falls back to it when no bucket is set.
+                                                   # NOT DATABASE_URL: this role never reaches the registry database.
+        _OTLP,                                     # NO Redis: it publishes no event and holds no approval.
+    ],                                             # + S3_KEYS via the "s3" flag (reads the audio, writes the timeline)
+    "continuations": [                             # src/lab/substrate/continuations.py + lab.substrate.approvals + lab.platform.workflows
+        "REDIS_URL",                               # the approvals:decisions group + workflow:requests
+        "REVIEW_APP_URL",                          # printed on start so an operator can find the gate
+        _OTLP,                                     # NOTHING else: no store, no bucket, no model, no
+    ],                                             # provider credential. It cannot read what it releases.
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
         "REDIS_URL",                               # approvals / workflows / runlog streams
@@ -488,6 +511,7 @@ def substrate_env(name, spec, base_env) -> dict:
     env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
     env["WORKFLOW_MCP_URL"] = "http://workflow-mcp.railway.internal:9400/mcp"
     env["GRAPH_MCP_URL"] = "http://graph-mcp.railway.internal:9500/mcp"
+    env["SPEECH_MCP_URL"] = "http://speech-mcp.railway.internal:9600/mcp"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))

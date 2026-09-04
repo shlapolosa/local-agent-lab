@@ -19,6 +19,7 @@ SEMANTIC_MCP_URL = _e("SEMANTIC_MCP_URL", "http://127.0.0.1:9200/mcp")
 STORAGE_MCP_URL  = _e("STORAGE_MCP_URL", "http://127.0.0.1:9300/mcp")   # read-only governed object store
 WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # submit/status/result of every business process
 GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the COLLABORATION port (alias collab_mcp)
+SPEECH_MCP_URL   = _e("SPEECH_MCP_URL", "http://127.0.0.1:9600/mcp")    # the SPEECH port (alias speech_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
@@ -33,6 +34,7 @@ SEMANTIC_MCP_PORT = int(_e("SEMANTIC_MCP_PORT", "9200"))
 STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
+SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
 
 # --- host tooling ---
 # Rendering a .vsdx page to a picture needs LibreOffice on the HOST running storage-mcp. It is an
@@ -113,3 +115,16 @@ GRAPH_NOTIFICATION_ALLOWLIST = tuple(u.strip() for u in (_e("GRAPH_NOTIFICATION_
 # (/communications/onlineMeetings/getAllRecordings|getAllTranscripts and subscriptions on them), which
 # are BETA-only, unbounded in blast radius, and the historical metered surface — off by default.
 GRAPH_ALLOW_METERED = _bool(_e("GRAPH_ALLOW_METERED"))
+
+
+# --- speech (the SPEECH port; the alias is `speech_mcp`, the SERVICE and its credential are the vendor) ---
+# Same shape as the collaboration port: one registry key picks the adapter, and adding a provider is
+# a registry entry plus its own settings — never an edit in the server.
+SPEECH_PROVIDER = _e("SPEECH_PROVIDER", "munsit")
+MUNSIT_API_KEY = _e("MUNSIT_API_KEY")                 # the provider credential; only speech-mcp gets it
+MUNSIT_BASE_URL = _e("MUNSIT_BASE_URL", "https://api.munsit.com/api/v1")
+# A meeting recording is VIDEO and every speech provider we surveyed takes audio only, so the audio
+# has to be extracted first. This is a HOST TOOL, exactly like SOFFICE_BIN for document rendering:
+# `ffmpeg` in a container, `afconvert` on macOS (built in, nothing to install). Unset disables
+# extraction, and a video input then fails with a sentence naming the missing tool.
+AUDIO_EXTRACT_BIN = _e("AUDIO_EXTRACT_BIN", "")

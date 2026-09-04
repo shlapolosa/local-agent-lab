@@ -25,9 +25,13 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
 
 # ----------------------------------------------------------------------------- tool catalogues
 def gateway_name(server: str, tool: str) -> str:
@@ -137,10 +141,42 @@ class ApprovalTools(ToolCatalogue):
     SERVER = "workflow_mcp"
     list = "approvals_list"
     get = "approvals_get"
+    ask = "approvals_ask"
     decide = "approvals_decide"
 
-    READ = (list, get)          # the two GRANTS, as tuples so `names()`'s string filter ignores them
+    # THREE GRANTS, and the split is the control. READ shows a human what is waiting. RAISE asks a
+    # question — a workload's own step needs this, because a workload may not import the substrate
+    # and so has no other way to reach the gate. WRITE answers, and must reach only a channel
+    # carrying a signed-in person. A workload gets RAISE and never WRITE: asking must never imply
+    # the ability to answer your own question.
+    READ = (list, get)          # the GRANTS, as tuples so `names()`'s string filter ignores them
+    RAISE = (ask,)              # a workload's step, over the gateway — it publishes, never decides
     WRITE = (decide,)           # the human-gated write — granted deliberately, never by default
+
+
+class SpeechTools(ToolCatalogue):
+    """The SPEECH port — recorded talk becoming attributable words. Vendor-neutral by construction:
+    the alias is `speech_mcp` and the tools are `speech_*`; the provider is named only by the SERVICE
+    (`speech-mcp` and its credential) and by the adapter the container resolves. The `ea_mcp` /
+    `adoit-mcp` precedent, enforced by `test_no_tool_or_alias_names_a_vendor`.
+
+    THE PORT RETURNS WORDS AND SPEAKER LABELS. It does not summarise, and that absence is structural:
+    minutes, decisions and keywords are produced by the lab's own governed model through the gateway,
+    so "the vendor does not summarise our meetings" is a property of the contract rather than a
+    promise in a document.
+
+    CONTENT BY REFERENCE, DIGEST INLINE. `transcribe` takes an `art://` reference and returns another
+    one for the full segment timeline, plus the small things a caller actually needs in hand: the
+    anonymous speaker digest, the duration, whether more than one language was recognised, and what
+    the provider would not honour. An hour of speech is not an argument; a speaker list is.
+
+    SPEAKER LABELS ARE ANONYMOUS AND PER REQUEST. `SPEAKER_00` means nothing beyond one call and is
+    not stable across two, so mapping a label to a human is a separate, human-gated act — and
+    re-linking labels across a split recording belongs to whoever split it.
+    """
+    SERVER = "speech_mcp"
+    capabilities = "speech_capabilities"   # what THIS provider/plan actually serves, and why not
+    transcribe = "speech_transcribe"
 
 
 class CollabTools(ToolCatalogue):
@@ -244,6 +280,10 @@ class ApprovalKind(StrEnum):
     exactly what `tests/governance/test_contracts_match_servers.py` exists to prevent."""
 
     EA_IMPORT = "ea-import"
+    # A human is not releasing a write here — they are ANSWERING a question the run could not
+    # answer itself: which anonymous speaker is which person. Same gate, same audit log, same
+    # channels; nothing dispatches on this value, which is what keeps that true.
+    SPEAKER_MAPPING = "speaker-mapping"
 
 
 @dataclass(frozen=True)
@@ -319,6 +359,189 @@ class ApprovalStatus(StrEnum):
 APPROVAL_FINAL = frozenset({ApprovalStatus.APPROVE, ApprovalStatus.DECLINE})   # `update` = changes requested, still open
 
 
+# ----------------------------------------------------------------------------- asking a human a question
+# An approval already carries a rich question OUTWARD: its payload is schema-free JSON, so a speaker
+# list needs nothing new to travel. What is missing is the way BACK — a decision carries only the
+# decision, an actor and a comment, which is enough to RELEASE a staged write and not enough to
+# ANSWER one. These types close that gap while keeping the gate itself generic.
+
+
+@dataclass(frozen=True)
+class SpeakerPrompt:
+    """ONE anonymous speaker a human is asked to identify, described by the step that HEARD it.
+
+    The `ImportArtifact` pattern in the other direction: the producer supplies the meaning (how long
+    this voice spoke, how often, and a few verbatim utterances), every channel renders it, and none
+    of them interpret it. Samples are what actually let a person tell voices apart; duration and turn
+    count are what let them tell a main participant from someone who said "yes" twice.
+    """
+
+    label: str
+    samples: tuple[str, ...] = ()
+    seconds: float = 0.0
+    turns: int = 0
+
+    def __post_init__(self) -> None:
+        if not (self.label or "").strip():
+            raise ValueError("a speaker prompt needs its label — the answer is keyed on it")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"label": self.label, "samples": list(self.samples), "seconds": self.seconds,
+                "turns": self.turns}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "SpeakerPrompt":
+        return cls(label=str(d.get("label") or ""), samples=tuple(d.get("samples") or ()),
+                   seconds=float(d.get("seconds") or 0.0), turns=int(d.get("turns") or 0))
+
+
+def speaker_prompts(payload: dict[str, Any]) -> list[SpeakerPrompt]:
+    """The speakers one approval asks about, in the order the payload declared them.
+
+    The ONE reader, shared by the review app, the chat cards and the approval tools, so three
+    surfaces cannot drift into three slightly different renderings of the same question. A payload
+    that asks nothing yields nothing rather than raising: most approvals are not questions.
+    """
+    items = ((payload or {}).get("question") or {}).get("items") or []
+    return [SpeakerPrompt.from_dict(i) for i in items if isinstance(i, dict)]
+
+
+@dataclass(frozen=True)
+class SpeakerIdentity:
+    """One human's answer for one speaker: a directory identity, or else a free tag.
+
+    Exactly one of the two, because not everyone in a meeting room is in the directory and pretending
+    otherwise would either lose the external participants or invent identities for them. Both at once
+    is ambiguous and refused.
+    """
+
+    label: str
+    identity: str = ""          # a directory principal — preferred, and resolvable later
+    tag: str = ""               # else free text: an external, a guest, "the vendor's architect"
+
+    def __post_init__(self) -> None:
+        if not (self.label or "").strip():
+            raise ValueError("a speaker answer needs the label it answers for")
+        if bool(self.identity.strip()) == bool(self.tag.strip()):
+            raise ValueError(f"{self.label}: give exactly one of identity or tag, not both or neither")
+
+    @property
+    def display(self) -> str:
+        """What the attributed transcript says — never the raw address.
+
+        The gateway's guardrail pseudonymises addresses in every request body, so a transcript full
+        of them reaches a model as placeholders and degrades silently the moment the model
+        paraphrases one instead of repeating it verbatim. The address stays in the audit log and the
+        structured artifact; what the model reads is a name.
+        """
+        return self.tag.strip() or self.identity.split("@")[0].strip()
+
+    def to_dict(self) -> dict[str, str]:
+        return {"identity": self.identity} if self.identity.strip() else {"tag": self.tag}
+
+
+@dataclass(frozen=True)
+class SpeakerMap:
+    """Every speaker in one transcript, answered together — the user's choice of ONE decision for all."""
+
+    entries: tuple[SpeakerIdentity, ...] = ()
+
+    def to_answer(self) -> dict[str, dict[str, str]]:
+        return {e.label: e.to_dict() for e in self.entries}
+
+    @classmethod
+    def from_answer(cls, answer: dict[str, Any]) -> "SpeakerMap":
+        return cls(tuple(SpeakerIdentity(label=k, identity=str((v or {}).get("identity") or ""),
+                                         tag=str((v or {}).get("tag") or ""))
+                         for k, v in (answer or {}).items()))
+
+    def of(self, label: str) -> SpeakerIdentity:
+        for e in self.entries:
+            if e.label == label:
+                return e
+        raise KeyError(f"{label} was never mapped — every label the transcript uses must be answered")
+
+
+def check_answer(payload: dict[str, Any], answer: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The answer this approval asked for, or ValueError naming exactly what is wrong.
+
+    GENERIC BY DESIGN, and that is the point. A payload declares `answer_labels` (the keys that must
+    each be answered exactly once) and `answer_required`; nothing here knows what a speaker is, so
+    the approval KIND never becomes a dispatch and the gate stays one implementation for every
+    channel. The per-value shape is the typed object's business, built by whichever surface collects
+    the answer.
+
+    An approval that asks nothing accepts no answer — otherwise any channel could smuggle arbitrary
+    state onto any request.
+    """
+    wanted = list((payload or {}).get("answer_labels") or [])
+    if not wanted:
+        if answer:
+            raise ValueError("this approval asks no question, so it takes no answer")
+        return None
+    if not answer:
+        if (payload or {}).get("answer_required", True):
+            raise ValueError(f"this approval needs an answer for {wanted}")
+        return None
+    given = set(answer)
+    missing, unknown = sorted(set(wanted) - given), sorted(given - set(wanted))
+    if missing:
+        raise ValueError(f"the answer is incomplete — nothing given for {missing}")
+    if unknown:
+        raise ValueError(f"the answer names {unknown}, which this approval did not ask about")
+    return answer
+
+
+# ----------------------------------------------------------------------------- what approving releases
+@dataclass(frozen=True)
+class Continuation:
+    """The run one approval releases when a human approves it.
+
+    Declared on the approval PAYLOAD rather than in the process registry, because a static "A is
+    followed by B" edge cannot carry the run-specific inputs of THIS run — the reference to the
+    transcript this particular meeting produced. The payload is the only place that knows both the
+    question and what answering it completes.
+
+    Validated at construction: a typo in the process name or the bound input would otherwise be
+    discovered hours later, when a human approves and nothing whatsoever happens.
+    """
+
+    process: str
+    inputs: dict[str, Any]
+    answer_input: str = ""      # the input field the human's answer binds to ("" = answer discarded)
+    requester: str = ""
+
+    def __post_init__(self) -> None:
+        spec = PROCESSES.get(self.process)
+        if spec is None:
+            raise ValueError(f"continuation names unknown process {self.process!r} — "
+                             f"one of {sorted(PROCESSES)}")
+        if self.answer_input and self.answer_input not in {f.name for f in spec.inputs}:
+            raise ValueError(f"{self.answer_input!r} is not an input of {self.process} — "
+                             f"one of {sorted(f.name for f in spec.inputs)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"process": self.process, "inputs": dict(self.inputs),
+                "answer_input": self.answer_input, "requester": self.requester}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Continuation":
+        return cls(process=str(d.get("process") or ""), inputs=dict(d.get("inputs") or {}),
+                   answer_input=str(d.get("answer_input") or ""),
+                   requester=str(d.get("requester") or ""))
+
+
+def continuation_of(payload: dict[str, Any]) -> Continuation | None:
+    """The run one approval releases, or None — the ONE reader, shared by the continuation runner and
+    any surface that wants to show a reviewer what approving will actually start.
+
+    A malformed continuation raises rather than being ignored: ignoring it means an approved run
+    simply never starts, with nothing anywhere to chase.
+    """
+    raw = (payload or {}).get("continuation")
+    return Continuation.from_dict(raw) if isinstance(raw, dict) and raw else None
+
+
 # ----------------------------------------------------------------------------- workflow requests
 class WorkflowStatus(StrEnum):
     PENDING = "pending"
@@ -368,10 +591,28 @@ class WorkflowRequest:
 
 # ----------------------------------------------------------------------------- process registry
 class InputKind(StrEnum):
-    """How one input field is carried. Both kinds are `art://` references (or, for local dev, a path):
-    a workload holds no store credentials, so an input is ALWAYS passed by reference."""
-    REF = "ref"            # exactly one reference
-    REF_LIST = "ref_list"  # zero or more references
+    """How one input field is carried.
+
+    The first two are `art://` references (or, for local dev, a path): a workload holds no store
+    credentials, so CONTENT is always passed by reference. The other three exist so a low-code
+    trigger can start a run in ONE call — carrying who owns a recording, a reference to it at the
+    provider, and a human's answer — none of which is content and none of which is an `art://` ref.
+
+    Deliberately absent: a general "text" kind. It would admit a URL, a whole document or an injected
+    prompt into a contract whose entire discipline is by-reference. When a process genuinely needs
+    free text, that is the moment to argue for it.
+    """
+    REF = "ref"            # exactly one reference to content in the lab's own store
+    REF_LIST = "ref_list"  # zero or more of those
+    HANDLE = "handle"      # ONE opaque provider handle (ids only — never a URL, never a credential)
+    IDENTITY = "identity"  # ONE directory principal: who a question is asked of, or who owns a thing
+    MAPPING = "mapping"    # a SMALL flat object of label -> {field: value}, from a human's answer
+
+
+# A mapping is a human's answer, not a payload. Bounded so it can never become a way to smuggle
+# arbitrary state through an input contract that is otherwise strictly by-reference.
+MAX_MAPPING_ENTRIES = 64
+MAX_MAPPING_BYTES = 8192
 
 
 @dataclass(frozen=True)
@@ -389,10 +630,18 @@ class InputField:
     def coerce(self, value: Any) -> Any:
         """The normalised value, or ValueError naming the field. `None`/absent is legal only when the
         field is optional (a REF_LIST then normalises to [])."""
-        if value is None or value == "" or value == []:
+        # `{}` is absence too, and it slips past the checks above — an empty mapping is a human who
+        # answered nothing, not a human who answered "nothing".
+        if value is None or value == "" or value == [] or value == {}:
             if self.required:
                 raise ValueError(f"{self.name} is required")
             return [] if self.kind is InputKind.REF_LIST else None
+        if self.kind is InputKind.HANDLE:
+            return self._handle(value)
+        if self.kind is InputKind.IDENTITY:
+            return self._identity(value)
+        if self.kind is InputKind.MAPPING:
+            return self._mapping(value)
         if self.kind is InputKind.REF:
             return self._one(value)
         if isinstance(value, str) or not isinstance(value, (list, tuple)):
@@ -408,6 +657,65 @@ class InputField:
         elif "://" in value:                  # a URL is never an input: uploads live in the lab's store
             raise ValueError(f"{self.name}: {value!r} is not an art:// reference (upload the file first)")
         return value
+
+
+    def _handle(self, value: Any) -> str:
+        """One opaque provider handle. Parsed by the domain's own type, which already refuses
+        anything that looks like a URL or a credential — the same guarantee `_one` gives for refs,
+        for free, and in one place rather than re-implemented here."""
+        from lab.core.collab.model import ContentHandle       # platform may import core
+
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{self.name} must be a non-empty handle string")
+        try:
+            return str(ContentHandle.parse(value.strip()))
+        except ValueError as e:
+            raise ValueError(f"{self.name}: {e}") from e
+
+    def _identity(self, value: Any) -> str:
+        """One directory principal — a user principal name, an address, or a directory object id.
+
+        Not a display name: this is who a question gets asked of, so it has to resolve. Refusing
+        "Maria Perez" here costs a moment; discovering it when nobody can be asked costs a run.
+        """
+        text = value.strip() if isinstance(value, str) else ""
+        if not text or any(c.isspace() for c in text) or "://" in text:
+            raise ValueError(f"{self.name} must be a directory principal "
+                             f"(a user principal name or an object id), got {value!r}")
+        local, at, domain = text.partition("@")
+        if at and local and "." in domain:
+            return text
+        if _GUID.fullmatch(text):
+            return text
+        raise ValueError(f"{self.name}: {text!r} is not a principal — expected "
+                         "name@domain or a directory object id, not a display name")
+
+    def _mapping(self, value: Any) -> dict[str, dict[str, str]]:
+        """A small flat object of label -> {field: value}: a human's answer, carried into the next run.
+
+        Bounded, and flat by construction. An input contract that is otherwise strictly
+        by-reference must not grow a hole through which a document, a URL or a prompt can travel.
+        """
+        if not isinstance(value, dict):
+            raise ValueError(f"{self.name} must be an object of label -> answer, "
+                             f"got {type(value).__name__}")
+        if len(value) > MAX_MAPPING_ENTRIES:
+            raise ValueError(f"{self.name} has {len(value)} entries, more than the "
+                             f"{MAX_MAPPING_ENTRIES} an answer may carry")
+        if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > MAX_MAPPING_BYTES:
+            raise ValueError(f"{self.name} is larger than the {MAX_MAPPING_BYTES} bytes an answer "
+                             "may carry — an answer is a mapping, not a payload")
+        out: dict[str, dict[str, str]] = {}
+        for key, entry in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"{self.name} has an entry with no label")
+            if not isinstance(entry, dict) or not entry:
+                raise ValueError(f"{self.name}[{key}] must be a non-empty object of field -> value")
+            for field, v in entry.items():
+                if not isinstance(field, str) or not isinstance(v, str) or not v.strip():
+                    raise ValueError(f"{self.name}[{key}].{field} must be a non-empty string")
+            out[key.strip()] = {f: v.strip() for f, v in entry.items()}
+        return out
 
 
 @dataclass(frozen=True)
@@ -481,13 +789,16 @@ PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE,)}
 # ----------------------------------------------------------------------------- the registry of servers
 # Last, because WorkflowTools' tool names are derived from PROCESSES above.
 SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
-                                                                 WorkflowTools, CollabTools)}
+                                                                 WorkflowTools, CollabTools,
+                                                                 SpeechTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "ApprovalTools", "CollabTools", "SERVERS", "ALL_TOOLS",
+           "ApprovalTools", "CollabTools", "SpeechTools", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
+           "SpeakerPrompt", "speaker_prompts", "SpeakerIdentity", "SpeakerMap", "check_answer",
+           "Continuation", "continuation_of",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE"]

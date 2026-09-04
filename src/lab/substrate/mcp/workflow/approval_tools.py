@@ -42,8 +42,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from lab.platform.contracts import (APPROVAL_FINAL, ApprovalKind, ApprovalTools, Decision,
-                                    import_artifacts)
+from lab.platform.contracts import (APPROVAL_FINAL, ApprovalKind, ApprovalStatus, ApprovalTools,
+                                    Continuation, Decision, SpeakerPrompt, import_artifacts)
 from lab.substrate import approvals
 from lab.substrate.mcpserver import LabServer, span
 
@@ -80,7 +80,8 @@ def _brief(st: dict, jaeger_url: str) -> dict:
     return out
 
 
-_NOT_ARTIFACTS = ("summary", "import_artifacts", "instructions")
+_NOT_ARTIFACTS = ("summary", "import_artifacts", "instructions",
+                  "question", "answer_labels", "answer_required", "continuation")
 
 
 def _detail(st: dict, jaeger_url: str, review_app: str) -> dict:
@@ -97,6 +98,11 @@ def _detail(st: dict, jaeger_url: str, review_app: str) -> dict:
         "artifacts": {k: v for k, v in payload.items() if k not in _NOT_ARTIFACTS},
         "import_artifacts": [a.to_dict() for a in import_artifacts(payload)],
         "instructions": payload.get("instructions", ""),
+        # A question comes back FLAT — a list of {label, samples, seconds, turns} — because the
+        # intended long-term surface is an adaptive card templated by a low-code flow, not our own
+        # renderer. A nested tree would be unusable there.
+        "question": payload.get("question") or {},
+        "answer_required": bool(payload.get("answer_labels")) and payload.get("answer_required", True),
         "trace_id": st.get("trace_id") or None, "decided_at": st.get("decided_at") or None,
         "review_app": review_app}
 
@@ -153,6 +159,65 @@ def register(server: LabServer) -> None:
         review app link to see the diagrams. Read-only: it decides nothing."""
         return _detail(_state(request_id), cfg.jaeger_ui_url(), cfg.review_app_url())
 
+    @server.tool()
+    def approvals_ask(
+        subject: Annotated[str, Field(description="What this question is about, in a few words — "
+                                                  "a person sees it before they open anything, e.g. "
+                                                  "the meeting's title.")],
+        prompt: Annotated[str, Field(description="The question itself, in plain language, as the "
+                                                 "person answering will read it.")],
+        items: Annotated[list[dict], Field(description="One entry per thing that must be answered: "
+                                                       "{label, samples, seconds, turns}. `label` is "
+                                                       "the key the answer is given under and must be "
+                                                       "unique; `samples` are verbatim quotes that "
+                                                       "help a human recognise which is which.")],
+        continuation: Annotated[dict | None, Field(description="What approving this should START, as "
+                                                               "{process, inputs, answer_input, "
+                                                               "requester}. Omit when approving "
+                                                               "releases nothing.")] = None,
+        artifacts: Annotated[dict | None, Field(description="`art://` references a reviewer may open "
+                                                            "while deciding, as {name: ref}.")] = None,
+        requester: Annotated[str, Field(description="Which process is asking.")] = "",
+    ) -> dict:
+        """Ask a HUMAN a question this run cannot answer itself, and finish.
+
+        This is how a business process reaches the human-in-the-loop gate. It PUBLISHES the question
+        to every approval channel and returns immediately, writing nothing else: runs take minutes,
+        people take hours, so a run asks and ends rather than blocking. The answer arrives later,
+        through whichever channel the person used, and what approving releases is carried by
+        `continuation` — so the next step starts by itself.
+
+        Ask about everything at once. One decision covering every item is far better than a person
+        being asked the same kind of question repeatedly, and the completeness rule below enforces
+        it: every label declared here must be answered before the approval can be approved.
+
+        You may ASK. You may not ANSWER — `approvals_decide` requires a signed-in person and is a
+        separate grant you do not hold. Never approve your own question; that defeats the entire
+        control."""
+        prompts = [SpeakerPrompt.from_dict(i) for i in (items or []) if isinstance(i, dict)]
+        if not prompts:
+            raise ValueError("ask about at least one thing — an empty question cannot be answered")
+        labels = [p.label for p in prompts]
+        if len(set(labels)) != len(labels):
+            dupes = sorted({l for l in labels if labels.count(l) > 1})
+            raise ValueError(f"duplicate labels {dupes} — the answer is keyed on the label, so each "
+                             "must appear exactly once")
+        payload = {"question": {"prompt": prompt, "items": [p.to_dict() for p in prompts],
+                                "fields": ["identity", "tag"]},
+                   # the completeness contract the gate will enforce, DECLARED by the asker — which
+                   # is what keeps `check_answer` generic and the approval kind free of dispatch
+                   "answer_labels": labels, "answer_required": True}
+        if continuation:
+            payload["continuation"] = Continuation.from_dict(continuation).to_dict()   # validated NOW
+        payload |= dict(artifacts or {})          # refs a reviewer may open; no store is reached
+        rid = approvals.request(kind=ApprovalKind.SPEAKER_MAPPING.value, subject=subject,
+                                payload=payload, requester=requester or SOURCE, client=_client())
+        span().set_attributes({"approval.request_id": rid, "approvals.asked": len(prompts)})
+        return {"request_id": rid, "status": ApprovalStatus.PENDING.value, "asked": len(prompts),
+                "review_app": cfg.review_app_url(),
+                "next": "a human answers through any approval channel; "
+                        f"poll it with {ApprovalTools.get}"}
+
     @server.tool(annotations=HUMAN_WRITE)
     def approvals_decide(
         request_id: Annotated[str, Field(description="The approval id (`apr-…`) being answered.")],
@@ -166,6 +231,12 @@ def register(server: LabServer) -> None:
                                                 "record of who released an architecture write.")],
         comment: Annotated[str, Field(description="The human's comment; expected for decline and "
                                                   "required in practice for update.")] = "",
+        answer: Annotated[dict | None, Field(description="The human's structured answer, when this "
+                                                         "approval asked a question: an object keyed "
+                                                         "by the label from `question.items`, each "
+                                                         "value {\"identity\": \"...\"} or "
+                                                         "{\"tag\": \"...\"}. Every label must be "
+                                                         "answered. Omit when nothing was asked.")] = None,
         channel: Annotated[str, Field(description="Where the human decided — 'teams' from a Copilot "
                                                   "Studio/Teams agent, otherwise your channel name. "
                                                   "Recorded as `mcp:<channel>`: a tool call is never "
@@ -184,7 +255,7 @@ def register(server: LabServer) -> None:
         request OPEN for a later answer; approve and decline are FINAL — deciding an already decided
         request is refused, as are a blank actor and an unknown request id."""
         fields = approvals.human_decision(request_id, decision.value, actor, channel_of(channel),
-                                          comment, client=_client())
+                                          comment, answer=answer, client=_client())
         # the actor is deliberately NOT a span attribute (see the module docstring): the audit log holds it
         span().set_attributes({"approval.request_id": request_id, "approval.decision": fields["decision"],
                                "approval.channel": fields["channel"]})

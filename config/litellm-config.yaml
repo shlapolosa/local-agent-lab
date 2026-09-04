@@ -125,6 +125,13 @@ mcp_servers:                          # addresses + trust come from the environm
     authentication_token: os.environ/MCP_SHARED_SECRET   # + a PER-TOOL ACL: see the note at the top
     description: Collaboration — the files people keep and the meetings they hold; find sites, document libraries and a person's own drive, list files and read their metadata, list meetings with their recordings and transcripts, and fetch any of it into the lab's upload store as an art:// reference (content is never returned inline); collab_capabilities reports what this tenant actually allows and why not
     extra_headers: ["traceparent", "tracestate"]
+  speech_mcp:                         # the SPEECH port — recorded talk -> attributable words.
+    url: os.environ/SPEECH_MCP_URL    # The SERVICE behind this alias holds the provider credential;
+    transport: http                   # another speech provider is a different adapter under THIS
+    auth_type: bearer_token           # alias — no workload change. It returns WORDS AND SPEAKER
+    authentication_token: os.environ/MCP_SHARED_SECRET   # LABELS ONLY: minutes and keywords are
+    description: Speech — transcribe a recording already in the lab's upload store into timed, speaker-labelled segments, returned by art:// reference with an anonymous speaker digest inline; pass every language the meeting uses (e.g. Arabic and English together) so speech that switches language mid-sentence is transcribed rather than translated; video is accepted and its audio extracted; it does NOT summarise — minutes and keywords come from the lab's own governed model
+    extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router
   redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)

@@ -87,9 +87,10 @@ def seed(redis, subject="claims", kind=ApprovalKind.EA_IMPORT.value, payload=Non
 
 
 # ---------------------------------------------------------------- the tool surface
-def test_the_three_approval_tools_join_the_process_tools_on_one_server(server):
+def test_the_four_approval_tools_join_the_process_tools_on_one_server(server):
     by = tools(server)
-    assert ApprovalTools.names() == {"approvals_list", "approvals_get", "approvals_decide"} <= set(by)
+    assert ApprovalTools.names() == {"approvals_list", "approvals_get", "approvals_ask",
+                                     "approvals_decide"} <= set(by)
     assert ApprovalTools.names() < WorkflowTools.names()          # one alias, one grant surface
     assert all(len(by[n].description or "") > 80 for n in ApprovalTools.names())
 
@@ -119,9 +120,15 @@ def test_schemas_are_self_describing(server):
     assert g["required"] == ["request_id"] and set(g["properties"]) == {"request_id"}
     d = by[ApprovalTools.decide].inputSchema
     assert sorted(d["required"]) == ["actor", "decision", "request_id"]
-    assert set(d["properties"]) == {"request_id", "decision", "actor", "comment", "channel"}
+    assert set(d["properties"]) == {"request_id", "decision", "actor", "comment", "channel", "answer"}
     assert d["properties"]["decision"]["enum"] == [x.value for x in Decision]
     assert "SIGNED-IN HUMAN" in d["properties"]["actor"]["description"]
+    a = by[ApprovalTools.ask].inputSchema
+    assert sorted(a["required"]) == ["items", "prompt", "subject"]
+    assert set(a["properties"]) == {"subject", "prompt", "items", "continuation", "artifacts",
+                                    "requester"}
+    # the asker declares what must be answered; it cannot declare who may answer
+    assert "actor" not in a["properties"] and "decision" not in a["properties"]
 
 
 # ---------------------------------------------------------------- list
@@ -288,7 +295,8 @@ def test_a_read_only_grant_cannot_decide(server):
     """The gateway grants tools per team (`mcp_tool_permissions`); ApprovalTools.READ IS that
     read-only grant, so a team holding it sees no tool that can write a decision."""
     assert ApprovalTools.decide not in ApprovalTools.READ
-    assert set(ApprovalTools.READ) | set(ApprovalTools.WRITE) == ApprovalTools.names()
+    assert set(ApprovalTools.READ) | set(ApprovalTools.RAISE) | set(ApprovalTools.WRITE) \
+        == ApprovalTools.names()
     granted = {n: t for n, t in tools(server).items() if n in ApprovalTools.READ}
     assert set(granted) == set(ApprovalTools.READ)
     assert all(t.annotations.readOnlyHint for t in granted.values())

@@ -19,13 +19,18 @@ from lab.substrate import artifacts as _artifacts
 # the platform allowlist + the store settings that exist ONLY here
 SUBSTRATE_KEYS = CONFIG_KEYS + ("ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "S3_REGION",
                                 "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE",
-                                "COLLAB_PROVIDER")
+                                "COLLAB_PROVIDER", "SPEECH_PROVIDER")
 
 # The COLLABORATION port's adapters, by name: the ONE place a provider module is named. The
 # container binds a KEY (`COLLAB_PROVIDER`), so a second collaboration platform — a different
 # files-and-meetings vendor — is one entry here plus its own adapter package, and neither the
 # container, the server nor any caller changes. The module must expose `build(**overrides)`.
 COLLAB_PROVIDERS: dict[str, str] = {"graph": "lab.substrate.mcp.graph.graph_repository"}
+
+# The SPEECH port's adapters, by name — the same shape and for the same reason. Research settled the
+# first one, but not permanently: a second provider (one whose cloud is out of region, or one whose
+# diarization keeps speaker labels stable across a long recording) is one entry here plus its adapter.
+SPEECH_PROVIDERS: dict[str, str] = {"munsit": "lab.substrate.mcp.speech.repository"}
 
 
 def collab_repository(provider: str, **overrides):
@@ -43,6 +48,16 @@ def collab_repository(provider: str, **overrides):
     return importlib.import_module(COLLAB_PROVIDERS[name]).build(**overrides)
 
 
+def speech_transcriber(provider: str, **overrides):
+    """The `lab.core.speech.Transcriber` this deployment runs. Imported LAZILY by name, for the same
+    reason as the collaboration adapter: only the speech role should ever load a speech provider."""
+    name = str(provider or "").strip().lower()
+    if name not in SPEECH_PROVIDERS:
+        raise ValueError(f"unknown speech provider {name!r} — SPEECH_PROVIDER must be one of "
+                         f"{sorted(SPEECH_PROVIDERS)}")
+    return importlib.import_module(SPEECH_PROVIDERS[name]).build(**overrides)
+
+
 class SubstrateContainer(Container):
     """Inherits config/redis/tracer; adds the store ports → adapters chosen by URL scheme.
 
@@ -56,6 +71,8 @@ class SubstrateContainer(Container):
     uploads = providers.Singleton(_artifacts.store, url=Container.config.uploads_url)       # submitted inputs (bucket in the cloud)
     # the collaboration provider (files + meetings), by registry key — the graph-mcp role's adapter
     collab = providers.Singleton(collab_repository, provider=Container.config.collab_provider)
+    # the speech provider (recorded talk -> attributable words) — the speech-mcp role's adapter
+    speech = providers.Singleton(speech_transcriber, provider=Container.config.speech_provider)
 
 
 def build(service_name: str, *, instrument_urllib: bool = False, **overrides) -> SubstrateContainer:

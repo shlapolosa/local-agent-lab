@@ -27,6 +27,7 @@ SERVER_MODULES = {                       # gateway alias -> the server module th
     "ea_mcp": "lab.substrate.mcp.adoit.server",   # the ADOIT ADAPTER satisfying the vendor-neutral EA port
     "workflow_mcp": "lab.substrate.mcp.workflow.server",
     "collab_mcp": "lab.substrate.mcp.graph.server",   # the COLLABORATION port; today's adapter is Microsoft Graph
+    "speech_mcp": "lab.substrate.mcp.speech.server",  # the SPEECH port; the adapter is named only by the service
 }
 
 
@@ -88,7 +89,9 @@ VENDORS = ("adoit", "bizzdesign", "archi_", "boc")     # EA-tool product names â
 # from VENDORS: the downstream test below scans CODE with string literals preserved, and
 # src/lab/substrate/review/app.py says "**Workflow graph**" â€” sharing one list would fail that test
 # for a reason that has nothing to do with a vendor leaking into a port.
-NAME_VENDORS = VENDORS + ("microsoft", "graph", "sharepoint", "onedrive", "teams", "m365",
+NAME_VENDORS = VENDORS + ("munsit", "cntxt", "speechmatics", "deepgram", "assemblyai",
+                          "elevenlabs", "whisper",
+                          "microsoft", "graph", "sharepoint", "onedrive", "teams", "m365",
                           "office365", "entra")
 
 

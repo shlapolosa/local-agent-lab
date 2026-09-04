@@ -251,6 +251,11 @@ class FakeRedis:
                 "consumers": [{"name": c, "pending": sum(1 for v in pel.values() if v == c)} for c in set(pel.values())]}
 
     @_op
+    def xrange(self, stream, min="-", max="+", count=None):
+        """Oldest-first, the way an audit log is read."""
+        entries = list(self.x.get(stream, []))
+        return [(eid, dict(f)) for eid, f in entries[: count or None]]
+
     def xrevrange(self, stream, max="+", min="-", count=None):
         entries = list(reversed(self.x.get(stream, [])))
         return [(eid, dict(f)) for eid, f in entries[: count or None]]

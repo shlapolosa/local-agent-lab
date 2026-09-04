@@ -30,10 +30,15 @@ from datetime import datetime, timezone
 import redis
 
 from lab.platform import config, redis_client
-from lab.platform.contracts import APPROVAL_FINAL, ApprovalStatus, Decision
+from lab.platform.contracts import APPROVAL_FINAL, ApprovalStatus, Decision, check_answer
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
 CHANNELS = ("review-app", "telegram", "teams")
+# Consumer groups on the DECISIONS stream. The request stream feeds humans; this one is where
+# something ACTS on what a human said, and until now nothing consumed it at all. It is the only
+# place where "a person answered, from whichever channel they happened to use" is a single fact,
+# because every channel funnels through `human_decision` into this append.
+DEC_GROUPS = ("continuations",)
 DECISIONS = tuple(d.value for d in Decision)         # the contract (lab.platform.contracts) as wire strings
 
 
@@ -71,7 +76,7 @@ def request(kind, subject, payload, requester, trace_id=None, *, client=None):
     return rid
 
 
-def decide(request_id, decision, actor, channel, comment="", *, client=None):
+def decide(request_id, decision, actor, channel, comment="", *, answer=None, client=None):
     """Record a decision from any channel. 'update' = changes requested (stays open). This is the raw
     RECORDER — it does not ask whether a human made the decision or whether the request is still open;
     `human_decision()` below is the validated path every human channel goes through."""
@@ -83,9 +88,17 @@ def decide(request_id, decision, actor, channel, comment="", *, client=None):
         raise KeyError(f"unknown request {request_id}")
     fields = {"request_id": request_id, "decision": decision, "actor": actor, "channel": channel,
               "comment": comment, "decided_at": _now()}
+    # Only present when a question was actually answered. An empty key on every decision would
+    # otherwise sit in the audit log forever, and would change the shape every existing consumer
+    # already reads — the addition must be invisible to the approvals that ask nothing.
+    if answer:
+        fields["answer"] = json.dumps(answer)
     r.xadd(DEC, fields)
-    r.hset(key, mapping={"status": decision, "decided_by": actor, "decided_via": channel,
-                         "comment": comment, "decided_at": fields["decided_at"]})
+    state = {"status": decision, "decided_by": actor, "decided_via": channel,
+             "comment": comment, "decided_at": fields["decided_at"]}
+    if "answer" in fields:
+        state["answer"] = fields["answer"]
+    r.hset(key, mapping=state)
     if decision != Decision.UPDATE:
         r.srem("approvals:pending", request_id)
     return fields
@@ -95,6 +108,8 @@ def status(request_id, *, client=None):
     st = _r(client).hgetall(f"approvals:req:{request_id}")
     if st.get("payload"):
         st["payload"] = json.loads(st["payload"])
+    if st.get("answer"):
+        st["answer"] = json.loads(st["answer"])
     return st
 
 
@@ -104,7 +119,7 @@ def _already(st):
                       "is not re-decided; raise a new request instead")
 
 
-def human_decision(request_id, decision, actor, channel, comment="", *, client=None):
+def human_decision(request_id, decision, actor, channel, comment="", *, answer=None, client=None):
     """THE path a HUMAN'S decision takes, whatever carried it — the Teams/Copilot Studio inbound call,
     the `approvals_decide` MCP tool, the review channels, the CLI. One implementation, so no channel
     can decide on weaker terms than another. It adds to `decide()` (the raw recorder) exactly what a
@@ -134,15 +149,52 @@ def human_decision(request_id, decision, actor, channel, comment="", *, client=N
         raise KeyError(f"unknown request {request_id}")
     if st.get("status") in APPROVAL_FINAL:
         raise _already(st)
+    # Only APPROVING requires the answer. Declining is refusing to answer, and `update` means
+    # "changes requested" — a reviewer saying the question itself is wrong, or that they cannot tell
+    # two voices apart, must not be forced to invent a complete answer first. Both leave the request
+    # in a state a later approval can still complete.
+    #
+    # And it is checked BEFORE the claim below: doing it after would let one malformed submission
+    # burn the single final answer and lock every other channel out of a request nobody has actually
+    # answered.
+    answer = check_answer(st.get("payload") or {}, answer) if decision == Decision.APPROVE else None
     final = decision in APPROVAL_FINAL
     if final and not r.srem("approvals:pending", request_id):      # someone else answered first
         raise _already(status(request_id, client=r) or st)
     try:
-        return decide(request_id, decision, actor, channel, (comment or "").strip(), client=r)
+        return decide(request_id, decision, actor, channel, (comment or "").strip(),
+                      answer=answer, client=r)
     except Exception:
         if final:
             r.sadd("approvals:pending", request_id)                # the claim is released if the write failed
         raise
+
+
+def ensure_decision_groups(r=None):
+    """Consumer groups on the DECISIONS stream — the request-side `ensure_groups` twin. Idempotent."""
+    r = _r(r)
+    for g in DEC_GROUPS:
+        try:
+            r.xgroup_create(DEC, g, id="0", mkstream=True)
+        except redis.ResponseError as e:
+            if "BUSYGROUP" not in str(e):
+                raise
+
+
+def decision_events(group, consumer="1", block_ms=0, count=10, pending_only=False, *, client=None):
+    """Decisions this group has not acked yet. Same shape as the request-side reader, so a consumer
+    of either stream is written the same way."""
+    r = _r(client)
+    ensure_decision_groups(r)
+    streams = {DEC: "0" if pending_only else ">"}
+    got = r.xreadgroup(group, consumer, streams, count=count, block=block_ms or None) or []
+    for _stream, entries in got:
+        for eid, fields in entries:
+            yield eid, fields
+
+
+def ack_decision(group, entry_id, *, client=None):
+    return _r(client).xack(DEC, group, entry_id)
 
 
 def trace_url(trace_id, jaeger_url=None):

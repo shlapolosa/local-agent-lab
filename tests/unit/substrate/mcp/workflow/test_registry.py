@@ -6,6 +6,7 @@ Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/mcp
 import pytest
 
 from lab.platform import contracts as C
+from lab.substrate.mcp.workflow.server import ANNOTATION
 from lab.platform import workflows
 from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, ApprovalTools, InputField,
                                     InputKind, ProcessSpec, WorkflowTools)
@@ -28,14 +29,22 @@ def test_workflow_catalogue_is_generated_three_tools_per_registered_process():
     assert "workflow_mcp" not in WorkflowTools.names()          # SERVER is the alias, not a tool
 
 
-def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_two_grants():
-    """A run PAUSES for a human, so the approval tools sit on workflow-mcp — but READ and the
-    human-gated WRITE are separate GRANTS (`mcp_tool_permissions`), never one blanket permission."""
+def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_three_grants():
+    """A run PAUSES for a human, so the approval tools sit on workflow-mcp — but READ, RAISE and the
+    human-gated WRITE are separate GRANTS (`mcp_tool_permissions`), never one blanket permission.
+
+    RAISE is the third: a workload cannot import the substrate, so asking a person a question has to
+    be a governed tool. A workload gets RAISE and never WRITE — it may ask, never answer its own
+    question, which is the entire control."""
     assert ApprovalTools.SERVER == WorkflowTools.SERVER
-    assert ApprovalTools.names() == {"approvals_list", "approvals_get", "approvals_decide"}
+    assert ApprovalTools.names() == {"approvals_list", "approvals_get", "approvals_ask",
+                                     "approvals_decide"}
     assert ApprovalTools.names() < WorkflowTools.names()         # reachable under the one alias
-    assert set(ApprovalTools.READ) | set(ApprovalTools.WRITE) == ApprovalTools.names()
-    assert set(ApprovalTools.READ) & set(ApprovalTools.WRITE) == set()
+    grants = (set(ApprovalTools.READ), set(ApprovalTools.RAISE), set(ApprovalTools.WRITE))
+    assert set.union(*grants) == ApprovalTools.names()           # every tool belongs to a grant
+    assert all(a & b == set() for i, a in enumerate(grants) for b in grants[i + 1:]), \
+        "grants must be disjoint, or granting one quietly grants another"
+    assert ApprovalTools.RAISE == (ApprovalTools.ask,)           # asking is not answering
     assert ApprovalTools.WRITE == (ApprovalTools.decide,)        # exactly one tool writes a decision
     assert C.SERVERS.get("approvals_mcp") is None                # NOT a server of its own
     assert ApprovalTools.gateway(ApprovalTools.decide) == "workflow_mcp-approvals_decide"
@@ -119,7 +128,13 @@ def test_input_field_coerce_is_the_one_validator():
     assert f.coerce("art://a/b.vsdx") == "art://a/b.vsdx"
     assert InputField("d", InputKind.REF, "x", required=False).coerce(None) is None
     assert InputField("r", InputKind.REF_LIST, "x", required=False).coerce([]) == []
-    assert list(InputKind) == [InputKind.REF, InputKind.REF_LIST]
+    # The kinds are pinned deliberately: adding one changes every generated tool schema, so it is a
+    # decision rather than a drift. REF/REF_LIST carry content by reference; HANDLE, IDENTITY and
+    # MAPPING exist so a low-code trigger can start a run in ONE call and a human's answer can reach
+    # the run that needs it. Each must also have an ANNOTATION below, or the schema generator raises.
+    assert list(InputKind) == [InputKind.REF, InputKind.REF_LIST, InputKind.HANDLE,
+                               InputKind.IDENTITY, InputKind.MAPPING]
+    assert set(ANNOTATION) == set(InputKind), "every kind needs a generated-schema annotation"
 
 
 if __name__ == "__main__":

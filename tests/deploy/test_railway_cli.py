@@ -209,7 +209,7 @@ def railway(fake):
 
 
 ALL_SUBSTRATE = ["redis", "semantic-mcp", "adoit-mcp", "storage-mcp", "workflow-mcp", "graph-mcp",
-                 "gateway", "review"]
+                 "speech-mcp", "continuations", "gateway", "review"]
 
 
 def _project(*names, jaeger=True):
