@@ -10,6 +10,21 @@ The goal is **pattern parity with Azure, not feature parity**: every prototype a
 
 ## Debugging & Error Resolution (methodology — follow on ANY error or failure)
 
+**Version skew is a first-class suspect.** A cloud run once died 320 s in with "tool
+*adoit_request_import not exposed by gateway": the workload was deployed from one commit and the
+gateway from another. Nothing caught it, because unit and governance tests assert consistency WITHIN
+one tree, and the live smoke asserted a tool COUNT rather than the contract. Now: `run_workflow`
+calls **`preflight(cfg)`** first — it lists the gateway's tools and refuses the run (0 tokens) when
+any of `REQUIRED_TOOLS` is missing, resolving by suffix exactly as `_call_tools_raw` does, so the
+workload stays alias-agnostic; `scripts/e2e_smoke.py` asserts **every tool in
+`lab.platform.contracts` is exposed by the LIVE gateway**; images are deployed by an **immutable
+`sha-<short>` tag** (`LAB_IMAGE_TAG` overrides; a mutable `:main` makes "what is deployed"
+unknowable); and **`deploy/railway.py substrate images`** prints what each service runs and exits 1
+on a mismatch of THIS repo's image (third-party images like redis/jaeger are excluded). Run it after
+any deploy, and before believing a cloud bug is a code bug. Test doubles must model a REAL gateway:
+`tests/fixtures/workflow.py`'s router lists the whole contract (`full=True`), and `None` for a tool
+means "not exposed" so a missing grant can still be simulated.
+
 Resolve every error or failure by **root-cause analysis, never by guessing** — this is a principle,
 not a last resort. Read the actual error, logs, and state; form a specific hypothesis about *why*;
 confirm it against evidence **before** changing anything. Never pattern-match a fix and hope. Then

@@ -135,6 +135,15 @@ def main():
     tools = d if isinstance(d, list) else d.get("tools", d.get("data", [])) if isinstance(d, dict) else []
     tnames = [t.get("name") if isinstance(t, dict) else t for t in tools]
     check("MCP tools listed (master)", len(tnames) >= 20, f"{len(tnames)} tools")
+    # The CONTRACT, not a count. A count passed happily while the one tool the workload needed was
+    # missing: the gateway served renamed tools while the workload still called the old name, and the
+    # run died 320 s in. Assert every tool `lab.platform.contracts` declares is actually exposed.
+    from lab.platform.contracts import SERVERS
+    expected = {c.gateway(t) for c in SERVERS.values() for t in c.names()}   # <alias>-<tool>
+    exposed = set(tnames)
+    absent = sorted(t for t in expected if t not in exposed)
+    check("every contract tool is exposed", not absent,
+          "all present" if not absent else f"MISSING {absent} — gateway and code are different versions")
 
     # ---- 7 & 8. MCP round-trip with the AGENT key (the real governance path) ----
     async def mcp_roundtrip():

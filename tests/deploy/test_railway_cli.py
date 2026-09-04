@@ -108,7 +108,7 @@ def env_file_missing():
 
 
 # ---------------------------------------------------------------- the fake Railway GraphQL endpoint
-_OPS = [("serviceCreate(", "serviceCreate"), ("serviceInstanceUpdate(", "serviceInstanceUpdate"),
+_OPS = [("source{ image }", "image"), ("serviceCreate(", "serviceCreate"), ("serviceInstanceUpdate(", "serviceInstanceUpdate"),
         ("serviceInstanceDeploy(", "serviceInstanceDeploy"), ("serviceDomainCreate(", "serviceDomainCreate"),
         ("variableCollectionUpsert(", "variableCollectionUpsert"), ("volumeCreate(", "volumeCreate"),
         ("volumes{", "volumes"), ("deploymentRemove(", "deploymentRemove"), ("deploymentLogs(", "deploymentLogs"),
@@ -128,10 +128,11 @@ def _edges(nodes):
 class FakeRailway:
     """urlopen replacement: records (op, variables, query) and answers from small state tables."""
     def __init__(self, services=None, status=None, domains=None, volumes=(), buckets=None, logs=(),
-                 errors=None, creds=None):
+                 errors=None, creds=None, images=None):
         self.services = dict(services or {})           # name -> id
         self.status = dict(status or {})               # sid -> deployment status (None = no deployments)
         self.domains = dict(domains or {})             # sid -> public domain
+        self.images = dict(images or {})               # sid -> the image its instance runs
         self.volumes = list(volumes)                   # (sid, mountPath)
         self.buckets = dict(buckets or {})             # name -> id
         self.logs = list(logs)
@@ -155,6 +156,10 @@ class FakeRailway:
     def _answer(self, op, v):
         if op == "services":
             return {"project": {"services": _edges([{"id": i, "name": n} for n, i in self.services.items()])}}
+        if op == "image":
+            sid = v["s"]
+            return {"service": {"serviceInstances": _edges(
+                [{"source": {"image": self.images.get(sid)}}])}}
         if op == "serviceCreate":
             name = v["in"]["name"]
             self.services[name] = sid = f"svc-{name}"
@@ -323,6 +328,41 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     assert "jaeger   https://jaeger.example" in text
     assert "sk-master-fake" not in text and "ollama-fake" not in text   # values never printed
     assert "gateway       env (" in text and "DISABLE_SCHEMA_UPDATE" in text
+
+
+def test_image_tag_defaults_to_an_immutable_sha_when_the_repo_can_supply_one():
+    """A mutable `:main` tag makes "what is deployed" unknowable — the exact condition that let a
+    workload run one commit while the gateway ran another. Default to the CI sha tag for HEAD."""
+    assert rw.IMAGE_TAG.startswith("sha-") or rw.IMAGE_TAG == rw.BRANCH   # sha when git answers
+    if rw.IMAGE_TAG.startswith("sha-"):
+        assert len(rw.IMAGE_TAG) >= len("sha-") + 7
+
+
+def test_deployed_images_reports_every_service_and_flags_a_mismatch():
+    """The failure was INVISIBLE: nothing showed that two services ran different images."""
+    ours = f"ghcr.io/{rw.REPO}"
+    fake = FakeRailway(services=_project("gateway", "review", "wf-visio", "redis"),
+                       images={"svc-gateway": f"{ours}:sha-aaaaaaa",
+                               "svc-review": f"{ours}:sha-aaaaaaa",
+                               "svc-wf-visio": f"{ours}:sha-bbbbbbb",
+                               "svc-redis": "redis:7-alpine"})   # third-party: never a mismatch
+    with railway(fake) as out:
+        mismatch = rw.image_report()
+    text = out.getvalue()
+    assert "sha-aaaaaaa" in text and "sha-bbbbbbb" in text
+    assert mismatch is True
+    assert "MISMATCH" in text.upper()
+
+
+def test_image_report_is_quiet_when_every_service_agrees():
+    ours = f"ghcr.io/{rw.REPO}"
+    fake = FakeRailway(services=_project("gateway", "review", "redis"),
+                       images={"svc-gateway": f"{ours}:sha-aaaaaaa",
+                               "svc-review": f"{ours}:sha-aaaaaaa",
+                               "svc-redis": "redis:7-alpine"})
+    with railway(fake) as out:
+        assert rw.image_report() is False
+    assert "MISMATCH" not in out.getvalue().upper()
 
 
 def test_image_mode_is_the_default_and_points_every_service_at_one_prebuilt_image():

@@ -167,6 +167,39 @@ def _ba_gate(validator, obj):
             or _schema_errors(validator, obj) or _incomplete(obj))
 
 
+# What this workload needs the gateway to expose, derived from the CONTRACT so a rename cannot leave a
+# stale literal here. Checked ONCE before any node runs (`preflight`) — see its docstring for why.
+REQUIRED_TOOLS = (
+    StorageTools.read_vsdx, StorageTools.read_document, StorageTools.get, StorageTools.extract_figures,
+    SemanticTools.store_spec, SemanticTools.validate_model,
+    EATools.render, EATools.stage_import,
+)
+
+
+async def preflight(cfg) -> None:
+    """Refuse the run if the gateway does not expose every tool this workload needs.
+
+    A cloud run once failed 320 s in with "tool *adoit_request_import not exposed by gateway": the
+    workload was deployed from one commit and the gateway from another, and the per-call guard in
+    `_call_tools_raw` only fires at the step that needs the tool — after the reading agent has run and
+    spent tokens. The tool list is knowable before the first node executes, so a version mismatch is
+    refused here, naming exactly what is missing.
+
+    Resolution is by NAME SUFFIX, identical to `_call_tools_raw`: the workload is deliberately
+    alias-agnostic (the gateway prefixes `<server alias>-`), so renaming an alias does not break it
+    and must not fail preflight either. What DOES break it — a renamed or withdrawn tool — is caught.
+    """
+    async with Client(StreamableHttpTransport(cfg["mcp_url"], headers=cfg.get("ar_headers") or {})) as c:
+        exposed = [t.name for t in await c.list_tools()]
+    missing = [t for t in REQUIRED_TOOLS if not any(n.endswith(t) for n in exposed)]
+    if missing:
+        raise RuntimeError(
+            f"gateway does not expose {missing} — this workload and the gateway are running different "
+            f"versions, or this identity is not granted those servers. Redeploy both from the same "
+            f"image (the deploy CLI's `substrate images` shows what each service runs) or fix "
+            f"the team grant. Exposed: {sorted(exposed)}")
+
+
 async def _call_tools_raw(headers, mcp_url, calls):
     """Call gateway-MCP tools by name suffix; returns the raw fastmcp results (keeps `.content`,
     which is where image blocks live — `.data` is None for image results)."""
@@ -693,6 +726,7 @@ async def run_workflow(cfg, inputs):
     """inputs: {"diagram": <path|art://>, "requirements": [...]} — a bare str is a diagram only."""
     if not isinstance(inputs, dict):
         inputs = {"diagram": inputs, "requirements": []}
+    await preflight(cfg)          # a version mismatch must cost 0 tokens, not a whole BA turn
     wf = build_workflow(cfg)
     rid = cfg.get("run_id")
     if rid:        # live Runs board: the graph (WorkflowViz Mermaid) whose node ids the run-log reports against

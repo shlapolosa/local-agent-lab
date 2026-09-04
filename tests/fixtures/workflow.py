@@ -79,11 +79,22 @@ class Router:
     """One in-memory gateway MCP. `tools` maps a tool-name SUFFIX to a canned result — a value, a
     FakeResult, a callable(args), or an Exception to raise. Tool names are prefixed like the gateway
     does (`<server>-<tool>`); every call is recorded as (suffix, args)."""
-    def __init__(self, tools: dict):
-        self.tools, self.calls = dict(tools), []
+    def __init__(self, tools: dict, hidden=(), full=False):
+        self.tools, self.calls, self.hidden, self.full = dict(tools), [], set(hidden), full
 
     def names(self):
-        return [f"srv-{s}" for s in self.tools]
+        """What the gateway LISTS. With `full=True` (the run harness) that is every CONTRACT tool, not
+        just the ones a test stubs.
+
+        A real gateway exposes a server's whole tool set to a granted team; listing only the stubbed
+        subset made the fake unrealistic, which is why no test caught a workload calling a tool the
+        gateway no longer had. `call()` still fails loudly on an unstubbed tool, so a test cannot
+        accidentally depend on one."""
+        if not self.full:                        # a focused unit test: exactly the tools it named
+            return [f"srv-{s}" for s in self.tools]
+        from lab.platform.contracts import SERVERS
+        every = {t for c in SERVERS.values() for t in c.names()} - self.hidden
+        return [f"srv-{s}" for s in dict.fromkeys([*self.tools, *sorted(every)])]
 
     def call(self, name, args):
         suffix = name.split("-", 1)[1]
@@ -273,7 +284,11 @@ def make_cfg(run_id="run-test", schema=SCHEMA, tracer=None):
 @contextlib.contextmanager
 def harness(agents: Agents, tools: dict | None = None, *, env: dict | None = None, run_id="run-test"):
     """Patch every seam for one run; yields .router .agents .runlog .cfg."""
-    router, rl, tracer = Router(default_tools(**(tools or {}))), RunLog(), RecordingTracer()
+    # `None` for a tool means the gateway does NOT expose it (a missing grant, or a version skew) —
+    # the fake must stop listing it, not just stop answering it.
+    hidden = {k for k, v in (tools or {}).items() if v is None}
+    router = Router(default_tools(**(tools or {})), hidden=hidden, full=True)
+    rl, tracer = RunLog(), RecordingTracer()
     with ExitStack() as st:
         st.enter_context(patch.object(W, "Client", router.client_class()))
         st.enter_context(patch.object(W.A, "make_agent", agents.make_agent))

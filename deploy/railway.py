@@ -43,7 +43,28 @@ BRANCH = "main"
 # The image must be readable by Railway: make the GHCR package public (it mirrors this public repo),
 # or set a registry credential on the services.
 BUILD_MODE = os.environ.get("LAB_BUILD", "image")           # image | repo
-IMAGE_TAG = os.environ.get("LAB_IMAGE_TAG", BRANCH)         # a git sha pins a rollback
+
+
+def _head_tag():
+    """`sha-<short>` for HEAD — the tag CI publishes alongside the branch tag.
+
+    Default to it, because a MUTABLE `:main` makes "what is deployed" unknowable: the substrate and a
+    workload can each pull `:main` at different times and silently run different commits (that is
+    exactly how a workload came to call a tool the gateway had renamed). An immutable tag also makes
+    rollback a one-word change. Falls back to the branch when git cannot answer (a container, a
+    tarball) — and `LAB_IMAGE_TAG` always wins.
+    """
+    try:
+        import subprocess
+        out = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short=7", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        sha = out.stdout.strip()
+        return f"sha-{sha}" if out.returncode == 0 and sha else BRANCH
+    except Exception:                                       # noqa: BLE001 — deploy must not die on git
+        return BRANCH
+
+
+IMAGE_TAG = os.environ.get("LAB_IMAGE_TAG") or _head_tag()
 IMAGE = os.environ.get("LAB_IMAGE") or f"ghcr.io/{REPO}:{IMAGE_TAG}"
 
 
@@ -481,6 +502,44 @@ def configure(sid, name, spec, base_env):
                 print(f"  domain note ({e})")
 
 
+def image_of(sid):
+    """The image the service instance is actually configured to run (None for a repo-built service)."""
+    d = gql('query($s:String!){ service(id:$s){ serviceInstances{ edges{ node{ source{ image } } } } } }',
+            {"s": sid})
+    for e in d["service"]["serviceInstances"]["edges"]:
+        src = e["node"].get("source") or {}
+        if src.get("image"):
+            return src["image"]
+    return None
+
+
+def image_report():
+    """Print the image every service runs and return True if they DISAGREE.
+
+    The version skew that broke a cloud run was invisible: `substrate up` and `workload … up` are
+    separate commands, both pulled a mutable tag, and nothing showed that one had moved on. This is
+    the missing instrument — run it after any deploy, and before believing a bug is a code bug.
+    """
+    ids = services()
+    ours = f"ghcr.io/{REPO}:"
+    seen = {}
+    for name, sid in sorted(ids.items()):
+        img = image_of(sid)
+        if img is None:
+            continue                                   # repo-built service: no image to compare
+        print(f"  {name:15} {img}")
+        if img.startswith(ours):                       # third-party images (redis, jaeger) run their
+            seen.setdefault(img, []).append(name)      # OWN versions on purpose — never a mismatch
+    if len(seen) > 1:
+        print("\n  MISMATCH — these services run different builds of THIS repo:")
+        for img, names in sorted(seen.items()):
+            print(f"    {img}  <- {', '.join(names)}")
+        print("  Redeploy the stragglers (substrate up / workload <name> up) so every service "
+              "runs one image.")
+        return True
+    return False
+
+
 def domain_of(sid):
     d = gql('query($s:String!){ service(id:$s){ serviceInstances{ edges{ node{ '
             'domains{ serviceDomains{ domain } } } } } } }', {"s": sid})
@@ -559,6 +618,9 @@ def substrate_env_report():
 
 def substrate_status():
     ids = services()
+    print("images (every service should run ONE):")
+    image_report()
+    print()
     for name in substrate_names(deploy_profile(), ids):
         sid = ids.get(name)
         label = "jaeger" if name == JAEGER_NAME else name
@@ -669,6 +731,7 @@ def workload_up(name):
     gw = configure_workload(sid, spec, base, ids)
     deploy(sid)
     print(f"  references substrate gateway {gw}; restart={spec.get('restart')}; no ingress (job)")
+    print(f"  image {IMAGE} — run `railway.py substrate images` to confirm every service agrees")
     print(f"  watch: python deploy/railway.py workload {name} status   (logs: Railway dashboard)")
 
 
@@ -731,13 +794,15 @@ if __name__ == "__main__":
     usage = ("usage: railway.py substrate up|down|status|env\n"
              "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status|env\n"
              "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)\n"
+             "       railway.py substrate images        (what image each service runs; exit 1 on a MISMATCH)\n"
              "       (`env` = offline audit of the exact key names each service receives; no Railway call)")
     tier = sys.argv[1] if len(sys.argv) > 1 else ""
     cmd = (sys.argv[3] if tier == "workload" else sys.argv[2]) if len(sys.argv) > (3 if tier == "workload" else 2) else "status"
     if cmd != "env":
         _require_railway()                                 # every other command talks to Railway
     if tier == "substrate":
-        {"up": substrate_up, "down": substrate_down, "status": substrate_status, "env": substrate_env_report}[cmd]()
+        {"up": substrate_up, "down": substrate_down, "status": substrate_status,
+         "env": substrate_env_report, "images": lambda: sys.exit(1 if image_report() else 0)}[cmd]()
     elif tier == "bucket":
         {"up": ensure_bucket, "status": bucket_status}[cmd]()
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:

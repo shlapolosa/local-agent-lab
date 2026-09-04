@@ -397,15 +397,19 @@ def test_finalize_partial_agent_results_use_fallbacks_per_tool():
 
     agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, tool_call_response("done", [
         ("ea_mcp-archimate_render", {"error": "render failed"})])]})
+    # A tool the workload needs is NOT exposed (a missing grant, or the gateway running a different
+    # version). This used to surface at the stage_import node — minutes and a whole BA turn later.
+    # preflight refuses it before any node runs: no agent call, no tokens, and the message says why.
     with harness(agents, {"ea_stage_import": None}) as h:
         try:
             run(h, "diagrams/x.vsdx")
-        except RuntimeError as e:                    # the port not granted -> fail loud (pick raises)
-            assert "tool *ea_stage_import not exposed by gateway" in str(e)
+        except RuntimeError as e:
+            assert "gateway does not expose ['ea_stage_import']" in str(e)
+            assert "different versions" in str(e) or "grant" in str(e)
         else:
             raise AssertionError("expected the missing tool to fail the run")
-    assert len(h.router.called("archimate_render")) == 1
-    assert h.runlog.nodes[-1] == ("run-test", "stage_import", "fail:RuntimeError")
+    assert h.router.called("archimate_render") == [] and h.agents.runs_of("ba-agent") == []
+    assert h.runlog.nodes == [], "no node may run when the contract cannot be satisfied"
 
 
 def test_stage_import_keeps_the_rendered_refs_when_the_repository_returns_no_artifacts():
@@ -434,7 +438,9 @@ def test_run_workflow_without_outputs_raises():
     class NoOutput:
         async def run(self, inputs):
             return SimpleNamespace(get_outputs=lambda: [])
-    with patch.object(W, "build_workflow", lambda cfg: NoOutput()):
+    async def _ok(cfg):                      # preflight is covered by test_preflight.py
+        return None
+    with patch.object(W, "build_workflow", lambda cfg: NoOutput()), patch.object(W, "preflight", _ok):
         try:
             asyncio.run(W.run_workflow(make_cfg(run_id=None), "x.vsdx"))
         except RuntimeError as e:
