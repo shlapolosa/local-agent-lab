@@ -35,7 +35,8 @@ for _p in ("BA_AGENT", "ARCHITECT_AGENT"):
     os.environ[f"{_p}_KEY"] = f"sk-{_p.lower()}"
 
 FIXTURE = os.path.join(ROOT, "var", "inputs", "visio_to_archimate", "malaffi-application-solution-arch.vsdx")
-OUT = {"request_id": "apr-1", "status": "pending", "xml_ref": "art://x/m.archimate.xml", "xlsx_ref": "art://x/o.xlsx",
+OUT = {"request_id": "apr-1", "status": "pending", "xml_ref": "art://x/m.archimate.xml",
+       "import_artifacts": [{"ref": "art://x/o.xlsx", "label": "Download objects", "note": "", "media_type": ""}],
        "svg_refs": {"Overview": "art://s/o.svg"}, "review_app": "http://review.test",
        "summary": {"elements": 5, "relations": 4, "views": 1, "semantic_warnings": 0}}
 _PROVIDER = TracerProvider()            # no span processor -> spans are real but never exported

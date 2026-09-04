@@ -37,6 +37,14 @@ def _cred(prefix: str) -> str:
     return agent_headers(prefix)["Authorization"].removeprefix("Bearer ").strip()
 
 
+def run_fields(out: dict) -> dict:
+    """The run-log fields a finished run's board row carries: the references a reviewer follows from
+    the Runs board to what the run produced (its approval request and its artifacts). ONE mapping
+    for every host — the CLI/consumer below, and DevUI via `devui_entry.instrument_runs` — so a row
+    means the same thing whoever started the run. `None` values are dropped by `runlog.finish`."""
+    return {"approval_id": out.get("request_id"), "xml_ref": out.get("xml_ref")}
+
+
 async def run_once(root, diagram: str, requirements: list[str] | None = None, on_trace=None) -> dict:
     """One governed run: root span -> agent identities -> workflow -> approval request.
     `root` is the process container (tracer + Redis come from it). Returns the workflow output plus
@@ -65,10 +73,9 @@ async def run_once(root, diagram: str, requirements: list[str] | None = None, on
         try:
             out = await run_workflow(cfg, {"diagram": diagram, "requirements": requirements})
         except Exception as e:
-            runlog.finish(run_id, "failed", error=f"{type(e).__name__}: {str(e)[:300]}", client=r)
+            runlog.finish_from(run_id, e, client=r)      # ONE way to close a run (lab.platform.runlog)
             raise
-        runlog.finish(run_id, "done", approval_id=out.get("request_id"),
-                      xml_ref=out.get("xml_ref"), xlsx_ref=out.get("xlsx_ref"), client=r)
+        runlog.finish_from(run_id, client=r, **run_fields(out))
     return {**out, "trace_id": trace_id}
 
 

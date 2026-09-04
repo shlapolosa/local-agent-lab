@@ -42,7 +42,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from lab.platform.contracts import APPROVAL_FINAL, ApprovalKind, ApprovalTools, Decision
+from lab.platform.contracts import (APPROVAL_FINAL, ApprovalKind, ApprovalTools, Decision,
+                                    import_artifacts)
 from lab.substrate import approvals
 from lab.substrate.mcpserver import LabServer, span
 
@@ -79,13 +80,23 @@ def _brief(st: dict, jaeger_url: str) -> dict:
     return out
 
 
+_NOT_ARTIFACTS = ("summary", "import_artifacts", "instructions")
+
+
 def _detail(st: dict, jaeger_url: str, review_app: str) -> dict:
-    """Everything a human needs to JUDGE one approval — the brief plus the artifacts, BY REFERENCE.
-    The artifacts are whatever the staging tool published (this EA adapter: the views XML, its SVG
-    previews and the Excel object file); nothing here assumes a particular set."""
+    """Everything a human needs to JUDGE one approval — the brief, the staged model BY REFERENCE, and
+    the files the repository needs a human to import.
+
+    `import_artifacts` + `instructions` are the repository's own, OPAQUE: each artifact is a
+    {ref, label, note} the ADAPTER wrote, and this surface repeats them without interpreting them —
+    a spreadsheet, a change-set, or nothing at all on a repository that writes over its own API. The
+    normaliser (`lab.platform.contracts.import_artifacts`) also renders approvals staged before that
+    shape existed, so an old request still lists every file a reviewer can take."""
     payload = st.get("payload") or {}
     return _brief(st, jaeger_url) | {
-        "artifacts": {k: v for k, v in payload.items() if k != "summary"},
+        "artifacts": {k: v for k, v in payload.items() if k not in _NOT_ARTIFACTS},
+        "import_artifacts": [a.to_dict() for a in import_artifacts(payload)],
+        "instructions": payload.get("instructions", ""),
         "trace_id": st.get("trace_id") or None, "decided_at": st.get("decided_at") or None,
         "review_app": review_app}
 
@@ -133,10 +144,13 @@ def register(server: LabServer) -> None:
                                                      "or a run's `approval_id`.")],
     ) -> dict:
         """One approval in full, so a human can judge it: the summary counts, the current status and
-        any reviewer comment, the trace of the run that produced it, and the ARTIFACTS it staged as
-        `art://<id>/<name>` references (the views XML, its SVG previews, the object spreadsheet — the
-        set depends on the repository). The references are handles, not content: open the review app
-        link to see the diagrams. Read-only: it decides nothing."""
+        any reviewer comment, the trace of the run that produced it, the staged model as
+        `art://<id>/<name>` references (`artifacts`: the views XML and its SVG previews), and
+        `import_artifacts` — the files a human must import into the EA repository, each as
+        {ref, label, note} written by the repository's own adapter, plus its `instructions`. Do not
+        interpret those: show the label and the note, offer the ref. A repository that writes over its
+        own API after the approval stages none. The references are handles, not content: open the
+        review app link to see the diagrams. Read-only: it decides nothing."""
         return _detail(_state(request_id), cfg.jaeger_ui_url(), cfg.review_app_url())
 
     @server.tool(annotations=HUMAN_WRITE)

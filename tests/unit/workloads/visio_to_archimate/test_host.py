@@ -47,7 +47,7 @@ def test_run_once_builds_one_cfg_runs_the_workflow_and_closes_the_run_log_via_th
     # the run-log is written through the container's ONE Redis client, never a module-level pool
     assert start.calls == [((tid,), {"input": "sys.vsdx#Page 1", "trace_id": tid, "client": root.redis()})]
     assert finish.calls == [((tid, "done"), {"approval_id": "apr-1", "xml_ref": "art://x/m.archimate.xml",
-                                             "xlsx_ref": "art://x/o.xlsx", "client": root.redis()})]
+                                             "client": root.redis()})]
 
 
 def test_run_once_marks_the_run_failed_and_reraises():

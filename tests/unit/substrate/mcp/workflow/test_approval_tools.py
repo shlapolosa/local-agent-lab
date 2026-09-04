@@ -23,8 +23,15 @@ from lab.substrate.mcp.workflow import server as srv
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *[".."] * 5))
 TOOLS_FILE = os.path.join(ROOT, "src", "lab", "substrate", "mcp", "workflow", "approval_tools.py")
 
-PAYLOAD = {"xml_ref": "art://x/claims.archimate.xml", "xlsx_ref": "art://x/claims.xlsx",
+# the neutral approval payload: the staged MODEL (xml + previews), the repository's own OPAQUE
+# import artifacts, its instructions, and the summary counts. No key here names an EA vendor.
+IMPORTS = [{"ref": "art://x/claims.archimate.xml", "label": "Download .archimate.xml (views)",
+            "note": "Import/Export -> ArchiMate Model Exchange File", "media_type": ""},
+           {"ref": "art://x/claims.xlsx", "label": "Download objects (12 objects — create/update)",
+            "note": "matched by name", "media_type": ""}]
+PAYLOAD = {"xml_ref": "art://x/claims.archimate.xml",
            "svg_refs": {"Overview": "art://x/overview.svg"},
+           "import_artifacts": IMPORTS, "instructions": "log in and import both files",
            "summary": {"elements": 12, "relations": 9, "views": 2, "violations": 0, "warnings": 1,
                        "domain": "Claims", "decision": "UPDATE"}}
 
@@ -74,7 +81,7 @@ def tools(server):
     return asyncio.run(go())
 
 
-def seed(redis, subject="claims", kind=ApprovalKind.ADOIT_IMPORT.value, payload=None, trace="t" * 32):
+def seed(redis, subject="claims", kind=ApprovalKind.EA_IMPORT.value, payload=None, trace="t" * 32):
     return approvals.request(kind, subject, PAYLOAD if payload is None else payload, "architect",
                              trace_id=trace, client=redis)
 
@@ -123,7 +130,7 @@ def test_list_answers_what_a_reviewer_needs_to_triage(server, redis):
     out = call(server, ApprovalTools.list).data
     assert out["count"] == 1 and out["review_app"] == config.REVIEW_APP_URL
     item, = out["approvals"]
-    assert item["request_id"] == rid and item["kind"] == "adoit-import" and item["subject"] == "claims"
+    assert item["request_id"] == rid and item["kind"] == "ea-import" and item["subject"] == "claims"
     assert item["requester"] == "architect" and item["status"] == "pending" and item["created_at"]
     assert item["summary"] == PAYLOAD["summary"]                       # the counts, verbatim
     assert "review_app" not in item                                    # once, on the envelope
@@ -172,8 +179,10 @@ def test_get_returns_the_artifacts_a_human_judges_it_on(server, redis):
     out = call(server, ApprovalTools.get, request_id=rid).data
     assert out["request_id"] == rid and out["open"] is True and out["status"] == "pending"
     assert out["summary"] == PAYLOAD["summary"]
-    assert out["artifacts"] == {"xml_ref": PAYLOAD["xml_ref"], "xlsx_ref": PAYLOAD["xlsx_ref"],
-                                "svg_refs": PAYLOAD["svg_refs"]}       # everything but the summary
+    # the staged MODEL, by reference — the summary, the opaque import list and the instructions are
+    # answered under their own keys, so a connector never has to guess which ref is which
+    assert out["artifacts"] == {"xml_ref": PAYLOAD["xml_ref"], "svg_refs": PAYLOAD["svg_refs"]}
+    assert out["import_artifacts"] == IMPORTS and out["instructions"] == "log in and import both files"
     assert out["trace_id"] == "t" * 32 and out["trace_url"].endswith("t" * 32)
     assert out["review_app"] == config.REVIEW_APP_URL and out["decide_with"] == ApprovalTools.decide
 
@@ -182,6 +191,7 @@ def test_get_degrades_on_a_request_with_no_payload_or_trace(server, redis):
     rid = seed(redis, payload={}, trace=None)
     out = call(server, ApprovalTools.get, request_id=rid).data
     assert out["artifacts"] == {} and out["summary"] == {} and out["trace_url"] is None
+    assert out["import_artifacts"] == [] and out["instructions"] == ""
 
 
 def test_get_of_an_unknown_request_is_refused(server):

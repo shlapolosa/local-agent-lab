@@ -13,10 +13,12 @@ with each agent's own identity, is metered, PII-guarded and traced.
 
 Every DevUI run is ALSO a first-class run on the review app's Runs board: `instrument_runs()` wraps
 the built workflow's `run` so each run opens its own run-log entry (`lab.platform.runlog`) before it
-executes and closes it when its event stream ends. So a reviewer watches a DevUI run — its nodes,
-and the LLM/tool calls the trace recorded for them — from the ONE approval UI, without the DevUI
-window and without having triggered it. DevUI's own live view is untouched: the wrapper forwards
-every event and delegates the rest of the ResponseStream API.
+executes and closes it when its event stream ends — carrying the run's own output (the approval
+request id and the artifact refs, read off the AF `output` event as it passes) onto the finished
+row, so a DevUI row links to what the run produced exactly like a CLI one. So a reviewer watches a
+DevUI run — its nodes, what it produced, and the LLM/tool calls the trace recorded for them — from
+the ONE approval UI, without the DevUI window and without having triggered it. DevUI's own live
+view is untouched: the wrapper forwards every event and delegates the rest of the ResponseStream API.
 
 Dev-only by construction: `agent-framework-devui` is deliberately NOT in deploy/requirements.txt
 (its prerelease pins broke the container build), so this module is never imported by the
@@ -90,17 +92,43 @@ def _input_label(message) -> str:
     return os.path.basename(str(diagram)) if diagram else "?"
 
 
+def _output_of(event):
+    """The workflow's own output carried by one DevUI stream event, or None. Agent Framework emits
+    what an executor `yield_output(...)`s as an event of `type` "output" whose `data` IS that value
+    (verified against agent_framework 1.16.0) — and this is the only place a streamed run can learn
+    what it produced: DevUI owns the run loop, so nothing here ever sees its `WorkflowRunResult`.
+    The type check is load-bearing: `executor_invoked`/`executor_completed` events carry dict/list
+    payloads of their own."""
+    if getattr(event, "type", None) != "output":
+        return None
+    data = getattr(event, "data", None)
+    return data if isinstance(data, dict) else None
+
+
+def _result_output(result):
+    """The workflow output of a NON-streamed run: `WorkflowRunResult.get_outputs()` — the same call
+    `workflow.run_workflow` makes. Anything that cannot answer yields no references rather than an
+    exception: this is visibility, and it must never fail a run that already completed."""
+    try:
+        outs = result.get_outputs()
+    except Exception:                 # noqa: BLE001 — see above
+        return None
+    return next((o for o in (outs or []) if isinstance(o, dict)), None)
+
+
 class _LoggedStream:
     """The workflow's event stream with the run-log closed when the stream ENDS — however the caller
-    consumes it. Agent Framework's `ResponseStream` is iterable (`__aiter__` + `__anext__`) AND
-    awaitable (`await stream` only RESOLVES the source and hands the stream back — it consumes
-    nothing, so it must not close the run). Python resolves dunders on the TYPE, not through
-    `__getattr__`, so each is delegated explicitly; everything else (`get_final_response()`, …)
-    still goes through `__getattr__`. Closing is idempotent: exactly one `finish` per run,
-    whichever path ends it."""
+    consumes it — and the run's OUTPUT picked up in passing, so the finished row links to the
+    approval request and the artifacts the run produced. Agent Framework's `ResponseStream` is
+    iterable (`__aiter__` + `__anext__`) AND awaitable (`await stream` only RESOLVES the source and
+    hands the stream back — it consumes nothing, so it must not close the run). Python resolves
+    dunders on the TYPE, not through `__getattr__`, so each is delegated explicitly; everything else
+    (`get_final_response()`, …) still goes through `__getattr__`. Closing is idempotent: exactly one
+    `finish` per run, whichever path ends it."""
 
     def __init__(self, inner, close):
         self._inner, self._close, self._it, self._closed = inner, close, None, False
+        self._output = None                  # the last `yield_output` seen on the way past
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -108,7 +136,7 @@ class _LoggedStream:
     def _finish(self, error):
         if not self._closed:
             self._closed = True
-            self._close(error)
+            self._close(error, self._output)
 
     def __aiter__(self):
         if self._it is None:      # ResponseStream hands back itself; an async generator a new one
@@ -118,7 +146,9 @@ class _LoggedStream:
     async def __anext__(self):
         self.__aiter__()          # an explicit pull loop may never have called __aiter__
         try:
-            return await self._it.__anext__()
+            event = await self._it.__anext__()
+            self._output = _output_of(event) or self._output
+            return event
         except StopAsyncIteration:
             self._finish(None)
             raise
@@ -138,23 +168,18 @@ def instrument_runs(wf, cfg, trace_id: str, *, client=None, mermaid: str | None 
 
     DevUI owns the run loop, so this wraps the workflow's own `run`: each call takes the next run id
     (`<session trace>-<n>`), publishes it on `cfg` — which `workflow.build_workflow` reads lazily per
-    node — opens the run-log entry, and closes it when the stream (or the awaited result) ends. The
+    node — opens the run-log entry, and closes it when the stream (or the awaited result) ends,
+    carrying the run's own output (approval request + artifact refs) onto the finished row. The
     inner call happens FIRST, so a run Agent Framework refuses (concurrent runs on one instance) logs
     nothing. (A DevUI checkpoint/HIL resume — `run(stream=True, responses=…, checkpoint_id=…)`, no
     message — counts as a NEW run here; harmless until this workflow gains an in-graph HIL pause.)"""
     inner, seq = wf.run, itertools.count(1)
 
-    def close(run_id, error):
-        if error is not None:
-            runlog.finish(run_id, "failed", error=f"{type(error).__name__}: {str(error)[:300]}", client=client)
-            return
-        # a node may have failed without the run raising (AF can surface it as an event)
-        failed = next((n for n in reversed(runlog.get(run_id, client=client).get("nodes") or [])
-                       if n["status"] == "fail"), None)
-        if failed:
-            runlog.finish(run_id, "failed", error=failed["attrs"].get("error", "node failed"), client=client)
-        else:
-            runlog.finish(run_id, "done", client=client)
+    def close(run_id, error, output=None):
+        """Close this run's row: the same rules as every other host (`runlog.finish_from` — an
+        exception fails it, and so does a `fail` node the run recorded without raising), plus the
+        references the run produced, so a DevUI row is as useful as a CLI one."""
+        runlog.finish_from(run_id, error, client=client, **H.run_fields(output or {}))
 
     async def awaited(coro, run_id):
         try:
@@ -162,7 +187,7 @@ def instrument_runs(wf, cfg, trace_id: str, *, client=None, mermaid: str | None 
         except BaseException as e:      # noqa: BLE001
             close(run_id, e)
             raise
-        close(run_id, None)
+        close(run_id, None, _result_output(out))
         return out
 
     def run(message=None, **kw):
@@ -172,7 +197,8 @@ def instrument_runs(wf, cfg, trace_id: str, *, client=None, mermaid: str | None 
         cfg["run_id"] = run_id
         runlog.start(run_id, input=_input_label(message), trace_id=trace_id, client=client,
                      mermaid=mermaid or "", host=SERVICE)
-        return _LoggedStream(out, lambda e: close(run_id, e)) if kw.get("stream") else awaited(out, run_id)
+        return (_LoggedStream(out, lambda e, o: close(run_id, e, o)) if kw.get("stream")
+                else awaited(out, run_id))
 
     wf.run = run
 

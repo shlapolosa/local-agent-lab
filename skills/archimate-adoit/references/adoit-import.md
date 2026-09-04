@@ -73,7 +73,8 @@ each file with one purpose:
    existing objects instead of duplicating them.
 
 **Both files are produced by `ea_stage_import`**, which takes the model by reference and returns the
-artifacts it made (`artifacts.xlsx_ref` / `xml_ref` / `svg_refs`) plus the human `instructions`. That
+staged model (`artifacts.xml_ref` / `svg_refs`) plus `import_artifacts` — an OPAQUE list of
+`{ref, label, note, media_type}` naming what a human must import — and the adapter's `instructions`. That
 a spreadsheet is needed at all is an ADOIT:CE limitation, so it is NOT part of the port: a caller
 passes the model and reads back whatever came out — a write-capable repository returns no artifacts
 and writes over REST after the approval. The request is released only on a human **approve**

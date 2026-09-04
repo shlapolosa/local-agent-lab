@@ -33,7 +33,16 @@ un-wrapped). `art://` refs and requirements documents work exactly as in `host.p
 **Each run is a real run**: gateway LLM calls (metered per agent key), MCP tool calls, and at the
 end an ADOIT approval request in the review app (`./lab.sh review`). Nothing is mocked.
 
-## Triggering via the API — and why it will NOT animate in your browser
+## Every run is on the review app's Runs board
+
+Whoever started it. `instrument_runs()` (in `devui_entry.py`) wraps the served workflow's `run`, so
+each DevUI run opens its own run-log row (`<session trace>-<n>`) before it executes and closes it
+when its event stream ends — with the run's own output attached, so the finished row links to the
+approval request and the artifacts exactly like a `host.py`/consumer run. Open `./lab.sh review` →
+**Runs**: current node, the per-node "Inside the run" panel, elapsed, the trace link. DevUI's own
+live view is untouched (the wrapper forwards every event).
+
+## Triggering via the API
 
 `POST /v1/responses` (OpenAI Responses shape) starts a run; the entity id must ALSO be given as
 `metadata.entity_id` (without it: `400 Missing entity_id in metadata`):
@@ -43,12 +52,12 @@ end an ADOIT approval request in the review app (`./lab.sh review`). Nothing is 
  "stream": true, "metadata": {"entity_id": "<entity_id>"}}
 ```
 
-DevUI streams a run's events **to the client that requested it**. An API-started run therefore
-executes (visible in Jaeger and as a session in the dropdown) but the browser's Execution Timeline
-and Events panels stay at 0 — they only animate runs started from the page's **Run Workflow**
-button. To *watch* a run, start it from the UI. `POST /v1/responses/{id}/cancel` answers
-`not_found` for API-started responses (they are not registered for cancel); an unwanted API run
-simply completes (real cost) — or restart DevUI to kill it.
+DevUI streams a run's events **to the client that requested it**, so the browser's Execution Timeline
+and Events panels stay at 0 for an API-started run — those only animate runs started from the page's
+**Run Workflow** button. That is a DevUI limitation, not a blind spot: **watch an API-started run on
+the Runs board** (above), or in Jaeger. `POST /v1/responses/{id}/cancel` answers `not_found` for
+API-started responses (they are not registered for cancel); an unwanted API run simply completes
+(real cost) — or restart DevUI to kill it.
 
 ## Tracing
 

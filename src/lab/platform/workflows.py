@@ -10,6 +10,16 @@ Streams / keys
   workflow:requests    XADD per request; consumer groups = GROUPS (one per workload host)
   workflow:req:<id>    hash: current state (status pending|running|done|failed + run outputs)
   workflow:pending     set of request ids not yet finished
+  workflow:idem:<process>:<key>   the idempotency claim of one submission (SET NX EX) -> its request id
+
+IDEMPOTENCY lives HERE, not in the surfaces. A run costs 600-1000 s of real tokens and stages a
+human approval, so a retried submission — a connector's automatic retry, a flaky network, an
+impatient user pressing the button twice — must NOT queue a second run. A caller that can name its
+own submission passes `idempotency_key=`; the key is claimed with `SET NX EX` (the same atomic
+primitive lab.platform.locks uses) so two concurrent retries cannot both win, and the loser is handed
+the FIRST request id. Putting it in `submit()` rather than in workflow-mcp means every producer
+(workflow-mcp, the review app's Submit page, the CLI, any future REST adapter) gets it by passing
+one argument, and there is ONE implementation of the race.
 
 CLI:  python -m lab.platform.workflows list | show <id> | count
                                    | request <process> <diagram-ref> [requirements-ref ...]
@@ -27,6 +37,9 @@ from lab.platform import redis_client
 from lab.platform.contracts import PROCESSES, WORKFLOW_FINISHED, WorkflowRequest, WorkflowStatus
 
 REQ = "workflow:requests"
+IDEM = "workflow:idem:"                     # + <process>:<key> -> the request id that claim created
+IDEMPOTENCY_TTL = 24 * 60 * 60              # 24 h — see idempotency_key_for()
+MAX_KEY = 200                               # a Redis key is not a payload: enough for a GUID or a message id
 GROUPS = tuple(spec.group for spec in PROCESSES.values())   # DERIVED: one group per registered process
                                             # (lab.platform.contracts.PROCESSES is the ONE source)
 STATUSES = tuple(s.value for s in WorkflowStatus)    # the contract (lab.platform.contracts) as wire strings
@@ -51,25 +64,74 @@ def ensure_groups(r=None):
                 raise
 
 
-def request(process, inputs, requester, *, spec=None, client=None):
-    """Publish a run request, validated by the process's OWN contract (`ProcessSpec.validate`) so
-    workflow-mcp, the review app's Submit page and the CLI cannot drift apart — nothing reaches the
-    stream unvalidated. `spec` lets a caller that already holds one (a server built from its own
-    registry) pass it instead of a global lookup; otherwise `PROCESSES[process]` is used and an
-    unknown process is a ValueError."""
+def idempotency_key_for(process, key):
+    """`workflow:idem:<process>:<key>` — the Redis key one submission claims.
+
+    NAMESPACED BY PROCESS so two processes may be handed the same caller-side id (a Teams message id
+    submitted to two workloads) without colliding. The claim carries a TTL of `IDEMPOTENCY_TTL`
+    (24 h): long enough to cover a whole run (600-1000 s), the human approval that follows it and any
+    retry a connector or a person makes during a working day; short enough that the keyspace does not
+    grow without bound. WHEN IT EXPIRES the key is simply free again — the SAME idempotency_key
+    submitted a day later queues a NEW run. That is deliberate: the key is a RETRY window, not a
+    permanent uniqueness constraint, and a caller who wants "never run this twice" must keep the
+    request id it was given."""
+    key = key.strip() if isinstance(key, str) else key
+    if not isinstance(key, str) or not key:
+        raise ValueError("idempotency_key must be a non-empty string")
+    if len(key) > MAX_KEY or not key.isprintable():
+        raise ValueError(f"idempotency_key must be at most {MAX_KEY} printable characters")
+    return f"{IDEM}{process}:{key}"
+
+
+def submit(process, inputs, requester, *, spec=None, idempotency_key=None, ttl=IDEMPOTENCY_TTL, client=None):
+    """Publish a run request; returns `(request_id, duplicate)`.
+
+    Validated by the process's OWN contract (`ProcessSpec.validate`) so workflow-mcp, the review app's
+    Submit page and the CLI cannot drift apart — nothing reaches the stream unvalidated. `spec` lets a
+    caller that already holds one (a server built from its own registry) pass it instead of a global
+    lookup; otherwise `PROCESSES[process]` is used and an unknown process is a ValueError.
+
+    `idempotency_key` makes a submission SAFE TO RETRY: the same key publishes ONE event and every
+    later call gets the first `request_id` back with `duplicate=True` (see `idempotency_key_for` for
+    the TTL and what expiry means). The claim is taken with SET NX EX — atomically, before the stream
+    write — so two concurrent retries cannot both create a run; if the write then fails the claim is
+    RELEASED, or every retry would return the id of a request that was never published.
+
+    WITHOUT a key nothing is de-duplicated, DELIBERATELY: two submissions of the same diagram are two
+    legitimate runs (a re-run after a prompt change, a second opinion, a fresh render). Content-based
+    de-duplication would silently refuse the second one, and silently refusing work a human asked for
+    is worse than the cost of a run they can see and cancel. A caller that wants retry-safety says so
+    by naming its submission."""
     if spec is None:
         spec = PROCESSES.get(process)
         if spec is None:
             raise ValueError(f"unknown process {process!r}; registered: {sorted(PROCESSES)}")
     inputs = spec.validate(inputs)
-    r = _r(client); ensure_groups(r)
+    r = _r(client)
+    claim = idempotency_key_for(process, idempotency_key) if idempotency_key is not None else None
     rid = f"wfr-{uuid.uuid4().hex[:12]}"
+    if claim is not None and not r.set(claim, rid, nx=True, ex=int(ttl)):
+        held = r.get(claim)
+        if held:                                  # the first submission owns this key — hand back its run
+            return (held.decode() if isinstance(held, bytes) else held), True
+        r.set(claim, rid, ex=int(ttl))            # it expired between the SET NX and the GET: claim it now
+    ensure_groups(r)
     fields = WorkflowRequest(request_id=rid, process=process, inputs=inputs, requester=requester,
                              created_at=_now(), created_ts=f"{time.time():.6f}").to_fields()
-    r.xadd(REQ, fields)
-    r.hset(f"workflow:req:{rid}", mapping=fields)
-    r.sadd("workflow:pending", rid)
-    return rid
+    try:
+        r.xadd(REQ, fields)
+        r.hset(f"workflow:req:{rid}", mapping=fields)
+        r.sadd("workflow:pending", rid)
+    except Exception:
+        if claim is not None:
+            r.delete(claim)                       # nothing was queued: the key must not point at a phantom
+        raise
+    return rid, False
+
+
+def request(process, inputs, requester, *, spec=None, idempotency_key=None, client=None):
+    """`submit()` for the callers that only want the id (the CLI, the review app's Submit page)."""
+    return submit(process, inputs, requester, spec=spec, idempotency_key=idempotency_key, client=client)[0]
 
 
 def mark(request_id, status, *, client=None, **fields):
@@ -92,11 +154,15 @@ def mark(request_id, status, *, client=None, **fields):
 
 
 def status(request_id, *, client=None):
+    """The request hash, decoded symmetrically with `mark()`: every field `mark` JSON-encoded (any
+    dict/list value — inputs, summary, import_artifacts, whatever a process declares next) comes back
+    as the object it was. Decoding by SHAPE rather than by a list of field names keeps a new
+    structured output from needing an edit here."""
     st = _r(client).hgetall(f"workflow:req:{request_id}")
-    for k in ("inputs", "summary"):
-        if st.get(k):
+    for k, v in st.items():
+        if isinstance(v, str) and v[:1] in ("{", "["):
             try:
-                st[k] = json.loads(st[k])
+                st[k] = json.loads(v)
             except ValueError:
                 pass
     return st

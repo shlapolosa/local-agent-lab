@@ -7,6 +7,11 @@ dir) and nothing is written outside it. The env parser / allowlist themselves ar
 tests/deploy/test_railway_env.py; here the assertions are about BEHAVIOUR: which mutations with which
 variables, in what order, and what `status` prints.
 
+Env is pinned in FIXTURES, never at import: `deploy/railway.py` reads RAILWAY_* at import time (the
+GraphQL headers, the project and environment ids), so the fake credentials — and the temp repo ROOT —
+live in the module fixture below and are undone with it. Pinning them at import would leak a fake
+Railway tenant into every other test module in the shared process (see tests/conftest.py).
+
 Run: `.venv/bin/python tests/deploy/test_railway_cli.py`  (also pytest-compatible).
 """
 import contextlib
@@ -19,13 +24,13 @@ import sys
 import tempfile
 import urllib.request
 
+import pytest
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RAILWAY_PATH = os.path.join(ROOT, "deploy", "railway.py")
 
 CREDS = {"RAILWAY_TOKEN": "tok-fake-project-token", "RAILWAY_PROJECT_ID": "proj-fake",
          "RAILWAY_ENVIRONMENT_ID": "env-fake"}
-os.environ.update(CREDS)
-os.environ["JAEGER_UI_URL"] = "https://jaeger.example"
 
 ENV_TEXT = """\
 LITELLM_MASTER_KEY=sk-master-fake
@@ -57,11 +62,50 @@ def _load():
     return mod
 
 
-rw = _load()
-TMP = tempfile.mkdtemp()
-with open(os.path.join(TMP, ".env"), "w") as f:
-    f.write(ENV_TEXT)
-rw.ROOT = TMP                                       # .env reads/writes go to the temp copy only
+rw = None                                           # the module under test; loaded by `railway_module`
+TMP = None                                          # its temp repo root: .env reads/writes go there only
+
+
+@pytest.fixture(scope="module", autouse=True)
+def railway_module():
+    """Load deploy/railway.py with the fake Railway credentials in place (it reads them at import)
+    and its ROOT pointed at a temp `.env`, so nothing here touches the real project or repo. Torn
+    down with the module — the environment is never pinned at import."""
+    global rw, TMP
+    mp = pytest.MonkeyPatch()
+    for k, v in {**CREDS, "JAEGER_UI_URL": "https://jaeger.example"}.items():
+        mp.setenv(k, v)
+    TMP = tempfile.mkdtemp()
+    with open(os.path.join(TMP, ".env"), "w") as f:
+        f.write(ENV_TEXT)
+    rw = _load()
+    rw.ROOT = TMP
+    yield
+    mp.undo()
+    rw, TMP = None, None
+
+
+@contextlib.contextmanager
+def env_file(text):
+    """Point the module at ANOTHER temp `.env` for one test (e.g. one that configures a channel)."""
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, ".env"), "w") as f:
+        f.write(text)
+    saved, rw.ROOT = rw.ROOT, d
+    try:
+        yield d
+    finally:
+        rw.ROOT = saved
+
+@contextlib.contextmanager
+def env_file_missing():
+    """Point the module at a directory with NO `.env` (an ops box that only exports RAILWAY_*)."""
+    saved, rw.ROOT = rw.ROOT, tempfile.mkdtemp()
+    try:
+        yield
+    finally:
+        rw.ROOT = saved
+
 
 # ---------------------------------------------------------------- the fake Railway GraphQL endpoint
 _OPS = [("serviceCreate(", "serviceCreate"), ("serviceInstanceUpdate(", "serviceInstanceUpdate"),
@@ -190,21 +234,15 @@ def test_gql_sends_browser_user_agent_and_project_token_and_surfaces_errors():
             raise AssertionError("GraphQL errors must abort")
 
 
-def test_require_railway_names_every_missing_credential():
-    saved = {k: os.environ.get(k) for k in CREDS}
-    os.environ.update(CREDS)
-    try:
-        rw._require_railway()                                         # all three set -> silent
-        os.environ.pop("RAILWAY_TOKEN"), os.environ.pop("RAILWAY_ENVIRONMENT_ID")
-        try:
-            rw._require_railway()
-        except SystemExit as e:
-            assert "RAILWAY_TOKEN, RAILWAY_ENVIRONMENT_ID" in str(e) and "source .env" in str(e)
-        else:
-            raise AssertionError("expected SystemExit")
-    finally:
-        for k, v in saved.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+def test_require_railway_names_every_missing_credential(monkeypatch):
+    for k, v in CREDS.items():
+        monkeypatch.setenv(k, v)
+    rw._require_railway()                                             # all three set -> silent
+    monkeypatch.delenv("RAILWAY_TOKEN")
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT_ID")
+    with pytest.raises(SystemExit) as e:
+        rw._require_railway()
+    assert "RAILWAY_TOKEN, RAILWAY_ENVIRONMENT_ID" in str(e.value) and "source .env" in str(e.value)
 
 
 # ---------------------------------------------------------------- substrate up
@@ -263,8 +301,10 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
         assert k not in wf, k
     inst = {c[1]["s"]: c[1]["in"] for c in fake.ops("serviceInstanceUpdate") if c[1]["s"] != "svc-redis"}
     for name, spec in rw.SUBSTRATE.items():
+        # every field is sent every time: a partial patch would let a stale probe or restart policy
+        # outlive the table (ON_FAILURE is Railway's default, so this states what already happened)
         assert inst[f"svc-{name}"] == {"source": {"image": rw.IMAGE}, "startCommand": spec["cmd"],
-                                       "healthcheckPath": ""}, name
+                                       "healthcheckPath": "", "restartPolicyType": "ON_FAILURE"}, name
     assert "--host 0.0.0.0" in inst["svc-gateway"]["startCommand"]  # IPv4 edge + no probe (verified combo)
     domains = [c[1]["in"] for c in fake.ops("serviceDomainCreate")]
     assert domains == [{"environmentId": "env-fake", "serviceId": "svc-gateway", "targetPort": 4000},
@@ -299,6 +339,7 @@ def test_image_mode_is_the_default_and_points_every_service_at_one_prebuilt_imag
     for name in rw.SUBSTRATE:
         i = upd[f"svc-{name}"]
         assert i.get("source") == {"image": rw.IMAGE}, (name, i)
+        assert i["restartPolicyType"] == "ON_FAILURE", name
         assert "dockerfilePath" not in i, name           # nothing is built from the repo
         assert i["startCommand"] == rw.SUBSTRATE[name]["cmd"]
     # an image service has no repo commit to fetch
@@ -407,6 +448,80 @@ def test_substrate_down_removes_only_running_deployments():
     assert "gateway       stopped (config/variables/domain kept)" in text
     assert "review        already crashed" in text
     assert "semantic-mcp" not in text                                              # not created -> silent
+
+
+# ---------------------------------------------------------------- approval channels (optional services)
+CHANNEL_ENV = ENV_TEXT + "TEAMS_WEBHOOK_URL=https://teams.example/hook\n"
+
+
+def test_a_configured_channel_is_deployed_like_any_other_substrate_service():
+    """A channel that has its settings becomes a real service: same image, its own start command,
+    restart ALWAYS (it is a loop), NO domain (nothing calls it) and ONLY its own env."""
+    fake = FakeRailway(services=_project(*ALL_SUBSTRATE),
+                       domains={"svc-gateway": "gw.example", "svc-review": "rv.example"},
+                       volumes=[("svc-redis", "/data")])
+    with env_file(CHANNEL_ENV), railway(fake) as out:
+        rw.substrate_up()
+    text = out.getvalue()
+    assert fake.ops("serviceCreate")[0][1]["in"]["name"] == "teams"        # the only service missing
+    inst = {c[1]["s"]: c[1]["in"] for c in fake.ops("serviceInstanceUpdate")}["svc-teams"]
+    assert inst == {"source": {"image": rw.IMAGE}, "startCommand": rw.CHANNELS["teams"]["cmd"],
+                    "healthcheckPath": "", "restartPolicyType": "ALWAYS"}
+    assert "python -m lab.substrate.channels.teams" == inst["startCommand"]
+    assert all(c[1]["in"]["serviceId"] != "svc-teams" for c in fake.ops("serviceDomainCreate"))
+    env = {c[1]["in"]["serviceId"]: c[1]["in"]["variables"] for c in fake.ops("variableCollectionUpsert")}["svc-teams"]
+    assert set(env) == {"TEAMS_WEBHOOK_URL", "REDIS_URL", "REVIEW_APP_URL", "JAEGER_UI_URL",
+                        "OTEL_EXPORTER_OTLP_ENDPOINT"}
+    assert env["TEAMS_WEBHOOK_URL"] == "https://teams.example/hook"
+    assert env["REDIS_URL"] == "redis://redis.railway.internal:6379/0"     # the substrate's own Redis
+    assert [c[1]["s"] for c in fake.ops("serviceInstanceDeploy")][-1] == "svc-teams"
+    # the channel with no settings is never created, and says so
+    assert "telegram      skipped  (not configured: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)" in text
+    assert "teams         created" in text and "teams         env (5)" in text
+    assert all(c[1]["in"]["name"] != "telegram" for c in fake.ops("serviceCreate"))
+
+
+def test_an_unconfigured_channel_is_not_part_of_the_substrate_at_all():
+    fake = FakeRailway(services=_project(*ALL_SUBSTRATE), volumes=[("svc-redis", "/data")])
+    with railway(fake) as out:                                             # the default .env: no channel
+        rw.substrate_up()
+    assert fake.ops("serviceCreate") == []
+    upserts = {c[1]["in"]["serviceId"] for c in fake.ops("variableCollectionUpsert")}
+    assert upserts == {f"svc-{n}" for n in rw.SUBSTRATE}
+    text = out.getvalue()
+    for name in rw.CHANNELS:
+        assert f"{name:13} skipped  (not configured:" in text
+    with railway(FakeRailway()) as out:
+        rw.substrate_env_report()
+    assert "teams" not in out.getvalue() and "telegram" not in out.getvalue()
+
+
+def test_status_and_down_cover_a_channel_that_is_deployed_but_no_longer_configured():
+    """Settings removed from .env must not orphan a running channel: it is still listed and stopped."""
+    fake = FakeRailway(services=_project(*ALL_SUBSTRATE, "teams"),
+                       status={"svc-teams": "SUCCESS", "svc-jaeger": "SUCCESS"})
+    with railway(fake) as out:                                             # .env no longer configures it
+        rw.substrate_status()
+    assert "teams         success" in out.getvalue()
+    with railway(fake) as out:
+        rw.substrate_down()
+    assert "teams         stopped (config/variables/domain kept)" in out.getvalue()
+    assert "dep-svc-teams" in [c[1]["id"] for c in fake.ops("deploymentRemove")]
+    # ... and BOTH read-side commands still work on a box with no .env at all (neither needed one
+    # before channels made the service list depend on it)
+    fake = FakeRailway(services=_project(*ALL_SUBSTRATE, "teams"), status={"svc-teams": "SUCCESS"})
+    with env_file_missing(), railway(fake) as out:
+        rw.substrate_down()
+    assert "teams         stopped" in out.getvalue()
+    with env_file_missing(), railway(FakeRailway(services=_project(*ALL_SUBSTRATE, "teams"))) as out:
+        rw.substrate_status()
+    text = out.getvalue()
+    assert "teams         success" in text and "0 keys in the pool" in text   # empty pool, no crash
+    # a channel that is neither configured nor deployed is not mentioned at all
+    fake = FakeRailway(services=_project(*ALL_SUBSTRATE))
+    with railway(fake) as out:
+        rw.substrate_status()
+    assert "teams" not in out.getvalue() and "telegram" not in out.getvalue()
 
 
 # ---------------------------------------------------------------- bucket up / status
@@ -579,13 +694,14 @@ def test_workload_down_stops_active_deployments_only():
 # ---------------------------------------------------------------- CLI dispatcher (python deploy/railway.py …)
 def _cli(*argv, fake=None, env=None):
     """Run the script as __main__ (the real entry point) against the fake endpoint; returns
-    (stdout, SystemExit message or None, fake). Only commands that never touch .env are driven here."""
+    (stdout, SystemExit message or None, fake). Only commands that never touch .env are driven here
+    (runpy re-executes the file, so its ROOT is the real repo). Env and argv go through MonkeyPatch
+    and are undone before returning."""
     fake = fake or FakeRailway()
-    env = {**CREDS, **(env or {})}                     # creds set per call (other test modules pop them)
-    saved_argv, saved_env = sys.argv, {k: os.environ.get(k) for k in env}
-    sys.argv = ["railway.py", *argv]
-    for k, v in env.items():
-        os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    mp = pytest.MonkeyPatch()
+    mp.setattr(sys, "argv", ["railway.py", *argv])
+    for k, v in {**CREDS, **(env or {})}.items():      # creds set per call: a value of None unsets one
+        mp.delenv(k, raising=False) if v is None else mp.setenv(k, v)
     code = None
     try:
         with railway(fake) as out:
@@ -594,9 +710,7 @@ def _cli(*argv, fake=None, env=None):
             except SystemExit as e:
                 code = str(e)
     finally:
-        sys.argv = saved_argv
-        for k, v in saved_env.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        mp.undo()
     return out.getvalue(), code, fake
 
 
@@ -631,7 +745,4 @@ def test_cli_usage_and_credential_errors():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn()
-            print("ok", name)
+    sys.exit(pytest.main([__file__, "-q"]))

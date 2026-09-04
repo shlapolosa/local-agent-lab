@@ -24,6 +24,7 @@ Adding a process = one `ProcessSpec` in `PROCESSES` (+ its consumer group in lab
 from __future__ import annotations
 
 import json
+import mimetypes
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -190,7 +191,74 @@ class ArtifactRef:
 
 # ----------------------------------------------------------------------------- approval gate
 class ApprovalKind(StrEnum):
-    ADOIT_IMPORT = "adoit-import"
+    """What a human is being asked to release. VENDOR-NEUTRAL, like the port itself: an approval is
+    "a write into the EA repository", never "an ADOIT import" — the adapter behind the port may be
+    any EA tool and nothing downstream (the review app, Teams, Telegram, the CLI, approvals_list)
+    dispatches on the vendor.
+
+    COMPAT: approvals staged before this rename carry `kind: "adoit-import"`. Nothing DISPATCHES on
+    kind — `approvals.pending()` is kind-agnostic and the review app lists, opens and decides by
+    request id — so those requests keep working untouched; only an explicit `approvals_list(kind=…)`
+    filter, which is triage and not a boundary, will not match them (omit the filter to see them).
+    The value is deliberately NOT aliased back to the old string: a vendor word in the contract is
+    exactly what `tests/governance/test_contracts_match_servers.py` exists to prevent."""
+
+    EA_IMPORT = "ea-import"
+
+
+@dataclass(frozen=True)
+class ImportArtifact:
+    """ONE file a human must carry into the EA repository, described BY THE ADAPTER that made it.
+
+    This is how a repository's import files stay OPAQUE to everything upstream. The adapter knows what
+    it produced and why (an ADOIT:CE object spreadsheet matched by name, a views XML, a change-set
+    bundle, or — on a repository that writes over its own API — nothing at all); the approval carries
+    that as a list of {ref, label, note}, and a channel showing it to a human RENDERS the label and
+    the note and offers the ref as a download. No reviewer surface has to know what a spreadsheet is.
+
+    The adapter supplies MEANING only: `filename` and `mime` are derived from the ref, so an adapter
+    cannot mislabel its own artifact; `media_type` overrides the guess when an extension is ambiguous."""
+
+    ref: str                   # art://<id>/<name> (or, in local dev, a path)
+    label: str                 # what the human sees on the download — the adapter's words
+    note: str = ""             # one line of guidance shown beside it (how this file is imported)
+    media_type: str = ""       # override for the MIME guessed from the filename
+
+    def __post_init__(self) -> None:
+        if not (self.ref or "").strip() or not (self.label or "").strip():
+            raise ValueError("an import artifact needs both a ref and a label")
+
+    @property
+    def filename(self) -> str:
+        """The name to save it under: the last path segment of the ref, without any `#page` fragment."""
+        return split_fragment(self.ref)[0].rstrip("/").rsplit("/", 1)[-1]
+
+    @property
+    def mime(self) -> str:
+        return self.media_type or mimetypes.guess_type(self.filename)[0] or "application/octet-stream"
+
+    def to_dict(self) -> dict[str, str]:
+        return {"ref": self.ref, "label": self.label, "note": self.note, "media_type": self.media_type}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ImportArtifact":
+        return cls(ref=d["ref"], label=d["label"], note=d.get("note", "") or "",
+                   media_type=d.get("media_type", "") or "")
+
+
+def import_artifacts(payload: dict[str, Any]) -> list[ImportArtifact]:
+    """The files a human must import for one approval, in the adapter's own order — the ONE reader of
+    an approval payload's artifact list, shared by the review app and the approval MCP tools.
+
+    LEGACY payloads (staged before the neutral shape: a flat `xml_ref` + `xlsx_ref` + …) still render:
+    every `*_ref` string in the payload becomes a download labelled by its own filename. That rule is
+    GENERIC — it names no vendor and knows no file type — so an old request stays fully usable by a
+    reviewer without this module, or the review app, learning what any of those files were."""
+    declared = payload.get("import_artifacts")
+    if declared is not None:
+        return [ImportArtifact.from_dict(d) for d in declared]
+    return [ImportArtifact(ref=v, label=ImportArtifact(v, "?").filename)
+            for k, v in payload.items() if k.endswith("_ref") and isinstance(v, str) and v.strip()]
 
 
 class Decision(StrEnum):
@@ -350,7 +418,7 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
     description=(
         "Turn a system diagram — a Microsoft Visio .vsdx or a diagram image — plus any requirements "
         "documents into a validated ArchiMate 3.1 model of that system, matched against the existing "
-        "architecture in the ADOIT repository and staged for human approval before import. "
+        "architecture in the EA repository and staged for human approval before import. "
         "A run takes 10-20 minutes, so it is asynchronous: submit returns a request_id immediately."),
     inputs=(
         InputField("diagram", InputKind.REF,
@@ -362,7 +430,9 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
                    "describe the same system; they are used as evidence about the diagram, never as a "
                    "source of elements the diagram does not show.", required=False),
     ),
-    outputs=("trace_id", "approval_id", "review_app", "xml_ref", "xlsx_ref", "summary"),
+    # `import_artifacts` is the repository-agnostic replacement for the old `xlsx_ref`: whatever THIS
+    # EA repository needs a human to import, as [{ref, label, note, media_type}] — possibly empty.
+    outputs=("trace_id", "approval_id", "review_app", "xml_ref", "import_artifacts", "summary"),
 )
 
 PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE,)}
@@ -377,6 +447,7 @@ ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.nam
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
            "ApprovalTools", "SERVERS", "ALL_TOOLS",
-           "split_fragment", "ArtifactRef", "ApprovalKind", "Decision", "ApprovalStatus", "APPROVAL_FINAL",
+           "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
+           "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE"]

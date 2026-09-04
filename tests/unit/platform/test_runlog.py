@@ -60,6 +60,44 @@ def test_span_node_records_failure():
     assert nodes[-1]["status"] == "fail" and nodes[-1]["attrs"]["error"].startswith("RuntimeError: boom")
 
 
+def test_error_text_is_the_one_phrasing_of_a_failure():
+    assert runlog.error_text(ValueError("bad diagram")) == "ValueError: bad diagram"
+    long = runlog.error_text(RuntimeError("x" * 900))
+    assert long.startswith("RuntimeError: ") and len(long) == len("RuntimeError: ") + runlog.ERROR_CHARS
+    assert runlog.error_text(KeyError("k")) == "KeyError: 'k'"     # whatever str() gives, nothing more
+
+
+def test_finish_from_closes_a_run_the_same_way_for_every_host():
+    """ONE implementation of "the run is over" (host, DevUI, any future host): an exception fails it,
+    a `fail` NODE fails it even when nothing raised, and the artifacts ride along either way."""
+    runlog._RETRY_AT = 0.0
+    r = FakeRedis()
+    _quiet(runlog.start, "fin-ok", input="x", client=r)
+    assert _quiet(runlog.finish_from, "fin-ok", client=r, approval_id="apr-9",
+                  xml_ref="art://x/m.xml", xlsx_ref=None)[0] == "done"
+    h = r.h["run:fin-ok"]
+    assert h["status"] == "done" and h["approval_id"] == "apr-9" and h["xml_ref"] == "art://x/m.xml"
+    assert "xlsx_ref" not in h                                   # None fields are dropped, as in finish()
+
+    _quiet(runlog.start, "fin-raise", input="x", client=r)
+    assert _quiet(runlog.finish_from, "fin-raise", RuntimeError("gateway down"), client=r)[0] == "failed"
+    assert r.h["run:fin-raise"]["error"] == "RuntimeError: gateway down"
+
+    # a node failed but the call itself returned (Agent Framework can surface an executor error as
+    # an event) — the run is still a failure, and it says which node's error
+    _quiet(runlog.start, "fin-node", input="x", client=r)
+    _quiet(runlog.node, "fin-node", "ba", "fail", error="ValueError: bad diagram", client=r)
+    assert _quiet(runlog.finish_from, "fin-node", client=r, approval_id="apr-8")[0] == "failed"
+    assert r.h["run:fin-node"]["error"] == "ValueError: bad diagram"
+    assert r.h["run:fin-node"]["approval_id"] == "apr-8"         # whatever it produced is still linked
+
+    # a fail node with no error attribute still fails the run
+    _quiet(runlog.start, "fin-bare", input="x", client=r)
+    _quiet(runlog.node, "fin-bare", "ba", "fail", client=r)
+    assert _quiet(runlog.finish_from, "fin-bare", client=r)[0] == "failed"
+    assert r.h["run:fin-bare"]["error"] == "node failed"
+
+
 def test_bad_statuses_rejected():
     for call in (lambda: runlog.node("r", "n", "nope"), lambda: runlog.finish("r", "running")):
         try:

@@ -8,8 +8,9 @@ import pytest
 
 from lab.platform import contracts as C
 from lab.platform.contracts import (APPROVAL_FINAL, WORKFLOW_FINISHED, WORKFLOW_OPEN, ApprovalKind,
-                                    ApprovalStatus, ArtifactRef, Decision, EATools, SemanticTools,
-                                    StorageTools, WorkflowRequest, WorkflowStatus)
+                                    ApprovalStatus, ArtifactRef, Decision, EATools, ImportArtifact,
+                                    SemanticTools, StorageTools, WorkflowRequest, WorkflowStatus,
+                                    import_artifacts)
 
 
 # ------------------------------------------------------------------ tool catalogues
@@ -91,9 +92,58 @@ def test_approval_contract_values_are_the_wire_strings():
     assert [d.value for d in Decision] == ["approve", "decline", "update"]
     assert [s.value for s in ApprovalStatus] == ["pending", "approve", "decline", "update"]
     assert APPROVAL_FINAL == frozenset({ApprovalStatus.APPROVE, ApprovalStatus.DECLINE})   # `update` stays open
-    assert ApprovalKind.ADOIT_IMPORT == "adoit-import"
+    assert ApprovalKind.EA_IMPORT == "ea-import"           # neutral: the PORT never names an EA vendor
     assert Decision.APPROVE == "approve" and f"{Decision.UPDATE}" == "update"        # StrEnum: plain-string compatible
     assert "decline" in Decision and "maybe" not in Decision
+
+
+# ------------------------------------------------------------------ staged import artifacts
+def test_import_artifact_derives_the_download_from_the_ref_alone():
+    """The adapter supplies MEANING (label, note); everything mechanical comes off the ref, so an
+    adapter cannot get the filename or the MIME type of its own artifact wrong."""
+    a = ImportArtifact("art://x2/claims.objects.xlsx", "Download objects .xlsx (3 objects)")
+    assert a.filename == "claims.objects.xlsx"
+    assert a.mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert ImportArtifact("art://x1/m.archimate.xml", "L").mime == "application/xml"
+    assert ImportArtifact("art://x/o.unknownext", "L").mime == "application/octet-stream"
+    assert ImportArtifact("art://x/a.bin", "L", media_type="application/pdf").mime == "application/pdf"
+    assert ImportArtifact("art://x/p.pdf#2", "L").filename == "p.pdf"          # a page fragment is not a name
+    assert ImportArtifact("/tmp/local/objects.xlsx", "L").filename == "objects.xlsx"   # local dev path
+
+
+def test_import_artifact_round_trips_through_the_approval_payload():
+    a = ImportArtifact("art://x/o.xlsx", "Objects", note="matched by name", media_type="application/x")
+    assert ImportArtifact.from_dict(a.to_dict()) == a
+    assert set(a.to_dict()) == {"ref", "label", "note", "media_type"}
+    assert ImportArtifact.from_dict({"ref": "art://x/o.xlsx", "label": "Objects"}).note == ""
+    with pytest.raises(ValueError, match="both a ref and a label"):
+        ImportArtifact("", "Objects")
+    with pytest.raises(ValueError, match="both a ref and a label"):
+        ImportArtifact("art://x/o.xlsx", "  ")
+
+
+def test_import_artifacts_reads_the_adapters_list_verbatim():
+    """The review app renders what the ADAPTER sent — order, labels and notes included. Nothing here
+    knows that one of them is a spreadsheet."""
+    payload = {"xml_ref": "art://x1/m.archimate.xml", "summary": {},
+               "import_artifacts": [{"ref": "art://x1/m.archimate.xml", "label": "Views XML"},
+                                    {"ref": "art://x2/o.xlsx", "label": "Objects", "note": "by name"}]}
+    got = import_artifacts(payload)
+    assert [(a.ref, a.label, a.note) for a in got] == [("art://x1/m.archimate.xml", "Views XML", ""),
+                                                       ("art://x2/o.xlsx", "Objects", "by name")]
+    assert import_artifacts({"import_artifacts": []}) == []      # a repository that writes over its own API
+    assert import_artifacts({}) == []
+
+
+def test_import_artifacts_still_opens_an_approval_staged_before_the_neutral_shape():
+    """COMPAT: ~10 approvals were staged with the old flat payload (`xml_ref` + `xlsx_ref`). The rule is
+    GENERIC — every `*_ref` string becomes a download labelled by its own filename — so a reviewer can
+    still take every file out of an old request without this module knowing what any of them were."""
+    legacy = {"xml_ref": "art://x1/model.archimate.xml", "xlsx_ref": "art://x2/objects.xlsx",
+              "svg_refs": {"Overview": "art://s1/o.svg"},          # a dict of previews is not a download
+              "summary": {"elements": 3}}
+    assert [(a.ref, a.label) for a in import_artifacts(legacy)] == [
+        ("art://x1/model.archimate.xml", "model.archimate.xml"), ("art://x2/objects.xlsx", "objects.xlsx")]
 
 
 # ------------------------------------------------------------------ workflow requests

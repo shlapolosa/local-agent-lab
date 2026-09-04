@@ -65,7 +65,7 @@ scripts/               provisioning, registry bootstrap, register_skill.sh, arch
 deploy/                Dockerfile, railway.py, requirements, substrate + workload compose files
 tests/                 unit/<mirror of src/lab> · integration/ · governance/ · deploy/ · fixtures/   (tests/run.sh [--cov])
 var/  (git-ignored)    logs, pids, artifacts, outputs, inputs, tools, coverage, licensed reference sources
-lab.sh                 up | down | status | review | consumer
+lab.sh                 up | down | status | review | consumer | channels | clients
 CLAUDE.md              the operating rules and invariants (read this first)
 ```
 

@@ -2,12 +2,18 @@
 scripts/e2e_smoke.py's env reader (B-M6). No Railway, no network: the module is imported without
 RAILWAY_* credentials and every check runs against a temp .env / a fake env dict.
 
+Env is pinned in a FIXTURE, never at import (tests/conftest.py: no module may leak its environment
+into the shared process).
+
 Run:  .venv/bin/python tests/deploy/test_railway_env.py      (also pytest-compatible)
 """
 import importlib.util
 import os
+import re
 import sys
 import tempfile
+
+import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -19,10 +25,22 @@ def _load(name, rel):
     return mod
 
 
-# Importing must NOT require Railway credentials (e2e_smoke reuses the parser without them).
-for k in ("RAILWAY_TOKEN", "RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID"):
-    os.environ.pop(k, None)
-railway = _load("lab_railway", "deploy/railway.py")
+railway = None                    # the module under test; loaded by `railway_module`
+
+
+@pytest.fixture(scope="module", autouse=True)
+def railway_module():
+    """Importing deploy/railway.py must NOT require Railway credentials — e2e_smoke reuses its parser
+    without them — so it is imported here with RAILWAY_* removed, in a fixture rather than at module
+    import, and the environment is put back with the module."""
+    global railway
+    mp = pytest.MonkeyPatch()
+    for k in ("RAILWAY_TOKEN", "RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID"):
+        mp.delenv(k, raising=False)
+    railway = _load("lab_railway", "deploy/railway.py")
+    yield
+    mp.undo()
+    railway = None
 
 ENV_TEXT = """\
 # comment line
@@ -119,7 +137,7 @@ FAKE = {
     "ENTRA_TENANT_ID": "tid", "ENTRA_GATEWAY_AUDIENCE": "api://gw",
     "AGENT_RESPONSES_STORE": "false", "VISIO_DIAGRAM": "art://x/y.vsdx", "VISIO_REQUIREMENTS": "",
     "BA_MAX_DOC_CHARS": "60000", "BA_MODE": "json", "ARCHITECT_MODE": "json",
-    "TELEGRAM_BOT_TOKEN": "tg", "TELEGRAM_CHAT_ID": "tg",
+    "TELEGRAM_BOT_TOKEN": "tg", "TELEGRAM_CHAT_ID": "tg", "TEAMS_WEBHOOK_URL": "https://hook",
 }
 MANAGEMENT = {k for k in FAKE if k.startswith(("RAILWAY_", "NEON_", "OCI_"))}
 
@@ -204,6 +222,69 @@ def test_storage_mcp_and_review_s3_gating():
         assert not (set(railway.env_for_role(role, FAKE, s3=False)) & s3), role
 
 
+def test_a_channel_receives_only_its_own_settings_and_the_links_it_shows_a_human():
+    """An approval channel notifies a human and records the decision — nothing else. So: its own
+    credential, Redis (the approvals streams), the link(s) it puts in front of the reviewer, and the
+    tracing sink. No store, no bucket, no gateway/model/ADOIT secret — and not the OTHER channel's
+    credential either."""
+    tg = railway.env_for_role("telegram", FAKE)
+    assert set(tg) == {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "REDIS_URL", "REVIEW_APP_URL",
+                       "OTEL_EXPORTER_OTLP_ENDPOINT"}
+    tm = railway.env_for_role("teams", FAKE)
+    assert set(tm) == {"TEAMS_WEBHOOK_URL", "REDIS_URL", "REVIEW_APP_URL", "JAEGER_UI_URL",
+                       "OTEL_EXPORTER_OTLP_ENDPOINT"}     # + the trace link its card offers
+    for role, env in (("telegram", tg), ("teams", tm)):
+        assert not _has(env, "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
+                        "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "BA_", "ARCHITECT_", "ENTRA_",
+                        "MICROSOFT_", "GATEWAY_URL", "REVIEW_APP_PASSWORD"), role
+    assert "TEAMS_WEBHOOK_URL" not in tg and "TELEGRAM_BOT_TOKEN" not in tm
+
+
+def test_a_channel_is_a_substrate_service_only_while_it_is_configured():
+    """An unconfigured channel exits immediately by design, so it is never deployed (lab.sh skips it
+    for the same reason). Partial settings do not count."""
+    assert set(railway.CHANNELS) == {"telegram", "teams"}
+    assert set(railway.substrate_services({})) == set(railway.SUBSTRATE)
+    assert set(railway.substrate_services({"TELEGRAM_BOT_TOKEN": "t"})) == set(railway.SUBSTRATE)
+    both = railway.substrate_services(FAKE)
+    assert set(both) == set(railway.SUBSTRATE) | {"telegram", "teams"}
+    for name, spec in railway.CHANNELS.items():
+        assert spec["cmd"] == f"python -m lab.substrate.channels.{name}"
+        assert spec["port"] is None and spec["restart"] == "ALWAYS"   # a loop, and nothing calls it
+        assert not spec.get("s3")
+    # deploy order + what down/status walk: redis first, jaeger last, a channel in between when it is
+    # configured OR still deployed (settings removed from .env must not orphan a running service)
+    assert railway.substrate_names({}) == ["redis"] + list(railway.SUBSTRATE) + ["local-agent-lab"]
+    assert railway.substrate_names({}, {"teams": "svc-teams"}) == \
+        ["redis"] + list(railway.SUBSTRATE) + ["teams", "local-agent-lab"]
+    assert railway.substrate_names(FAKE)[-3:] == ["telegram", "teams", "local-agent-lab"]
+
+
+def test_every_key_a_channel_is_gated_on_is_actually_shipped_to_it():
+    """The deploy GATE (`requires`) and the credential GRANT (ROLE_ENV) are two lists of the same
+    keys. A channel whose token is required to deploy it but stripped by the allowlist would be
+    deployed and then exit immediately — silently, since the "not configured" line never prints."""
+    for name, spec in railway.CHANNELS.items():
+        granted = railway.env_for_role(name, {k: "x" for k in spec["requires"]})
+        assert set(granted) == set(spec["requires"]), name
+
+
+def test_the_two_runners_agree_on_what_a_channel_is():
+    """`lab.sh` (local) and `deploy/railway.py` (cloud) each hold the channel table in their own
+    language. A channel that runs locally but is never deployed — or one whose module path or
+    required settings drift between them — is a silently unattended approval gate, and no compiler
+    spans the two. This is the check that does."""
+    sh = open(os.path.join(ROOT, "lab.sh")).read()
+    block = sh.split("for_each_channel()", 1)[1].split("\n}", 1)[0]
+    rows = re.findall(r'^\s*"\$1"\s+(\S+)\s+(\S+)\s+"([^"]*)"', block, re.M)
+    assert rows, "lab.sh no longer declares its channels as a table — the parity check is blind"
+    assert {n: (m, tuple(v.split())) for n, m, v in rows} == \
+        {n: (s["cmd"].split()[-1], tuple(s["requires"])) for n, s in railway.CHANNELS.items()}
+    for name in railway.CHANNELS:                      # start/status/stop all walk the ONE table
+        assert f"for_each_channel {name}" not in sh    # (no per-channel call sites)
+    assert sh.count("for_each_channel ") >= 3          # start_channel, channel_status, stop_channel
+
+
 def test_no_role_receives_management_or_unknown_keys():
     for role in railway.ROLE_ENV:
         env = railway.env_for_role(role, FAKE)
@@ -247,14 +328,4 @@ def test_e2e_smoke_reader_reuses_parser():
 
 
 if __name__ == "__main__":
-    tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
-    failed = 0
-    for n, f in tests:
-        try:
-            f()
-            print(f"  [PASS] {n}")
-        except Exception as e:                                   # noqa: BLE001
-            failed += 1
-            print(f"  [FAIL] {n} — {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} tests passed")
-    sys.exit(1 if failed else 0)
+    sys.exit(pytest.main([__file__, "-q"]))

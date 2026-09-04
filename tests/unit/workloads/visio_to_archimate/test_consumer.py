@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from lab.platform import runlog
 from lab.platform import workflows as real_workflows
 from lab.platform.contracts import WorkflowRequest
 from lab.workloads.visio_to_archimate import consumer
@@ -149,7 +150,7 @@ def test_handle_marks_failed_with_a_bounded_error_and_still_acks():
         consumer.handle(FakeRoot(), "8-0", _fields(rid="wfr-2", reqs=()))
     assert [m[:2] for m in wf.marks] == [("wfr-2", "running"), ("wfr-2", "running"), ("wfr-2", "failed")]
     err = wf.marks[-1][2]["error"]
-    assert err.startswith("ValueError: bad diagram") and len(err) == len("ValueError: ") + 400
+    assert err.startswith("ValueError: bad diagram") and len(err) == len("ValueError: ") + runlog.ERROR_CHARS
     assert wf.acks == [(consumer.GROUP, "8-0")]
     assert "request wfr-2 failed after" in buf.getvalue()
 

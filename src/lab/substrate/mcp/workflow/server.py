@@ -14,9 +14,17 @@ a request that long. `<process>_submit` publishes ONE durable `workflow:requests
 returns a `request_id` immediately; the long-lived workload host consumes it and writes progress
 back, which `<process>_status` / `<process>_result` read. A tool call NEVER blocks on a run.
 
+RETRIES ARE SAFE WHEN THE CALLER NAMES THEM. A retried submit would otherwise buy a second run —
+10-20 minutes of real tokens and a second approval for a human — so `<process>_submit` takes an
+optional `idempotency_key` and answers a repeat with the FIRST request_id and `duplicate: true`. The
+de-duplication is not implemented here but in `lab.platform.workflows.submit` (SET NX EX on
+`workflow:idem:<process>:<key>`, 24 h), so the review app's Submit page and any future REST adapter
+get it by passing the same argument, and the check-then-write race has ONE implementation.
+
 The process tools are GENERATED from `lab.platform.contracts.PROCESSES` — three per process:
 
-    <process>_submit(<input fields…>, requester)  -> {request_id, status: pending, poll_with, …}
+    <process>_submit(<input fields…>, requester, idempotency_key)
+                                                  -> {request_id, status, duplicate, poll_with, …}
     <process>_status(request_id)                  -> {status, trace_id, approval_id, error, …}
     <process>_result(request_id)                  -> the finished outputs, or finished: false
 
@@ -87,15 +95,26 @@ def _state(server: LabServer, spec: ProcessSpec, request_id: str) -> dict:
     return st
 
 
-def _submit(server: LabServer, spec: ProcessSpec, requester: str, values: dict) -> dict:
+def _submit(server: LabServer, spec: ProcessSpec, requester: str, values: dict,
+            idempotency_key: str | None = None) -> dict:
+    """Enqueue-and-acknowledge. The de-duplication itself is `lab.platform.workflows.submit` (SET NX EX,
+    so two concurrent retries cannot both queue a run) — this surface only passes the caller's key
+    through and TELLS the caller which of the two answers it got, so a connector can distinguish
+    "queued" from "you already asked for this"."""
     inputs = spec.validate(values)          # the ProcessSpec IS the validator (one impl, every surface)
-    rid = workflows.request(spec.name, inputs, (requester or "").strip() or "mcp",
-                            spec=spec, client=_redis(server))   # this server's registry, not a global
+    r = _redis(server)
+    rid, duplicate = workflows.submit(spec.name, inputs, (requester or "").strip() or "mcp",
+                                      spec=spec, idempotency_key=idempotency_key, client=r)
+    # a duplicate answers with the run's CURRENT status — the point of retrying is to learn where it got to
+    status = workflows.status(rid, client=r).get("status") if duplicate else WorkflowStatus.PENDING.value
     span().set_attributes({"workflow.process": spec.name, "workflow.request_id": rid,
-                           "workflow.status": WorkflowStatus.PENDING.value})
-    return {"request_id": rid, "process": spec.name, "status": WorkflowStatus.PENDING.value,
-            "accepted": True, "poll_with": spec.tool("status"), "result_with": spec.tool("result"),
-            "note": "queued — the run takes several minutes; poll the status tool, do not re-submit"}
+                           "workflow.status": status or "", "workflow.duplicate": duplicate})
+    return {"request_id": rid, "process": spec.name, "status": status, "accepted": True,
+            "duplicate": duplicate, "poll_with": spec.tool("status"), "result_with": spec.tool("result"),
+            "note": (f"already submitted under idempotency_key {idempotency_key!r} — this is the SAME "
+                     f"run, nothing new was queued; poll the status tool"
+                     if duplicate else
+                     "queued — the run takes several minutes; poll the status tool, do not re-submit")}
 
 
 def _status(server: LabServer, spec: ProcessSpec, request_id: str) -> dict:
@@ -145,14 +164,26 @@ def submit_tool(server: LabServer, spec: ProcessSpec):
               for f in spec.inputs]
     params.append(_param("requester", str, "Who is asking (agent name, user principal or channel) — "
                                            "recorded on the request for audit.", "mcp"))
+    params.append(_param("idempotency_key", str | None,
+                         "Optional key that makes this call SAFE TO RETRY: submitting again with the "
+                         "SAME key returns the SAME request_id (with duplicate: true) instead of "
+                         "queueing a second run, for 24 hours. Use a stable id you already have for "
+                         "this piece of work (the message, ticket or correlation id that asked for "
+                         "it) — never a fresh random value per attempt. Omit it and every call is a "
+                         "new run, deliberately: re-submitting the same diagram is a legitimate "
+                         "re-run.", None))
     doc = (f"Start a run of {spec.title}. {spec.description}\n\n"
            f"Returns IMMEDIATELY with a request_id; it does NOT wait for the run. Poll "
            f"{spec.tool('status')} with that id and read {spec.tool('result')} once the status is "
            f"'{WorkflowStatus.DONE.value}'. Call this ONCE per piece of work — each call queues "
-           f"another run.\nEvery input is an art://<id>/<name> reference to a file already uploaded "
-           f"to the lab's upload store; file contents and http(s) URLs are not accepted.")
+           f"another run, which costs many minutes of real work and stages another human approval. "
+           f"If your channel may retry the call, pass an `idempotency_key` and the retry gets the "
+           f"first run back (`duplicate: true`) instead of a second one.\nEvery input is an "
+           f"art://<id>/<name> reference to a file already uploaded to the lab's upload store; file "
+           f"contents and http(s) URLs are not accepted.")
     return _fn(spec.tool("submit"), doc, params,
-               lambda requester="mcp", **values: _submit(server, spec, requester, values))
+               lambda requester="mcp", idempotency_key=None, **values:
+                   _submit(server, spec, requester, values, idempotency_key))
 
 
 def status_tool(server: LabServer, spec: ProcessSpec):

@@ -150,8 +150,15 @@ These rules define the lab; do not violate them when adding code:
   repository operations. The vendor lives only in the SERVICE (`adoit-mcp`, `ADOIT_MCP_URL`, its
   credentials). `ea_stage_import` takes the model BY REF and returns the artifacts THAT repository
   needs a human to import plus the instructions — so ADOIT:CE's spreadsheet is a private adapter
-  detail and a REST-capable tenant returns `artifacts: {}`. Still vendor-named DOWNSTREAM of the port
-  (next cleanup): `ApprovalKind.ADOIT_IMPORT`, `xlsx_ref` in `ProcessSpec.outputs`, the review app.
+  detail and a REST-capable tenant returns `artifacts: {}`. The APPROVAL is opaque too: kind `ea-import`, payload =
+  the staged model (`xml_ref`/`svg_refs`) plus **`import_artifacts`** (`[{ref, label, note, media_type}]`,
+  the typed `contracts.ImportArtifact`) and the adapter's own `instructions`. The review app RENDERS
+  them — a download per artifact with its label and note — and knows nothing about spreadsheets; the
+  adapter supplies the meaning, while filename/mime derive from the ref so it cannot mislabel its own
+  file. Guarded by `test_nothing_downstream_of_the_ea_port_names_a_vendor_or_its_file_format`, which
+  scans CODE (docstrings stripped, so prose may still explain the history) for a vendor OR a file
+  format. Approvals staged before the change still open: nothing dispatches on `kind`, and legacy
+  `*_ref` payload fields render as filename-labelled downloads.
 - **A workload's EXTERNAL contract is an MCP server registered in the gateway, not an agent façade.**
   A workload is a deterministic workflow that CONTAINS agents; containment is not an interface.
   `<process>_submit(...)` enqueues and returns a `request_id` (runs take 600-1000 s — sync is
@@ -180,7 +187,13 @@ group, typed inputs, declared outputs). From that entry `workflow-mcp` GENERATES
 tools `<process>_submit|_status|_result` with their JSON schemas, and `spec.validate()` is the single
 input validator every external surface should use. `_submit` is enqueue-and-acknowledge — it publishes
 one `workflow:requests` event and returns a `request_id` IMMEDIATELY (runs take 600-1000 s, so no tool
-call may block on one). Still manual per process: its consumer group in `workflows.GROUPS`, a consumer
+call may block on one). It takes an optional **`idempotency_key`**: the same key returns the same
+`request_id` with `duplicate: true` instead of queueing a second 10-20 minute run. De-duplication lives
+in `lab.platform.workflows.submit()` (`SET NX EX` on `workflow:idem:<process>:<key>`, **24 h**), so every
+producer gets it by passing the argument, and the claim is taken atomically WITH the write. After the
+TTL the same key queues a NEW run — it is a retry window, not a uniqueness constraint. A submit with
+**no key is never de-duplicated by content**: re-running the same diagram is legitimate work, and
+silently refusing what a human asked for is worse than a run they can see. Still manual per process: its consumer group in `workflows.GROUPS`, a consumer
 host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` is granted to the teams
 that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
 agents.
@@ -463,6 +476,8 @@ set -a && source .env && set +a                  # all services need the env
 .venv/bin/python -m lab.substrate.mcp.adoit.server         # adoit-mcp (port 9100, /mcp)
 .venv/bin/python -m lab.substrate.mcp.semantic.server      # semantic-mcp (port 9200, /mcp)
 .venv/bin/python -m lab.substrate.mcp.storage.server       # storage-mcp (port 9300, /mcp) — read-only upload store
+.venv/bin/python -m lab.substrate.mcp.workflow.server      # workflow-mcp (port 9400, /mcp) — the workload front door
+./lab.sh channels                                # restart just the CONFIGURED approval channels (teams / telegram)
 .venv/bin/python -m lab.substrate.review.uploads upload <files>   # stage inputs in the upload store -> art:// refs
 ./lab.sh consumer                                # wf-visio: long-lived host consuming workflow:requests (Submit -> run)
 .venv/bin/python -m lab.platform.workflows list        # run requests + status (request <process> <refs…> to publish one)
@@ -701,6 +716,13 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
   `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
+  Channels are **started by `lab.sh`** (`up` starts every CONFIGURED one after the review app and skips
+  the rest with a line saying which setting is missing; `./lab.sh channels` restarts just them) and
+  **deployed by `deploy/railway.py` as OPTIONAL substrate services** (`CHANNELS`, `restart=ALWAYS`, no
+  ingress) with a channel-only ROLE_ENV allowlist — its own token, `REDIS_URL`, `REVIEW_APP_URL`,
+  tracing; NO Postgres, S3, `MCP_SHARED_SECRET`, gateway/model/ADOIT/Entra credential, and neither
+  channel gets the other's token. Adding a channel = one `for_each_channel` line in `lab.sh`, one
+  `CHANNELS` row and one `ROLE_ENV` row, kept honest by a parity test that reads `lab.sh`'s own table.
   **The gate is also a governed TOOL surface**: `workflow-mcp` carries `approvals_list` /
   `approvals_get` / `approvals_decide` (`lab.substrate.mcp.workflow.approval_tools`, catalogue
   `contracts.ApprovalTools`), so a channel that authenticates its OWN human — a Copilot Studio agent in
@@ -745,6 +767,10 @@ it is down are simply dropped by the exporters; nothing else breaks). Topology v
 (from traces); on Azure, Application Insights → Application Map from the same spans.
 
 Three hops emit into ONE trace per workflow run, joined by W3C `traceparent`:
+- A run is closed in exactly ONE place — `runlog.finish_from()` / `runlog.error_text()` — and
+  **a `fail` node means the run failed for EVERY host**, not just DevUI. DevUI rows carry the
+  approval and artifact refs (the output arrives as an AF `output` event on the stream), so a
+  DevUI run is as useful on the Runs board as a CLI one.
 - **Workflow/agent process** — root span `ea-modeling-run`, `service.name=process-ea-modelling`
   (`scripts/run_via_gateway.py` is the reference: one distinct service name per business
   process, `propagate.inject()` into the MCP transport headers). Agent Framework hosts will

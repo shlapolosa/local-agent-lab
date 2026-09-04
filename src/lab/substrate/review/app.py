@@ -31,7 +31,7 @@ from html import escape
 
 import streamlit as st
 
-from lab.platform import config, runlog, workflows
+from lab.platform import config, contracts, runlog, workflows
 from lab.platform.filetypes import content_type_for
 from lab.substrate import approvals
 from lab.substrate.container import build
@@ -324,18 +324,22 @@ def _runs_page(_reviewer):
 
 # ============================================================================ Review mode
 def _xml_bytes(p):
-    """(bytes, filename) of the model XML from the artifact store; (None, None) if unavailable."""
+    """The model XML from the artifact store, or None if it is missing/unavailable (the filename is
+    the download's business, and downloads belong to the adapter's artifact list)."""
     if not p.get("xml_ref"):
-        return None, None
+        return None
     try:
-        return container.artifacts().get(p["xml_ref"]), p["xml_ref"].split("/")[-1]
+        return container.artifacts().get(p["xml_ref"])
     except Exception as e:      # an old approval whose artifact expired/was purged must not crash the gate
         st.warning(f"model artifact unavailable for this request: {e}")
-        return None, None
+        return None
 
 
 def _model_contents(p):
-    xml_bytes, xml_name = _xml_bytes(p)
+    """What the reviewer is judging: the ArchiMate model itself, grouped by type. The DOWNLOAD of it
+    belongs to `_import_files` — the repository's adapter decides which files a human needs and how to
+    label them, and one of them may well be this XML."""
+    xml_bytes = _xml_bytes(p)
     if not xml_bytes:
         st.error(f"model artifact not available: {p.get('xml_ref')}")
         return
@@ -349,24 +353,30 @@ def _model_contents(p):
                 e.find("a:name", NS).text)
         for t in sorted(by_type):
             st.write(f"**{t}**: " + ", ".join(sorted(by_type[t])))
-    st.download_button("Download .archimate.xml (views/diagrams)", xml_bytes, file_name=xml_name, mime="application/xml")
 
 
-def _object_file(p, summ):
-    """The Excel object file: creates + updates existing objects, matched by name."""
-    if not p.get("xlsx_ref"):
-        return
-    try:
-        xlsx_bytes = container.artifacts().get(p["xlsx_ref"])
-        st.download_button(
-            f"Download objects .xlsx ({summ.get('excel_objects', '?')} objects — create/update)",
-            xlsx_bytes, file_name=p["xlsx_ref"].split("/")[-1],
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.caption("Import via ADOIT → Object Catalogue → right-click a group → Import/Export → "
-                   "Import objects from Excel. Objects are matched by **name** (created if new, updated "
-                   "if present). Import the ArchiMate XML above for the views/diagrams.")
-    except Exception as e:
-        st.warning(f"object Excel file not available: {e}")
+def _import_files(p):
+    """The files a human must carry into the EA repository — RENDERED, not interpreted.
+
+    Each entry is a {ref, label, note} the repository's own ADAPTER wrote (see
+    `lab.platform.contracts.ImportArtifact`), so this app offers a download with the adapter's label
+    and prints its note, and knows nothing about what any of them IS: an ADOIT object spreadsheet
+    today, a change-set on another tool, nothing at all on a repository that writes over its own API.
+    That is the point — the vendor's knowledge stays on the vendor's adapter. Approvals staged before
+    this shape existed still render (the normaliser turns their flat `*_ref` fields into downloads),
+    so a reviewer can open the ~10 requests already waiting."""
+    for art in contracts.import_artifacts(p):
+        try:
+            data = container.artifacts().get(art.ref)
+        except Exception as e:      # an old approval whose artifact expired must not break the gate
+            st.warning(f"{art.label}: not available ({e})")
+            continue
+        st.download_button(art.label, data, file_name=art.filename, mime=art.mime)
+        if art.note:
+            st.caption(art.note)
+    if p.get("instructions"):
+        with st.expander("Import instructions (from the EA repository)"):
+            st.text(p["instructions"])
 
 
 def _views(p):
@@ -417,14 +427,14 @@ def _review_page(reviewer):
         st.warning(f'Last comment ({req.get("decided_by")} via {req.get("decided_via")}): {req["comment"]}')
 
     summ = p.get("summary", {})
-    # existing-architecture resolution — is this NEW or an UPDATE to something already in ADOIT?
+    # existing-architecture resolution — is this NEW or an UPDATE to something already in the repository?
     decision = summ.get("decision")
     if decision:
         if decision == "UPDATE":
             base = summ.get("base_model") or summ.get("domain")
             st.warning(f'**UPDATE** to **{base}** (domain: {summ.get("domain")}) — '
                        f'{summ.get("matched_existing", 0)} existing element(s) reused, '
-                       f'{summ.get("new_elements", 0)} new. Approving reuses the existing ADOIT object ids.')
+                       f'{summ.get("new_elements", 0)} new. Approving reuses the existing repository object ids.')
         else:
             st.success(f'**NEW** model in domain **{summ.get("domain")}** — {summ.get("new_elements", summ.get("elements"))} new element(s).')
         if summ.get("resolve_rationale"):
@@ -434,8 +444,8 @@ def _review_page(reviewer):
         col.metric(k, summ.get(k, "—"))
 
     _model_contents(p)
-    _object_file(p, summ)
     _views(p)
+    _import_files(p)
 
     # --- decision ---
     st.divider()

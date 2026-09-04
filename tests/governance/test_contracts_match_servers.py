@@ -5,6 +5,7 @@ Offline: the server modules are imported with the environment pinned (a temp fil
 an empty reference-models dir), and the FastMCP instance is found generically (a module attribute, or
 `<attr>.mcp` on a server kit) so the test survives the servers being rebuilt on a shared kit.
 Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/governance/test_contracts_match_servers.py"""
+import ast
 import asyncio
 import importlib
 import inspect
@@ -93,6 +94,59 @@ def test_no_tool_or_alias_names_a_vendor():
     named = [n for n in sorted(contracts.ALL_TOOLS) + sorted(contracts.SERVERS)
              if any(v in n.lower() for v in VENDORS)]
     assert named == [], f"vendor name in the tool contract: {named}"
+
+
+# What a repository ADAPTER may know and nothing downstream of the port may: the EA product itself,
+# and the FILE FORMAT this particular product happens to need a human to import.
+DOWNSTREAM = VENDORS + ("xlsx", "excel", "spreadsheet", "objects.xls")
+
+# The modules an approval passes THROUGH on its way from the adapter to the human who decides it.
+DOWNSTREAM_MODULES = ("src/lab/platform/contracts.py",
+                      "src/lab/substrate/mcp/workflow/approval_tools.py",
+                      "src/lab/substrate/review/app.py")
+
+
+def _code_without_prose(path):
+    """The module's CODE — every docstring replaced, comments dropped by unparse. Prose may name ADOIT
+    (it explains why the adapter exists); executable code downstream of the port may not."""
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    for n in ast.walk(tree):
+        if (isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.body
+                and isinstance(n.body[0], ast.Expr)
+                and isinstance(getattr(n.body[0].value, "value", None), str)):
+            n.body[0] = ast.Expr(ast.Constant("<docstring>"))
+    return ast.unparse(ast.fix_missing_locations(tree))
+
+
+def test_nothing_downstream_of_the_ea_port_names_a_vendor_or_its_file_format():
+    """The PORT was neutralised (`ea_search`, `ea_stage_import`, alias `ea_mcp`); this is the ratchet
+    for everything the approval flows through AFTER it. The reviewer's experience is unchanged — same
+    downloads, same guidance — but the knowledge lives on the ADAPTER, which labels its own artifacts
+    and writes its own instructions; the approval carries them as an opaque {ref, label, note} list and
+    the review app RENDERS them. So:
+
+      * the approval KIND may not name a vendor (`adoit-import` -> `ea-import`);
+      * a process's declared OUTPUTS may not name one, nor the file format of one repository's import
+        (`xlsx_ref` -> `import_artifacts`) — a workload's caller must not learn what ADOIT:CE needs;
+      * the review app's decision path may not KNOW what a spreadsheet is: no vendor word, no file
+        format, in executable code (docstrings still explain the history).
+
+    Adding a repository adapter that needs a different file must therefore change the adapter only."""
+    named = [k.value for k in contracts.ApprovalKind if any(v in k.value.lower() for v in DOWNSTREAM)]
+    assert named == [], f"vendor name in the approval kind: {named}"
+
+    outputs = sorted({o for spec in contracts.PROCESSES.values() for o in spec.outputs
+                      if any(v in o.lower() for v in DOWNSTREAM)})
+    assert outputs == [], f"vendor name in a process's declared outputs: {outputs}"
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    offenders = {}
+    for rel in DOWNSTREAM_MODULES:
+        code = _code_without_prose(os.path.join(root, rel)).lower()
+        hits = sorted({v for v in DOWNSTREAM if v in code})
+        if hits:
+            offenders[rel] = hits
+    assert offenders == {}, f"vendor/file-format knowledge downstream of the port: {offenders}"
 
 
 def test_no_grant_hands_a_team_the_human_approval_write_by_accident():

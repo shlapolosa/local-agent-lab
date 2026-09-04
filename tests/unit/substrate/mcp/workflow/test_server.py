@@ -99,7 +99,7 @@ def test_adding_a_process_to_the_registry_adds_its_three_tools_and_nothing_else(
                                                         "fake_process_result"}
     schema = tools(only)["fake_process_submit"].inputSchema
     assert schema["required"] == ["primary"]
-    assert set(schema["properties"]) == {"primary", "optional_one", "requester"}
+    assert set(schema["properties"]) == {"primary", "optional_one", "requester", "idempotency_key"}
 
 
 def test_an_optional_single_reference_also_accepts_null(redis):
@@ -118,7 +118,8 @@ def test_an_optional_single_reference_also_accepts_null(redis):
 
 def test_submit_schema_is_self_describing(server):
     s = tools(server)[VISIO_TO_ARCHIMATE.tool("submit")].inputSchema
-    assert s["required"] == ["diagram"] and set(s["properties"]) == {"diagram", "requirements", "requester"}
+    assert s["required"] == ["diagram"]
+    assert set(s["properties"]) == {"diagram", "requirements", "requester", "idempotency_key"}
     assert s["properties"]["diagram"]["type"] == "string"
     assert "art://" in s["properties"]["diagram"]["description"]
     assert s["properties"]["requirements"] == {"default": [], "items": {"type": "string"}, "type": "array",
@@ -163,6 +164,44 @@ def test_submit_defaults_and_repeated_calls_are_distinct_runs(server, redis):
     assert "do not re-submit" in b["note"]                      # the tool tells an agent not to retry-loop
     blank = submit(server, diagram="art://a/b.vsdx", requester="   ")
     assert workflows.status(blank["request_id"], client=redis)["requester"] == "mcp"
+
+
+def test_a_retried_submit_with_the_same_idempotency_key_queues_nothing(server, redis):
+    """A connector retry, a flaky network or an impatient user must not buy a SECOND 10-20 minute run
+    that burns tokens and stages a second approval — the same key answers with the first request."""
+    first = submit(server, diagram="art://a/b.vsdx", requester="copilot", idempotency_key="teams-msg-42")
+    again = submit(server, diagram="art://a/b.vsdx", requester="copilot", idempotency_key="teams-msg-42")
+    assert again["request_id"] == first["request_id"]
+    assert first["duplicate"] is False and again["duplicate"] is True
+    assert redis.xlen(workflows.REQ) == 1                    # ONE run, whatever the caller did
+    assert "already" in again["note"] and first["note"] != again["note"]
+    # the duplicate answers with the run's CURRENT status, not a stale "pending"
+    workflows.mark(first["request_id"], WorkflowStatus.RUNNING, client=redis)
+    assert submit(server, diagram="art://a/b.vsdx", idempotency_key="teams-msg-42")["status"] == "running"
+
+
+def test_a_different_key_or_no_key_is_a_new_run(server, redis):
+    """De-duplication is OPT-IN: without a key a re-submission is a deliberate re-run, not a mistake."""
+    a = submit(server, diagram="art://a/b.vsdx", idempotency_key="k1")
+    b = submit(server, diagram="art://a/b.vsdx", idempotency_key="k2")
+    c = submit(server, diagram="art://a/b.vsdx")
+    d = submit(server, diagram="art://a/b.vsdx")
+    assert len({a["request_id"], b["request_id"], c["request_id"], d["request_id"]}) == 4
+    assert redis.xlen(workflows.REQ) == 4 and all(x["duplicate"] is False for x in (a, b, c, d))
+
+
+def test_the_idempotency_key_is_documented_on_the_tool_an_agent_reads(server):
+    by = tools(server)
+    schema = by[VISIO_TO_ARCHIMATE.tool("submit")].inputSchema["properties"]["idempotency_key"]
+    assert schema["default"] is None and {"type": "null"} in schema["anyOf"]
+    assert "same" in schema["description"].lower() and "retry" in schema["description"].lower()
+    assert "idempotency_key" in by[VISIO_TO_ARCHIMATE.tool("submit")].description
+
+
+def test_a_bad_idempotency_key_is_refused_without_enqueueing(server, redis):
+    assert "idempotency_key" in call_error(server, VISIO_TO_ARCHIMATE.tool("submit"),
+                                           diagram="art://a/b.vsdx", idempotency_key="  ")
+    assert redis.xlen(workflows.REQ) == 0
 
 
 @pytest.mark.parametrize("args, message", [
@@ -213,12 +252,14 @@ def test_result_only_answers_when_the_run_finished(server, redis):
     assert call(server, VISIO_TO_ARCHIMATE.tool("result"), request_id=rid).data["finished"] is False
 
     workflows.mark(rid, WorkflowStatus.DONE, approval_id="apr-7", xml_ref="art://x/m.archimate.xml",
-                   xlsx_ref="art://x/objects.xlsx", review_app="http://review", trace_id="a" * 32,
+                   import_artifacts=[{"ref": "art://x/objects.xlsx", "label": "Objects"}],
+                   review_app="http://review", trace_id="a" * 32,
                    summary={"elements": 12, "relations": 9}, client=redis)
     out = call(server, VISIO_TO_ARCHIMATE.tool("result"), request_id=rid).data
     assert out["finished"] is True and out["status"] == "done" and out["request_id"] == rid
     assert out["approval_id"] == "apr-7" and out["xml_ref"] == "art://x/m.archimate.xml"
-    assert out["xlsx_ref"] == "art://x/objects.xlsx" and out["review_app"] == "http://review"
+    assert out["import_artifacts"] == [{"ref": "art://x/objects.xlsx", "label": "Objects"}]
+    assert out["review_app"] == "http://review"
     assert out["summary"] == {"elements": 12, "relations": 9} and out["trace_id"] == "a" * 32
     assert set(out) - {"request_id", "process", "status", "finished"} <= set(VISIO_TO_ARCHIMATE.outputs)
 
@@ -259,7 +300,7 @@ def test_this_role_reaches_no_store(server, redis):
             and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0].value, "value", None), str)}
     code = "\n".join(ast.unparse(n) for n in ast.walk(tree)
                      if isinstance(n, (ast.Attribute, ast.Name, ast.Constant)) and id(n) not in docs)
-    assert "workflows.request" in code and "container.redis" in code   # the scan really sees the bodies
+    assert "workflows.submit" in code and "container.redis" in code   # the scan really sees the bodies
     assert "artifacts" not in code and "uploads" not in code
     for forbidden in ("ARTIFACTS_URL", "UPLOADS_URL", "S3_", "DATABASE_URL", "GATEWAY_URL"):
         assert forbidden not in code, forbidden

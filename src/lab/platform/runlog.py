@@ -24,7 +24,7 @@ Usage in a host:
     runlog.start(run_id, input=diagram, trace_id=trace_id)
     with runlog.span_node(run_id, "ba"):
         ...
-    runlog.finish(run_id, "done", approval_id=…)
+    runlog.finish_from(run_id, error_or_None, approval_id=…)   # the one way a host closes a run
 """
 import json
 import sys
@@ -38,6 +38,7 @@ NODE_STATUSES = ("start", "done", "fail")
 RUN_STATUSES = ("running", "done", "failed")
 
 RETRY_AFTER_S = 30             # print-only window after a Redis failure, then try again
+ERROR_CHARS = 300              # how much of an exception message any record of it keeps (error_text)
 
 from lab.platform import redis_client  # noqa: E402
 
@@ -173,6 +174,35 @@ def finish(run_id: str, status: str, *, client=None, **fields) -> None:
          + (f" — {fields['error']}" if fields.get("error") else ""))
 
 
+def error_text(e: BaseException) -> str:
+    """ONE phrasing of "what went wrong" for every run, node and request that records an exception:
+    `<ExceptionType>: <message>` bounded to ERROR_CHARS, so a huge payload can never fill a Redis
+    hash or a log. One phrasing means one bound too — a run row and a request hash have no reason
+    to truncate differently."""
+    return f"{type(e).__name__}: {str(e)[:ERROR_CHARS]}"
+
+
+def finish_from(run_id: str, error: BaseException | None = None, *, client=None, **fields) -> str:
+    """Close a run the way EVERY host closes one — the single implementation of "the run is over".
+    Returns the status written.
+
+    Two ways a run fails, and both count: the call raised (`error`), or the run's own timeline holds
+    a `fail` node. The second matters because Agent Framework can surface an executor error as an
+    EVENT rather than an exception (the DevUI path), so a stream that ends cleanly is not proof the
+    run succeeded. `fields` (approval_id, xml_ref, … — whatever the run produced) are attached
+    either way; None values are dropped by `finish`."""
+    if error is not None:
+        finish(run_id, "failed", error=error_text(error), client=client, **fields)
+        return "failed"
+    failed = next((n for n in reversed(get(run_id, client=client).get("nodes") or [])
+                   if n["status"] == "fail"), None)
+    if failed:
+        finish(run_id, "failed", error=failed["attrs"].get("error", "node failed"), client=client, **fields)
+        return "failed"
+    finish(run_id, "done", client=client, **fields)
+    return "done"
+
+
 @contextmanager
 def span_node(run_id: str, name: str, *, client=None, **attrs):
     """Wrap an executor body: emits start on entry, done (with elapsed) on exit, fail on exception
@@ -183,7 +213,7 @@ def span_node(run_id: str, name: str, *, client=None, **attrs):
         yield
     except BaseException as e:
         node(run_id, name, "fail", elapsed=round(time.time() - t0, 1),
-             error=f"{type(e).__name__}: {str(e)[:300]}", client=client)
+             error=error_text(e), client=client)
         raise
     else:
         node(run_id, name, "done", elapsed=round(time.time() - t0, 1), client=client)

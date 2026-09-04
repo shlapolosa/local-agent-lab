@@ -292,16 +292,22 @@ def test_stage_import_produces_the_import_artifacts_and_publishes_approval():
                  summary={"elements": 5}, xml_ref=xml_ref, svg_refs=svg_refs)
         assert r["status"] == "pending" and r["channels"] == ["review-app", "telegram"]
         assert r["review_app"] == config.REVIEW_APP_URL
-        arts = r["artifacts"]
-        assert arts["xml_ref"] == xml_ref and arts["svg_refs"] == svg_refs      # the caller's render reused
-        assert arts["xlsx_ref"].endswith("/claims-portal.objects.xlsx")         # basename from the model name
-        assert STORE.get(arts["xlsx_ref"])[:2] == b"PK"                          # a real xlsx (zip)
+        arts = r["artifacts"]                                # the staged MODEL, vendor-neutral
+        assert arts == {"xml_ref": xml_ref, "svg_refs": svg_refs}               # the caller's render reused
+        # the import files are OPAQUE {ref,label,note} entries — the adapter's knowledge, not the port's
+        to_import = r["import_artifacts"]
+        assert [a["ref"] for a in to_import] == [xml_ref, to_import[1]["ref"]]
+        assert to_import[1]["ref"].endswith("/claims-portal.objects.xlsx")      # basename from the model name
+        assert "5 objects" in to_import[1]["label"] and "matched by" in to_import[1]["note"]
+        assert STORE.get(to_import[1]["ref"])[:2] == b"PK"                       # a real xlsx (zip)
         assert "Import objects from Excel" in r["instructions"]                  # how a human applies them
         rid = r["request_id"]
         st = fake.requests[rid]
-        assert st["kind"] == "adoit-import" and st["subject"] == "Claims Portal"
+        assert st["kind"] == "ea-import" and st["subject"] == "Claims Portal"     # no vendor in the kind
         assert st["requester"] == "ea-modeling-agent"
-        assert st["payload"] == {**arts, "summary": {"elements": 5, "excel_objects": 5}}
+        assert st["payload"] == {**arts, "import_artifacts": to_import,
+                                 "instructions": r["instructions"],
+                                 "summary": {"elements": 5, "import_objects": 5}}
         # custom requester
         r2 = call("ea_stage_import", spec_ref=spec_ref(), model_name="M", summary={}, xml_ref=xml_ref,
                   requester="arch")
@@ -325,13 +331,14 @@ def test_stage_import_renders_the_views_itself_when_none_are_given():
         r = call("ea_stage_import", spec_ref=spec_ref(), model_name="Claims Portal", summary={})
         arts = r["artifacts"]
         assert arts["xml_ref"].endswith("/claims-portal.archimate.xml")
-        assert set(arts["svg_refs"]) == {"landscape"} and arts["xlsx_ref"].endswith(".objects.xlsx")
+        assert set(arts["svg_refs"]) == {"landscape"}
+        assert r["import_artifacts"][1]["ref"].endswith(".objects.xlsx")
         assert STORE.get(arts["xml_ref"]).decode().count("<element ") == 5
         payload = fake.requests[r["request_id"]]["payload"]
         assert payload["xml_ref"] == arts["xml_ref"]
         # the internal render is LENIENT (a failure at the last step wastes a run) — so what strict
         # mode would have refused must reach the human who approves the import, not vanish
-        assert payload["summary"] == {"render_violations": 0, "excel_objects": 5}
+        assert payload["summary"] == {"render_violations": 0, "import_objects": 5}
 
 
 NEVER_CLAIMED = ("executes here", "executes", "changeset runs", "is running")

@@ -75,13 +75,18 @@ Two entry points share `host.run_once()`:
 
 **Long-lived host (the normal shape) — event-triggered from the review app's Submit page:**
 ```bash
-./lab.sh up            # substrate: gateway, semantic-mcp, adoit-mcp, storage-mcp, review, redis, jaeger
+./lab.sh up            # substrate: gateway, semantic-mcp, adoit-mcp, storage-mcp, workflow-mcp, review,
+                       #            redis, jaeger + any configured approval channel (telegram/teams)
 ./lab.sh consumer      # wf-visio: consumes workflow:requests and runs the workflow per event
 ./lab.sh review        # open :8501 -> Submit mode: upload a diagram (+ docs) -> Run
 ```
 The review app writes the uploads to the upload store, publishes a `workflow:requests` event, and
-shows the run's status → trace → approval as the consumer writes them back. Approve in **Review**
-mode (or `python -m lab.substrate.approvals approve <id>`). `python -m lab.platform.workflows list` shows requests.
+shows the run's status → trace → approval as the consumer writes them back. **Runs** mode watches any
+run live — whichever host started it (consumer, CLI, DevUI): current node, the per-node "Inside the
+run" panel, and links to the approval and artifacts it produced. Approve in **Review** mode (or
+`python -m lab.substrate.approvals approve <id>`); `python -m lab.platform.workflows list` shows
+requests. An agent or another client does the same through the governed **workflow-mcp** tools on the
+gateway (`visio_to_archimate_submit/_status/_result`, plus `approvals_list/_get/_decide`).
 
 **One-shot / CLI (dev, demo, smoke):**
 ```bash
@@ -130,6 +135,8 @@ figure.
   the consumer; `main()` is the CLI/one-shot entry.
 - `consumer.py` — the long-lived host: consumes `workflow:requests` (Redis Streams), runs
   `run_once` per event, writes status/trace/approval back, PEL crash recovery on start.
+- `devui_entry.py` — the third (LOCAL, dev-only) host: the same workflow inside Agent Framework
+  DevUI, every run also a row on the Runs board. See `docs/workloads/visio_to_archimate/DEVUI.md`.
 - `prompts/{ba,architect}.md`, `references/method.md`, `schemas/ba_output.schema.json` — greenfield.
 - `deploy/compose.yml` — the workload as its own container set (`visio-host` consumer + `visio-job`).
 - Shared parsing + the image sizing contract live in `src/lab/platform/docparse.py`; the Visio reader is

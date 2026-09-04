@@ -129,13 +129,14 @@ def default_tools(**over) -> dict:
         "archimate_render": {"xml_ref": "art://x/visio-import.archimate.xml",
                              "svg_refs": {"landscape": "art://x/a.svg", "detail": "art://x/b.svg"},
                              "views": {"v1": {}, "v2": {}}},
-        # the EA-repository port: it echoes back the views it was handed and adds the artifacts THIS
-        # repository needs a human to import (an ADOIT Excel object file today) — see adoit-mcp
+        # the EA-repository port: it echoes back the views it was handed (the staged MODEL) and adds
+        # the OPAQUE artifacts THIS repository needs a human to import — see adoit-mcp
         "ea_stage_import": lambda a: {
             "request_id": "req-1", "status": "pending", "review_app": "http://review/req-1",
-            "artifacts": {"xml_ref": a.get("xml_ref"), "svg_refs": a.get("svg_refs") or {},
-                          "xlsx_ref": "art://x/visio-import.xlsx"},
-            "instructions": "import both files via the ADOIT UI"},
+            "artifacts": {"xml_ref": a.get("xml_ref"), "svg_refs": a.get("svg_refs") or {}},
+            "import_artifacts": [{"ref": "art://x/visio-import.xlsx", "label": "Download objects (5 objects)",
+                                 "note": "matched by name", "media_type": ""}],
+            "instructions": "import both files via the repository's UI"},
         "storage_get": FakeResult(content=[image_block(), text_block("diagram.png")]),
         "storage_extract_figures": FakeResult(content=[]),
     }

@@ -215,19 +215,29 @@ MERMAID = ("flowchart TD\n  read_input[\"read input\"]\n  ba[\"BA\"]\n  store[\"
 def _request(**over):
     req = {"request_id": "apr-1", "subject": "Malaffi model", "requester": "wf-visio", "status": "pending",
            "created_at": "2026-09-03T10:00:00+00:00", "trace_id": "0123456789abcdef0123456789abcdef",
-           "payload": {"xml_ref": "art://x1/model.archimate.xml", "xlsx_ref": "art://x2/objects.xlsx",
+           "payload": {"xml_ref": "art://x1/model.archimate.xml",
                        "svg_refs": {"Overview": "art://s1/overview.svg", "Detail": "art://s2/detail.svg"},
+                       # what the EA repository's ADAPTER says a human must import — opaque to the app
+                       "import_artifacts": [
+                           {"ref": "art://x1/model.archimate.xml",
+                            "label": "Download .archimate.xml (views/diagrams)", "note": "", "media_type": ""},
+                           {"ref": "art://x2/objects.xlsx",
+                            "label": "Download objects .xlsx (3 objects — create/update)",
+                            "note": "Objects are matched by name.", "media_type": ""}],
+                       "instructions": "Log in and import BOTH files.",
                        "summary": {"elements": 3, "relations": 1, "views": 2, "violations": 0, "warnings": 1,
                                    "decision": "UPDATE", "base_model": "Malaffi", "domain": "Health",
-                                   "matched_existing": 2, "new_elements": 1, "excel_objects": 3,
+                                   "matched_existing": 2, "new_elements": 1,
                                    "resolve_rationale": "names match the existing landscape"}}}
     req.update(over)
     return req
 
 
 def _store_for(req):
+    """Every ref the approval mentions — the model, its previews and each import artifact — in a store."""
     p = req["payload"]
-    objs = {p["xml_ref"]: XML, p["xlsx_ref"]: b"PK-xlsx"}
+    objs = {p["xml_ref"]: XML}
+    objs.update({a["ref"]: b"PK-file" for a in p.get("import_artifacts", []) if a["ref"] != p["xml_ref"]})
     objs.update({ref: f"<svg>{label}</svg>".encode() for label, ref in p["svg_refs"].items()})
     return FakeStore(objs)
 

@@ -68,12 +68,17 @@ def test_review_page_approve_publishes_decision_and_reruns():
     # metrics for the 5 summary keys
     metrics = [a for p, a, _ in st.calls if p.endswith("metric") and not p.startswith("sidebar")]
     assert metrics == [("elements", 3), ("relations", 1), ("views", 2), ("violations", 0), ("warnings", 1)]
-    # model contents grouped by type, downloads for XML + Excel, one tab per view
+    # model contents grouped by type, one tab per view
     assert st.said("expander", "Model contents — 3 elements, 1 relationships")
     assert st.said("write", "**ApplicationComponent**: API, Portal") and st.said("write", "**Node**: Server")
-    dl = [(a[0], k.get("file_name")) for p, a, k in st.calls if p.endswith("download_button")]
-    assert dl == [("Download .archimate.xml (views/diagrams)", "model.archimate.xml"),
-                  ("Download objects .xlsx (3 objects — create/update)", "objects.xlsx")]
+    # the downloads are EXACTLY what the repository's adapter staged: its labels, its filenames, its
+    # notes — the app renders them without knowing that one of them is a spreadsheet
+    dl = [(a[0], k.get("file_name"), k.get("mime")) for p, a, k in st.calls if p.endswith("download_button")]
+    assert dl == [("Download .archimate.xml (views/diagrams)", "model.archimate.xml", "application/xml"),
+                  ("Download objects .xlsx (3 objects — create/update)", "objects.xlsx",
+                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
+    assert st.said("caption", "Objects are matched by name.")
+    assert st.said("expander", "Import instructions") and st.said("text", "Log in and import BOTH files.")
     assert st.texts("tabs") == ["['Overview', 'Detail']"]
     imgs = [a[0] for p, a, k in st.calls if p.endswith("markdown") and k.get("unsafe_allow_html")]
     assert len(imgs) == 2 and all("data:image/svg+xml;base64," in i for i in imgs)
@@ -126,20 +131,33 @@ def test_review_page_degrades_when_artifacts_are_missing():
     APP._review_page("ann")
     assert st.said("warning", "model artifact unavailable for this request")
     assert st.said("error", "model artifact not available: art://x1/model.archimate.xml")
-    assert st.said("warning", "object Excel file not available")
+    assert st.said("warning", "Download objects .xlsx (3 objects — create/update): not available")
     assert st.said("warning", "view Overview:") and st.said("warning", "view Detail:")
     assert st.count("tabs") == 0 and st.count("download_button") == 0
     assert not st.said("warning", "**UPDATE**") and not st.said("success", "**NEW**")
 
 
-def test_xml_bytes_and_object_file_without_refs():
+def test_the_review_page_degrades_to_nothing_on_an_empty_payload():
     st = install(FakeSt())
-    assert APP._xml_bytes({}) == (None, None)
-    APP._object_file({}, {})
+    assert APP._xml_bytes({}) is None
+    APP._import_files({})                       # a repository that writes over its own API stages none
     APP._views({})
     assert st.calls == []
     APP._model_contents({})
     assert st.said("error", "model artifact not available: None")
+
+
+def test_an_approval_staged_before_the_neutral_payload_still_offers_every_file():
+    """COMPAT: ~10 approvals were staged with the old flat payload. The reviewer must still be able to
+    take both files out of them — labelled by filename, since the old payload carried no labels."""
+    legacy = {"xml_ref": "art://x1/model.archimate.xml", "xlsx_ref": "art://x2/objects.xlsx",
+              "svg_refs": {"Overview": "art://s1/o.svg"}, "summary": {}}
+    st = install(FakeSt(), store=FakeStore({"art://x1/model.archimate.xml": XML,
+                                            "art://x2/objects.xlsx": b"PK-xlsx"}))
+    APP._import_files(legacy)
+    dl = [(a[0], k.get("file_name")) for p, a, k in st.calls if p.endswith("download_button")]
+    assert dl == [("model.archimate.xml", "model.archimate.xml"), ("objects.xlsx", "objects.xlsx")]
+    assert st.count("caption") == 0 and st.count("expander") == 0        # no notes, no instructions
 
 
 def test_submit_page_idle_lists_recent_submissions():

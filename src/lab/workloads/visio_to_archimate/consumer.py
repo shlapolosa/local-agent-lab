@@ -24,7 +24,7 @@ import traceback
 
 from opentelemetry import trace
 
-from lab.platform import container, workflows
+from lab.platform import container, runlog, workflows
 from lab.platform.contracts import PROCESSES, WORKFLOW_OPEN, WorkflowRequest, WorkflowStatus
 from lab.workloads.visio_to_archimate.host import SERVICE, _shutdown, run_once
 
@@ -55,14 +55,14 @@ def handle(root, entry_id: str, fields: dict) -> None:
         out = asyncio.run(run_once(root, diagram, reqs,
                                    on_trace=lambda t: workflows.mark(rid, WorkflowStatus.RUNNING, trace_id=t, client=r)))
         # every output the process DECLARES must be written, or `<process>_result` cannot return it
-        # (xlsx_ref — the ADOIT object-import file — was missing here while host.py wrote it).
+        # (the repository's import artifacts were missing here while host.py wrote them).
         done = {"approval_id": out.get("request_id"), "review_app": out.get("review_app"),
                 "trace_id": out.get("trace_id")}
         done.update({o: out.get(o) for o in SPEC.outputs if o in out})
         workflows.mark(rid, WorkflowStatus.DONE, client=r, **{k: v for k, v in done.items() if v is not None})
         print(f"request {rid} done in {time.time() - t0:.0f}s -> approval {out['request_id']}", flush=True)
     except Exception as e:                        # noqa: BLE001 — the request fails, the host keeps serving
-        workflows.mark(rid, WorkflowStatus.FAILED, error=f"{type(e).__name__}: {str(e)[:400]}", client=r)
+        workflows.mark(rid, WorkflowStatus.FAILED, error=runlog.error_text(e), client=r)
         print(f"request {rid} failed after {time.time() - t0:.0f}s: {type(e).__name__}: {e}", flush=True)
         traceback.print_exc()
     finally:

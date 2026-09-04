@@ -44,7 +44,10 @@ def test_json_mode_vsdx_path_end_to_end():
     assert out["request_id"] == "req-1" and out["status"] == "pending" and out["review_app"] == "http://review/req-1"
     assert out["xml_ref"] == "art://x/visio-import.archimate.xml"
     assert out["svg_refs"] == {"landscape": "art://x/a.svg", "detail": "art://x/b.svg"}
-    assert out["xlsx_ref"] == "art://x/visio-import.xlsx"
+    # the repository's import files ride through OPAQUELY — the workload never learns what they are
+    assert out["import_artifacts"] == [{"ref": "art://x/visio-import.xlsx",
+                                        "label": "Download objects (5 objects)",
+                                        "note": "matched by name", "media_type": ""}]
     assert out["semantic"] == {"illegal": [], "warnings": ["w1"]}
     s = out["summary"]
     assert s["elements"] == 3 and s["relations"] == 2 and s["views"] == 2
@@ -52,7 +55,7 @@ def test_json_mode_vsdx_path_end_to_end():
     assert s["decision"] == "NEW" and s["domain"] == "Clinic Portal" and s["base_model"] is None
     assert s["matched_existing"] == 0 and s["new_elements"] == 3 and s["search_failed"] is False
     assert s["resolve_rationale"] == "no related objects found in the EA repository"
-    assert "excel_objects" not in s          # a spreadsheet is the REPOSITORY's business, not the workload's
+    assert "import_objects" not in s         # what the import file holds is the REPOSITORY's business
     assert s["ba_output_ref"] == "art://store/visio-import.ba_output.json"
     # -- deterministic stamping in architect_design: folder = domain, stable relation ids, legal relations
     spec = out["spec"]
@@ -78,7 +81,7 @@ def test_json_mode_vsdx_path_end_to_end():
     req = h.router.called("ea_stage_import")[0]
     assert req["model_name"] == "Clinic Portal" and req["requester"] == "architect-agent"
     assert req["spec_ref"] == "art://store/visio-import.spec.json" and req["summary"] == s
-    assert "xlsx_ref" not in req and req["xml_ref"] == out["xml_ref"]
+    assert "import_artifacts" not in req and req["xml_ref"] == out["xml_ref"]
     # -- BA (local path): local function tools, no addendum, the read instruction names read_vsdx
     ba = h.agents.agent("ba-agent")
     assert "read_vsdx" in ba.tools_by_name and "read_document" in ba.tools_by_name
@@ -159,7 +162,7 @@ def test_by_ref_inputs_existing_update_and_agent_tool_results():
     assert h.router.called("semantic_validate_model") == [] and h.router.called("archimate_render") == []
     assert out["xml_ref"] == "art://agent/x.xml" and out["svg_refs"] == {"v": "art://agent/v.svg"} and s["views"] == 1
     assert out["semantic"]["illegal"] == ["x->y"] and s["semantic_illegal"] == 1
-    assert out["xlsx_ref"] == "art://x/visio-import.xlsx"        # produced by the repository, not by us
+    assert out["import_artifacts"][0]["ref"] == "art://x/visio-import.xlsx"   # the repository's, not ours
     assert s["ba_output_ref"] == "art://s/visio-import.ba_output.json"
 
 
@@ -407,14 +410,15 @@ def test_finalize_partial_agent_results_use_fallbacks_per_tool():
 
 def test_stage_import_keeps_the_rendered_refs_when_the_repository_returns_no_artifacts():
     """A write-capable EA tool writes over its own API after the approval and produces NO import
-    artifacts. The run output must still carry what WE rendered — and no xlsx."""
+    artifacts. The run output must still carry what WE rendered — and an EMPTY import list."""
     agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
     with harness(agents, {"ea_stage_import": {"request_id": "req-9", "status": "pending",
                                               "artifacts": {}, "instructions": "written on approval"}}) as h:
         out = run(h, "diagrams/x.vsdx")
     assert out["request_id"] == "req-9" and out["review_app"] is None
     assert out["xml_ref"] == "art://x/visio-import.archimate.xml"
-    assert out["svg_refs"] == {"landscape": "art://x/a.svg", "detail": "art://x/b.svg"} and out["xlsx_ref"] is None
+    assert out["svg_refs"] == {"landscape": "art://x/a.svg", "detail": "art://x/b.svg"}
+    assert out["import_artifacts"] == []
 
 
 def test_run_workflow_bare_string_input_without_run_id_is_otel_only():

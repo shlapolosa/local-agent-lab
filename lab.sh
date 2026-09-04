@@ -2,11 +2,13 @@
 # lab.sh — bring the local agent lab up/down in one command.
 #   ./lab.sh up      start redis (brew, or check the cloud one), jaeger (native, or DEPLOY the Railway one when
 #                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), storage-mcp (:9300),
-#                    workflow-mcp (:9400), gateway (:4000), review app (:8501)
-#   ./lab.sh down    stop everything — the MCP servers, gateway, review app, consumer and the metered
-#                    Railway Jaeger deployment (redis is left to brew services)
+#                    workflow-mcp (:9400), gateway (:4000), review app (:8501), and every CONFIGURED
+#                    approval channel (telegram, teams — skipped with a line when their .env settings are absent)
+#   ./lab.sh down    stop everything — the MCP servers, gateway, review app, every approval channel,
+#                    the consumer and the metered Railway Jaeger deployment (redis is left to brew)
 #   ./lab.sh status  what is running, what the gateway sees, pending approvals
-#   ./lab.sh review  (re)start only the architecture review app (streamlit :8501) — the approval channel
+#   ./lab.sh review  (re)start only the architecture review app (streamlit :8501) — the browser approval channel
+#   ./lab.sh channels (re)start only the configured approval channels (telegram, teams)
 # Every service is launched with `env -u ANTHROPIC_API_KEY`: only .env holds lab credentials —
 # ambient shell keys must never reach the governance plane (see CLAUDE.md, Gateway Registry).
 set -euo pipefail
@@ -34,6 +36,41 @@ start_mcp() {   # name, module, port
   env -u ANTHROPIC_API_KEY nohup "$PY" -m "$2" >"$LOGS/$1.log" 2>&1 & echo $! >"$RUN/$1.pid"
   wait_http "http://127.0.0.1:$3/mcp" "" 20 || true
   printf "%-12s started  http://127.0.0.1:%s/mcp\n" "$1" "$3"
+}
+# The approval channels — each an `approvals:requests` consumer group, like the review app — in ONE
+# place: name, module, required .env settings. start/status/stop all walk this table, so adding a
+# channel is exactly ONE line here. Kept in step with deploy/railway.py's CHANNELS table by
+# tests/deploy/test_railway_env.py (a channel that runs locally but is never deployed — or stops
+# only in one of the two runners — is a silently unattended approval gate).
+for_each_channel() {   # calls "$1 <name> <module> <required .env vars>" for every channel
+  "$1" telegram lab.substrate.channels.telegram "TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID"
+  "$1" teams    lab.substrate.channels.teams    "TEAMS_WEBHOOK_URL"
+}
+missing_settings() { local v out=""; for v in $1; do [ -n "${!v:-}" ] || out="$out $v"; done; echo "$out"; }
+# Start ONE channel, only when it is configured: an unconfigured channel exits immediately by design,
+# so launching it would leave a dead pid file and hide the fact that nobody is being notified.
+start_channel() {   # name, module, "VAR1 VAR2" (all must be non-empty)
+  local missing i; missing=$(missing_settings "$3")
+  if [ -n "$missing" ]; then printf "%-12s skipped  (not configured: set%s in .env)\n" "$1" "$missing"; return 0; fi
+  if alive "$1"; then printf "%-12s ok  already running (pid %s)\n" "$1" "$(cat "$RUN/$1.pid")"; return 0; fi
+  env -u ANTHROPIC_API_KEY nohup "$PY" -m "$2" >"$LOGS/$1.log" 2>&1 & echo $! >"$RUN/$1.pid"
+  # A channel has no port to probe, so its own first log line ("<name> channel: enabled") is the
+  # readiness signal — without this, a channel that dies on a bad token or an import error would be
+  # reported as started, which is the very silence the skip check above exists to prevent. A broken
+  # OPTIONAL channel warns and does not fail `up`.
+  for i in 1 2 3; do /usr/bin/grep -q "channel: enabled" "$LOGS/$1.log" 2>/dev/null && break; sleep 1; done
+  alive "$1" && printf "%-12s started  (approval channel; log: var/logs/%s.log)\n" "$1" "$1" \
+    || printf "%-12s FAILED — see var/logs/%s.log (channel not running)\n" "$1" "$1"
+  return 0
+}
+stop_channel() {    # name, module, required vars (unused) — the table already knows the module path
+  if alive "$1"; then kill "$(cat "$RUN/$1.pid")" && echo "$1 stopped"; fi; rm -f "$RUN/$1.pid"
+  pkill -f "$2" 2>/dev/null || true
+}
+channel_status() {  # name, module, required vars — "stopped" alone would read as a fault
+  local missing; missing=$(missing_settings "$3")
+  alive "$1" && echo "$1    running (pid $(cat "$RUN/$1.pid"))" \
+    || echo "$1    stopped${missing:+ (not configured)}"
 }
 remote_tracing() { [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; }
 
@@ -106,6 +143,7 @@ up() {
     printf "gateway      starting"; wait_http "http://127.0.0.1:4000/health/readiness" '"connected"' 90 \
       && echo "  http://127.0.0.1:4000  (db connected)" || { echo "  FAILED — see var/logs/litellm.log"; exit 1; }; fi
   review
+  channels
   render_clients
   status_gateway
 }
@@ -150,7 +188,14 @@ review() {
       || { echo "review app   FAILED — see var/logs/review.log"; exit 1; }; fi
 }
 
+# The approval channels that are configured (see start_channel). `./lab.sh channels` restarts just these.
+channels() {
+  load_env
+  for_each_channel start_channel
+}
+
 down() {
+  for_each_channel stop_channel
   for s in wf-visio review litellm workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
@@ -163,7 +208,12 @@ status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
   for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
-  load_env 2>/dev/null || true
+  # the review app is reported by its HEALTH endpoint, not its pid file: streamlit's recorded pid
+  # goes stale across a manual restart while the app keeps serving :8501 (observed), and "stopped"
+  # for a running approval UI is exactly the wrong answer
+  curl -s --max-time 3 http://127.0.0.1:8501/healthz 2>/dev/null | /usr/bin/grep -q ok \
+    && echo "review    running (http://127.0.0.1:8501)" || echo "review    stopped"
+  for_each_channel channel_status
   if [ -n "${REDIS_URL:-}" ]; then redis-cli -u "$REDIS_URL" --no-auth-warning ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        cloud ok (${REDIS_HOST:-})" || echo "redis        cloud UNREACHABLE";
   else redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running (local)" || echo "redis        stopped"; fi
   curl -s --max-time 3 http://127.0.0.1:4000/health/readiness | /usr/bin/grep -q '"connected"' && status_gateway || echo "gateway      not reachable"
@@ -181,7 +231,7 @@ consumer() {   # the long-lived visio workload host: consumes workflow:requests 
 }
 
 case "${1:-}" in
-  up) up;; down) down;; status) status;; review) review;; clients) render_clients;; consumer) consumer;;
+  up) up;; down) down;; status) status;; review) review;; channels) channels;; clients) render_clients;; consumer) consumer;;
   cloud) shift; cloud "$@";;
-  *) echo "usage: $0 up|down|status|review|consumer|clients | cloud substrate up|down|status"; exit 2;;
+  *) echo "usage: $0 up|down|status|review|channels|consumer|clients | cloud substrate up|down|status"; exit 2;;
 esac

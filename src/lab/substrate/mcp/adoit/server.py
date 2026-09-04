@@ -9,6 +9,14 @@ This SERVICE is where the vendor lives: the ADOIT credentials, REST facade, and 
 CE blocks REST writes so a human must import an Excel object file (a PRIVATE detail of this adapter,
 produced inside `ea_stage_import` — the caller is told only what artifacts came out).
 
+THE APPROVAL IS OPAQUE TOO. The staged approval (kind `ea-import`, never a vendor word) carries the
+model under review (the ArchiMate XML + SVG previews — domain artifacts, not repository ones), a list
+of `ImportArtifact`s — {ref, label, note} written BY THIS ADAPTER — and this adapter's `instructions`.
+Every reviewer surface (the review app, Teams, `approvals_get`) RENDERS that: a download per artifact
+with its label and note. So "a spreadsheet a human imports into the Object Catalogue" is knowledge
+that lives here and nowhere downstream, and an adapter that writes over its own API stages the same
+approval with `import_artifacts: []`.
+
 Runs as streamable HTTP so it can register with the LiteLLM MCP gateway (the lab's
 governance plane): agents connect to ONE gateway endpoint; this server holds the ADOIT
 credentials (injected from the environment, never given to agents) and imports the same
@@ -61,7 +69,7 @@ import urllib.request
 
 from lab.core.archimate.engine import Model
 from lab.platform import config
-from lab.platform.contracts import ApprovalKind
+from lab.platform.contracts import ApprovalKind, ImportArtifact
 from lab.substrate import approvals  # (approval gate)
 from lab.substrate.artifacts import put_file
 from lab.substrate.mcp.adoit import adoit_excel  # (ADOIT Excel object-import generator — CE-safe object create/update)
@@ -152,6 +160,27 @@ def _object_import_file(spec: dict, basename: str) -> dict:
     return res
 
 
+def _import_artifacts(xml_ref: str, objects: dict) -> list[ImportArtifact]:
+    """PRIVATE to this adapter: the files a HUMAN must carry into ADOIT, each labelled and annotated by
+    the adapter that made it. This is the whole point of `ImportArtifact` — the approval payload, the
+    review app, Teams and the approval MCP tools show the label, the note and a download, and none of
+    them has to know that one of these is a spreadsheet ADOIT matches by name, or that hosted CE is why
+    it exists. A write-capable tenant's adapter would return [] here and the reviewer would simply see
+    no downloads."""
+    return [
+        ImportArtifact(
+            ref=xml_ref, label="Download .archimate.xml (views/diagrams)",
+            note="Import via ADOIT → Import/Export → ArchiMate Model Exchange File. Decline any "
+                 "auto-layout offer so the generated geometry survives."),
+        ImportArtifact(
+            ref=objects["xlsx_ref"],
+            label=f"Download objects .xlsx ({objects['objects']} objects — create/update)",
+            note="Import via ADOIT → Object Catalogue → right-click a group → Import/Export → "
+                 "Import objects from Excel. Objects are matched by **name** (created if new, updated "
+                 "if present). Import the ArchiMate XML above for the views/diagrams."),
+    ]
+
+
 def _slug(name: str) -> str:
     """A safe artifact basename from a model name ('Claims Portal' -> 'claims-portal')."""
     return re.sub(r"[^A-Za-z0-9]+", "-", name or "").strip("-").lower() or "model"
@@ -223,10 +252,11 @@ def ea_stage_import(spec_ref: str, model_name: str, summary: dict, xml_ref: str 
     are OPTIONAL ArchiMate view artifacts you already rendered (archimate_render) that this repository
     may reuse instead of rendering them again; omit them and it renders what it needs itself.
     Returns the `request_id` to poll with ea_import_status, `artifacts` — whatever this repository
-    produced for the import, by reference — and the human `instructions` for it. Do NOT assume any
-    particular artifact: a repository that writes over its own API after the approval returns
-    `artifacts: {}` (this ADOIT adapter returns the views XML, its SVG previews and an Excel object
-    file, because hosted ADOIT:CE requires a human to import them). An adapter MAY add facts of its own
+    staged as the MODEL (`artifacts`: the ArchiMate views XML + SVG previews), `import_artifacts` —
+    the files a HUMAN must carry into this repository, each as {ref, label, note} in the adapter's own
+    words — and the human `instructions` for them. Do NOT interpret the import artifacts: they are
+    opaque, labelled downloads, and a repository that writes over its own API after the approval
+    returns `import_artifacts: []`. An adapter MAY add facts of its own
     to the staged summary (this one adds the object count and, when it rendered the views itself, the
     lenient render's violation count) — a caller must never require them."""
     if svg_refs and not xml_ref:             # the pair is atomic: previews without their XML describe nothing
@@ -243,17 +273,22 @@ def ea_stage_import(spec_ref: str, model_name: str, summary: dict, xml_ref: str 
         # gate left, so what strict=True would have refused is reported to them.
         facts["render_violations"] = len(rendered["violations"])
     objects = _object_import_file(spec, basename)     # ADOIT:CE object create/update — this adapter's need
-    facts["excel_objects"] = objects["objects"]
-    artifacts = {"xml_ref": xml_ref, "svg_refs": svg_refs or {}, "xlsx_ref": objects["xlsx_ref"]}
+    facts["import_objects"] = objects["objects"]
+    artifacts = {"xml_ref": xml_ref, "svg_refs": svg_refs or {}}      # the staged MODEL (ArchiMate, domain)
+    to_import = _import_artifacts(xml_ref, objects)                   # what a HUMAN must carry into ADOIT
     ctx = span().get_span_context()
     trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
-    rid = approvals.request(kind=ApprovalKind.ADOIT_IMPORT.value, subject=model_name,
-                            payload={**artifacts, "summary": {**summary, **facts}},
+    rid = approvals.request(kind=ApprovalKind.EA_IMPORT.value, subject=model_name,
+                            payload={**artifacts, "summary": {**summary, **facts},
+                                     "import_artifacts": [a.to_dict() for a in to_import],
+                                     "instructions": _import_instructions()},
                             requester=requester, trace_id=trace_id)
-    span().set_attributes({"approval.request_id": rid, "approval.kind": ApprovalKind.ADOIT_IMPORT.value,
+    span().set_attributes({"approval.request_id": rid, "approval.kind": ApprovalKind.EA_IMPORT.value,
+                           "import.artifacts": len(to_import),
                            **{f"adoit.{k}": v for k, v in facts.items()}})
     return {"request_id": rid, "status": "pending", "channels": list(approvals.CHANNELS),
             "review_app": config.REVIEW_APP_URL, "artifacts": artifacts,
+            "import_artifacts": [a.to_dict() for a in to_import],
             "instructions": _import_instructions()}
 
 

@@ -1,8 +1,9 @@
 """Deploy the lab to Railway as two independent tiers (see deploy/README.md):
 
   substrate  — the shared plane: redis (internal), gateway (public), semantic-mcp + adoit-mcp +
-               storage-mcp + workflow-mcp (internal), review (public). Lives in the project alongside
-               Jaeger, so the gateway reaches the MCP servers over Railway private DNS
+               storage-mcp + workflow-mcp (internal), review (public), plus every approval CHANNEL
+               that is configured (telegram, teams — internal, no ingress). Lives in the project
+               alongside Jaeger, so the gateway reaches the MCP servers over Railway private DNS
                (*.railway.internal).
   workload   — a business process (e.g. visio) as its OWN service, referencing the substrate
                ONLY via the gateway's PUBLIC domain + the shared managed backends — never the
@@ -106,6 +107,45 @@ SUBSTRATE = {
 }
 S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
 
+# --- approval CHANNELS: substrate services deployed ONLY when they are configured ----------------
+# A channel is another consumer group on `approvals:requests` (same contract as the review app): it
+# notifies a human where they already are and records the decision. It is deployed only when its
+# settings are in the deploy profile, because an unconfigured channel exits immediately by design —
+# `lab.sh` skips it for exactly the same reason. Long-lived loop -> restartPolicyType ALWAYS; no
+# port -> no public domain, nothing calls it. A channel holds NO store, bucket or gateway credential
+# (ROLE_ENV below): its own webhook/token, Redis, and the link(s) it puts in front of the human.
+CHANNELS = {
+    "telegram": {"cmd": "python -m lab.substrate.channels.telegram", "port": None, "restart": "ALWAYS",
+                 "requires": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")},
+    "teams":    {"cmd": "python -m lab.substrate.channels.teams", "port": None, "restart": "ALWAYS",
+                 "requires": ("TEAMS_WEBHOOK_URL",)},
+}
+
+
+def substrate_services(base_env: dict) -> dict:
+    """The substrate table for THIS deploy: the fixed roles plus every channel whose settings are in
+    `base_env`. Pure — `up`, `status` and `env` all read it, so a configured channel is deployed,
+    audited and torn down like any other service, and an unconfigured one is never created."""
+    return {**SUBSTRATE, **{n: s for n, s in CHANNELS.items()
+                            if all(base_env.get(k) for k in s["requires"])}}
+
+
+def deploy_profile() -> dict:
+    """The deploy profile when there is a `.env` to read, else {}. `down`/`status` never needed `.env`
+    before channels made the service list depend on it — with {} a channel is still covered whenever
+    it is deployed, so a box that only exports the Railway credentials can still inspect and tear
+    down the substrate."""
+    return load_env_for_cloud() if os.path.exists(os.path.join(ROOT, ".env")) else {}
+
+
+def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
+    """Service names the substrate owns, in deploy order (redis first, jaeger last). A channel is
+    included when it is configured OR already deployed — so `down`/`status` still see a channel
+    whose settings have since been removed from `.env`, instead of orphaning it."""
+    table = substrate_services(base_env)
+    chans = [n for n in CHANNELS if n in table or n in (ids or {})]
+    return [REDIS_NAME] + list(SUBSTRATE) + chans + [JAEGER_NAME]
+
 # --- per-role environment ALLOWLIST (least privilege; review B-H2) ---
 # A service receives ONLY the `.env` keys (after `# CLOUD:` override + $VAR expansion, plus the
 # coordinates configure() layers on) that match its role's glob patterns — nothing is popped from
@@ -162,13 +202,19 @@ ROLE_ENV = {
         "ARTIFACTS_URL", "DATABASE_URL",           # reads xml/svg refs of a request
         "JAEGER_UI_URL",                           # trace links
     ],                                             # + S3_KEYS via the "s3" flag (Submit page uploads straight to the bucket)
-    "telegram": [                                  # src/lab/substrate/channels/telegram.py (not deployed by this script; documented for parity)
-        "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "REDIS_URL", "REVIEW_APP_URL",
-    ],
-    "teams": [                                     # src/lab/substrate/channels/teams.py (not deployed by this script; documented for parity)
-        "TEAMS_WEBHOOK_URL",                       # outbound Adaptive Card webhook (unset = disabled)
+    "telegram": [                                  # src/lab/substrate/channels/telegram.py + lab.substrate.approvals + lab.platform.config
+        "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",  # the Bot API credential + target chat (unset = not deployed)
+        "REDIS_URL",                               # approvals:requests consumer group "telegram" + decisions
+        "REVIEW_APP_URL",                          # the link the message sends the human to for the diagrams
+        _OTLP,                                     # tracing sink: an ADDRESS, not a credential. A channel builds no
+                                                   # tracer today (nothing in its import graph does) — it is granted so
+                                                   # that emitting spans from a channel is a code change, not a deploy one
+    ],                                             # NOTHING else: no store, no bucket, no gateway/ADOIT secret
+    "teams": [                                     # src/lab/substrate/channels/teams.py + lab.substrate.approvals + lab.platform.config
+        "TEAMS_WEBHOOK_URL",                       # outbound Adaptive Card webhook (unset = not deployed)
         "REDIS_URL",                               # approvals:requests consumer group "teams" + decisions
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
+        _OTLP,
     ],
     "workload": [                                  # src/lab/workloads/visio_to_archimate/{host,consumer,agents,workflow}.py + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
         "GATEWAY_URL",                             # the ONLY substrate coordinate (LLM + MCP via the gateway)
@@ -416,8 +462,13 @@ def configure(sid, name, spec, base_env):
                 "variables": env, "replace": True, "skipDeploys": True}})
     # Always send healthcheckPath — empty string CLEARS any stale probe. The gateway must have NO
     # healthcheck (its IPv6 probe fights the IPv4 0.0.0.0 bind and kills the deploy); see SUBSTRATE.
+    # restartPolicyType is sent for the same reason as healthcheckPath: the table must fully DESCRIBE
+    # the service instance, so a spec that loses its "restart" resets the service instead of keeping a
+    # stale policy. ON_FAILURE is Railway's default -> no change for the roles that declare none; the
+    # approval channels are long-lived loops and declare ALWAYS.
     upd = {**_build_input(spec["cmd"]), "startCommand": spec["cmd"],
-           "healthcheckPath": spec.get("health", "")}
+           "healthcheckPath": spec.get("health", ""),
+           "restartPolicyType": spec.get("restart", "ON_FAILURE")}
     gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
         'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
         {"s": sid, "e": ENV, "in": upd})
@@ -472,10 +523,14 @@ def ensure_jaeger(ids):
 
 def substrate_up():
     base = load_env_for_cloud()
-    print(f"deploying substrate ({len(SUBSTRATE)} services + redis + jaeger) from "
+    table = substrate_services(base)                       # + the approval channels that are configured
+    print(f"deploying substrate ({len(table)} services + redis + jaeger) from "
           f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
+    for name in CHANNELS:
+        if name not in table:
+            print(f"  {name:13} skipped  (not configured: {', '.join(CHANNELS[name]['requires'])})")
     ensure_redis()                                         # first: gateway/MCP/review depend on it
-    for name, spec in SUBSTRATE.items():
+    for name, spec in table.items():
         sid, created = ensure_service(name)
         print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
         configure(sid, name, spec, base)
@@ -491,18 +546,20 @@ def substrate_up():
 
 def substrate_env_report():
     """OFFLINE audit: the exact key names each substrate service receives from the current .env
-    (what the next `substrate up` upserts). Values are never printed."""
-    base = load_env_for_cloud()
+    (what the next `substrate up` upserts). Values are never printed. No `.env` -> an empty pool
+    (the read-side commands work on a box that only exports the Railway credentials; `up`, which
+    must actually configure the services, still reads it strictly)."""
+    base = deploy_profile()
     print(f"substrate env allowlist (from .env, `# CLOUD:` profile; {len(base)} keys in the pool)")
     for name in (REDIS_NAME, JAEGER_NAME):
         _print_env_keys("jaeger" if name == JAEGER_NAME else name, {})
-    for name, spec in SUBSTRATE.items():
+    for name, spec in substrate_services(base).items():
         _print_env_keys(name, substrate_env(name, spec, base))
 
 
 def substrate_status():
     ids = services()
-    for name in [REDIS_NAME] + list(SUBSTRATE) + [JAEGER_NAME]:
+    for name in substrate_names(deploy_profile(), ids):
         sid = ids.get(name)
         label = "jaeger" if name == JAEGER_NAME else name
         if not sid:
@@ -519,7 +576,7 @@ def substrate_down():
     ids = services()
     # include Redis + Jaeger: tearing the substrate down stops its state + observability too
     # (metered). The Redis volume persists, so approval streams survive an up/down cycle.
-    for name in [REDIS_NAME] + list(SUBSTRATE) + [JAEGER_NAME]:
+    for name in substrate_names(deploy_profile(), ids):
         sid = ids.get(name)
         label = "jaeger" if name == JAEGER_NAME else name
         if not sid:

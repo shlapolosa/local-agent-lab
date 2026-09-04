@@ -3,8 +3,10 @@ DevUI-triggered run shows up on the review app's Runs board like a CLI or consum
 requirement: watch EVERY run from the approval UI, not only the ones you triggered).
 
 `instrument_runs()` wraps the built Workflow's `run` so each run gets its own run id, is registered
-in the run-log before it executes and closed when its event stream ends — while DevUI's own live
-view keeps working (the wrapper delegates the rest of the ResponseStream API).
+in the run-log before it executes and closed when its event stream ends — carrying the run's own
+output (approval request + artifact refs, read off the AF `output` event) onto the finished row, so
+a DevUI row links to what the run produced like a CLI one — while DevUI's own live view keeps
+working (the wrapper delegates the rest of the ResponseStream API).
 Offline: a fake workflow + FakeRedis; no DevUI, no gateway, no Redis server.
 Run: .venv/bin/python tests/unit/workloads/visio_to_archimate/test_devui_runlog.py (also pytest-compatible)"""
 import asyncio
@@ -153,6 +155,91 @@ def test_a_non_streaming_run_is_awaited_and_closed():
     assert runlog.get(cfg["run_id"], client=r)["status"] == "failed"
 
 
+# ------------------------------------------------------------------- what the run produced
+OUTPUT = {"request_id": "apr-77", "status": "pending", "xml_ref": "art://x/m.archimate.xml",
+          "import_artifacts": [{"ref": "art://x/objects.xlsx", "label": "Download objects"}],
+          "summary": {"elements": 20}}
+
+
+class Event:
+    """An Agent Framework workflow event: a `type` discriminator + a `data` payload (the shape
+    `WorkflowEvent` has — pinned against the real class in the contract test below)."""
+
+    def __init__(self, type, data=None):
+        self.type, self.data = type, data
+
+
+def test_a_finished_devui_run_links_to_what_it_produced():
+    """The point of the row: a reviewer on the Runs board reaches the approval request and the
+    artifacts of a DevUI run — the same fields host.run_once writes for a CLI/consumer run. DevUI
+    owns the run loop, so the output is read off the AF `output` event as it streams past."""
+    wf = FakeWorkflow(stream=FakeStream(events=[Event("executor_invoked", {"diagram": "x.vsdx"}),
+                                                Event("output", OUTPUT),
+                                                Event("executor_completed", [OUTPUT])]))
+    cfg, r = _wire(wf)
+    asyncio.run(_drain(wf.run(INPUT, stream=True)))
+    h = runlog.get(cfg["run_id"], client=r)
+    assert h["status"] == "done"
+    fields = {k: v for k, v in H.run_fields(OUTPUT).items() if v is not None}
+    assert fields and {k: h.get(k) for k in fields} == fields   # ONE mapping, shared with the host
+
+
+def test_only_the_output_event_is_the_output():
+    """`executor_invoked` / `executor_completed` carry payloads of their own — a run must not link
+    to one of those. A run that produces nothing simply carries no references."""
+    assert D._output_of(Event("output", OUTPUT)) == OUTPUT
+    assert D._output_of(Event("executor_invoked", {"diagram": "x.vsdx"})) is None
+    assert D._output_of(Event("executor_completed", [OUTPUT])) is None
+    assert D._output_of(Event("output", "not a dict")) is None
+    assert D._output_of("a plain event") is None
+
+    wf = FakeWorkflow(stream=FakeStream(events=["e1", "e2"]))
+    cfg, r = _wire(wf)
+    asyncio.run(_drain(wf.run(INPUT, stream=True)))
+    h = runlog.get(cfg["run_id"], client=r)
+    assert h["status"] == "done" and "approval_id" not in h and "xml_ref" not in h
+
+
+def test_a_failed_devui_run_still_links_to_whatever_it_produced():
+    wf = FakeWorkflow(stream=FakeStream(events=[Event("output", OUTPUT)],
+                                        error=RuntimeError("exporter died")))
+    cfg, r = _wire(wf)
+    with pytest.raises(RuntimeError):
+        asyncio.run(_drain(wf.run(INPUT, stream=True)))
+    h = runlog.get(cfg["run_id"], client=r)
+    assert h["status"] == "failed" and h["error"] == "RuntimeError: exporter died"
+    assert h["approval_id"] == "apr-77"
+
+
+def test_a_non_streamed_run_takes_its_output_from_the_run_result():
+    """`run()` without stream returns a `WorkflowRunResult` — `get_outputs()` is where the output is
+    (the same call workflow.run_workflow makes). A result that cannot answer costs the references,
+    never the run: this is visibility."""
+    class Result:
+        def __init__(self, outs): self._outs = outs
+        def get_outputs(self): return self._outs
+
+    class Broken:
+        def get_outputs(self): raise RuntimeError("no outputs on this shape")
+
+    for result, expect in ((Result([OUTPUT]), "apr-77"), (Result([]), None), (Result(None), None),
+                           (Broken(), None), ("not a result", None)):
+        wf = FakeWorkflow(result=result)
+        cfg, r = _wire(wf)
+        asyncio.run(wf.run(INPUT))
+        h = runlog.get(cfg["run_id"], client=r)
+        assert h["status"] == "done" and h.get("approval_id") == expect, result
+
+
+def test_the_agent_framework_output_event_shape_is_what_we_read():
+    """CONTRACT against the real library (agent_framework 1.16.0): what an executor `yield_output`s
+    arrives as an event whose `type` is "output" and whose `data` IS the yielded value."""
+    from agent_framework import WorkflowEvent
+    assert D._output_of(WorkflowEvent("output", data=OUTPUT, executor_id="stage_import")) == OUTPUT
+    assert D._output_of(WorkflowEvent("executor_completed", data=[OUTPUT], executor_id="stage_import")) is None
+    assert D._output_of(WorkflowEvent.started()) is None
+
+
 def test_a_refused_concurrent_run_logs_nothing():
     """The workflow rejects a second concurrent run on the same instance — which is exactly why one
     mutable cfg per session is safe. Nothing must be written for a run that never started."""
@@ -196,8 +283,9 @@ def _response_stream(events=("a", "b"), error=None):
 def test_the_wrapper_closes_the_run_exactly_once_however_a_real_stream_is_consumed():
     """`ResponseStream` is iterable AND awaitable, and dunders are resolved on the TYPE — so each
     must be delegated explicitly. A missed one would leave the board row stuck on `running`."""
-    closes = []
-    s1 = D._LoggedStream(_response_stream(), closes.append)
+    closes = []                                     # close(error, output); the output is pinned above
+    record = lambda e, _o=None: closes.append(e)    # noqa: E731
+    s1 = D._LoggedStream(_response_stream(), record)
     assert asyncio.run(_drain(s1)) == ["a", "b"] and closes == [None]
 
     async def pull_again():                         # a second pull past the end must not re-close
@@ -207,7 +295,7 @@ def test_the_wrapper_closes_the_run_exactly_once_however_a_real_stream_is_consum
     assert closes == [None]
 
     closes.clear()                                  # an explicit pull loop, no `async for`
-    s2 = D._LoggedStream(_response_stream(), closes.append)
+    s2 = D._LoggedStream(_response_stream(), record)
 
     async def pull():
         out = []
@@ -219,7 +307,7 @@ def test_the_wrapper_closes_the_run_exactly_once_however_a_real_stream_is_consum
     assert asyncio.run(pull()) == ["a", "b"] and closes == [None]
 
     closes.clear()                                  # `await stream` RESOLVES, it does not consume
-    s3 = D._LoggedStream(_response_stream(), closes.append)
+    s3 = D._LoggedStream(_response_stream(), record)
 
     async def resolve_then_iterate():
         same = await s3
@@ -228,13 +316,13 @@ def test_the_wrapper_closes_the_run_exactly_once_however_a_real_stream_is_consum
     assert asyncio.run(resolve_then_iterate()) == ["a", "b"] and closes == [None]
 
     closes.clear()
-    s4 = D._LoggedStream(_response_stream(error=RuntimeError("boom")), closes.append)
+    s4 = D._LoggedStream(_response_stream(error=RuntimeError("boom")), record)
     with pytest.raises(RuntimeError):
         asyncio.run(_drain(s4))
     assert len(closes) == 1 and isinstance(closes[0], RuntimeError)
 
     closes.clear()                                  # the rest of the API is still reachable
-    s5 = D._LoggedStream(_response_stream(), closes.append)
+    s5 = D._LoggedStream(_response_stream(), record)
     assert asyncio.run(_drain(s5)) == ["a", "b"] and asyncio.run(s5.get_final_response()) == ["a", "b"]
     assert closes == [None]                         # and the run is closed once, not twice
 

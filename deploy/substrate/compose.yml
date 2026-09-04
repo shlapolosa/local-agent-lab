@@ -69,6 +69,9 @@ services:
   storage-mcp:                # READ-ONLY governed object store (uploads) — internal only. Holds the
     <<: *sub                  # bucket credentials (S3_*/UPLOADS_URL from .env); workloads never do.
     command: ["python", "-m", "lab.substrate.mcp.storage.server"]
+  workflow-mcp:               # the governed FRONT DOOR to every business process (submit/status/result
+    <<: *sub                  # + the approval tools). Redis + tracing only — holds NO store credential.
+    command: ["python", "-m", "lab.substrate.mcp.workflow.server"]
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]
@@ -78,6 +81,7 @@ services:
       ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
       SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
       STORAGE_MCP_URL: http://storage-mcp:9300/mcp
+      WORKFLOW_MCP_URL: http://workflow-mcp:9400/mcp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
       OTEL_SERVICE_NAME: litellm-gateway
@@ -87,8 +91,19 @@ services:
       # verified). Skip schema management in containers; migrate the DB once, natively.
       DISABLE_SCHEMA_UPDATE: "true"
     ports: ["4000:4000"]
-    depends_on: [adoit-mcp, semantic-mcp, storage-mcp]
+    depends_on: [adoit-mcp, semantic-mcp, storage-mcp, workflow-mcp]
   review:                     # human approval gate (cross-cutting) — public, password-gated
     <<: *sub
     command: ["streamlit", "run", "src/lab/substrate/review/app.py", "--server.port", "8501", "--server.headless", "true"]
     ports: ["8501:8501"]
+
+  # --- approval channels: OPTIONAL, started only when configured (mirrors deploy/railway.py CHANNELS
+  # and lab.sh's table). `docker compose --profile channels up` to run them.
+  telegram:
+    <<: *sub
+    profiles: ["channels"]
+    command: ["python", "-m", "lab.substrate.channels.telegram"]
+  teams:
+    <<: *sub
+    profiles: ["channels"]
+    command: ["python", "-m", "lab.substrate.channels.teams"]

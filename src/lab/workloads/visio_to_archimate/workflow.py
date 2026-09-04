@@ -642,15 +642,17 @@ def build_workflow(cfg):
                  {"spec_ref": state["spec_ref"], "xml_ref": state["xml_ref"], "svg_refs": state["svg_refs"],
                   "model_name": spec.get("name", "Visio Import"), "summary": summary,
                   "requester": "architect-agent"})])
-            artifacts = req.get("artifacts") or {}          # {} from a repository that writes over its own API
+            artifacts = req.get("artifacts") or {}          # the staged MODEL (xml + previews)
+            # [] from a repository that writes over its own API; opaque {ref,label,note} entries otherwise
+            to_import = req.get("import_artifacts") or []
             s.set_attributes({"approval.request_id": req["request_id"],
-                              "import.artifacts": len(artifacts)})
+                              "import.artifacts": len(to_import)})
             await ctx.yield_output({
                 "request_id": req["request_id"], "status": req["status"],
                 "review_app": req.get("review_app"),
                 "xml_ref": artifacts.get("xml_ref") or state["xml_ref"],
                 "svg_refs": artifacts.get("svg_refs") or state["svg_refs"],
-                "xlsx_ref": artifacts.get("xlsx_ref"),
+                "import_artifacts": to_import,
                 "summary": summary, "spec": spec, "semantic": state["semantic"]})
 
     return WorkflowBuilder(start_executor=ba).add_chain(
@@ -670,9 +672,10 @@ def make_cfg(*, ba_cred: str, ar_cred: str, traceparent: dict, schema: dict, tra
       mcp_url                the gateway's MCP endpoint (default: config.GATEWAY_MCP_URL)
       schema                 the BA output contract (jsonschema)
       tracer / root_ctx      OTel tracer + the run's root span context (node spans join it)
-      run_id                 run-log key (the trace id) for the review app's Runs board; None = OTel only
-                             (DevUI builds cfg once per SESSION, so per-run ids are not possible there — it
-                             has its own live view)."""
+      run_id                 run-log key for the review app's Runs board (the trace id in host.run_once);
+                             None = OTel only. DevUI builds cfg once per SESSION and sets this PER RUN
+                             (`devui_entry.instrument_runs`) — the executors read it lazily, once per node,
+                             so a DevUI run is a first-class row on the board like any other."""
     from lab.platform import config
     return {
         "ba_cred": ba_cred, "ar_cred": ar_cred,
