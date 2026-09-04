@@ -11,39 +11,23 @@ import runpy
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
+import pytest
+from fastmcp import Client
+from rdflib import URIRef
 
-TMP = tempfile.mkdtemp(prefix="semantic-mcp-test-")
-os.makedirs(os.path.join(TMP, "no-ref-models"))
-os.environ.update({"REFERENCE_MODELS_DIR": os.path.join(TMP, "no-ref-models"), "MCP_SHARED_SECRET": "shh"})
-for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL"):
-    os.environ.pop(k, None)
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from fastmcp import Client  # noqa: E402
-from rdflib import URIRef  # noqa: E402
-
-from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
-
-from lab.core.semantic.service import QUESTIONS  # noqa: E402
-from lab.core.semantic.skos import SkosScheme  # noqa: E402
-from lab.substrate import artifacts  # noqa: E402
+from lab.core.semantic.service import QUESTIONS
+from lab.core.semantic.skos import SkosScheme
 from lab.platform import config
+from lab.substrate import artifacts
 
-# config reads the env ONCE at import; under single-process pytest it was imported by an earlier test
-# with the real values, so pin the config module too (script mode: both already agree). The artifact
-# store needs no pin: the container provider is overridden below.
-config.REFERENCE_MODELS_DIR = os.environ["REFERENCE_MODELS_DIR"]
-
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
 SERVER = os.path.join(ROOT, "src", "lab", "substrate", "mcp", "semantic", "server.py")
-_spec = importlib.util.spec_from_file_location("semantic_mcp_server", SERVER)
-srv = importlib.util.module_from_spec(_spec)
-sys.modules["semantic_mcp_server"] = srv
-_spec.loader.exec_module(srv)
 
-STORE = artifacts.LocalStore(os.path.join(TMP, "store"))
-srv.server.container.artifacts.override(STORE)          # the store the tools write to, via the kit
+TMP = srv = STORE = None            # set up by `_server` (never at import: it pins the environment)
 
 TOOLS = {"semantic_ontologies", "semantic_describe", "semantic_classify", "semantic_check",
          "semantic_validate_model", "semantic_load_model", "semantic_query", "semantic_schemes",
@@ -73,10 +57,40 @@ def _inject(sc):
         g.add(t)
 
 
-assert srv.S.schemes_ == {}, "the licensed workbooks must not be loaded — REFERENCE_MODELS_DIR is empty"
-_inject(_scheme("synthetic-v1", "Synthetic Provider Ref"))
-_inject(_scheme("synthetic-v2", "Synthetic Payer Ref"))
-srv.S._link_shared_top_concepts()            # 'Care Delivery' / 'Billing' are shared top concepts
+@pytest.fixture(scope="module", autouse=True)
+def _server():
+    """Compose the server the way its own `__main__` would, but against an EMPTY reference dir and a
+    temp artifact store. `lab.platform.config` reads the env once at import and the server composes at
+    import (`SemanticService(reference_dir=config.REFERENCE_MODELS_DIR)`), so both the environment and
+    the config module are pinned HERE — around the import — instead of at this module's import, where
+    they would leak into every other test module. Undone when the module's last test finishes."""
+    global TMP, srv, STORE
+    mp = pytest.MonkeyPatch()
+    TMP = tempfile.mkdtemp(prefix="semantic-mcp-test-")
+    ref_dir = os.path.join(TMP, "no-ref-models")
+    os.makedirs(ref_dir)
+    mp.setenv("REFERENCE_MODELS_DIR", ref_dir)
+    mp.setenv("MCP_SHARED_SECRET", "shh")
+    for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL"):
+        mp.delenv(k, raising=False)
+    mp.setattr(config, "REFERENCE_MODELS_DIR", ref_dir)          # config already read the real env
+
+    spec = importlib.util.spec_from_file_location("semantic_mcp_server", SERVER)
+    srv = importlib.util.module_from_spec(spec)
+    sys.modules["semantic_mcp_server"] = srv
+    spec.loader.exec_module(srv)
+
+    STORE = artifacts.LocalStore(os.path.join(TMP, "store"))
+    srv.server.container.artifacts.override(STORE)       # the store the tools write to, via the kit
+
+    assert srv.S.schemes_ == {}, "the licensed workbooks must not be loaded — REFERENCE_MODELS_DIR is empty"
+    _inject(_scheme("synthetic-v1", "Synthetic Provider Ref"))
+    _inject(_scheme("synthetic-v2", "Synthetic Payer Ref"))
+    srv.S._link_shared_top_concepts()        # 'Care Delivery' / 'Billing' are shared top concepts
+    yield
+    sys.modules.pop("semantic_mcp_server", None)
+    mp.undo()
+    TMP = srv = STORE = None
 
 MODEL = {
     "name": "Claims", "id": "claims",
@@ -279,6 +293,4 @@ def test_main_serves():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
+    sys.exit(pytest.main([__file__, "-q"]))

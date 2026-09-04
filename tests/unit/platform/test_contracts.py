@@ -38,7 +38,8 @@ def test_gateway_qualified_names_use_the_gateway_server_alias():
 
 
 def test_registry_maps_gateway_aliases_to_catalogues_and_tools_are_globally_unique():
-    assert C.SERVERS == {"storage_mcp": StorageTools, "semantic_mcp": SemanticTools, "adoit_mcp": AdoitTools}
+    assert C.SERVERS == {"storage_mcp": StorageTools, "semantic_mcp": SemanticTools, "adoit_mcp": AdoitTools,
+                         "workflow_mcp": C.WorkflowTools}   # generated from PROCESSES; see tests/unit/substrate/mcp/workflow/
     assert all(cls.SERVER == alias for alias, cls in C.SERVERS.items())
     every = [n for cls in C.SERVERS.values() for n in cls.names()]
     assert len(every) == len(set(every)) and C.ALL_TOOLS == frozenset(every)

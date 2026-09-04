@@ -1,0 +1,113 @@
+"""src/lab/platform/contracts.py — the PROCESS REGISTRY half of the contract: `ProcessSpec` (a business
+process declared once: address, prose, typed input contract, published outputs), `InputField.coerce`
+(the ONE input validator every surface shares) and `WorkflowTools`, whose tool names are DERIVED from
+the registry so registering a process is one entry, not a code change.
+Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/mcp/workflow/test_registry.py"""
+import pytest
+
+from lab.platform import contracts as C
+from lab.platform import workflows
+from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, InputField, InputKind, ProcessSpec,
+                                    WorkflowTools)
+
+FAKE = ProcessSpec(
+    name="fake_process", group="wf-fake", title="Fake", description="A process used only by tests.",
+    inputs=(InputField("primary", InputKind.REF, "the one required ref"),
+            InputField("extras", InputKind.REF_LIST, "more refs", required=False),
+            InputField("optional_one", InputKind.REF, "an optional single ref", required=False)),
+    outputs=("xml_ref",))
+
+
+# ------------------------------------------------------------------ the catalogue is derived
+def test_workflow_catalogue_is_generated_three_tools_per_registered_process():
+    assert WorkflowTools.SERVER == "workflow_mcp" and WorkflowTools.VERBS == ("submit", "status", "result")
+    assert WorkflowTools.names() == {f"{p}_{v}" for p in PROCESSES for v in WorkflowTools.VERBS}
+    assert len(WorkflowTools.names()) == 3 * len(PROCESSES)
+    assert "visio_to_archimate_submit" in WorkflowTools.names()
+    assert "workflow_mcp" not in WorkflowTools.names()          # SERVER is the alias, not a tool
+
+
+def test_workflow_tools_join_the_server_registry_and_the_gateway_naming():
+    assert C.SERVERS["workflow_mcp"] is WorkflowTools
+    assert WorkflowTools.names() <= C.ALL_TOOLS
+    assert WorkflowTools.gateway("visio_to_archimate_status") == "workflow_mcp-visio_to_archimate_status"
+    with pytest.raises(ValueError, match="not a workflow_mcp tool"):
+        WorkflowTools.gateway("storage_get")
+    every = [n for cls in C.SERVERS.values() for n in cls.names()]
+    assert len(every) == len(set(every)), "tool names must be globally unique across servers"
+
+
+def test_process_spec_tool_names_and_field_lookup():
+    assert VISIO_TO_ARCHIMATE.tool("submit") == "visio_to_archimate_submit"
+    with pytest.raises(ValueError, match="not one of"):
+        VISIO_TO_ARCHIMATE.tool("cancel")
+    assert VISIO_TO_ARCHIMATE.field("diagram").kind is InputKind.REF
+    assert VISIO_TO_ARCHIMATE.field("requirements").required is False
+    with pytest.raises(ValueError, match="no input 'nope'"):
+        VISIO_TO_ARCHIMATE.field("nope")
+
+
+def test_every_registered_process_has_a_consumer_group_that_actually_consumes():
+    """A process whose group is not in workflows.GROUPS would accept submissions no host ever reads."""
+    assert {p.group for p in PROCESSES.values()} <= set(workflows.GROUPS)
+    assert VISIO_TO_ARCHIMATE.group == "wf-visio" and VISIO_TO_ARCHIMATE.name == "visio_to_archimate"
+    for spec in PROCESSES.values():                      # every spec is usable as a tool surface
+        assert spec.title and spec.description and spec.inputs and spec.outputs
+        assert all(f.description for f in spec.inputs)
+
+
+# ------------------------------------------------------------------ the input contract
+def test_validate_accepts_refs_paths_and_page_fragments():
+    assert VISIO_TO_ARCHIMATE.validate({"diagram": "art://3f2a/malaffi.vsdx#Shafafiya"}) == \
+        {"diagram": "art://3f2a/malaffi.vsdx#Shafafiya", "requirements": []}
+    out = VISIO_TO_ARCHIMATE.validate({"diagram": " art://a/b.vsdx ",
+                                       "requirements": ["art://c/d.docx", " art://e/f.pdf "]})
+    assert out == {"diagram": "art://a/b.vsdx", "requirements": ["art://c/d.docx", "art://e/f.pdf"]}
+    assert VISIO_TO_ARCHIMATE.validate({"diagram": "/tmp/local.vsdx"})["diagram"] == "/tmp/local.vsdx"
+    assert VISIO_TO_ARCHIMATE.validate({"diagram": "art://a/b.vsdx", "requirements": None})["requirements"] == []
+
+
+def test_validate_rejects_bad_input():
+    with pytest.raises(ValueError, match="diagram is required"):
+        VISIO_TO_ARCHIMATE.validate({})
+    with pytest.raises(ValueError, match="diagram must be a non-empty reference"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "   "})       # whitespace is not a reference
+    with pytest.raises(ValueError, match="malformed artifact ref"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "art://onlyid"})
+    with pytest.raises(ValueError, match="is not an art:// reference"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "https://example.com/d.vsdx"})
+    with pytest.raises(ValueError, match="requirements must be a list"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "art://a/b.vsdx", "requirements": "art://c/d.docx"})
+    with pytest.raises(ValueError, match="requirements must be a list"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "art://a/b.vsdx", "requirements": {"a": 1}})
+    with pytest.raises(ValueError, match="requirements must be a non-empty reference"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "art://a/b.vsdx", "requirements": [""]})
+    with pytest.raises(ValueError, match="requirements must be a non-empty reference"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "art://a/b.vsdx", "requirements": [7]})
+    with pytest.raises(ValueError, match=r"unknown input\(s\) \['page'\]"):
+        VISIO_TO_ARCHIMATE.validate({"diagram": "art://a/b.vsdx", "page": "P1"})
+
+
+def test_optional_fields_of_a_second_process_shape():
+    """The registry is open for extension: a spec with a different field mix validates the same way."""
+    assert FAKE.validate({"primary": "art://a/b.png"}) == {"primary": "art://a/b.png", "extras": []}
+    assert "optional_one" not in FAKE.validate({"primary": "art://a/b.png"})   # absent optional REF is omitted
+    assert FAKE.validate({"primary": "art://a/b.png", "optional_one": "art://c/d.png",
+                          "extras": ["art://e/f.png"]}) == {
+        "primary": "art://a/b.png", "extras": ["art://e/f.png"], "optional_one": "art://c/d.png"}
+    with pytest.raises(ValueError, match="primary is required"):
+        FAKE.validate({"extras": []})
+    assert FAKE.tool("result") == "fake_process_result"
+
+
+def test_input_field_coerce_is_the_one_validator():
+    f = InputField("d", InputKind.REF, "x")
+    assert f.coerce("art://a/b.vsdx") == "art://a/b.vsdx"
+    assert InputField("d", InputKind.REF, "x", required=False).coerce(None) is None
+    assert InputField("r", InputKind.REF_LIST, "x", required=False).coerce([]) == []
+    assert list(InputKind) == [InputKind.REF, InputKind.REF_LIST]
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(pytest.main([__file__, "-q"]))

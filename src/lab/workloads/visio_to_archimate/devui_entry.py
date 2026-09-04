@@ -11,12 +11,20 @@ built `Workflow` object to DevUI's in-memory registry (`serve(entities=[...])`).
 the governed path: every LLM and tool call a DevUI-triggered run makes still goes through the gateway
 with each agent's own identity, is metered, PII-guarded and traced.
 
+Every DevUI run is ALSO a first-class run on the review app's Runs board: `instrument_runs()` wraps
+the built workflow's `run` so each run opens its own run-log entry (`lab.platform.runlog`) before it
+executes and closes it when its event stream ends. So a reviewer watches a DevUI run — its nodes,
+and the LLM/tool calls the trace recorded for them — from the ONE approval UI, without the DevUI
+window and without having triggered it. DevUI's own live view is untouched: the wrapper forwards
+every event and delegates the rest of the ResponseStream API.
+
 Dev-only by construction: `agent-framework-devui` is deliberately NOT in deploy/requirements.txt
 (its prerelease pins broke the container build), so this module is never imported by the
 container roles. Locally it is already present in `.venv` — pulled in by the `agent-framework`
 1.16.0 meta package — so nothing is installed for it.
 """
 import argparse
+import itertools
 import json
 import os
 
@@ -32,9 +40,10 @@ if __name__ == "__main__":
 
 from opentelemetry import propagate, trace  # noqa: E402
 
+from lab.workloads import workflowviz  # noqa: E402
 from lab.workloads.visio_to_archimate import host as H  # noqa: E402
 from lab.workloads.visio_to_archimate.workflow import build_workflow, make_cfg  # noqa: E402
-from lab.platform import config, container  # noqa: E402
+from lab.platform import config, container, runlog  # noqa: E402
 
 # Distinct OTel service name per host (CLAUDE.md invariant): this host's container installs the
 # provider under it — the first tracer taken in the process names the service.
@@ -63,18 +72,117 @@ def build_cfg(root) -> tuple[dict, str]:
     span.end()
 
     # same identities as host.run_once, and the SAME config builder (workflow.make_cfg) so DevUI can
-    # never drift from the host again (review A-F12). run_id stays None: cfg is per-session here while
-    # run ids are per-run — DevUI has its own live view; the Runs board tracks CLI/consumer runs.
+    # never drift from the host again (review A-F12). `run_id` starts None and is set PER RUN by
+    # instrument_runs(): workflow.build_workflow reads `cfg["run_id"]` lazily, once per node, and
+    # Agent Framework refuses concurrent runs on one Workflow instance — so one mutable cfg per
+    # session carries a per-run id safely. The TRACE stays per session (the root context and the
+    # traceparent are captured when the graph is built), which costs nothing on the Runs board: the
+    # per-node detail is grouped by the run's own node windows, not by the trace.
     cfg = make_cfg(ba_cred=H._cred("BA_AGENT"), ar_cred=H._cred("ARCHITECT_AGENT"),
                    traceparent=traceparent, schema=H._load_schema(), tracer=tr, root_ctx=root_ctx,
                    mcp_url=root.config.gateway_mcp_url(), run_id=None)
     return cfg, trace_id
 
 
+def _input_label(message) -> str:
+    """What the Runs board shows as the run's input: the diagram's file name."""
+    diagram = message.get("diagram") if isinstance(message, dict) else message
+    return os.path.basename(str(diagram)) if diagram else "?"
+
+
+class _LoggedStream:
+    """The workflow's event stream with the run-log closed when the stream ENDS — however the caller
+    consumes it. Agent Framework's `ResponseStream` is iterable (`__aiter__` + `__anext__`) AND
+    awaitable (`await stream` only RESOLVES the source and hands the stream back — it consumes
+    nothing, so it must not close the run). Python resolves dunders on the TYPE, not through
+    `__getattr__`, so each is delegated explicitly; everything else (`get_final_response()`, …)
+    still goes through `__getattr__`. Closing is idempotent: exactly one `finish` per run,
+    whichever path ends it."""
+
+    def __init__(self, inner, close):
+        self._inner, self._close, self._it, self._closed = inner, close, None, False
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _finish(self, error):
+        if not self._closed:
+            self._closed = True
+            self._close(error)
+
+    def __aiter__(self):
+        if self._it is None:      # ResponseStream hands back itself; an async generator a new one
+            self._it = self._inner.__aiter__()
+        return self
+
+    async def __anext__(self):
+        self.__aiter__()          # an explicit pull loop may never have called __aiter__
+        try:
+            return await self._it.__anext__()
+        except StopAsyncIteration:
+            self._finish(None)
+            raise
+        except BaseException as e:      # noqa: BLE001 — recorded, then re-raised untouched
+            self._finish(e)
+            raise
+
+    def __await__(self):
+        async def resolve():
+            await self._inner
+            return self
+        return resolve().__await__()
+
+
+def instrument_runs(wf, cfg, trace_id: str, *, client=None, mermaid: str | None = None):
+    """Make every run of `wf` a run on the review app's Runs board.
+
+    DevUI owns the run loop, so this wraps the workflow's own `run`: each call takes the next run id
+    (`<session trace>-<n>`), publishes it on `cfg` — which `workflow.build_workflow` reads lazily per
+    node — opens the run-log entry, and closes it when the stream (or the awaited result) ends. The
+    inner call happens FIRST, so a run Agent Framework refuses (concurrent runs on one instance) logs
+    nothing. (A DevUI checkpoint/HIL resume — `run(stream=True, responses=…, checkpoint_id=…)`, no
+    message — counts as a NEW run here; harmless until this workflow gains an in-graph HIL pause.)"""
+    inner, seq = wf.run, itertools.count(1)
+
+    def close(run_id, error):
+        if error is not None:
+            runlog.finish(run_id, "failed", error=f"{type(error).__name__}: {str(error)[:300]}", client=client)
+            return
+        # a node may have failed without the run raising (AF can surface it as an event)
+        failed = next((n for n in reversed(runlog.get(run_id, client=client).get("nodes") or [])
+                       if n["status"] == "fail"), None)
+        if failed:
+            runlog.finish(run_id, "failed", error=failed["attrs"].get("error", "node failed"), client=client)
+        else:
+            runlog.finish(run_id, "done", client=client)
+
+    async def awaited(coro, run_id):
+        try:
+            out = await coro
+        except BaseException as e:      # noqa: BLE001
+            close(run_id, e)
+            raise
+        close(run_id, None)
+        return out
+
+    def run(message=None, **kw):
+        """Run the workflow under its own run-log entry (see devui_entry.instrument_runs)."""
+        out = inner(message, **kw)
+        run_id = f"{trace_id}-{next(seq)}"
+        cfg["run_id"] = run_id
+        runlog.start(run_id, input=_input_label(message), trace_id=trace_id, client=client,
+                     mermaid=mermaid or "", host=SERVICE)
+        return _LoggedStream(out, lambda e: close(run_id, e)) if kw.get("stream") else awaited(out, run_id)
+
+    wf.run = run
+
+
 def build(root):
     """Build (never run) the workflow object DevUI will serve. Returns (workflow, trace_id)."""
     cfg, trace_id = build_cfg(root)
     wf = build_workflow(cfg)
+    # every run of this session is its own row on the review app's Runs board
+    instrument_runs(wf, cfg, trace_id, client=root.redis(), mermaid=workflowviz.mermaid(wf))
     # DevUI names the entity from these (workflow.py builds it unnamed -> "Workflow Workflow").
     wf.name = "visio-to-archimate"
     wf.description = ("Visio/diagram (+ requirements) -> BA -> resolve existing (ADOIT) -> Architect -> "
@@ -107,6 +215,8 @@ def main(argv: list[str] | None = None) -> None:
     print(f"gateway MCP:    {root.config.gateway_mcp_url()}   (./lab.sh up first)")
     print(f"paste as input: {json.dumps(DEFAULT_INPUT)}")
     print(f"session trace:  {root.config.jaeger_ui_url()}/trace/{trace_id}   (service {SERVICE}; every run this session joins it)")
+    print(f"runs board:     {root.config.review_app_url()}   (./lab.sh review -> Runs; every run below "
+          f"appears there as `{trace_id}-<n>`)")
     print("NOTE: each run makes real gateway LLM + MCP calls and stages an ADOIT approval request.")
 
     from agent_framework.devui import serve

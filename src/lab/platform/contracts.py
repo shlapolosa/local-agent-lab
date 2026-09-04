@@ -11,8 +11,13 @@ no clients, importable by every tier.
                     input or an artifact (the substrate's stores mint and resolve them).
   Approval contract request kinds, decision values and status names of the human-in-the-loop gate.
   Workflow requests the `workflow:requests` event (statuses, field names) a host consumes.
+  Process registry  every business PROCESS declared once (`PROCESSES`): how it is addressed, what a
+                    caller must know about it, its typed INPUT CONTRACT and the outputs a finished run
+                    publishes. workflow-mcp generates its tools from this, so registering a process is
+                    one entry here — no code change in the server.
 
 Adding a tool = one constant on its catalogue (the parity test fails until it matches the server).
+Adding a process = one `ProcessSpec` in `PROCESSES` (+ its consumer group in lab.platform.workflows.GROUPS).
 """
 from __future__ import annotations
 
@@ -88,8 +93,16 @@ class AdoitTools(ToolCatalogue):
     import_instructions = "adoit_import_instructions"
 
 
-SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, AdoitTools)}
-ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
+class WorkflowTools(ToolCatalogue):
+    """workflow-mcp — the governed front door to every business PROCESS. Its tools are not fixed
+    constants: they are GENERATED, three per entry in `PROCESSES` below (`<process>_submit`,
+    `<process>_status`, `<process>_result`), so registering a process is the one place that changes."""
+    SERVER = "workflow_mcp"
+    VERBS = ("submit", "status", "result")             # a tuple, so `names()`'s string filter ignores it
+
+    @classmethod
+    def names(cls) -> frozenset[str]:
+        return frozenset(spec.tool(v) for spec in PROCESSES.values() for v in cls.VERBS)
 
 
 # ----------------------------------------------------------------------------- artifact references
@@ -208,6 +221,125 @@ class WorkflowRequest:
                    status=WorkflowStatus(fields["status"]))
 
 
-__all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "AdoitTools", "SERVERS", "ALL_TOOLS",
+# ----------------------------------------------------------------------------- process registry
+class InputKind(StrEnum):
+    """How one input field is carried. Both kinds are `art://` references (or, for local dev, a path):
+    a workload holds no store credentials, so an input is ALWAYS passed by reference."""
+    REF = "ref"            # exactly one reference
+    REF_LIST = "ref_list"  # zero or more references
+
+
+@dataclass(frozen=True)
+class InputField:
+    """One field of a process's input contract: its name, kind, prose (the JSON-schema description an
+    agent reads) and whether it is required. `coerce` is the validator, meant to be the ONE validator
+    every producer shares — workflow-mcp uses it today; the review app's Submit page and the
+    `workflows.py` CLI still publish unvalidated and are to be moved onto it."""
+
+    name: str
+    kind: InputKind
+    description: str
+    required: bool = True
+
+    def coerce(self, value: Any) -> Any:
+        """The normalised value, or ValueError naming the field. `None`/absent is legal only when the
+        field is optional (a REF_LIST then normalises to [])."""
+        if value is None or value == "" or value == []:
+            if self.required:
+                raise ValueError(f"{self.name} is required")
+            return [] if self.kind is InputKind.REF_LIST else None
+        if self.kind is InputKind.REF:
+            return self._one(value)
+        if isinstance(value, str) or not isinstance(value, (list, tuple)):
+            raise ValueError(f"{self.name} must be a list of references, got {type(value).__name__}")
+        return [self._one(v) for v in value]
+
+    def _one(self, value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{self.name} must be a non-empty reference string")
+        value = value.strip()
+        if ArtifactRef.is_ref(value):
+            ArtifactRef.parse(value)          # raises ValueError on a malformed ref
+        elif "://" in value:                  # a URL is never an input: uploads live in the lab's store
+            raise ValueError(f"{self.name}: {value!r} is not an art:// reference (upload the file first)")
+        return value
+
+
+@dataclass(frozen=True)
+class ProcessSpec:
+    """One business process, declared ONCE: how it is addressed (name + the Redis consumer group of the
+    host that runs it), what a human/agent needs to know about it, its typed input contract, and the
+    fields its finished run publishes. Every external surface (workflow-mcp today; REST/A2A later) is
+    generated from this — adding a process is one entry in `PROCESSES`, not a code change."""
+
+    name: str                          # the `process` field of a workflow:requests event
+    group: str                         # the consumer group of the host that runs it (lab.platform.workflows.GROUPS)
+    title: str
+    description: str                   # what it does, for a tool description an agent reads unaided
+    inputs: tuple[InputField, ...]
+    outputs: tuple[str, ...] = ()      # request-hash fields a finished run publishes
+
+    def tool(self, verb: str) -> str:
+        """The name of one of this process's generated tools (`<process>_<verb>`)."""
+        if verb not in WorkflowTools.VERBS:
+            raise ValueError(f"{verb!r} is not one of {WorkflowTools.VERBS}")
+        return f"{self.name}_{verb}"
+
+    def field(self, name: str) -> InputField:
+        for f in self.inputs:
+            if f.name == name:
+                return f
+        raise ValueError(f"{self.name} has no input {name!r}")
+
+    def validate(self, values: dict[str, Any]) -> dict[str, Any]:
+        """The `inputs` payload of a workflow:requests event, or ValueError. Unknown keys are refused
+        (a typo must not be silently dropped); optional fields absent from `values` stay absent."""
+        unknown = sorted(set(values) - {f.name for f in self.inputs})
+        if unknown:
+            raise ValueError(f"{self.name}: unknown input(s) {unknown}; expected "
+                             f"{[f.name for f in self.inputs]}")
+        out: dict[str, Any] = {}
+        for f in self.inputs:
+            v = f.coerce(values.get(f.name))
+            if v is not None:
+                out[f.name] = v
+        return out
+
+
+VISIO_TO_ARCHIMATE = ProcessSpec(
+    name="visio_to_archimate",
+    group="wf-visio",
+    title="Visio/diagram to ArchiMate model",
+    description=(
+        "Turn a system diagram — a Microsoft Visio .vsdx or a diagram image — plus any requirements "
+        "documents into a validated ArchiMate 3.1 model of that system, matched against the existing "
+        "architecture in the ADOIT repository and staged for human approval before import. "
+        "A run takes 10-20 minutes, so it is asynchronous: submit returns a request_id immediately."),
+    inputs=(
+        InputField("diagram", InputKind.REF,
+                   "The diagram to read: ONE art://<id>/<name> reference to a .vsdx file or a diagram "
+                   "image (.png/.jpg) already uploaded to the lab's upload store. Append #<page> to "
+                   "read a single page of a multi-page .vsdx."),
+        InputField("requirements", InputKind.REF_LIST,
+                   "Optional art:// references to requirements documents (.docx/.pdf/.md/.txt) that "
+                   "describe the same system; they are used as evidence about the diagram, never as a "
+                   "source of elements the diagram does not show.", required=False),
+    ),
+    outputs=("trace_id", "approval_id", "review_app", "xml_ref", "xlsx_ref", "summary"),
+)
+
+PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE,)}
+
+
+# ----------------------------------------------------------------------------- the registry of servers
+# Last, because WorkflowTools' tool names are derived from PROCESSES above.
+SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, AdoitTools,
+                                                                 WorkflowTools)}
+ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
+
+
+__all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "AdoitTools", "WorkflowTools",
+           "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "Decision", "ApprovalStatus", "APPROVAL_FINAL",
-           "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest"]
+           "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
+           "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE"]

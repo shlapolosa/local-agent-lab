@@ -20,6 +20,11 @@ from lab.workloads import identity
 from lab.workloads.visio_to_archimate import host
 from lab.workloads.visio_to_archimate import workflow
 
+# The offline baseline for every host test, applied when this harness is imported (its importers —
+# test_host.py, test_devui_entry.py — all need the same one): tracing off, and STATIC agent keys with
+# no Entra client id/secret, so `identity.agent_headers` never reaches for MSAL. Safe to set here
+# because tests/conftest.py snapshots and restores os.environ around every test, so nothing a test
+# (or a `load_dotenv` inside a runpy'd `__main__`) does can erode it.
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
 GATEWAY_URL = "http://gw.test:4000/"

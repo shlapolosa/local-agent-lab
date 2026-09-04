@@ -3,6 +3,10 @@
 # Key store: Neon Postgres (DATABASE_URL in .env). Teams/virtual keys/budgets are live —
 # bootstrap with scripts/bootstrap_registry.py; grant MCP access per team via /team/update
 # object_permission.mcp_servers. Master key = admin plane only; agents use virtual keys.
+#   grant: POST /team/update {"team_id": "<id>", "object_permission": {"mcp_servers":
+#          ["semantic_mcp", "storage_mcp", "adoit_mcp", "workflow_mcp"]}}  — a key with no
+#   grant sees ZERO tools. workflow_mcp goes to the teams that TRIGGER processes (an
+#   orchestrator agent, the Copilot Studio connector), not to the workload's own agents.
 # Registry UI: http://127.0.0.1:4000/ui  (user: admin, password: the master key).
 
 model_list:
@@ -80,6 +84,13 @@ mcp_servers:                          # addresses + trust come from the environm
     auth_type: bearer_token
     authentication_token: os.environ/MCP_SHARED_SECRET
     description: Governed read-only object store — list/info/get(normalised image)/read_document/read_vsdx/extract_figures over art:// refs
+    extra_headers: ["traceparent", "tracestate"]
+  workflow_mcp:                       # the front door to every BUSINESS PROCESS: three generated tools
+    url: os.environ/WORKFLOW_MCP_URL  # per process (<process>_submit/_status/_result). Async by contract:
+    transport: http                   # submit enqueues a workflow:requests event and returns a request_id
+    auth_type: bearer_token           # immediately (a run takes 600-1000 s), status/result poll it.
+    authentication_token: os.environ/MCP_SHARED_SECRET
+    description: Business processes as governed tools — submit a run, poll its status, read its results (async; inputs are art:// refs)
     extra_headers: ["traceparent", "tracestate"]
 
 router_settings:                      # Redis: shared state for rate limits, budgets, router

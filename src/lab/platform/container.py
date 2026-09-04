@@ -27,7 +27,8 @@ from lab.platform import redis_client as _redis_client
 # (lab.substrate.container.SUBSTRATE_KEYS) — a workload container must never carry them (CLAUDE.md invariant).
 CONFIG_KEYS = (
     "GATEWAY_URL", "GATEWAY_MCP_URL", "REDIS_URL",
-    "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "REVIEW_APP_URL", "JAEGER_UI_URL",
+    "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",
+    "REVIEW_APP_URL", "JAEGER_UI_URL",
     "BIND_HOST", "MCP_SHARED_SECRET", "ADOIT_REST_WRITE",
 )
 

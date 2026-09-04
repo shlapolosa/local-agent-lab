@@ -68,17 +68,37 @@ is written to, and reviewed against, the same bar — a standing standard, not a
   **Exempt: spikes, experiments, one-off scripts and probes** (`scripts/` generators, scratchpad
   spikes, `scripts/e2e_smoke.py`-style probes) — but a spike that graduates into production code brings
   its tests with it when it graduates.
-- **OO, DDD, hexagonal/onion — where they earn their keep** — cohesive typed objects (dataclasses)
-  that enforce their own invariants instead of shared mutable dicts + helper bags; a **ubiquitous
-  language** (Workload, Source, Representation, Element, Relation, View, Domain/Folder, Approval,
-  Repository object, canonical name) used identically in code, prompts and schemas; explicit
-  **bounded contexts** (Ingestion/Reading · Modelling · EA-repository write · Governance ·
-  Observability) with translation at the edges; the **domain core** (ArchiMate model + legality,
-  canonicalisation, accumulators, repair) never imports Redis/LiteLLM/ADOIT/LibreOffice/Streamlit —
-  it talks to **ports** (ArtifactStore, EARepository, AgentClient, RunLog, Lock, Queue,
-  DiagramRenderer, DocumentParser) wired to **adapters** in one composition root. Not layers for their
-  own sake: apply exactly at the seams that change on Azure migration, need faking in tests, or are
-  duplicated today.
+- **Abstraction layer -> adapters -> DI seam (the system's shape; user decision Sep 4 2026).** Every
+  external dependency is reached through a PORT; a concrete realisation is an ADAPTER; the composition
+  root wires them. Two KINDS, and the difference decides how much work an adapter is:
+  - **Infrastructure ports** (generic, no domain meaning): ArtifactStore/UploadStore, Cache (Redis),
+    Observability (tracer/exporter), Queue + Lock (streams), and — already satisfied by the gateway —
+    Inference (`(base_url, credential)` + model name). Their adapters are usually **configuration, not
+    code**: a URL scheme picks the store (`file://` | `s3://` | postgres), a URL picks Redis, an
+    endpoint picks the OTLP target. Adding one (Azure Blob) = one class + one line in the ONE dispatch.
+  - **Domain ports** (speak the ubiquitous language): EARepository, DocumentParser, DiagramRenderer,
+    AgentIdentity. Their adapters need a **MAPPER** between the external model and ours (ADOIT
+    `C_APPLICATION_COMPONENT` <-> ArchiMate `ApplicationComponent`; a `.vsdx` page <-> Source/Shape).
+    The mapper is where correctness lives, so it is tested on its own, apart from any transport.
+  **Placement follows the tiers**: a domain port is declared in `lab.core` (the domain states what it
+  needs, imports nothing), an infrastructure port in `lab.platform`; ADAPTERS live where their
+  credentials do (`lab.substrate`, or `lab.platform` when pure); only a composition root
+  (`lab.platform.container` / `lab.substrate.container`) names an adapter. **DI is the seam** — tests
+  swap any port with `container.<provider>.override(fake)`; the Azure move swaps adapters there or in
+  `.env`, never in domain code.
+  Everything else DDD stays as before: cohesive typed objects (dataclasses) that enforce their own
+  invariants instead of shared mutable dicts + helper bags; a **ubiquitous language** (Workload, Source,
+  Representation, Element, Relation, View, Domain/Folder, Approval, Repository object, canonical name)
+  used identically in code, prompts and schemas; explicit **bounded contexts** (Ingestion/Reading ·
+  Modelling · EA-repository write · Governance · Observability) with translation at the edges; the
+  **domain core** (ArchiMate model + legality, canonicalisation, accumulators, repair) never imports
+  Redis/LiteLLM/ADOIT/LibreOffice/Streamlit. **Not layers for their own sake**: a port earns its place
+  only where it changes on Azure migration, needs faking in tests, or already has two implementations.
+  **Status (measured Sep 4 2026)**: infrastructure is DONE — store adapter by URL (verified
+  file/s3/postgres), Redis by URL, tracer by endpoint, inference by gateway config, and a workload
+  container structurally cannot hold a store credential. **Domain ports are the gap**: `adoit_rest` is
+  imported concretely (no EARepository port — the highest-value one, since it is the dependency that
+  would actually change), `msal` is constructed directly in identity, parsers are concrete.
 - **Scale & migration readiness** — the lab exists for **pattern parity with the Microsoft/Azure
   ecosystem** (Container Apps, APIM, AI Foundry, Entra, App Insights, Blob/Redis/Cosmos, Microsoft Agent
   Framework). Keep local specifics (LiteLLM-only calls, Redis key shapes, Railway/brew/LibreOffice host
@@ -118,6 +138,13 @@ These rules define the lab; do not violate them when adding code:
   Bucket/DB credentials live in the substrate (storage-mcp, the review app that uploads) and
   `deploy/railway.py configure_workload()` strips them from every workload service.
 - **Every workflow host sets a distinct OTel service name** (e.g. `process-1-intake`) so concurrent processes can be traced and audited independently.
+- **Every MCP server lives in the SUBSTRATE; workloads are MCP CLIENTS only.** Five servers today:
+  `adoit-mcp` (:9100), `semantic-mcp` (:9200), `storage-mcp` (:9300), `workflow-mcp` (:9400). A domain
+  dependency's ADAPTER is its MCP server and the PORT is its tool contract (`lab.platform.contracts`) —
+  swapping ADOIT for another EA tool means a different server satisfying the same tools, re-registered;
+  no workload changes. (Today the repository tools still NAME the vendor — `adoit_search`,
+  `adoit_excel_render` leaks an ADOIT:CE limitation into the port — renaming them to neutral verbs is
+  open work.)
 - **A workload's EXTERNAL contract is an MCP server registered in the gateway, not an agent façade.**
   A workload is a deterministic workflow that CONTAINS agents; containment is not an interface.
   `<process>_submit(...)` enqueues and returns a `request_id` (runs take 600-1000 s — sync is
@@ -140,6 +167,16 @@ These rules define the lab; do not violate them when adding code:
 Business processes are Agent Framework **Workflows** — typed graphs orchestrating ChatAgents and deterministic functions (sequential, concurrent, handoff patterns; checkpointing; human-in-the-loop pauses). A shared services layer provides the workflow engine, the middleware chain (Presidio → approval gates → OTel emission), and MCP/A2A client integrations.
 
 ## Business Processes (`src/lab/workloads/`) — Agent Framework Workflows
+
+**Adding a business process = ONE `ProcessSpec` in `lab.platform.contracts.PROCESSES`** (name, consumer
+group, typed inputs, declared outputs). From that entry `workflow-mcp` GENERATES the three governed
+tools `<process>_submit|_status|_result` with their JSON schemas, and `spec.validate()` is the single
+input validator every external surface should use. `_submit` is enqueue-and-acknowledge — it publishes
+one `workflow:requests` event and returns a `request_id` IMMEDIATELY (runs take 600-1000 s, so no tool
+call may block on one). Still manual per process: its consumer group in `workflows.GROUPS`, a consumer
+host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` is granted to the teams
+that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
+agents.
 
 Each business process is one host under `src/lab/workloads/<name>/` with a distinct OTel service name.
 The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the reference:
@@ -374,10 +411,16 @@ used by one tier lives in that tier) — no catch-all "shared". The exception ra
 **Tests mirror the code**: a change to `src/lab/<tier>/<path>.py` has its tests in `tests/unit/<tier>/<path>/`
 (`test_<module>.py`, `test_<module>_more.py`); shared doubles live in `tests/fixtures/` (`fakes.FakeRedis`,
 `patched_client`, …); tests that need the local Redis go under `tests/integration/` and skip themselves when
-it is unreachable. `tests/run.sh [--cov]` is the authoritative run — **one pytest process per file** because
-11 script-style modules still pin `os.environ`/config at import (a single-process `pytest tests` lets the
-last import leak into every other module). New tests pin the environment with `monkeypatch`/fixtures, never at
-import; when the 11 are converted, `run.sh` collapses to `pytest tests`.
+it is unreachable. `tests/run.sh [--cov]` is the authoritative run — **ONE pytest process** (`pytest tests`, 563 tests,
+99 % coverage, `fail_under = 95`). It used to be one process per file because 11 modules pinned
+`os.environ`/config at IMPORT time; they now pin it in fixtures, and `tests/conftest.py` closes the
+process-global seams for everyone: `os.environ` and the OTel tracer provider are snapshotted and
+restored around EVERY test, and — the root cause nobody had named — **`import litellm` calls
+`load_dotenv()`**, which poured the real `.env` (Entra client secrets, the Neon `DATABASE_URL`, the
+cloud `REDIS_URL`) into the suite and made a "unit" test fetch a LIVE MSAL token; that import is now
+done and undone once before collection. Pin env with `monkeypatch`/fixtures, never at import.
+`tests/run.sh --per-file` is the diagnostic fallback: a test that passes there but fails in the single
+process is leaking process-global state.
 
 ## Commands
 

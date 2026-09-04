@@ -17,30 +17,46 @@ import tempfile
 import urllib.request
 from contextlib import contextmanager
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-TMP = tempfile.mkdtemp(prefix="adoit-mcp-test-")
-os.environ.update({"ADOIT_BASE_URL": "https://adoit.test/ADOIT", "ADOIT_USERNAME": "lab-user",
-                   "ADOIT_PASSWORD": "s3cret", "ADOIT_REPO_ID": "{repo-1}", "MCP_SHARED_SECRET": "shh"})
-for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL", "ADOIT_REST_WRITE"):
-    os.environ.pop(k, None)
-
-from fastmcp import Client  # noqa: E402
-
-from lab.substrate import artifacts  # noqa: E402
+import pytest
+from fastmcp import Client
 
 from lab.platform import config
+from lab.substrate import artifacts
 
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SERVER = os.path.join(ROOT, "src", "lab", "substrate", "mcp", "adoit", "server.py")
-_spec = importlib.util.spec_from_file_location("adoit_mcp_server", SERVER)
-srv = importlib.util.module_from_spec(_spec)
-sys.modules["adoit_mcp_server"] = srv
-_spec.loader.exec_module(srv)
 
-# the store the server writes to is THIS temp LocalStore whatever config resolved to (pytest may
-# have imported lab.platform.config from another module first): override the kit's provider
-STORE = artifacts.LocalStore(os.path.join(TMP, "store"))
-srv.server.container.artifacts.override(STORE)
+TMP = srv = STORE = None            # set up by `_server` (never at import: it pins the environment)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _server():
+    """Compose the server against a fake ADOIT tenant and a temp artifact store. The server composes
+    at import, so the environment is pinned HERE (a module fixture) — at this module's import it
+    leaked the fake tenant, `MCP_SHARED_SECRET` and a popped `DATABASE_URL` into every other test
+    module. The store the server writes to is THIS temp LocalStore whatever config resolved to:
+    override the kit's provider rather than the environment. Undone with the module."""
+    global TMP, srv, STORE
+    mp = pytest.MonkeyPatch()
+    TMP = tempfile.mkdtemp(prefix="adoit-mcp-test-")
+    for k, v in {"ADOIT_BASE_URL": "https://adoit.test/ADOIT", "ADOIT_USERNAME": "lab-user",
+                 "ADOIT_PASSWORD": "s3cret", "ADOIT_REPO_ID": "{repo-1}",
+                 "MCP_SHARED_SECRET": "shh"}.items():
+        mp.setenv(k, v)
+    for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL", "ADOIT_REST_WRITE"):
+        mp.delenv(k, raising=False)
+
+    spec = importlib.util.spec_from_file_location("adoit_mcp_server", SERVER)
+    srv = importlib.util.module_from_spec(spec)
+    sys.modules["adoit_mcp_server"] = srv
+    spec.loader.exec_module(srv)
+
+    STORE = artifacts.LocalStore(os.path.join(TMP, "store"))
+    srv.server.container.artifacts.override(STORE)
+    yield
+    sys.modules.pop("adoit_mcp_server", None)
+    mp.undo()
+    TMP = srv = STORE = None
 
 TOOLS = {"archimate_validate", "archimate_render", "adoit_excel_render", "adoit_repos", "adoit_search",
          "adoit_object", "adoit_request_import", "adoit_import_status", "adoit_import_instructions"}
@@ -386,6 +402,4 @@ def test_integration_real_approvals_on_local_redis():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
+    sys.exit(pytest.main([__file__, "-q"]))

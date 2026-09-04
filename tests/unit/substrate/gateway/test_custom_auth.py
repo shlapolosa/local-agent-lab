@@ -21,6 +21,7 @@ import time
 import urllib.request
 
 import jwt
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -36,10 +37,10 @@ ENV = {
     "ENTRA_CLIENT_TO_KEY": json.dumps({AGENT_APP: AGENT_KEY}),
     "REDIS_URL": "redis://127.0.0.1:1/0",           # never connected to: constructing a client is lazy
 }
-os.environ.update(ENV)
-os.environ.pop("DEVELOPERS_TEAM_ID", None)
 
 CA_PATH = os.path.join(ROOT, "src", "lab", "substrate", "gateway", "custom_auth.py")
+
+ca = None                                            # the module under test; loaded by `_fake_tenant`
 
 
 def _load_by_file_path():
@@ -51,7 +52,21 @@ def _load_by_file_path():
     return mod
 
 
-ca = _load_by_file_path()
+@pytest.fixture(scope="module", autouse=True)
+def _fake_tenant():
+    """The hook reads ENTRA_* ONCE at import (TENANT/AUDIENCE/ISSUERS are module constants), so the
+    fake tenant is pinned around the import — in a fixture, not at module import, where it would
+    leak the fake Entra tenant into every other test module. Torn down with the module."""
+    global ca
+    mp = pytest.MonkeyPatch()
+    for k, v in ENV.items():
+        mp.setenv(k, v)
+    mp.delenv("DEVELOPERS_TEAM_ID", raising=False)
+    ca = _load_by_file_path()
+    yield
+    sys.modules.pop("lab.substrate.gateway.custom_auth", None)   # imported below with the fake tenant
+    mp.undo()
+    ca = None
 
 # ---------------------------------------------------------------- key material + token minting
 _PRIV = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -127,6 +142,16 @@ class _Patch:
             else:
                 setattr(obj, name, old)
         self.saved.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_patches():
+    """`_fresh()` patches the PROCESS-global `urllib.request.urlopen`; a test that forgets its
+    `p.undo()` used to leave the fake JWKS endpoint installed for the rest of the session (it broke
+    xmlschema's XSD loading three test packages later). Restore it whatever a test does."""
+    saved = urllib.request.urlopen
+    yield
+    urllib.request.urlopen = saved
 
 
 def _fresh(jwks=None):
@@ -376,7 +401,4 @@ def test_return_type_is_always_none_or_str():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn()
-            print("ok", name)
+    sys.exit(pytest.main([__file__, "-q"]))

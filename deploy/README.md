@@ -4,8 +4,8 @@ Two tiers, deployed and torn down **independently** (mirrors the Azure org split
 runs the shared plane once; each product team ships its workload onto it):
 
 - **Substrate** = the shared platform plane: `redis` (limiter state + streams, internal),
-  `gateway` (governance, public), `semantic-mcp` + `adoit-mcp` + `storage-mcp` (shared tools,
-  internal), `review` (approval gate + Submit, public), `jaeger` (tracing). Deployed once.
+  `gateway` (governance, public), `semantic-mcp` + `adoit-mcp` + `storage-mcp` + `workflow-mcp`
+  (shared tools, internal), `review` (approval gate + Submit, public), `jaeger` (tracing). Deployed once.
 - **Workloads** = business processes (`src/lab/workloads/<name>/`), each its own container set, referencing
   the substrate ONLY through the gateway's public domain + the shared managed backends. Spin up/down
   on their own. Cross-workflow deps go via **events (Redis Streams)** or **A2A through the gateway** —
@@ -43,7 +43,7 @@ machine-local ones (Redis Cloud, Railway Jaeger) — secrets never leave `.env`.
 
 - **Least privilege (per-role env allowlist):** a service receives ONLY the `.env` keys its role
   reads — `ROLE_ENV` in `deploy/railway.py` (gateway / adoit-mcp / semantic-mcp / storage-mcp /
-  review / workload; glob patterns, each line cites the code that reads the key). The bucket
+  workflow-mcp / review / workload; glob patterns, each line cites the code that reads the key). The bucket
   credentials (`S3_*` + `UPLOADS_URL`) are granted only by a service's `"s3": True` flag (review +
   storage-mcp); a workload gets no `ADOIT_*`, no `LITELLM_MASTER_KEY`, no upstream model keys, no
   `MCP_SHARED_SECRET`, no `DATABASE_URL`, no bucket. `substrate env` / `workload <n> env` print the
@@ -51,7 +51,7 @@ machine-local ones (Redis Cloud, Railway Jaeger) — secrets never leave `.env`.
   Key-Vault-reference scope per Container App. `tests/deploy/test_railway_env.py` pins it (offline).
 - **Networking:** the substrate lives in one Railway project/environment, so the gateway reaches the
   MCP servers over private DNS (`adoit-mcp.railway.internal:9100`, `semantic-mcp…:9200`,
-  `storage-mcp…:9300`). The MCP servers get **no public domain**; only `gateway` (targetPort 4000)
+  `storage-mcp…:9300`, `workflow-mcp…:9400`). The MCP servers get **no public domain**; only `gateway` (targetPort 4000)
   and `review` (8501) do. Services bind `::` (`BIND_HOST=::`) — Railway private networking is IPv6.
 - **Trust:** `MCP_SHARED_SECRET` is mandatory (servers enforce it, gateway sends it) since
   `BIND_HOST` is not loopback. Review app behind `REVIEW_APP_PASSWORD` (Azure equivalent: Container

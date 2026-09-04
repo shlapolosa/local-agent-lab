@@ -8,19 +8,24 @@ the consumer's namespace (module globals looked up at call time); no Redis, no g
 Run: .venv/bin/python tests/unit/workloads/visio_to_archimate/test_consumer.py   (also pytest-compatible)"""
 import contextlib
 import io
-import os
 import runpy
 import signal
 import sys
 import time
 from types import SimpleNamespace
 
-os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
-os.environ["GATEWAY_URL"] = "http://gw.test:4000"
+import pytest
 
-from lab.workloads.visio_to_archimate import consumer  # noqa: E402
-from lab.platform import workflows as real_workflows  # noqa: E402
-from lab.platform.contracts import WorkflowRequest  # noqa: E402
+from lab.platform import workflows as real_workflows
+from lab.platform.contracts import WorkflowRequest
+from lab.workloads.visio_to_archimate import consumer
+
+
+@pytest.fixture(autouse=True)
+def _tracing_off(monkeypatch):
+    """`main()` builds the real container and takes its tracer, so keep tracing off — pinned per
+    test, never at import (where it leaked into every other module)."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
 OUT = {"request_id": "apr-1", "review_app": "http://review.test", "xml_ref": "art://x/m.xml",
        "summary": {"elements": 2}, "trace_id": "ab" * 16}
@@ -256,7 +261,4 @@ def test_module_entry_point_runs_main():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
-    print("ALL TESTS PASSED")
+    sys.exit(pytest.main([__file__, "-q"]))

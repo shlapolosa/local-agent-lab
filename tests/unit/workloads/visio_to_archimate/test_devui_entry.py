@@ -7,31 +7,48 @@ Offline: the container's tracer is a local SDK provider with no exporter, host._
 the DevUI `serve` and AF `enable_instrumentation` are recorders. Same collaborator fakes as test_host.py.
 Run: .venv/bin/python tests/unit/workloads/visio_to_archimate/test_devui_entry.py   (also pytest-compatible)"""
 import contextlib
+import importlib
 import io
 import json
 import os
 import runpy
 import sys
 
-# devui_entry loads the repo .env only when it IS the script (never on import), so a plain import adds
-# nothing to the environment; the runpy entry test still gets it with override=False, hence the pins
-# below (an empty OTLP endpoint means "tracing off" to lab.platform.otel and blocks the .env value).
-os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
-os.environ["GATEWAY_URL"] = "http://gw.test:4000/"
-os.environ["DEVUI_PORT"] = "8099"
-os.environ["JAEGER_UI_URL"] = "http://jaeger.test"
-for _p in ("BA_AGENT", "ARCHITECT_AGENT"):
-    os.environ[f"{_p}_CLIENT_ID"] = ""; os.environ[f"{_p}_CLIENT_SECRET"] = ""
-    os.environ[f"{_p}_KEY"] = f"sk-{_p.lower()}"
+import pytest
 
-import agent_framework.devui as devui_mod  # noqa: E402
-import agent_framework.observability as obs_mod  # noqa: E402
-from lab.platform import container as container_mod  # noqa: E402
-from lab.workloads.visio_to_archimate import devui_entry as D  # noqa: E402
-from lab.workloads.visio_to_archimate import host as H  # noqa: E402
-from fixtures.host import Patched, Recorder, make_root  # noqa: E402
+import agent_framework.devui as devui_mod
+import agent_framework.observability as obs_mod
+from fixtures.host import Patched, Recorder, make_root
+from lab.platform import config
+from lab.platform import container as container_mod
+from lab.workloads.visio_to_archimate import devui_entry as D
+from lab.workloads.visio_to_archimate import host as H
 
 HOST_SERVICE = "process-visio-to-archimate"
+
+
+@pytest.fixture(autouse=True)
+def _devui_env(monkeypatch):
+    """devui_entry loads the repo .env only when it IS the script (never on import), so a plain import
+    adds nothing to the environment; the runpy entry test still gets it with override=False — hence
+    the pins below (an empty OTLP endpoint means "tracing off" to lab.platform.otel and blocks the
+    .env value, and the agent credentials must not reach for MSAL). `DEVUI_PORT` is read once, at
+    devui_entry's import, so the module is reloaded under the pin and reloaded back afterwards;
+    tests/conftest.py restores the environment the .env load pours in. Addresses come from the
+    CONTAINER (lab.platform.config, read once at ITS import), so those are pinned on the config
+    module, not the environment."""
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    monkeypatch.setenv("GATEWAY_URL", "http://gw.test:4000/")
+    monkeypatch.setenv("DEVUI_PORT", "8099")
+    monkeypatch.setenv("JAEGER_UI_URL", "http://jaeger.test")
+    for prefix in ("BA_AGENT", "ARCHITECT_AGENT"):
+        monkeypatch.setenv(f"{prefix}_CLIENT_ID", ""); monkeypatch.setenv(f"{prefix}_CLIENT_SECRET", "")
+        monkeypatch.setenv(f"{prefix}_KEY", f"sk-{prefix.lower()}")
+    monkeypatch.setattr(config, "JAEGER_UI_URL", "http://jaeger.test")
+    importlib.reload(D)
+    yield
+    monkeypatch.undo()
+    importlib.reload(D)
 
 
 def _seams(*extra):
@@ -183,7 +200,4 @@ def test_module_entry_runs_main():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
-    print("ALL TESTS PASSED")
+    sys.exit(pytest.main([__file__, "-q"]))

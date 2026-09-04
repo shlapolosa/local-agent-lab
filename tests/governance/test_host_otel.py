@@ -4,11 +4,19 @@ is `container.build(SERVICE).tracer()`, so the service name is a container setti
 its own name from its own container instead of mutating the one-shot host's. Offline: tracing off (no
 OTLP endpoint) -> no-op tracer."""
 import os
+import sys
 
-os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+import pytest
 
-from lab.platform import container, otel  # noqa: E402
-from lab.workloads.visio_to_archimate import host  # noqa: E402
+from lab.platform import container, otel
+from lab.workloads.visio_to_archimate import host
+
+
+@pytest.fixture(autouse=True)
+def _tracing_off(monkeypatch):
+    """Offline: no OTLP endpoint -> the container's tracer is OTel's no-op proxy (pinned per test,
+    never at import; tests/conftest.py restores the OTel globals around every test)."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
 
 def test_host_has_no_private_otel_setup_and_no_tracer_wrapper():
@@ -34,7 +42,4 @@ def test_each_host_composes_its_own_service_name_without_mutating_another():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
-    print("ALL TESTS PASSED")
+    sys.exit(pytest.main([__file__, "-q"]))

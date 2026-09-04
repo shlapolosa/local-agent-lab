@@ -16,33 +16,22 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
+import docx
+import pytest
+from docx.shared import Inches
+from fastmcp import Client
+from mcp.types import ImageContent, TextContent
+from PIL import Image
 
-TMP = tempfile.mkdtemp(prefix="storage-mcp-test-")
-os.environ.update({"MCP_SHARED_SECRET": "shh"})   # the upload store is overridden on the container
-ENV_OWNED = "UPLOADS_URL" not in os.environ and "lab.platform.config" not in sys.modules   # we control the fallback
-for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL",
-          "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
-    os.environ.pop(k, None)
-
-import docx  # noqa: E402
-from docx.shared import Inches  # noqa: E402
-from fastmcp import Client  # noqa: E402
-from mcp.types import ImageContent, TextContent  # noqa: E402
-from PIL import Image  # noqa: E402
-
-from lab.workloads.visio_to_archimate import make_sample_vsdx as MV  # noqa: E402
-from lab.substrate import artifacts  # noqa: E402
 from lab.platform import config
+from lab.substrate import artifacts
+from lab.workloads.visio_to_archimate import make_sample_vsdx as MV
 
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
 SERVER = os.path.join(ROOT, "src", "lab", "substrate", "mcp", "storage", "server.py")
-_spec = importlib.util.spec_from_file_location("storage_mcp_server", SERVER)
-srv = importlib.util.module_from_spec(_spec)
-sys.modules["storage_mcp_server"] = srv
-_spec.loader.exec_module(srv)
 
-UP = artifacts.LocalStore(os.path.join(TMP, "uploads"))
-srv.server.container.uploads.override(UP)               # the UPLOAD store the tools read, via the kit
+TMP = srv = UP = REFS = None        # set up by `_server` (never at import: it pins the environment)
+ENV_OWNED = False                   # true when no UPLOADS_URL was exported -> we own the fallback
 
 TOOLS = {"storage_list", "storage_info", "storage_get", "storage_read_document", "storage_read_vsdx",
          "storage_extract_figures"}
@@ -80,16 +69,42 @@ def _docx(with_figure=True) -> bytes:
     buf = io.BytesIO(); d.save(buf); return buf.getvalue()
 
 
-REFS = {
-    "vsdx": UP.put("lab-system.vsdx", _vsdx(), artifacts.content_type_for("x.vsdx")),
-    "png": UP.put("diagram.png", _png(), "image/png"),
-    "jpg": UP.put("photo.jpg", _png(300, "JPEG"), "image/jpeg"),
-    "big": UP.put("big.png", _png(700), "image/png"),
-    "tiny": UP.put("icon.png", _png(16), "image/png"),
-    "docx": UP.put("req.docx", _docx(), artifacts.content_type_for("x.docx")),
-    "plain": UP.put("plain.docx", _docx(with_figure=False), artifacts.content_type_for("x.docx")),
-    "md": UP.put("notes.md", b"# Notes\n\nThe portal must be fast.\n", "text/markdown"),
-}
+@pytest.fixture(scope="module", autouse=True)
+def _server():
+    """Compose the server against a temp LocalStore standing in for the upload store. The server
+    composes at import and `lab.platform.config` reads the env once at ITS import, so the pins live
+    HERE (a module fixture) rather than at this module's import, where they would leak — most
+    sharply `MCP_SHARED_SECRET` and a popped `DATABASE_URL`. Undone with the module."""
+    global TMP, srv, UP, REFS, ENV_OWNED
+    mp = pytest.MonkeyPatch()
+    TMP = tempfile.mkdtemp(prefix="storage-mcp-test-")
+    ENV_OWNED = "UPLOADS_URL" not in os.environ           # we control the fallback config resolved
+    mp.setenv("MCP_SHARED_SECRET", "shh")                 # the upload store is overridden on the container
+    for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL",
+              "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
+        mp.delenv(k, raising=False)
+
+    spec = importlib.util.spec_from_file_location("storage_mcp_server", SERVER)
+    srv = importlib.util.module_from_spec(spec)
+    sys.modules["storage_mcp_server"] = srv
+    spec.loader.exec_module(srv)
+
+    UP = artifacts.LocalStore(os.path.join(TMP, "uploads"))
+    srv.server.container.uploads.override(UP)        # the UPLOAD store the tools read, via the kit
+    REFS = {
+        "vsdx": UP.put("lab-system.vsdx", _vsdx(), artifacts.content_type_for("x.vsdx")),
+        "png": UP.put("diagram.png", _png(), "image/png"),
+        "jpg": UP.put("photo.jpg", _png(300, "JPEG"), "image/jpeg"),
+        "big": UP.put("big.png", _png(700), "image/png"),
+        "tiny": UP.put("icon.png", _png(16), "image/png"),
+        "docx": UP.put("req.docx", _docx(), artifacts.content_type_for("x.docx")),
+        "plain": UP.put("plain.docx", _docx(with_figure=False), artifacts.content_type_for("x.docx")),
+        "md": UP.put("notes.md", b"# Notes\n\nThe portal must be fast.\n", "text/markdown"),
+    }
+    yield
+    sys.modules.pop("storage_mcp_server", None)
+    mp.undo()
+    TMP = srv = UP = REFS = None
 
 
 def call(_tool, **args):
@@ -257,6 +272,4 @@ def test_main_bucket_env_check_and_serve():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
+    sys.exit(pytest.main([__file__, "-q"]))

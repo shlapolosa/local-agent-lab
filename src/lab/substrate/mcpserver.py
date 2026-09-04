@@ -1,5 +1,5 @@
-"""How every lab MCP server is built and served — ONE kit, three servers (adoit-mcp, semantic-mcp,
-storage-mcp), so the governance-relevant plumbing cannot drift between them:
+"""How every lab MCP server is built and served — ONE kit, four servers (adoit-mcp, semantic-mcp,
+storage-mcp, workflow-mcp), so the governance-relevant plumbing cannot drift between them:
 
   * `LabServer` (Facade + Template Method) — composes the server from the substrate container
     (`lab.substrate.container.build(service)`: config, redis, tracer, artifact + upload stores), owns
@@ -28,7 +28,7 @@ storage-mcp), so the governance-relevant plumbing cannot drift between them:
 Tests override what the server depends on through the container (`server.container.artifacts
 .override(fake)`, `.tracer.override(...)`) — never by patching module globals. Every dependency is
 held as the PROVIDER and resolved per use, so an override works on a server that was already built
-(all three are built at module import). Image-returning tools
+(all four are built at module import). Image-returning tools
 must have NO return annotation (fastmcp derives an outputSchema from it, and image content cannot
 satisfy one); the wrapper preserves the original signature, so that rule is unchanged.
 """

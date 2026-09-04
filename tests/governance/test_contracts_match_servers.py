@@ -24,6 +24,7 @@ SERVER_MODULES = {                       # gateway alias -> the server module th
     "storage_mcp": "lab.substrate.mcp.storage.server",
     "semantic_mcp": "lab.substrate.mcp.semantic.server",
     "adoit_mcp": "lab.substrate.mcp.adoit.server",
+    "workflow_mcp": "lab.substrate.mcp.workflow.server",
 }
 
 
@@ -69,6 +70,15 @@ def test_contract_catalogue_equals_the_servers_registered_tools(alias, pinned_en
     registered, contract = registered_tools(module), contracts.SERVERS[alias].names()
     assert registered - contract == set(), f"{alias}: server tools missing from the contract"
     assert contract - registered == set(), f"{alias}: contract names no server tool"
+
+
+def test_every_registered_server_forwards_trace_context():
+    """`extra_headers: [traceparent, tracestate]` on EVERY server: without it the gateway drops W3C
+    trace context and the server's spans land in a SEPARATE trace (verified both ways, CLAUDE.md)."""
+    servers = yaml.safe_load(open(LITELLM_CONFIG, encoding="utf-8"))["mcp_servers"]
+    for alias, spec in servers.items():
+        assert spec.get("extra_headers") == ["traceparent", "tracestate"], alias
+        assert spec.get("auth_type") == "bearer_token" and spec.get("description"), alias
 
 
 def test_every_gateway_server_alias_has_a_contract():

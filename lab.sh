@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # lab.sh — bring the local agent lab up/down in one command.
 #   ./lab.sh up      start redis (brew, or check the cloud one), jaeger (native, or DEPLOY the Railway one when
-#                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), gateway (:4000), review app (:8501)
-#   ./lab.sh down    stop everything — including the metered Railway Jaeger deployment
-#   ./lab.sh down    stop adoit-mcp + gateway (redis is left to brew services)
+#                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), storage-mcp (:9300),
+#                    workflow-mcp (:9400), gateway (:4000), review app (:8501)
+#   ./lab.sh down    stop everything — the MCP servers, gateway, review app, consumer and the metered
+#                    Railway Jaeger deployment (redis is left to brew services)
 #   ./lab.sh status  what is running, what the gateway sees, pending approvals
 #   ./lab.sh review  (re)start only the architecture review app (streamlit :8501) — the approval channel
 # Every service is launched with `env -u ANTHROPIC_API_KEY`: only .env holds lab credentials —
@@ -20,11 +21,20 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
   [ "${ARTIFACTS_URL:-}" = '$DATABASE_URL' ] && export ARTIFACTS_URL="$DATABASE_URL"
   export BIND_HOST="${BIND_HOST:-127.0.0.1}"
   export ADOIT_MCP_URL="${ADOIT_MCP_URL:-http://127.0.0.1:9100/mcp}" SEMANTIC_MCP_URL="${SEMANTIC_MCP_URL:-http://127.0.0.1:9200/mcp}" \
-         STORAGE_MCP_URL="${STORAGE_MCP_URL:-http://127.0.0.1:9300/mcp}"; }
+         STORAGE_MCP_URL="${STORAGE_MCP_URL:-http://127.0.0.1:9300/mcp}" \
+         WORKFLOW_MCP_URL="${WORKFLOW_MCP_URL:-http://127.0.0.1:9400/mcp}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
 free_port() { local pids; pids=$(lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null || true); [ -n "$pids" ] && { kill -9 $pids 2>/dev/null; sleep 1; }; return 0; }  # || true + return 0: lsof exits 1 when the port is already free; under set -e that must not abort up()
+# One MCP server: already up -> report, else launch it detached (ambient creds stripped) and wait for
+# /mcp. All four differ ONLY in name, module and port, so they share this.
+start_mcp() {   # name, module, port
+  if alive "$1"; then printf "%-12s ok  already running (pid %s)\n" "$1" "$(cat "$RUN/$1.pid")"; return 0; fi
+  env -u ANTHROPIC_API_KEY nohup "$PY" -m "$2" >"$LOGS/$1.log" 2>&1 & echo $! >"$RUN/$1.pid"
+  wait_http "http://127.0.0.1:$3/mcp" "" 20 || true
+  printf "%-12s started  http://127.0.0.1:%s/mcp\n" "$1" "$3"
+}
 remote_tracing() { [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; }
 
 # Jaeger on Railway is metered (trial credit): `up` deploys it, `down` removes the deployment
@@ -83,18 +93,11 @@ up() {
     nohup ./var/tools/jaeger/jaeger >"$LOGS/jaeger.log" 2>&1 & echo $! >"$RUN/jaeger.pid"
     wait_http "http://127.0.0.1:16686/api/services" "data" 20 && echo "jaeger       started  http://127.0.0.1:16686 (OTLP :4318)" \
       || { echo "jaeger       FAILED — see var/logs/jaeger.log"; exit 1; }; fi
-  # adoit-mcp: ArchiMate engine + ADOIT facade, registered with the gateway's MCP registry
-  if alive adoit-mcp; then echo "adoit-mcp    ok  already running (pid $(cat $RUN/adoit-mcp.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.mcp.adoit.server >"$LOGS/adoit-mcp.log" 2>&1 & echo $! >"$RUN/adoit-mcp.pid"
-    wait_http "http://127.0.0.1:9100/mcp" "" 20 || true; echo "adoit-mcp    started  http://127.0.0.1:9100/mcp"; fi
-  # semantic-mcp: vocabularies / classification / legality / SPARQL (read-only, granted to all teams)
-  if alive semantic-mcp; then echo "semantic-mcp ok  already running (pid $(cat $RUN/semantic-mcp.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.mcp.semantic.server >"$LOGS/semantic-mcp.log" 2>&1 & echo $! >"$RUN/semantic-mcp.pid"
-    wait_http "http://127.0.0.1:9200/mcp" "" 20 || true; echo "semantic-mcp started  http://127.0.0.1:9200/mcp"; fi
-  # storage-mcp: READ-ONLY governed access to the upload store — the only way a workload reads an input object
-  if alive storage-mcp; then echo "storage-mcp ok  already running (pid $(cat $RUN/storage-mcp.pid))"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.mcp.storage.server >"$LOGS/storage-mcp.log" 2>&1 & echo $! >"$RUN/storage-mcp.pid"
-    wait_http "http://127.0.0.1:9300/mcp" "" 20 || true; echo "storage-mcp started  http://127.0.0.1:9300/mcp"; fi
+  # the MCP servers, all started the same way (start_mcp: name, module, port) — a fifth is one line
+  start_mcp adoit-mcp    lab.substrate.mcp.adoit.server    9100   # ArchiMate engine + ADOIT facade
+  start_mcp semantic-mcp lab.substrate.mcp.semantic.server 9200   # vocabularies/legality/SPARQL (read-only, all teams)
+  start_mcp storage-mcp  lab.substrate.mcp.storage.server  9300   # READ-ONLY upload store: the only way a workload reads an input
+  start_mcp workflow-mcp lab.substrate.mcp.workflow.server 9400   # business processes: <process>_submit/_status/_result (async)
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
@@ -147,20 +150,18 @@ review() {
 }
 
 down() {
-  for s in wf-visio review litellm storage-mcp semantic-mcp adoit-mcp jaeger; do
+  for s in wf-visio review litellm workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
-  pkill -f "lab.substrate.mcp.adoit.server" 2>/dev/null || true
-  pkill -f "lab.substrate.mcp.semantic.server" 2>/dev/null || true
-  pkill -f "lab.substrate.mcp.storage.server" 2>/dev/null || true
+  for m in adoit semantic storage workflow; do pkill -f "lab.substrate.mcp.$m.server" 2>/dev/null || true; done
   pkill -f "lab.workloads.visio_to_archimate.consumer" 2>/dev/null || true
 }
 
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp storage-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   load_env 2>/dev/null || true
   if [ -n "${REDIS_URL:-}" ]; then redis-cli -u "$REDIS_URL" --no-auth-warning ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        cloud ok (${REDIS_HOST:-})" || echo "redis        cloud UNREACHABLE";
   else redis-cli ping 2>/dev/null | /usr/bin/grep -q PONG && echo "redis        running (local)" || echo "redis        stopped"; fi

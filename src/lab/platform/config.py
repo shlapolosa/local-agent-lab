@@ -17,6 +17,7 @@ GATEWAY_MCP_URL  = _e("GATEWAY_MCP_URL", GATEWAY_URL.rstrip("/") + "/mcp/")
 ADOIT_MCP_URL    = _e("ADOIT_MCP_URL", "http://127.0.0.1:9100/mcp")     # as seen by the gateway
 SEMANTIC_MCP_URL = _e("SEMANTIC_MCP_URL", "http://127.0.0.1:9200/mcp")
 STORAGE_MCP_URL  = _e("STORAGE_MCP_URL", "http://127.0.0.1:9300/mcp")   # read-only governed object store
+WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # submit/status/result of every business process
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
@@ -27,6 +28,7 @@ BIND_HOST = _e("BIND_HOST", "127.0.0.1")   # 0.0.0.0 in containers
 ADOIT_MCP_PORT    = int(_e("ADOIT_MCP_PORT", "9100"))
 SEMANTIC_MCP_PORT = int(_e("SEMANTIC_MCP_PORT", "9200"))
 STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
+WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 
 # --- trust between services ---
 MCP_SHARED_SECRET = _e("MCP_SHARED_SECRET")          # gateway -> MCP servers bearer token; unset = open (local only)

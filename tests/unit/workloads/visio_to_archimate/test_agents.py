@@ -7,14 +7,30 @@ an MCP tool and an Agent opens no connection.
 Run: .venv/bin/python tests/unit/workloads/visio_to_archimate/test_agents.py   (also pytest-compatible)"""
 import importlib
 import os
+import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-os.environ["GATEWAY_URL"] = "http://gw.test:4000/"
-os.environ.pop("AGENT_RESPONSES_STORE", None)
-os.environ.pop("VISIO_AGENT_MODEL", None)
+import pytest
 
-from lab.workloads.visio_to_archimate import agents as A  # noqa: E402
+from lab.platform import config
+from lab.workloads.visio_to_archimate import agents as A
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+GATEWAY_URL = "http://gw.test:4000/"
+
+
+@pytest.fixture(autouse=True)
+def _test_gateway(monkeypatch):
+    """The agents take the gateway address from `lab.platform.config` (read once, at ITS import) —
+    so point the CONFIG at a test host, not the environment, and undo the model/store toggles a
+    reloading test may leave behind."""
+    monkeypatch.setattr(config, "GATEWAY_URL", GATEWAY_URL)
+    monkeypatch.setattr(config, "GATEWAY_MCP_URL", GATEWAY_URL.rstrip("/") + "/mcp/")
+    monkeypatch.delenv("AGENT_RESPONSES_STORE", raising=False)
+    monkeypatch.delenv("VISIO_AGENT_MODEL", raising=False)
+    yield
+    if (A.MODEL, A.STORE) != ("kimi-k3", False):
+        importlib.reload(A)
 
 FIXTURE = os.path.join(ROOT, "var", "inputs", "visio_to_archimate", "malaffi-application-solution-arch.vsdx")
 HERE = os.path.join(ROOT, "src", "lab", "workloads", "visio_to_archimate")
@@ -68,14 +84,12 @@ def test_mcp_tool_factories_filter_to_the_governed_tools_with_the_callers_identi
         assert t.url == "http://gw.test:4000/mcp/"
 
 
-def test_make_agent_points_at_the_gateway_stateless_with_trace_headers():
-    os.environ["AGENT_REQUEST_TIMEOUT"] = "42"; os.environ["AGENT_MAX_RETRIES"] = "1"
-    os.environ["AGENT_MAX_OUTPUT_TOKENS"] = "1234"
-    try:
-        ag = A.make_agent("ba", "do the BA thing", "sk-ba", traceparent={"traceparent": "00-abc-def-01"})
-    finally:
-        for k in ("AGENT_REQUEST_TIMEOUT", "AGENT_MAX_RETRIES", "AGENT_MAX_OUTPUT_TOKENS"):
-            os.environ.pop(k)
+def test_make_agent_points_at_the_gateway_stateless_with_trace_headers(monkeypatch):
+    monkeypatch.setenv("AGENT_REQUEST_TIMEOUT", "42"); monkeypatch.setenv("AGENT_MAX_RETRIES", "1")
+    monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS", "1234")
+    ag = A.make_agent("ba", "do the BA thing", "sk-ba", traceparent={"traceparent": "00-abc-def-01"})
+    for k in ("AGENT_REQUEST_TIMEOUT", "AGENT_MAX_RETRIES", "AGENT_MAX_OUTPUT_TOKENS"):
+        monkeypatch.delenv(k)
     assert type(ag).__name__ == "Agent" and ag.name == "ba"
     http = ag.client.client
     assert str(http.base_url) == "http://gw.test:4000/v1/" and http.api_key == "sk-ba"
@@ -89,20 +103,17 @@ def test_make_agent_points_at_the_gateway_stateless_with_trace_headers():
     assert ag2.default_options["max_tokens"] == 32000
 
 
-def test_model_and_store_toggles_come_from_env():
+def test_model_and_store_toggles_come_from_env(monkeypatch):
     assert A.MODEL == "kimi-k3" and A.STORE is False
-    os.environ["AGENT_RESPONSES_STORE"] = "TRUE"; os.environ["VISIO_AGENT_MODEL"] = "glm-flash"
+    monkeypatch.setenv("AGENT_RESPONSES_STORE", "TRUE"); monkeypatch.setenv("VISIO_AGENT_MODEL", "glm-flash")
     try:
         importlib.reload(A)
         assert A.STORE is True and A.MODEL == "glm-flash"
     finally:
-        os.environ.pop("AGENT_RESPONSES_STORE"); os.environ.pop("VISIO_AGENT_MODEL")
+        monkeypatch.delenv("AGENT_RESPONSES_STORE"); monkeypatch.delenv("VISIO_AGENT_MODEL")
         importlib.reload(A)
     assert A.STORE is False and A.MODEL == "kimi-k3"
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
-    print("ALL TESTS PASSED")
+    sys.exit(pytest.main([__file__, "-q"]))

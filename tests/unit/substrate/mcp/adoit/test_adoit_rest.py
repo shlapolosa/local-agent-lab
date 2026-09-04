@@ -8,18 +8,26 @@ Run: .venv/bin/python tests/unit/substrate/mcp/adoit/test_adoit_rest.py   (also 
 import base64
 import io
 import json
-import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 
+import pytest
+
+from lab.substrate.mcp.adoit import adoit_rest as R
 
 FAKE_ENV = {"ADOIT_BASE_URL": "https://adoit.test/ADOIT/", "ADOIT_USERNAME": "lab-user",
             "ADOIT_PASSWORD": "s3cret", "ADOIT_REPO_ID": "{repo-1234}"}
-os.environ.update(FAKE_ENV)
 
-from lab.substrate.mcp.adoit import adoit_rest as R  # noqa: E402
+
+@pytest.fixture(autouse=True)
+def _adoit_env(monkeypatch):
+    """The facade reads the credentials per call (`_cfg()`), so the fake tenant is pinned per test —
+    never at import, where it would leak into every other module's environment."""
+    for k, v in FAKE_ENV.items():
+        monkeypatch.setenv(k, v)
 
 BASE = "https://adoit.test/ADOIT/rest/2.0/repos/{repo-1234}"   # braces kept (safe="{}")
 BLOCK_PAGE = "<html><head><title>Error</title></head><body>URL not available on this server</body></html>"
@@ -297,6 +305,4 @@ def test_object_impact_collects_distinct_hosting_views():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn(); print("ok", name)
+    sys.exit(pytest.main([__file__, "-q"]))

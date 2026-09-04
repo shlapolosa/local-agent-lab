@@ -1,7 +1,7 @@
 """Deploy the lab to Railway as two independent tiers (see deploy/README.md):
 
   substrate  — the shared plane: redis (internal), gateway (public), semantic-mcp + adoit-mcp +
-               storage-mcp (internal), review (public). Lives in the existing project alongside
+               storage-mcp + workflow-mcp (internal), review (public). Lives in the project alongside
                Jaeger, so the gateway reaches the MCP servers over Railway private DNS
                (*.railway.internal).
   workload   — a business process (e.g. visio) as its OWN service, referencing the substrate
@@ -33,9 +33,9 @@ BRANCH = "main"
 
 # --- how the image gets built -------------------------------------------------------------------
 # "image" (default): ONE image is built in CI (.github/workflows/image.yml) and pushed to GHCR;
-#   every service — six substrate roles + each workload — is an IMAGE service pulling that same
+#   every service — the substrate roles + each workload — is an IMAGE service pulling that same
 #   immutable tag and differing only in start command + env. Railway builds nothing, so a deploy is
-#   six pulls instead of six identical Dockerfile builds, and every role provably runs the same bits.
+#   N pulls instead of N identical Dockerfile builds, and every role provably runs the same bits.
 # "repo" (LAB_BUILD=repo): the original path — each service builds deploy/Dockerfile from GitHub.
 #   Kept as the no-registry fallback; note Railway REQUIRES cache-mount ids of the form
 #   `s/<serviceId>-<name>`, which one shared Dockerfile cannot satisfy, so repo builds are slower.
@@ -78,6 +78,9 @@ SUBSTRATE = {
     # READ-ONLY governed object store. "s3": True = this service (and only such services) receives the
     # bucket credentials (S3_* + UPLOADS_URL); every other service — and every workload — gets none.
     "storage-mcp":  {"cmd": "python -m lab.substrate.mcp.storage.server", "port": None, "s3": True},
+    # the front door to every business process (submit/status/result). Redis ONLY: it publishes
+    # workflow:requests events and reads their status — no store, no bucket, no ADOIT credential.
+    "workflow-mcp": {"cmd": "python -m lab.substrate.mcp.workflow.server", "port": None},
     "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
@@ -116,7 +119,7 @@ ROLE_ENV = {
         "DATABASE_URL",                            # key/team/spend store (litellm)
         "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
-        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
+        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
         "REDIS_URL",                               # custom_auth.py; litellm falls back to it when REDIS_HOST/PORT/
                                                    # PASSWORD are absent (verified) — those three stay OUT (unchanged
                                                    # from the old drop-set; the cloud Redis has no password)
@@ -145,6 +148,11 @@ ROLE_ENV = {
         "BA_MAX_*",                                # docparse.py size limits (BA_MAX_DOC_CHARS, BA_MAX_EMBEDDED_IMAGES)
         _OTLP,
     ],                                             # + S3_KEYS via the "s3" flag (the only writer/reader pair of the bucket)
+    "workflow-mcp": [                              # src/lab/substrate/mcp/workflow/server.py + lab.platform.{workflows,contracts} — Redis ONLY
+        "MCP_SHARED_SECRET", "BIND_HOST", "WORKFLOW_MCP_PORT",
+        "REDIS_URL",                               # workflows.request/status — the ONLY backend it holds
+        _OTLP,                                     # deliberately NO ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*:
+    ],                                             # inputs are art:// refs it never dereferences
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
         "REDIS_URL",                               # approvals / workflows / runlog streams
@@ -385,6 +393,7 @@ def substrate_env(name, spec, base_env) -> dict:
     env["ADOIT_MCP_URL"] = "http://adoit-mcp.railway.internal:9100/mcp"
     env["SEMANTIC_MCP_URL"] = "http://semantic-mcp.railway.internal:9200/mcp"
     env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
+    env["WORKFLOW_MCP_URL"] = "http://workflow-mcp.railway.internal:9400/mcp"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: review + storage-mcp ONLY
     env.update(spec.get("env", {}))

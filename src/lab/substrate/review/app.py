@@ -10,11 +10,13 @@ Three modes (sidebar), one function each, dispatched by the PAGES table in main(
             host consumes (src/lab/platform/workflows.py). The run's trace, approval and outputs are shown
             here as the consumer writes them back. Only refs cross into the workload — it reads
             them through the gateway's storage-mcp tools, never with store credentials.
-  Runs    — live run visibility: every workflow host reports its current node through
-            src/lab/platform/runlog.py (Redis hash per run + unbuffered stdout lines), so a CLI run is no
-            longer a black box. Lists active + recent runs with trace links, and for one run the
-            node timeline and the workflow graph (Mermaid, exported by src/lab/workloads/workflowviz.py)
-            with the current node highlighted.
+  Runs    — live run visibility for EVERY run, whoever started it (CLI, the wf-visio consumer, or
+            DevUI): each workflow host reports its current node through src/lab/platform/runlog.py
+            (Redis hash per run + unbuffered stdout lines), so no run is a black box. ONE run is the
+            primary view — node timeline, the workflow graph (Mermaid, exported by
+            src/lab/workloads/workflowviz.py) with the current node highlighted, and the per-node
+            LLM/tool/error detail read back from the run's trace (review/traces.py) — with the full
+            run list one expander below. That is the DevUI live view, for runs you did not trigger.
 
 Run: ./lab.sh review   (streamlit, http://127.0.0.1:8501)
 Streamlit executes this file as __main__; importing it (tests) only defines the helpers. Stores come
@@ -33,9 +35,12 @@ from lab.platform import config, runlog, workflows
 from lab.platform.filetypes import content_type_for
 from lab.substrate import approvals
 from lab.substrate.container import build
+from lab.substrate.review import traces
 
 container = build("review-app")
-JAEGER = config.JAEGER_UI_URL.rstrip("/") + "/trace/"
+JAEGER_UI = container.config.jaeger_ui_url().rstrip("/")   # one source for both the link and the reader
+JAEGER = JAEGER_UI + "/trace/"
+TRACES = traces.JaegerTraceReader(JAEGER_UI)               # trace-store port; tests swap it wholesale
 NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
 DIAGRAM_TYPES = ["vsdx", "png", "jpg", "jpeg", "gif", "webp"]
 REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
@@ -137,7 +142,8 @@ def _run_row(h):
     if h.get("status") == "running" and node:
         node = f"{node} ({h.get('node_status', '')})"
     return {"run": h.get("run_id", ""), "process": h.get("process", ""),
-            "input": os.path.basename(h.get("input", "") or ""), "status": h.get("status", ""),
+            "host": h.get("host", ""), "input": os.path.basename(h.get("input", "") or ""),
+            "status": h.get("status", ""),
             "current node": node, "started": (h.get("started_at") or "")[:19].replace("T", " "),
             "elapsed": _fmt_elapsed(h.get("elapsed")),
             "trace": (JAEGER + h["trace_id"]) if h.get("trace_id") else None}
@@ -178,29 +184,89 @@ def _render_mermaid(src):
         st.code(src, language="mermaid")
 
 
+def _trace_activity(h):
+    """Per-node LLM / tool / error detail for this run, from its trace. Memoised on (run, trace,
+    status, timeline length) so the 5 s live fragment re-reads Jaeger only when the run actually
+    moved — and never for a finished one. The RUN id is part of the key because a trace id is not
+    unique: every run of one DevUI session shares its session trace. Jaeger down or trace expired =
+    an empty panel (never an error)."""
+    key = (h.get("run_id"), h.get("trace_id"), h.get("status"), len(h.get("nodes") or []))
+    hit = st.session_state.get("trace_detail")
+    if not hit or hit[0] != key:
+        hit = (key, traces.activity(TRACES.spans(h.get("trace_id") or ""), h.get("nodes") or []))
+        st.session_state["trace_detail"] = hit
+    return hit[1]
+
+
+def _activity_label(a):
+    """One node's headline: what it called, how much it cost."""
+    parts = [f"{len(a.llm)} LLM call(s)", f"{len(a.tools)} tool call(s)"]
+    if a.total_tokens:
+        parts.append(f"{a.total_tokens:,} tokens")
+    if a.total_cost:
+        parts.append(f"${a.total_cost:.4f}")
+    return f'{"⛔" if a.errors else "•"} {a.node} — ' + " · ".join(parts)
+
+
+def _detail_text(detail):
+    """Domain attributes of a tool span (`archimate.elements=42`) without their namespace."""
+    return ", ".join(f"{k.split('.', 1)[-1]}={v}" for k, v in detail.items())
+
+
+def _node_events(h):
+    """The DevUI-equivalent per-node event view, for a run this reviewer did not have to trigger."""
+    st.markdown("**Inside the run** — every LLM and governed tool call, read back from the trace")
+    if not h.get("trace_id"):
+        st.caption("this run recorded no trace (tracing was off), so there is no per-node detail")
+        return
+    acts = _trace_activity(h)
+    if not acts:
+        st.caption("no trace detail (no node has run yet, the trace expired from Jaeger's store, or "
+                   f"Jaeger is unreachable at {JAEGER_UI})")
+        return
+    for a in acts:
+        with st.expander(_activity_label(a), expanded=bool(a.errors)):
+            for e in a.errors:
+                st.error(e)
+            if a.llm:
+                st.dataframe([{"model": c.model, "operation": c.operation, "seconds": round(c.seconds, 1),
+                               "in": c.input_tokens, "out": c.output_tokens, "cost": c.cost,
+                               "response": c.response_id} for c in a.llm], hide_index=True, width="stretch")
+            if a.tools:
+                st.dataframe([{"server": t.server, "tool": t.tool, "seconds": round(t.seconds, 1),
+                               "detail": _detail_text(t.detail)} for t in a.tools],
+                             hide_index=True, width="stretch")
+            if not (a.llm or a.tools or a.errors):
+                st.caption("no LLM or tool call in this step")
+
+
 def _runs_board():
     act, rec = runlog.active(), runlog.recent(20)
-    c1, c2, c3 = st.columns([1, 1, 4])
-    c1.metric("Active", len(act)); c2.metric("Recent", len(rec))
-    c3.caption("A workflow host reports every node transition through `src/lab/platform/runlog.py` "
-               "(`run:<id>` in Redis + one unbuffered stdout line). Rows expire after 7 days.")
     if not act and not rec:
-        st.info("No runs recorded yet. Start one with `python -m lab.workloads.visio_to_archimate.host …` "
-                "or from **Submit** mode; it appears here the moment its first node starts.")
+        st.info("No runs recorded yet. Start one with `python -m lab.workloads.visio_to_archimate.host …`, "
+                "from **Submit** mode, or in DevUI; it appears here the moment its first node starts.")
         return
     rows = [_run_row(h) for h in act + rec]
-    st.dataframe(rows, hide_index=True, width="stretch",
-                 column_config={"trace": st.column_config.LinkColumn("trace", display_text="open in Jaeger")})
-
     ids = [r["run"] for r in rows]
     default = st.session_state.get("runs_selected")
+    # the DETAIL is the view (watch a run); the list is one expander below (pick another run)
     sel = st.selectbox("Run", ids, index=ids.index(default) if default in ids else 0)
     st.session_state["runs_selected"] = sel
     h = runlog.get(sel)
-    if not h:
-        st.warning(f"run {sel} expired"); return
+    if h:
+        _run_detail(h)
+    else:
+        st.warning(f"run {sel} expired")
 
-    icon = STATUS_ICON.get(h.get("status"), "•")
+    with st.expander(f"All runs — {len(act)} active, {len(rec)} recent"):
+        st.caption("A workflow host reports every node transition through `src/lab/platform/runlog.py` "
+                   "(`run:<id>` in Redis + one unbuffered stdout line). Rows expire after 7 days.")
+        st.dataframe(rows, hide_index=True, width="stretch",
+                     column_config={"trace": st.column_config.LinkColumn("trace", display_text="open in Jaeger")})
+
+
+def _run_detail(h):
+    icon, sel = STATUS_ICON.get(h.get("status"), "•"), h.get("run_id", "")
     st.subheader(f'{icon} `{sel}` — {h.get("status")}' + (f' · at **{h["node"]}**' if h.get("status") == "running" else ""))
     m = st.columns(5)
     m[0].write(f'**Process** {h.get("process", "")}'); m[1].write(f'**Input** `{h.get("input", "")}`')
@@ -232,6 +298,7 @@ def _runs_board():
         else:
             st.caption("no graph stored on this run (the host stores `mermaid` via "
                        "`lab.workloads.workflowviz.mermaid(workflow)` at start)")
+    _node_events(h)
 
 
 @st.fragment(run_every=5)
