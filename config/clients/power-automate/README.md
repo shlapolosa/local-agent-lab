@@ -34,7 +34,7 @@ That writes `flow.json` beside the template, substituting six values from `.env`
 
 | Placeholder | From | What it is |
 |---|---|---|
-| `${GATEWAY_URL}` | `.env` | where the front door lives |
+| `${PUBLIC_GATEWAY_URL}` | `.env` | the gateway's **internet-reachable** address. Not `GATEWAY_URL`: the flow runs in Microsoft's cloud and can never reach `127.0.0.1`, so this is a separate setting rather than an override — both are true at once |
 | `${ENTRA_GATEWAY_AUDIENCE}` | `.env` | the lab-gateway application ID URI |
 | `${ENTRA_TENANT_ID}` | `.env` | the tenant the token comes from |
 | `${CONNECTOR_CLIENT_ID}` | `provision_connector_identity.py` | this flow's app registration |

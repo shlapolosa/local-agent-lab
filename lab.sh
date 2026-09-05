@@ -205,6 +205,7 @@ render_clients() {
     # secret stays a <<PLACEHOLDER>> typed into the client, so a rendered file is never sensitive.
     sed -e "s#\${GATEWAY_URL}#${GATEWAY_URL:-http://127.0.0.1:4000}#g" \
         -e "s#\${ENTRA_GATEWAY_AUDIENCE}#${ENTRA_GATEWAY_AUDIENCE:-}#g" \
+        -e "s#\${PUBLIC_GATEWAY_URL}#${PUBLIC_GATEWAY_URL:-}#g" \
         -e "s#\${ENTRA_TENANT_ID}#${ENTRA_TENANT_ID:-}#g" \
         -e "s#\${CONNECTOR_CLIENT_ID}#${CONNECTOR_CLIENT_ID:-}#g" \
         -e "s#\${ORGANISER_DRIVE_ID}#${ORGANISER_DRIVE_ID:-}#g" \

@@ -180,7 +180,7 @@
       "type": "Http",
       "inputs": {
         "method": "POST",
-        "uri": "${GATEWAY_URL}/api/processes/meeting_to_transcript/runs",
+        "uri": "${PUBLIC_GATEWAY_URL}/api/processes/meeting_to_transcript/runs",
         "headers": {
           "Content-Type": "application/json; charset=utf-8"
         },
@@ -244,7 +244,7 @@
           "type": "Http",
           "inputs": {
             "method": "GET",
-            "uri": "@{concat('${GATEWAY_URL}/api/processes/meeting_to_transcript/runs/', body('Start_run')?['request_id'])}",
+            "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/processes/meeting_to_transcript/runs/', body('Start_run')?['request_id'])}",
             "authentication": {
               "type": "ActiveDirectoryOAuth",
               "tenant": "${ENTRA_TENANT_ID}",
@@ -545,7 +545,7 @@
           "type": "Http",
           "inputs": {
             "method": "POST",
-            "uri": "@{concat('${GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
+            "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
             "headers": {
               "Content-Type": "application/json; charset=utf-8"
             },
@@ -593,7 +593,7 @@
             "type": "Http",
             "inputs": {
               "method": "POST",
-              "uri": "@{concat('${GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
+              "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
               "headers": {
                 "Content-Type": "application/json; charset=utf-8"
               },

@@ -431,7 +431,7 @@ one `.env` switch (cloud values kept as `# CLOUD:` comments for flip-back):
 Everything stateful is managed: Neon (keys, spend, skills, **artifact store**), Redis Cloud
 (limiter state, approval streams), Ollama Cloud, ADOIT, GitHub. The five Python processes are
 stateless and address each other only through `src/lab/platform/config.py` env vars:
-`GATEWAY_URL`, `ADOIT_MCP_URL`, `SEMANTIC_MCP_URL`, `REVIEW_APP_URL`, `JAEGER_UI_URL`,
+`GATEWAY_URL` (and `PUBLIC_GATEWAY_URL`, the internet-reachable one a Power Automate flow must use — it runs in Microsoft's cloud and cannot reach 127.0.0.1), `ADOIT_MCP_URL`, `SEMANTIC_MCP_URL`, `REVIEW_APP_URL`, `JAEGER_UI_URL`,
 `BIND_HOST` (0.0.0.0 in containers), `REDIS_URL`, `ARTIFACTS_URL`.
 - **Trust**: `MCP_SHARED_SECRET` — both MCP servers enforce `Authorization: Bearer` via
   `src/lab/substrate/mcpauth.py`; the gateway sends it (`auth_type: bearer_token`). Never run with
@@ -801,6 +801,14 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   approvals would otherwise sit in its pending list forever, visible to nobody — silently losing the
   approvals that Streams were chosen over pub/sub to protect. Reclaim is best-effort: a server
   without XAUTOCLAIM still gets what is new.
+  **A speaker question may carry CANDIDATES** — `contracts.SpeakerCandidate` /
+  `speaker_candidates`, resolved by the transcript workload from the meeting that OWNS the recording
+  (matched by HANDLE, never by parsing a provider filename). Every surface offers them as a pick
+  BESIDE free text and never instead of it: attending is not speaking, one device in a room is one
+  participant, and a picker-only form would make the honest case impossible. Best effort —
+  `collab_meetings`/`collab_recordings` are NOT in the workload's `REQUIRED_TOOLS`, so a deployment
+  without the grant degrades to no picker instead of being refused by preflight. A typed identity
+  always beats a pick.
   **A channel is told only about approvals still awaiting a person** — `approvals.channel_events`
   filters (and acks) anything already decided, in the ONE reader every channel shares. A channel that
   has been off accumulates a backlog decided through some other channel, and announcing those buries
