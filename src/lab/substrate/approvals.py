@@ -219,12 +219,43 @@ def history(limit=50, *, client=None):
     return [f for _, f in _r(client).xrevrange(DEC, count=limit)]
 
 
-def channel_events(channel, consumer="1", block_ms=0, count=20, *, client=None):
+def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=True, client=None):
     """Read this channel's unseen request events (consumer group), returning
-    [(entry_id, fields)]; call ack(channel, entry_id) once delivered to the human."""
+    [(entry_id, fields)]; call ack(channel, entry_id) once delivered to the human.
+
+    `only_open` (the default) drops — and acks — events for requests a person has ALREADY decided.
+
+    Why that belongs here and not in each channel: a channel is a NOTIFIER, and its job is "what needs
+    a person now", not "everything that ever happened". The stream is durable and a channel that has
+    been off (unconfigured, crashed, added later) accumulates a backlog of requests that were decided
+    long ago through some other channel. Announcing those on startup is not thoroughness — it buries
+    the few that matter and teaches people to ignore the channel. Measured on this lab's own stream:
+    216 requests, 11 still open, so a newly-configured channel would have posted 59 cards of which 48
+    needed nobody.
+
+    They are ACKED rather than merely skipped, because leaving them unacked keeps them in the group's
+    pending list forever, where they look like undelivered work. A decided request needs no delivery.
+    An UNKNOWN request (its hash expired or was removed) is treated the same way: there is nothing to
+    show a human and nothing to come back for.
+
+    Pass `only_open=False` for an audit or replay consumer that genuinely wants every event.
+    """
     r = _r(client); ensure_groups(r)
     res = r.xreadgroup(channel, f"{channel}-{consumer}", {REQ: ">"}, count=count, block=block_ms or None)
-    return [(eid, f) for _, entries in res for eid, f in entries] if res else []
+    got = [(eid, f) for _, entries in res for eid, f in entries] if res else []
+    if not only_open:
+        return got
+    open_ = []
+    for eid, f in got:
+        st = r.hgetall(f'approvals:req:{f.get("request_id")}')
+        # `APPROVAL_FINAL`, not `== PENDING`: `update` means CHANGES REQUESTED, which leaves the
+        # request open for a later approval to complete — a channel coming back must still show it.
+        # An empty hash (expired or removed) counts as closed: nothing to show, nothing to return for.
+        if st and st.get("status") not in APPROVAL_FINAL:
+            open_.append((eid, f))
+        else:
+            ack(channel, eid, client=r)     # decided, or gone: nothing for a human to do
+    return open_
 
 
 def ack(channel, entry_id, *, client=None):

@@ -1,5 +1,5 @@
 {
-  "//": "TEMPLATE — a Logic Apps / Power Automate workflow definition for the lab's meeting_to_transcript process. See README.md in this folder before importing. Substitute ${GATEWAY_URL} and ${ENTRA_GATEWAY_AUDIENCE} from .env; fill every <<PLACEHOLDER>> in the Power Automate designer. NEVER commit a real client secret: the secret placeholder below is deliberately not a value.",
+  "//": "TEMPLATE — a Logic Apps / Power Automate workflow definition for the lab's meeting_to_transcript process. See README.md in this folder before importing. Run './lab.sh clients' to render this into flow.json, filling every dollar-brace placeholder from .env (addresses and PUBLIC identifiers only); then type the ONE remaining angle-bracket placeholder, the client secret, into the Power Automate designer. NEVER commit a real client secret: the secret placeholder below is deliberately not a value.",
   "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
@@ -65,7 +65,7 @@
       "type": "InitializeVariable",
       "inputs": {
         "variables": [
-          { "name": "driveId", "type": "string", "value": "<<ORGANISER_DRIVE_ID>>" }
+          { "name": "driveId", "type": "string", "value": "${ORGANISER_DRIVE_ID}" }
         ]
       },
       "runAfter": { "Initialize_organiser": ["Succeeded"] }
@@ -126,9 +126,9 @@
         },
         "authentication": {
           "type": "ActiveDirectoryOAuth",
-          "tenant": "<<ENTRA_TENANT_ID>>",
+          "tenant": "${ENTRA_TENANT_ID}",
           "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-          "clientId": "<<FLOW_APP_CLIENT_ID>>",
+          "clientId": "${CONNECTOR_CLIENT_ID}",
           "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
         }
       },
@@ -166,9 +166,9 @@
             "uri": "@{concat('${GATEWAY_URL}/api/processes/meeting_to_transcript/runs/', body('Start_run')?['request_id'])}",
             "authentication": {
               "type": "ActiveDirectoryOAuth",
-              "tenant": "<<ENTRA_TENANT_ID>>",
+              "tenant": "${ENTRA_TENANT_ID}",
               "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-              "clientId": "<<FLOW_APP_CLIENT_ID>>",
+              "clientId": "${CONNECTOR_CLIENT_ID}",
               "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
             }
           },
@@ -403,9 +403,9 @@
             },
             "authentication": {
               "type": "ActiveDirectoryOAuth",
-              "tenant": "<<ENTRA_TENANT_ID>>",
+              "tenant": "${ENTRA_TENANT_ID}",
               "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-              "clientId": "<<FLOW_APP_CLIENT_ID>>",
+              "clientId": "${CONNECTOR_CLIENT_ID}",
               "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
             }
           },
@@ -442,9 +442,9 @@
               },
               "authentication": {
                 "type": "ActiveDirectoryOAuth",
-                "tenant": "<<ENTRA_TENANT_ID>>",
+                "tenant": "${ENTRA_TENANT_ID}",
                 "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-                "clientId": "<<FLOW_APP_CLIENT_ID>>",
+                "clientId": "${CONNECTOR_CLIENT_ID}",
                 "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
               }
             },

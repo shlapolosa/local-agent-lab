@@ -195,14 +195,23 @@ PYEOF
 render_clients() {
   load_env
   local n=0
-  for tpl in config/clients/*/settings.template.json; do
+  # EVERY *.template.json, not just settings.template.json: a client is whatever needs the
+  # per-deployment values, and the Power Automate flow definition needs exactly the same four.
+  # Narrowing this to one filename meant a second kind of client silently rendered nothing.
+  for tpl in config/clients/*/*.template.json; do
     [ -e "$tpl" ] || continue
     out="${tpl%.template.json}.json"
+    # Substituted values are addresses and PUBLIC identifiers only — never a secret. A client
+    # secret stays a <<PLACEHOLDER>> typed into the client, so a rendered file is never sensitive.
     sed -e "s#\${GATEWAY_URL}#${GATEWAY_URL:-http://127.0.0.1:4000}#g" \
-        -e "s#\${ENTRA_GATEWAY_AUDIENCE}#${ENTRA_GATEWAY_AUDIENCE:-}#g" "$tpl" > "$out"
+        -e "s#\${ENTRA_GATEWAY_AUDIENCE}#${ENTRA_GATEWAY_AUDIENCE:-}#g" \
+        -e "s#\${ENTRA_TENANT_ID}#${ENTRA_TENANT_ID:-}#g" \
+        -e "s#\${CONNECTOR_CLIENT_ID}#${CONNECTOR_CLIENT_ID:-}#g" \
+        -e "s#\${ORGANISER_DRIVE_ID}#${ORGANISER_DRIVE_ID:-}#g" \
+        -e "s#\${ONEDRIVE_RECORDINGS_FOLDER_ID}#${ONEDRIVE_RECORDINGS_FOLDER_ID:-}#g" "$tpl" > "$out"
     n=$((n+1))
   done
-  echo "clients      rendered $n settings from templates (GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:4000})"
+  echo "clients      rendered $n client file(s) from templates (GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:4000})"
   echo "             copy config/clients/claude-code/settings.json -> your project's .claude/settings.json"
 }
 

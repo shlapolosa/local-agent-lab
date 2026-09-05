@@ -28,5 +28,7 @@ var/
 # skill workspace (scratch models, not a skill)
 .claude/skills/archimate-adoit-workspace/
 
-# Rendered (env-specific) client settings — regenerate with ./lab.sh clients
-config/clients/**/settings.json
+# Rendered (env-specific) client files — regenerate with ./lab.sh clients. The negation keeps the
+# TEMPLATES tracked: they end in .template.json, which the first pattern would otherwise swallow.
+config/clients/**/*.json
+!config/clients/**/*.template.json

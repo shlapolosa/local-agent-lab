@@ -7,9 +7,15 @@ lab's reviewers already are (Copilot Studio agents live in the same client), so 
 cheapest useful channel — no new plumbing, just an adapter.
 
 OUTBOUND (wired today, zero extra infrastructure)
-  An **Adaptive Card** POSTed to an incoming webhook (a Teams channel "Workflow"/Power Automate
-  webhook, or a legacy O365 connector — both accept the same `{"type":"message","attachments":[…]}`
-  envelope). The card carries what a reviewer needs to DECIDE: kind, subject, request id,
+  An **Adaptive Card** POSTed to a Teams channel **Workflows** webhook — Teams → the channel → … →
+  Workflows → "Post to a channel when a webhook request is received", whose URL is on
+  api.powerautomate.com / api.powerplatform.com / flow.microsoft.com. That is `TEAMS_WEBHOOK_URL`.
+
+  NOT a legacy O365 connector: those are GONE. Microsoft blocked new connectors in Aug 2024 and
+  DISABLED the surviving ones on 18-22 May 2026, so a webhook.office.com URL no longer delivers and
+  cannot be created. Workflows is the only path now. Nothing in this module changes for it — a
+  Workflows webhook accepts the same `{"type":"message","attachments":[…]}` envelope the connector
+  took, which is why this adapter needed no rewrite; only the URL's origin moved. The card carries what a reviewer needs to DECIDE: kind, subject, request id,
   requester, target domain, and the model summary (elements / relationships / views / violations /
   warnings), with violations called out in Attention red. Diagrams are NOT rendered in the card
   (same reasoning as Telegram: a card is not a canvas) — an `Action.OpenUrl` button links to the

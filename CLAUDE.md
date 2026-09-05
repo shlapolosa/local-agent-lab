@@ -777,7 +777,12 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   contents, trace link, and takes the decision; `src/lab/substrate/channels/telegram.py` is the same contract
   as plumbing only (enabled by `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`; no diagrams — summary
   + link to the review app); **`src/lab/substrate/channels/teams.py` is the Microsoft Teams channel**
-  (`TEAMS_WEBHOOK_URL`; unset = disabled) — it posts an **Adaptive Card** with the summary, violations
+  (`TEAMS_WEBHOOK_URL`; unset = disabled). **That URL must now come from a Teams channel WORKFLOWS
+  webhook** (channel → Workflows → "Post to a channel when a webhook request is received"; host
+  `api.powerautomate.com` / `api.powerplatform.com` / `flow.microsoft.com`). Legacy O365 connector
+  webhooks (`webhook.office.com`) are GONE — new ones blocked Aug 2024, surviving ones DISABLED
+  18-22 May 2026 — so a connector URL cannot be created and would not deliver. The adapter needed no
+  change: a Workflows webhook accepts the same `{"type":"message","attachments":[…]}` envelope — it posts an **Adaptive Card** with the summary, violations
   flagged in red, and `Action.OpenUrl` buttons to the review app and the Jaeger trace (no diagrams in
   the card). Its inbound has TWO paths: the deep link back to the review app (wired today — a Teams
   incoming webhook is SEND-ONLY, so `Action.Submit` cannot come back without a bot registration), and
@@ -786,6 +791,12 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
   `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
+  **A channel is told only about approvals still awaiting a person** — `approvals.channel_events`
+  filters (and acks) anything already decided, in the ONE reader every channel shares. A channel that
+  has been off accumulates a backlog decided through some other channel, and announcing those buries
+  the few that matter: measured when Teams was first configured, 216 requests of which 11 were open,
+  so it would have posted 59 cards that needed nobody. `update` counts as OPEN (changes requested), so
+  the filter is `not in APPROVAL_FINAL`, never `== PENDING`.
   Channels are **started by `lab.sh`** (`up` starts every CONFIGURED one after the review app and skips
   the rest with a line saying which setting is missing; `./lab.sh channels` restarts just them) and
   **deployed by `deploy/railway.py` as OPTIONAL substrate services** (`CHANNELS`, `restart=ALWAYS`, no

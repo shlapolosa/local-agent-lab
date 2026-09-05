@@ -26,21 +26,37 @@ goes into this file or any other committed file.
 
 ## Rendering the placeholders
 
-`./lab.sh clients` renders `config/clients/*/settings.template.json` only, so it does **not** touch
-`flow.template.json`. Render this one yourself from the same `.env` values:
-
 ```bash
-set -a && source .env && set +a
-sed -e "s#\${GATEWAY_URL}#${GATEWAY_URL}#g" \
-    -e "s#\${ENTRA_GATEWAY_AUDIENCE}#${ENTRA_GATEWAY_AUDIENCE}#g" \
-    config/clients/power-automate/flow.template.json > config/clients/power-automate/flow.json
+./lab.sh clients          # also runs on `./lab.sh up`
 ```
 
-`config/clients/**/settings.json` is git-ignored but `flow.json` is not covered by that pattern, so
-either add it to `.gitignore` or keep the rendered copy outside the repo. Widening `lab.sh`'s glob
-from `settings.template.json` to `*.template.json` would fold this file into `./lab.sh clients`; that
-is a one-word change to `render_clients()` and I have deliberately not made it, since it changes a
-shared script for one client.
+That writes `flow.json` beside the template, substituting six values from `.env`:
+
+| Placeholder | From | What it is |
+|---|---|---|
+| `${GATEWAY_URL}` | `.env` | where the front door lives |
+| `${ENTRA_GATEWAY_AUDIENCE}` | `.env` | the lab-gateway application ID URI |
+| `${ENTRA_TENANT_ID}` | `.env` | the tenant the token comes from |
+| `${CONNECTOR_CLIENT_ID}` | `provision_connector_identity.py` | this flow's app registration |
+| `${ORGANISER_DRIVE_ID}` | `collab_user_drive` | the organiser's OneDrive |
+| `${ONEDRIVE_RECORDINGS_FOLDER_ID}` | `collab_list` | the Recordings folder inside it |
+
+Every one is an address or a **public identifier** — never a credential. That is the rule the render
+step is held to (`tests/governance/test_lab_sh_renders_clients.py` fails if a name matching
+`SECRET|PASSWORD|_KEY|TOKEN` is ever added to the substitution list), which is why a rendered file is
+safe to sit on disk and paste around.
+
+**One placeholder is deliberately left**: `<<FLOW_APP_CLIENT_SECRET>>`. Type it into the Power
+Automate designer; it goes nowhere else, in no file, ever.
+
+Rendered `*.json` under `config/clients/` is git-ignored and the `*.template.json` files are not, so
+regenerating is free and committing a rendered copy is not possible by accident.
+
+The same test also pins the two ways this used to break silently: the glob missing a template whose
+filename is not `settings.template.json` (which is exactly what happened to this file), and a
+placeholder added to a template with no matching substitution — which renders the literal string
+`${NAME}` into an `audience` or a `tenant`, a value that looks almost right and fails to
+authenticate.
 
 ---
 
@@ -313,6 +329,30 @@ nothing to authorise an operation against. The master key is excepted as the adm
 The audit trail then has two independent identities in it, and that is the design: the **application**
 authorises the call, and the **person** named in `actor` authorised the decision. Neither substitutes
 for the other.
+
+---
+
+# Verified against the live gateway
+
+Every HTTP call in `flow.template.json` was exercised with the connector's own client-credentials
+token on 5 Sep 2026, so what the flow sends is known to be accepted rather than assumed:
+
+| Flow action | Call | Result |
+|---|---|---|
+| `Start_run` | `POST /api/processes/meeting_to_transcript/runs` | `202`, returns `request_id`; re-sending the same `idempotency_key` answers `duplicate: true` and queues nothing |
+| `Get_run` | `GET /api/processes/meeting_to_transcript/runs/{id}` | `200`, carries `status` and `approval_id` |
+| `Send_the_answer` | `POST /api/approvals/{id}/decide` with `answer` | `200`, records the responder as `actor` |
+| `Send_the_decline` | `POST /api/approvals/{id}/decide` | `200` |
+
+The decide calls were run against throwaway approvals, not a real one.
+
+Two refusals were also confirmed, because they are the ones a flow author will hit:
+
+- a **virtual key** on `/api` → `401` telling you to acquire an Entra token. The flow must use
+  ActiveDirectoryOAuth; a pasted key will not work, by design.
+- an Entra token **without `Workflow.Submit`** → `401` naming the role it wanted and the roles the
+  app registration actually holds. That is almost always a missing `appRoleAssignment`; re-run
+  `scripts/provision_connector_identity.py`.
 
 ---
 
