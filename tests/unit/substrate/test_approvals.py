@@ -65,3 +65,92 @@ def test_an_update_leaves_the_request_open_so_a_channel_still_sees_it():
     rid = approvals.request("speaker-mapping", "s", {}, "wf", client=r)
     approvals.human_decision(rid, "update", "ann", "cli", "please redo", client=r)
     assert [f["request_id"] for _e, f in approvals.channel_events("teams", client=r)] == [rid]
+
+
+# ---------------------------------------------------------------- blocking reads must not kill a channel
+class _TimingOutRedis(FakeRedis):
+    """A Redis whose blocking read times out — what really happens when the BLOCK duration meets or
+    exceeds the client's socket_timeout, which is how the Teams channel died within seconds of being
+    configured for the first time."""
+
+    def xreadgroup(self, *a, **k):
+        import redis as _redis
+        raise _redis.TimeoutError("Timeout reading from 127.0.0.1:6379")
+
+
+def test_a_blocking_read_that_times_out_means_no_events_not_a_crash():
+    """`block_ms=5000` against `socket_timeout=5` is a race the socket usually wins. Unguarded, the
+    exception leaves `channel_events` and kills the channel process."""
+    r = _TimingOutRedis()
+    assert approvals.channel_events("teams", block_ms=5000, client=r) == []
+    assert approvals.decision_events("continuations", block_ms=5000, client=r) is not None
+
+
+def test_the_block_is_clamped_below_the_socket_timeout_so_the_normal_path_never_races():
+    """Catching the timeout is the safety net; not provoking it is the fix. A channel asking to block
+    for the whole socket timeout must be held under it."""
+    from lab.platform import redis_client
+    seen = {}
+
+    class _Recording(FakeRedis):
+        def xreadgroup(self, *a, **k):
+            seen["block"] = k.get("block")
+            return []
+
+    r = _Recording()
+    approvals.channel_events("teams", block_ms=5000, client=r)
+    assert seen["block"] is not None
+    assert seen["block"] < redis_client.SOCKET_TIMEOUT_S * 1000, "would race the socket timeout"
+
+
+def test_no_block_still_means_a_non_blocking_read():
+    """block_ms=0 is 'return whatever is there' — it must not become a blocking call."""
+    seen = {}
+
+    class _Recording(FakeRedis):
+        def xreadgroup(self, *a, **k):
+            seen["block"] = k.get("block")
+            return []
+
+    approvals.channel_events("teams", block_ms=0, client=_Recording())
+    assert seen["block"] is None
+
+
+def test_a_crashed_channel_does_not_lose_the_approvals_it_had_in_flight():
+    """`>` returns only entries NEVER delivered to the group, so whatever a channel took and never
+    acked stays in its pending list and is shown to nobody — a crash would silently lose approvals,
+    the exact failure Streams were chosen over pub/sub to prevent. Not theoretical: the Teams channel
+    died on its first start and stranded ten OPEN approvals."""
+    r = FakeRedis()
+    rid = approvals.request("speaker-mapping", "in flight when it crashed", {}, "wf", client=r)
+    taken = approvals.channel_events("teams", client=r)          # delivered...
+    assert [f["request_id"] for _e, f in taken] == [rid]          # ...and deliberately NOT acked
+
+    # a second call moments later must NOT redeliver — the entry is still live work, and a real
+    # server would refuse to claim it under RECLAIM_IDLE_MS. Only an ABANDONED one comes back.
+    assert approvals.channel_events("teams", client=r) == []
+    r.age_pending(approvals.REQ, "teams", approvals.RECLAIM_IDLE_MS / 1000 + 1)
+
+    again = approvals.channel_events("teams", client=r)           # the restarted process
+    assert [f["request_id"] for _e, f in again] == [rid], "the restart must see it again"
+
+
+def test_reclaimed_work_still_respects_the_open_filter():
+    """A stranded entry for an approval decided in the meantime is acked, not posted."""
+    r = FakeRedis()
+    rid = approvals.request("ea-import", "stranded then decided", {}, "wf", client=r)
+    approvals.channel_events("teams", client=r)                   # stranded, unacked
+    r.age_pending(approvals.REQ, "teams", approvals.RECLAIM_IDLE_MS / 1000 + 1)
+    approvals.human_decision(rid, "approve", "ann", "cli", client=r)
+    assert approvals.channel_events("teams", client=r) == []
+    assert r.xpending(approvals.REQ, "teams")["pending"] == 0
+
+
+def test_a_server_without_xautoclaim_still_delivers_what_is_new():
+    """Reclaim is best-effort: it must never stop a channel doing its actual job."""
+    class _NoClaim(FakeRedis):
+        def xautoclaim(self, *a, **k):
+            raise Exception("ERR unknown command 'XAUTOCLAIM'")
+    r = _NoClaim()
+    rid = approvals.request("speaker-mapping", "s", {}, "wf", client=r)
+    assert [f["request_id"] for _e, f in approvals.channel_events("teams", client=r)] == [rid]

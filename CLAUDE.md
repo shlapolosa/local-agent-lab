@@ -791,6 +791,16 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
   `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
+  **Two things keep a channel honest, both in `approvals.channel_events` — the ONE reader every
+  channel shares, never per channel.** (1) A BLOCKING read is clamped below
+  `redis_client.SOCKET_TIMEOUT_S` and its `redis.TimeoutError` is caught: `block_ms=5000` against a
+  5 s socket timeout is a race the socket usually wins, and the escaping exception KILLED the Teams
+  channel within seconds of its first start — an expired block means "no events", which is `[]`.
+  (2) It RECLAIMS (XAUTOCLAIM, idle > `RECLAIM_IDLE_MS`) what a previous consumer of that group took
+  and never acked: `>` returns only never-delivered entries, so a crashed channel's in-flight
+  approvals would otherwise sit in its pending list forever, visible to nobody — silently losing the
+  approvals that Streams were chosen over pub/sub to protect. Reclaim is best-effort: a server
+  without XAUTOCLAIM still gets what is new.
   **A channel is told only about approvals still awaiting a person** — `approvals.channel_events`
   filters (and acks) anything already decided, in the ONE reader every channel shares. A channel that
   has been off accumulates a backlog decided through some other channel, and announcing those buries

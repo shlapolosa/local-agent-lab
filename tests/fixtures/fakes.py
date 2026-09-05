@@ -17,6 +17,7 @@ import io
 import json
 import os
 import runpy
+import time
 import sys
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 
@@ -231,10 +232,11 @@ class FakeRedis:
             if sid == ">":
                 take = entries[g["last"]:][: count or None]
                 for eid, _ in take:
-                    g["pel"][eid] = consumer
+                    g["pel"][eid] = {"consumer": consumer, "at": time.time()}
                 g["last"] += len(take)
             else:                                   # "0" / an id: this consumer's pending entries
-                take = [(eid, f) for eid, f in entries if g["pel"].get(eid) == consumer][: count or None]
+                take = [(eid, f) for eid, f in entries
+                        if (g["pel"].get(eid) or {}).get("consumer") == consumer][: count or None]
             if take:
                 out.append([stream, [(eid, dict(f)) for eid, f in take]])
         return out
@@ -247,8 +249,32 @@ class FakeRedis:
     @_op
     def xpending(self, stream, group):
         pel = self.groups.get((stream, group), {"pel": {}})["pel"]
+        owners = [v["consumer"] for v in pel.values()]
         return {"pending": len(pel), "min": min(pel) if pel else None, "max": max(pel) if pel else None,
-                "consumers": [{"name": c, "pending": sum(1 for v in pel.values() if v == c)} for c in set(pel.values())]}
+                "consumers": [{"name": c, "pending": owners.count(c)} for c in set(owners)]}
+
+    @_op
+    def xautoclaim(self, stream, group, consumer, min_idle_time=0, start_id="0-0", count=None):
+        """Hand this consumer the group's ABANDONED pending entries — what a channel does after a
+        crash. `min_idle_time` is HONOURED, because ignoring it made this fake disagree with a real
+        server in the one way that matters: an entry delivered a moment ago would be reclaimed
+        instantly here and not there, so a test would see a second delivery production never performs.
+        Age an entry with `age_pending()` to exercise the reclaim path."""
+        g = self.groups.setdefault((stream, group), {"pel": {}, "last": "0-0"})
+        by_id = {eid: f for eid, f in self.x.get(stream, [])}
+        now, claimed = time.time(), []
+        for eid in sorted(g["pel"])[: count or None]:
+            if (now - g["pel"][eid]["at"]) * 1000 < min_idle_time:
+                continue                              # still someone else's live work
+            g["pel"][eid] = {"consumer": consumer, "at": now}
+            claimed.append((eid, dict(by_id[eid])) if eid in by_id else (eid, None))
+        return "0-0", [c for c in claimed if c[1] is not None], [c[0] for c in claimed if c[1] is None]
+
+    def age_pending(self, stream, group, seconds):
+        """Pretend the group's pending entries were delivered `seconds` ago — the only way to reach
+        the reclaim path without sleeping."""
+        for v in self.groups.get((stream, group), {"pel": {}})["pel"].values():
+            v["at"] -= seconds
 
     @_op
     def xrange(self, stream, min="-", max="+", count=None):
