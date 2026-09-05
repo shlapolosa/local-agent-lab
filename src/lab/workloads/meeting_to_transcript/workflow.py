@@ -69,6 +69,31 @@ async def _call(cfg, suffix: str, args: dict):
     return (await gateway.call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
 
 
+# How many of the organiser's recent meetings to check before giving up. Each costs one extra tool
+# call, and the meeting that produced a recording is almost always among the newest few — a bound
+# keeps a convenience from turning into a long tail of calls on a busy calendar.
+CANDIDATE_MEETINGS = 10
+
+
+async def _attendees(cfg, state: dict) -> list[dict]:
+    """The participants of the meeting this recording came from, or []. Never raises.
+
+    Finds the meeting by asking which of the organiser's recent ones OWNS this recording handle,
+    which is exact and provider-neutral. `participants` is who was CONNECTED, so it is a starting
+    point and not the answer: one device in a room is one participant, and someone can attend and
+    never speak. That is precisely why it is offered as a suggestion beside free text.
+    """
+    try:
+        meetings = await _call(cfg, CollabTools.meetings, {"organizer": state.get("owner", ""),
+                                                           "limit": CANDIDATE_MEETINGS})
+        for m in (meetings or {}).get("items", [])[:CANDIDATE_MEETINGS]:
+            recs = await _call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")})
+            if any(r.get("handle") == state["recording"] for r in (recs or {}).get("items", [])):
+                return [{"identity": p, "display": ""} for p in (m.get("participants") or []) if p]
+    except Exception as e:                      # noqa: BLE001 — a picker is never worth a failed run
+        print(f"[resolve_candidates] no candidates ({type(e).__name__}: {e})", flush=True)
+    return []
+
 def build_workflow(cfg):
     """The typed graph. Every node is deterministic, so each one either produces its artifact or
     fails naming what was wrong — there is no 'the model skipped a step' path to defend against."""
@@ -126,6 +151,28 @@ def build_workflow(cfg):
             state = state | {"items": items}
         await ctx.send_message(state)
 
+    @executor(id="resolve_candidates")
+    async def resolve_candidates(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Who the provider says attended, offered to the human as a PICK instead of a typed address.
+
+        Why bother: the answer needs a directory identity, and a typed one fails LATE — a mistyped
+        address passes the gate and only breaks during attribution, long after the person who could
+        correct it has gone.
+
+        BEST EFFORT, and that is a design position rather than laziness. The run must not fail
+        because a convenience could not be computed, so every failure here yields an empty list and
+        the question still works exactly as before. It is also why the tools it uses are NOT in
+        `REQUIRED_TOOLS`: a deployment that does not grant them should degrade, not be refused by
+        preflight.
+
+        The match is by HANDLE, never by parsing the recording's filename. A provider's file naming
+        is a vendor detail this side of the collaboration port must not know, and a wrong match here
+        would put the wrong people in front of the human — worse than offering nobody.
+        """
+        with _span(cfg, "resolve_candidates"):
+            state = state | {"candidates": await _attendees(cfg, state)}
+        await ctx.send_message(state)
+
     @executor(id="ask_mapping")
     async def ask_mapping(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Ask the organiser, once, about every speaker — and finish.
@@ -161,6 +208,7 @@ def build_workflow(cfg):
                 "subject": f'{state.get("recording_name") or "meeting"} — who is speaking?',
                 "prompt": PROMPT,
                 "items": state["items"],
+                "candidates": state.get("candidates") or [],
                 "continuation": cont.to_dict(),
                 "artifacts": {"recording": state["recording_ref"],
                               "transcript": state["transcript_ref"]},
@@ -169,11 +217,13 @@ def build_workflow(cfg):
                    "approval_id": asked["request_id"], "review_app": asked.get("review_app", ""),
                    "recording_ref": state["recording_ref"],
                    "transcript_ref": state["transcript_ref"],
-                   "speakers": state["items"], "summary": summary}
+                   "speakers": state["items"],
+                   "candidates": state.get("candidates") or [], "summary": summary}
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=fetch_recording)
-            .add_chain([fetch_recording, transcribe, speaker_digest, ask_mapping]).build())
+            .add_chain([fetch_recording, transcribe, speaker_digest, resolve_candidates,
+                            ask_mapping]).build())
 
 
 async def run_workflow(cfg, inputs: dict):

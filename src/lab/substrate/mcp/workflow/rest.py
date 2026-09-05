@@ -51,7 +51,7 @@ from starlette.routing import Route
 
 from lab.platform import workflows
 from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, Decision, ProcessSpec,
-                                    speaker_prompts)
+                                    speaker_candidates, speaker_prompts)
 from lab.substrate import approvals
 
 __all__ = ["routes", "API_PREFIX"]
@@ -142,6 +142,9 @@ def _approval_route(server):
         out = _brief(state) | {
             "question": payload.get("question") or {},
             "speakers": [p.to_dict() for p in speaker_prompts(payload)],
+            # who may be PICKED instead of typed — a suggestion, so a client must still offer free
+            # text beside it. Empty is normal and means the meeting could not be resolved.
+            "candidates": [c.to_dict() for c in speaker_candidates(payload)],
             "answer_labels": list(payload.get("answer_labels") or []),
             "answer_required": bool(payload.get("answer_labels")),
             "artifacts": {k: v for k, v in payload.items() if isinstance(v, str) and v.startswith("art://")},

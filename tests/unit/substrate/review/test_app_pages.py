@@ -602,3 +602,65 @@ def test_the_same_approval_keeps_stable_widget_keys_across_reruns():
     ap2, st2 = _answering(**ANSWERED)
     APP._review_page("ann")
     assert once == [k for k in _widget_keys(st2) if k.startswith(("id_", "tag_"))]
+
+
+CANDIDATE_REQ = dict(QUESTION_REQ, request_id="apr-pick", payload=dict(
+    QUESTION_REQ["payload"],
+    question=dict(QUESTION_REQ["payload"]["question"],
+                  candidates=[{"identity": "sam@contoso.com", "display": "Sam Patel"},
+                              {"identity": "ann@contoso.com", "display": ""}])))
+
+
+def test_a_picked_attendee_becomes_the_identity_without_typing():
+    """The point of the picker: a typed address fails LATE — it survives the gate and only breaks
+    during attribution, when the person who could fix it is gone."""
+    ap = FakeApprovals(items=[CANDIDATE_REQ])
+    install(FakeSt(**{"✅ Approve — start the minutes": True,
+                      "Attended this meeting": "Sam Patel <sam@contoso.com>",
+                      "Directory identity": "", "or a free tag": ""}),
+            approvals=ap, store=_store_for(CANDIDATE_REQ))
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert ap.answers["apr-pick"] == {"SPEAKER_00": {"identity": "sam@contoso.com"},
+                                      "SPEAKER_01": {"identity": "sam@contoso.com"}}
+
+
+def test_a_typed_identity_beats_the_pick():
+    """The box is the more specific act. Silently overriding what somebody typed is how a form loses
+    their trust."""
+    ap = FakeApprovals(items=[CANDIDATE_REQ])
+    install(FakeSt(**{"✅ Approve — start the minutes": True,
+                      "Attended this meeting": "Sam Patel <sam@contoso.com>",
+                      "Directory identity": "typed@contoso.com", "or a free tag": ""}),
+            approvals=ap, store=_store_for(CANDIDATE_REQ))
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert all(v == {"identity": "typed@contoso.com"} for v in ap.answers["apr-pick"].values())
+
+
+def test_an_approval_with_no_candidates_renders_no_picker():
+    """The usual case — the meeting could not be resolved — must look exactly as it did before."""
+    ap, st = _answering(**ANSWERED)
+    APP._review_page("ann")
+    keys = [k["key"] for _p, _a, k in st.calls if "key" in k]
+    assert not any(k.startswith("pick_") for k in keys)
+    assert any(k.startswith("id_") for k in keys), "the typed boxes are still there"
+
+
+def test_the_free_tag_still_wins_for_someone_outside_the_directory():
+    """Attending is not speaking and not everyone in the room is in the directory — the picker must
+    never become a constraint."""
+    ap = FakeApprovals(items=[CANDIDATE_REQ])
+    install(FakeSt(**{"✅ Approve — start the minutes": True,
+                      "Attended this meeting": "— type it below —",
+                      "Directory identity": "", "or a free tag": "the vendor's architect"}),
+            approvals=ap, store=_store_for(CANDIDATE_REQ))
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert all(v == {"tag": "the vendor's architect"} for v in ap.answers["apr-pick"].values())

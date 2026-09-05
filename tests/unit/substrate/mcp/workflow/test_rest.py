@@ -226,3 +226,25 @@ def test_rest_never_calls_mcp_it_calls_the_same_function():
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+def test_the_approval_detail_offers_the_people_a_client_may_let_someone_pick(api):
+    """A low-code card templates over flat lists. Candidates ship beside `speakers` so a flow can
+    render a dropdown without a second call and without knowing our payload shape."""
+    client, r = api
+    aid = approvals.request(
+        ApprovalKind.SPEAKER_MAPPING.value, "weekly sync",
+        {"question": {"prompt": "Who is each speaker?", "items": [{"label": "SPEAKER_00"}],
+                      "candidates": [{"identity": "sam@contoso.com", "display": "Sam"},
+                                     {"identity": "SAM@contoso.com"}]},
+         "answer_labels": ["SPEAKER_00"], "answer_required": True},
+        "wf-meeting", client=r)
+    body = client.get(f"/api/approvals/{aid}").json()
+    assert body["candidates"] == [{"identity": "sam@contoso.com", "display": "Sam"}], "deduplicated"
+    assert body["speakers"], "and the speakers are still there"
+
+
+def test_an_approval_offering_nobody_returns_an_empty_list_not_a_missing_key(api):
+    """A client should not have to distinguish 'no candidates' from 'this build has no candidates'."""
+    client, r = api
+    assert client.get(f"/api/approvals/{_ask(r)}").json()["candidates"] == []

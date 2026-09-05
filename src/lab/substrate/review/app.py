@@ -424,12 +424,31 @@ def _answer_form(p, request_id):
     if q.get("prompt"):
         st.caption(q["prompt"])
 
+    # Who the provider says attended, offered as a PICK. A suggestion and never a constraint: the
+    # free-text boxes stay, because attending is not speaking and not everyone in the room is in the
+    # directory. No candidates (the usual case when the meeting could not be resolved) renders
+    # exactly the form that existed before.
+    candidates = contracts.speaker_candidates(p)
+    PICK_NONE = "— type it below —"
+    if candidates:
+        st.caption(f"{len(candidates)} attendee(s) reported by the meeting. Attending is not "
+                   "speaking, and someone can attend and never say a word — pick only what you "
+                   "actually recognise.")
+
     answer, missing = {}, []
     for prompt in prompts:
         st.markdown(f'**{prompt.label}** — {prompt.seconds:.0f}s across {prompt.turns} turn(s)')
         # the verbatim lines are what actually let a person recognise a voice
         for sample in prompt.samples:
             st.code(sample, language=None)
+        picked = ""
+        if candidates:
+            chosen = st.selectbox("Attended this meeting", [PICK_NONE] + [c.label for c in candidates],
+                                  key=f"pick_{request_id}_{prompt.label}",
+                                  help="Picking one fills the identity for you. A typed address that "
+                                       "is wrong survives this gate and only fails later, during "
+                                       "attribution — by which time you are not here to correct it.")
+            picked = next((c.identity for c in candidates if c.label == chosen), "")
         c1, c2 = st.columns(2)
         identity = c1.text_input("Directory identity", key=f"id_{request_id}_{prompt.label}",
                                  placeholder="maria@contoso.com",
@@ -439,6 +458,9 @@ def _answer_form(p, request_id):
                             help="For anyone outside the organisation. Not everyone in the room is "
                                  "in the directory, and guessing is worse than saying so.")
         identity, tag = identity.strip(), tag.strip()
+        # A typed identity WINS over a pick: the box is the more specific act, and silently
+        # overriding what someone typed is how a form loses a person's trust.
+        identity = identity or picked
         if bool(identity) == bool(tag):
             missing.append(prompt.label)
         else:

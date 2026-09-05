@@ -178,10 +178,20 @@ def test_when_languages_are_reported_the_summary_states_them(gw, monkeypatch):
 
 
 # ------------------------------------------------------------------ contract and governance
-def test_the_process_declares_every_output_this_run_produces():
-    produced = {"trace_id", "approval_id", "review_app", "recording_ref", "transcript_ref",
-                "speakers", "summary"}
-    assert set(MEETING_TO_TRANSCRIPT.outputs) == produced
+def test_the_process_declares_every_output_this_run_produces(gw):
+    """Derived from a REAL run rather than a hand-kept list, so the two cannot drift: a field the run
+    starts publishing but never declares is invisible to `_result` and to every REST client, and a
+    field declared but never produced is a promise nothing keeps.
+
+    `trace_id` is the one exception — the host writes it onto the request hash around the run rather
+    than the workflow returning it, so it is asserted separately."""
+    produced = set(_run()) | {"trace_id"}
+    declared = set(MEETING_TO_TRANSCRIPT.outputs)
+    assert declared <= produced, f"declared but never produced: {sorted(declared - produced)}"
+    # the run also carries request_id/status for the consumer's own bookkeeping; everything a CLIENT
+    # should be able to read must be declared
+    client_visible = produced - {"request_id", "status"}
+    assert client_visible <= declared, f"produced but undeclared: {sorted(client_visible - declared)}"
 
 
 def test_preflight_refuses_before_any_work_when_a_tool_is_missing(monkeypatch):
@@ -250,3 +260,61 @@ def test_approving_the_mapping_releases_the_minutes_run(gw):
     assert cont.answer_input == "speaker_map", "the human's answer binds to the minutes run's input"
     assert cont.inputs["transcript"] == TRANSCRIBED["transcript_ref"]
     assert cont.requester == OWNER
+
+
+# ------------------------------------------------------------------ who the human can PICK
+MEETINGS = {"items": [{"id": "m-other", "subject": "standup", "participants": ["x@contoso.com"]},
+                      {"id": "meeting-1", "subject": "weekly sync",
+                       "participants": ["maria@contoso.com", "sam@contoso.com", ""]}]}
+RECS = {"m-other": {"items": [{"handle": "collab://recording/m-other/rec-9"}]},
+        "meeting-1": {"items": [{"handle": HANDLE}]}}
+
+
+def _with_meetings(gw, meetings=MEETINGS, recs=RECS):
+    gw.answers[CollabTools.meetings] = meetings
+
+    async def call(headers, mcp_url, calls):
+        out = []
+        for suffix, args in calls:
+            gw.calls.append((suffix, args))
+            if suffix == CollabTools.recordings:
+                out.append(recs.get(args.get("meeting_id"), {"items": []}))
+                continue
+            a = gw.answers[suffix]
+            if isinstance(a, Exception):
+                raise a
+            out.append(a)
+        return out
+    return call
+
+
+def test_the_meeting_that_owns_this_recording_supplies_the_people_to_pick_from(gw, monkeypatch):
+    """Matched by HANDLE, never by parsing the recording's filename — a provider's naming is a vendor
+    detail this side of the collaboration port must not know, and a wrong match would put the wrong
+    people in front of the human, which is worse than offering nobody."""
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    out = _run()
+    assert out["candidates"] == [{"identity": "maria@contoso.com", "display": ""},
+                                 {"identity": "sam@contoso.com", "display": ""}], "blank entries dropped"
+    assert gw.args_for(ApprovalTools.ask)["candidates"] == out["candidates"], "and they reach the human"
+
+
+def test_a_recording_no_meeting_claims_offers_nobody_rather_than_guessing(gw, monkeypatch):
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_meetings(gw, recs={"meeting-1": {"items": [{"handle": "collab://x/y/z"}]}}))
+    assert _run()["candidates"] == []
+
+
+def test_the_run_still_succeeds_when_the_lookup_is_not_available(gw):
+    """The tools are NOT in REQUIRED_TOOLS on purpose: a deployment that does not grant them should
+    degrade to no picker, not be refused by preflight. `gw` has no answer for them, so the call
+    raises — exactly what an ungranted tool does."""
+    out = _run()
+    assert out["candidates"] == [] and out["approval_id"] == ASKED["request_id"]
+    assert out["speakers"], "and the question itself is unaffected"
+
+
+def test_the_lookup_tools_are_not_required():
+    assert CollabTools.meetings not in W.REQUIRED_TOOLS
+    assert CollabTools.recordings not in W.REQUIRED_TOOLS
+    assert CollabTools.fetch in W.REQUIRED_TOOLS, "fetching the recording IS required"

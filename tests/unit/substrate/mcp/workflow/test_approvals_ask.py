@@ -198,3 +198,26 @@ def test_an_ordinary_artifact_still_rides_along(tools):
     payload = approvals.status(out["request_id"], client=r)["payload"]
     assert payload["recording"] == "art://r/rec.mp4" and payload["transcript"] == "art://t/x.json"
     assert payload["answer_labels"] == ["SPEAKER_00"], "and the approval's own fields are intact"
+
+
+def test_candidates_ride_along_on_the_question_when_the_asker_knows_them(tools):
+    server, r = tools
+    out = call(server, "approvals_ask", subject="s", prompt="p", items=[{"label": "SPEAKER_00"}],
+               candidates=[{"identity": "sam@contoso.com", "display": "Sam"},
+                           {"identity": "SAM@contoso.com"},        # deduped by the typed reader
+                           {"display": "unusable"}])               # dropped, not fatal
+    from lab.substrate import approvals
+    from lab.platform.contracts import speaker_candidates
+    payload = approvals.status(out["request_id"], client=r)["payload"]
+    assert [c.identity for c in speaker_candidates(payload)] == ["sam@contoso.com"]
+
+
+def test_asking_without_candidates_is_unchanged(tools):
+    """Every existing caller omits them, and the question must behave exactly as before."""
+    server, r = tools
+    out = call(server, "approvals_ask", subject="s", prompt="p", items=[{"label": "SPEAKER_00"}])
+    from lab.substrate import approvals
+    from lab.platform.contracts import speaker_candidates
+    payload = approvals.status(out["request_id"], client=r)["payload"]
+    assert speaker_candidates(payload) == []
+    assert payload["answer_labels"] == ["SPEAKER_00"]

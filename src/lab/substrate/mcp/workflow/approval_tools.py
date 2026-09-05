@@ -43,7 +43,8 @@ from typing import Annotated
 from pydantic import Field
 
 from lab.platform.contracts import (APPROVAL_FINAL, ApprovalKind, ApprovalStatus, ApprovalTools,
-                                    Continuation, Decision, SpeakerPrompt, import_artifacts)
+                                    Continuation, Decision, SpeakerPrompt, import_artifacts,
+                                    speaker_candidates)
 from lab.substrate import approvals
 from lab.substrate.mcpserver import LabServer, span
 
@@ -171,6 +172,14 @@ def register(server: LabServer) -> None:
                                                        "the key the answer is given under and must be "
                                                        "unique; `samples` are verbatim quotes that "
                                                        "help a human recognise which is which.")],
+        candidates: Annotated[list[dict] | None, Field(description="Optional people the answerer may "
+                                                       "PICK instead of typing, as [{identity, "
+                                                       "display}] — e.g. who the provider says "
+                                                       "attended. A suggestion, never a constraint: "
+                                                       "every surface still offers free text beside "
+                                                       "them, because attending is not speaking and "
+                                                       "not everyone in the room is in the "
+                                                       "directory. Omit when unknown.")] = None,
         continuation: Annotated[dict | None, Field(description="What approving this should START, as "
                                                                "{process, inputs, answer_input, "
                                                                "requester}. Omit when approving "
@@ -202,8 +211,12 @@ def register(server: LabServer) -> None:
             dupes = sorted({l for l in labels if labels.count(l) > 1})
             raise ValueError(f"duplicate labels {dupes} — the answer is keyed on the label, so each "
                              "must appear exactly once")
+        # Built through the typed reader so a malformed candidate is dropped HERE, where the asker
+        # can still be told, rather than silently at render time in three different surfaces.
+        picks = [c.to_dict() for c in
+                 speaker_candidates({"question": {"candidates": candidates or []}})]
         payload = {"question": {"prompt": prompt, "items": [p.to_dict() for p in prompts],
-                                "fields": ["identity", "tag"]},
+                                "fields": ["identity", "tag"], "candidates": picks},
                    # the completeness contract the gate will enforce, DECLARED by the asker — which
                    # is what keeps `check_answer` generic and the approval kind free of dispatch
                    "answer_labels": labels, "answer_required": True}

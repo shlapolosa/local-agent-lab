@@ -447,6 +447,66 @@ def speaker_prompts(payload: dict[str, Any]) -> list[SpeakerPrompt]:
 
 
 @dataclass(frozen=True)
+class SpeakerCandidate:
+    """ONE person the answerer can PICK instead of typing — who the provider says attended.
+
+    Same producer-supplies-meaning shape as `SpeakerPrompt`: the step that resolved the meeting puts
+    the candidates on the question, and every surface renders them as a choice. It exists because the
+    answer needs a directory identity and a typed one fails LATE — a mistyped address survives the
+    gate and only breaks during attribution, by which time the human is gone.
+
+    A SUGGESTION, never a constraint. Attendance is not speech (one device in a room is one
+    participant, and someone can attend and say nothing), so free text must stay available beside
+    these; a surface that offered only this list would make the common case easy and the honest case
+    impossible. An empty list is normal and means "we could not tell" — the question still works.
+    """
+
+    identity: str                       # the directory principal, exactly as the answer will carry it
+    display: str = ""                   # what a person recognises; falls back to the identity
+
+    def __post_init__(self) -> None:
+        if not (self.identity or "").strip():
+            raise ValueError("a speaker candidate needs the identity the answer will carry")
+
+    @property
+    def label(self) -> str:
+        """What a picker shows. The identity is always visible, because two people share a display
+        name far more often than they share an address, and the answer records the address."""
+        d = (self.display or "").strip()
+        return f"{d} <{self.identity}>" if d and d != self.identity else self.identity
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"identity": self.identity, "display": self.display}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "SpeakerCandidate":
+        return cls(identity=str(d.get("identity") or "").strip(),
+                   display=str(d.get("display") or "").strip())
+
+
+def speaker_candidates(payload: dict[str, Any]) -> list[SpeakerCandidate]:
+    """Who this question offers as choices, de-duplicated by identity and in declared order.
+
+    The ONE reader, for the same reason as `speaker_prompts`. Malformed entries are skipped rather
+    than raising: a candidate list is a convenience, and losing the whole question because one
+    attendee record was odd would be a poor trade.
+    """
+    raw = ((payload or {}).get("question") or {}).get("candidates") or []
+    out, seen = [], set()
+    for c in raw:
+        if not isinstance(c, dict):
+            continue
+        try:
+            cand = SpeakerCandidate.from_dict(c)
+        except ValueError:
+            continue
+        if cand.identity.lower() not in seen:
+            seen.add(cand.identity.lower())
+            out.append(cand)
+    return out
+
+
+@dataclass(frozen=True)
 class SpeakerIdentity:
     """One human's answer for one speaker: a directory identity, or else a free tag.
 
@@ -856,7 +916,7 @@ MEETING_TO_TRANSCRIPT = ProcessSpec(
                    "through the governed gateway. Video is fine; its audio is extracted."),
     ),
     outputs=("trace_id", "approval_id", "review_app", "recording_ref", "transcript_ref",
-             "speakers", "summary"),
+             "speakers", "candidates", "summary"),
 )
 
 TRANSCRIPT_TO_MINUTES = ProcessSpec(
@@ -911,7 +971,7 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
-           "SpeakerPrompt", "speaker_prompts", "SpeakerIdentity", "SpeakerMap", "check_answer",
+           "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "SpeakerIdentity", "SpeakerMap", "check_answer",
            "Continuation", "continuation_of",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE",

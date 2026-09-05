@@ -251,3 +251,38 @@ def test_the_new_kinds_still_refuse_absence_when_required():
         with pytest.raises(ValueError):
             _f(kind).coerce(None)
         assert _f(kind, required=False).coerce(None) is None
+
+
+# ---------------------------------------------------------------- who the human can PICK
+def test_a_candidate_shows_the_address_beside_the_name():
+    """Two people share a display name far more often than an address, and the answer records the
+    address — so a picker that showed only "Sam" would be a coin flip."""
+    from lab.platform.contracts import SpeakerCandidate
+    assert SpeakerCandidate("sam@contoso.com", "Sam Patel").label == "Sam Patel <sam@contoso.com>"
+    assert SpeakerCandidate("sam@contoso.com").label == "sam@contoso.com"
+    assert SpeakerCandidate("sam@contoso.com", "sam@contoso.com").label == "sam@contoso.com"
+
+
+def test_a_candidate_without_an_identity_is_refused():
+    from lab.platform.contracts import SpeakerCandidate
+    with pytest.raises(ValueError, match="identity"):
+        SpeakerCandidate("  ")
+
+
+def test_candidates_are_deduplicated_and_malformed_ones_skipped():
+    """A convenience must not be able to break the question: one odd attendee record should cost that
+    entry, never the whole approval."""
+    from lab.platform.contracts import speaker_candidates
+    p = {"question": {"candidates": [{"identity": "a@b.c", "display": "Ann"},
+                                     {"identity": "A@B.C"},           # same person, different case
+                                     {"display": "no identity"},      # unusable
+                                     "not even a dict"]}}
+    got = speaker_candidates(p)
+    assert [c.identity for c in got] == ["a@b.c"] and got[0].label == "Ann <a@b.c>"
+
+
+def test_an_approval_that_offers_nobody_is_normal():
+    """Empty is the usual case — the meeting could not be resolved — and the question still works."""
+    from lab.platform.contracts import speaker_candidates
+    assert speaker_candidates({}) == []
+    assert speaker_candidates({"question": {"items": [{"label": "SPEAKER_00"}]}}) == []
