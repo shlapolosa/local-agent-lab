@@ -1,53 +1,34 @@
-"""workflow-mcp — the ONE governed, discoverable front door to every business process (port 9400, /mcp).
+"""workflow-frontdoor — the governed way IN, for callers outside the lab (port 9400).
 
-Why a server, and why in the substrate: a workload is a deterministic Agent Framework workflow that
-CONTAINS agents; containment is an implementation detail, not an interface
-(docs/decisions/2026-09-04-workload-external-contract.md). Exposing it as an MCP server keeps the
-TYPED task contract (submit / status / result), and the gateway's MCP registry already IS governed
-discovery: registered in config/litellm-config.yaml, granted per team via
-`object_permission.mcp_servers`, tool list filtered by grant, every call metered, PII-scanned and
-traced. So workloads stay pure MCP CLIENTS and never face outward — every MCP server lives here.
+TWO INGRESSES, ONE PORT. `lab.platform.workflows.submit` is the port: validate against the process's
+own contract, take an idempotency claim, publish one `workflow:requests` event. Everything else is
+an adapter over it, and which adapter a caller uses is about what the caller IS, not what it can do:
 
-ASYNC IS MANDATORY. A run takes 600-1000 s (measured); no connector, gateway or mobile client holds
-a request that long. `<process>_submit` publishes ONE durable `workflow:requests` event
-(lab.platform.workflows, Redis Streams — the same event the review app's Submit page emits) and
-returns a `request_id` immediately; the long-lived workload host consumes it and writes progress
-back, which `<process>_status` / `<process>_result` read. A tool call NEVER blocks on a run.
+  /mcp  → AGENTS — THIS MODULE. A Copilot Studio agent triggering a process, a workload asking a
+          human a question (a workload may not import the substrate, so it must cross the network,
+          and it already speaks MCP for storage, collaboration and speech). Use MCP when the caller
+          is a model deciding for itself WHICH tool to call: it gets a typed, described, discoverable
+          catalogue and needs no knowledge of URLs.
+  /api  → EVERYTHING ELSE — `lab.substrate.mcp.workflow.rest`. A low-code flow, a web or mobile
+          client, a script. MCP needs a session handshake and answers in server-sent events, which a
+          Power Automate HTTP action cannot reasonably consume — so REST exists for them, over the
+          SAME function. Use REST when the caller already knows what it wants to do and just needs to
+          say so over plain HTTP.
 
-RETRIES ARE SAFE WHEN THE CALLER NAMES THEM. A retried submit would otherwise buy a second run —
-10-20 minutes of real tokens and a second approval for a human — so `<process>_submit` takes an
-optional `idempotency_key` and answers a repeat with the FIRST request_id and `duplicate: true`. The
-de-duplication is not implemented here but in `lab.platform.workflows.submit` (SET NX EX on
-`workflow:idem:<process>:<key>`, 24 h), so the review app's Submit page and any future REST adapter
-get it by passing the same argument, and the check-then-write race has ONE implementation.
+Any call an agent makes could equally be made over REST and vice versa: they are two spellings of
+one capability, which is why they live in one service and change together. What they must never
+become is a translation layer — REST calling MCP would be a round trip through the protocol REST
+was added to avoid, and would cap the REST surface at whatever MCP happens to expose.
 
-The process tools are GENERATED from `lab.platform.contracts.PROCESSES` — three per process:
+WHY IT LOOKED UNUSED. The process tools had no callers for months, which read like dead code and was
+not: this was built for external agents, and those agents have not arrived. The client that did
+arrive is a flow watching for a saved meeting recording. That is the whole reason `/api` exists.
 
-    <process>_submit(<input fields…>, requester, idempotency_key)
-                                                  -> {request_id, status, duplicate, poll_with, …}
-    <process>_status(request_id)                  -> {status, trace_id, approval_id, error, …}
-    <process>_result(request_id)                  -> the finished outputs, or finished: false
-
-A run PAUSES for a human approval, and `<process>_status` hands back the `approval_id` it raised, so
-the same front door also carries the APPROVAL GATE (`approval_tools.py`, ApprovalTools):
-
-    approvals_list(kind, limit)                                  -> what is waiting for a human
-    approvals_get(request_id)                                    -> one approval + its art:// artifacts
-    approvals_decide(request_id, decision, actor, comment, channel) -> a HUMAN's answer, audited
-
-`approvals_decide` is the governance-critical one (see approval_tools.py): it records a PERSON's
-decision to release an EA-repository write, so `actor` is required and the gateway grants it
-separately from the read tools (`ApprovalTools.READ` / `.WRITE` via `mcp_tool_permissions`).
-
-Adding a business process is therefore ONE `ProcessSpec` entry in `lab.platform.contracts.PROCESSES`
-(plus its consumer group in `lab.platform.workflows.GROUPS`) — no change in this file. Input
-validation is the ProcessSpec's own (`spec.validate`) — the validator this surface uses; moving the
-review app's Submit page and the `workflows.py` CLI onto it is the next step (they publish unvalidated
-today), after which every producer accepts exactly the same payloads.
-
-CREDENTIALS: this role holds REDIS ONLY — no artifact/upload store, no bucket, no ADOIT. Inputs are
-`art://` references that were uploaded through the substrate's own writer (the review app) and are
-read by the workload through storage-mcp; nothing here touches an object store.
+The tools themselves are GENERATED from `lab.platform.contracts.PROCESSES` — submit, status and
+result, less submit for a continuation-only process — and so are the REST routes (`rest.routes`), so
+registering a process gives both surfaces at once and neither can drift.
+The same server also carries the APPROVAL gate: a run pauses for a human, so the pause belongs to the
+front door that exposes the run.
 """
 from __future__ import annotations
 
@@ -58,11 +39,15 @@ from pydantic import Field
 
 from lab.platform import config, workflows
 from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, InputKind, ProcessSpec,
-                                    WorkflowStatus)
+                                    WorkflowStatus, WorkflowTools)
 from lab.substrate.mcp.workflow import approval_tools
+from lab.substrate.mcp.workflow import rest
 from lab.substrate.mcpserver import LabServer, span
 
-SERVICE = "workflow-mcp"
+SERVICE = "workflow-frontdoor"     # the SERVICE says what it is; the gateway ALIAS stays
+                                  # `workflow_mcp`, naming its MCP surface, consistent with
+                                  # ea_mcp / collab_mcp / speech_mcp — and it is what teams
+                                  # are granted, so renaming it would invalidate every grant.
 
 # an input field's kind -> the Python annotation the generated tool declares (and fastmcp turns into
 # the JSON schema an agent reads). One table: a new kind is one line here and one in InputField.coerce.
@@ -209,9 +194,18 @@ def result_tool(server: LabServer, spec: ProcessSpec):
 
 
 def register(server: LabServer, spec: ProcessSpec) -> None:
-    """The three governed tools of one business process, on `server`."""
-    for make in (submit_tool, status_tool, result_tool):
-        server.tool()(make(server, spec))
+    """The governed tools of one business process, on `server`.
+
+    THREE tools for a process an outside caller may start; TWO for a CONTINUATION-ONLY one
+    (`ProcessSpec.external` false), whose submit tool is not generated at all. Not exposing it is
+    stronger than refusing it at call time and cheaper than either: a tool that does not exist cannot
+    be granted by mistake, cannot be discovered, and cannot be described to an agent as something it
+    might try. Status and result stay, because a caller may legitimately observe a run that its own
+    approval started.
+    """
+    makers = {"submit": submit_tool, "status": status_tool, "result": result_tool}
+    for verb in WorkflowTools.verbs_for(spec):          # the catalogue decides; this only obeys
+        server.tool()(makers[verb](server, spec))
 
 
 def build(processes: dict[str, ProcessSpec] | None = None) -> LabServer:
@@ -231,4 +225,4 @@ server = build()
 
 if __name__ == "__main__":
     print(f"workflow-mcp: processes = {', '.join(PROCESSES) or 'none'}")
-    server.serve()
+    server.serve(routes=rest.routes(server))

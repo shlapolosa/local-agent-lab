@@ -2,7 +2,7 @@
 # lab.sh — bring the local agent lab up/down in one command.
 #   ./lab.sh up      start redis (brew, or check the cloud one), jaeger (native, or DEPLOY the Railway one when
 #                    tracing is remote), adoit-mcp (:9100), semantic-mcp (:9200), storage-mcp (:9300),
-#                    workflow-mcp (:9400), graph-mcp (:9500), speech-mcp (:9600), gateway (:4000), review app (:8501), and every CONFIGURED
+#                    workflow-frontdoor (:9400, /mcp for agents + /api for everything else), graph-mcp (:9500), speech-mcp (:9600), gateway (:4000), review app (:8501), and every CONFIGURED
 #                    approval channel (telegram, teams — skipped with a line when their .env settings are absent)
 #   ./lab.sh down    stop everything — the MCP servers, gateway, review app, every approval channel,
 #                    the consumer and the metered Railway Jaeger deployment (redis is left to brew)
@@ -26,7 +26,8 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
          STORAGE_MCP_URL="${STORAGE_MCP_URL:-http://127.0.0.1:9300/mcp}" \
          WORKFLOW_MCP_URL="${WORKFLOW_MCP_URL:-http://127.0.0.1:9400/mcp}" \
          GRAPH_MCP_URL="${GRAPH_MCP_URL:-http://127.0.0.1:9500/mcp}" \
-         SPEECH_MCP_URL="${SPEECH_MCP_URL:-http://127.0.0.1:9600/mcp}"; }
+         SPEECH_MCP_URL="${SPEECH_MCP_URL:-http://127.0.0.1:9600/mcp}" \
+         WORKFLOW_API_URL="${WORKFLOW_API_URL:-http://127.0.0.1:9400/api}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
@@ -136,7 +137,7 @@ up() {
   start_mcp adoit-mcp    lab.substrate.mcp.adoit.server    9100   # ArchiMate engine + ADOIT facade
   start_mcp semantic-mcp lab.substrate.mcp.semantic.server 9200   # vocabularies/legality/SPARQL (read-only, all teams)
   start_mcp storage-mcp  lab.substrate.mcp.storage.server  9300   # READ-ONLY upload store: the only way a workload reads an input
-  start_mcp workflow-mcp lab.substrate.mcp.workflow.server 9400   # business processes: <process>_submit/_status/_result (async)
+  start_mcp workflow-frontdoor lab.substrate.mcp.workflow.server 9400   # business processes: <process>_submit/_status/_result (async)
                                                                   # + the approval gate: approvals_list/_get/_decide (human)
   # graph-mcp is started ALWAYS, unlike the approval channels, and that is deliberate: with no
   # GRAPH_CLIENT_ID it still answers collab_capabilities with the exact settings and grants that are
@@ -222,7 +223,7 @@ channels() {
 
 down() {
   for_each_channel stop_channel
-  for s in wf-visio review litellm continuations speech-mcp graph-mcp workflow-mcp storage-mcp semantic-mcp adoit-mcp jaeger; do
+  for s in wf-visio wf-meeting-transcript wf-meeting-minutes review litellm continuations speech-mcp graph-mcp workflow-frontdoor storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
@@ -233,7 +234,7 @@ down() {
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp storage-mcp workflow-mcp graph-mcp speech-mcp continuations litellm wf-visio; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp workflow-frontdoor graph-mcp speech-mcp continuations litellm wf-visio wf-meeting-transcript wf-meeting-minutes; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   # the review app is reported by its HEALTH endpoint, not its pid file: streamlit's recorded pid
   # goes stale across a manual restart while the app keeps serving :8501 (observed), and "stopped"
   # for a running approval UI is exactly the wrong answer
@@ -249,11 +250,24 @@ status() {
 # INDEPENDENTLY (deploy/railway.py). Metered: bring a tier up for a demo, down when idle.
 cloud() { load_env; env -u ANTHROPIC_API_KEY "$PY" deploy/railway.py "$@"; }
 
-consumer() {   # the long-lived visio workload host: consumes workflow:requests (Submit page -> run)
+# The long-lived workload hosts. One shared request stream, one consumer GROUP per process, so each
+# sees every event and discards the others — which is why starting one does not disturb another.
+# Adding a process = one line in for_each_workload.
+for_each_workload() {   # calls "$1 <service> <module>" for every workload host
+  "$1" wf-visio             lab.workloads.visio_to_archimate.consumer
+  "$1" wf-meeting-transcript lab.workloads.meeting_to_transcript.consumer
+  "$1" wf-meeting-minutes    lab.workloads.transcript_to_minutes.consumer
+}
+
+start_workload() {   # service, module
+  if alive "$1"; then echo "$1 ok  already running (pid $(cat "$RUN/$1.pid"))"; return; fi
+  env -u ANTHROPIC_API_KEY nohup "$PY" -m "$2" >"$LOGS/$1.log" 2>&1 & echo $! >"$RUN/$1.pid"
+  printf "%-22s started  (consumes workflow:requests; log: %s)\n" "$1" "$LOGS/$1.log"
+}
+
+consumer() {   # start every workload host
   load_env
-  if alive wf-visio; then echo "wf-visio ok  already running (pid $(cat $RUN/wf-visio.pid))"; return; fi
-  env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.workloads.visio_to_archimate.consumer >"$LOGS/wf-visio.log" 2>&1 & echo $! >"$RUN/wf-visio.pid"
-  echo "wf-visio started  (consumer of workflow:requests; log: $LOGS/wf-visio.log)"
+  for_each_workload start_workload
 }
 
 case "${1:-}" in

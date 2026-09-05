@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Meeting minutes",
+  "description": "What the minutes agent emits: business language, not semantic shapes. It never mints ids or IRIs (those are functions of content), never names a vocabulary type (filing an item under decisions IS the type assignment), and never sees or emits a directory address (the gateway pseudonymises them, and the mapping is the human's).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "concepts"],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1,
+      "description": "A few sentences a person who missed the meeting could read instead of the transcript."},
+    "concepts": {
+      "type": "array",
+      "description": "What the meeting was ABOUT — the systems, capabilities, policies and terms of art discussed. This is the centre of the model: every decision and action must concern at least one.",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "label"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^c[0-9]+$", "description": "Local to THIS document (c1, c2…), never a global id."},
+          "label": {"type": "string", "minLength": 1, "description": "The concept as the speakers named it."},
+          "definition": {"type": "string", "description": "What it means, in the speakers' own terms, when they said."},
+          "evidence": {"$ref": "#/definitions/evidence"}
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "statement", "concerns"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^d[0-9]+$"},
+          "statement": {"type": "string", "minLength": 1, "description": "The choice that was settled, as one sentence."},
+          "rationale": {"type": "string", "description": "Why, if it was said. Never inferred."},
+          "concerns": {"type": "array", "minItems": 1, "items": {"type": "string"},
+            "description": "Local concept ids this decision is about. At least one — a decision about nothing is not a decision."},
+          "decided_by": {"type": "array", "items": {"type": "string"},
+            "description": "Speaker labels (SPEAKER_00) who settled it. Labels only; who they are is the human's answer, not yours."},
+          "resolves": {"type": ["string", "null"], "description": "A local decision id this supersedes."},
+          "evidence": {"$ref": "#/definitions/evidence"},
+          "confidence": {"enum": ["high", "medium", "low"]}
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "commitment", "owner", "concerns"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^a[0-9]+$"},
+          "commitment": {"type": "string", "minLength": 1, "description": "What one person owes, as one sentence."},
+          "owner": {"type": "string", "minLength": 1, "description": "The speaker label who owes it."},
+          "due": {"type": ["string", "null"], "description": "YYYY-MM-DD if a date was actually said."},
+          "concerns": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "implements": {"type": ["string", "null"], "description": "A local decision id this carries out."},
+          "evidence": {"$ref": "#/definitions/evidence"},
+          "confidence": {"enum": ["high", "medium", "low"]}
+        }
+      }
+    },
+    "keywords": {
+      "type": "array", "items": {"type": "string"},
+      "description": "Terms worth indexing that are not full concepts."
+    }
+  },
+  "definitions": {
+    "evidence": {
+      "type": "array",
+      "description": "Where in the transcript this came from. OFFSETS, never quotes: a verbatim quote in a queryable graph is unredactable free text.",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["speaker"],
+        "properties": {
+          "speaker": {"type": "string"},
+          "start": {"type": "integer", "minimum": 0},
+          "end": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

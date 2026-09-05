@@ -11,6 +11,7 @@ import asyncio
 import pytest
 
 from lab.platform.contracts import EATools, SemanticTools, StorageTools
+from lab.workloads import gateway
 from lab.workloads.visio_to_archimate import workflow as W
 
 
@@ -28,7 +29,9 @@ class FakeClient:
 
 
 def _patch_client(monkeypatch, names):
-    monkeypatch.setattr(W, "Client", lambda *a, **k: FakeClient(names))
+    # the transport is shared by every workload (lab.workloads.gateway); this still exercises it
+    # THROUGH this workload, which is what must keep working — its own tool list, its own message.
+    monkeypatch.setattr(gateway, "Client", lambda *a, **k: FakeClient(names))
     monkeypatch.setattr(W, "StreamableHttpTransport", lambda *a, **k: None)
 
 

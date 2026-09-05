@@ -291,7 +291,20 @@ def test_serve_delegates_to_the_module_bootstrap(monkeypatch):
     monkeypatch.setattr(mcpserver, "serve", lambda mcp, service, port, **kw: calls.append((mcp, service, port, kw)))
     srv = LabServer("tiny-mcp", 9300, path="/tools")
     srv.serve()
-    assert calls == [(srv.mcp, "tiny-mcp", 9300, {"path": "/tools"})]
+    assert calls == [(srv.mcp, "tiny-mcp", 9300, {"path": "/tools", "routes": ()})]
+
+
+def test_a_server_can_carry_a_second_ingress_beside_its_mcp_path():
+    """One service, two doors over one port: /mcp for agents and plain routes for clients that are
+    not agents. Both sit behind the SAME middleware — one bearer check, one set of request spans,
+    one trace context — which a second app would have duplicated."""
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+
+    extra = Route("/api/ping", lambda request: PlainTextResponse("ok"), methods=["GET"])
+    app = mcpserver.app_for(LabServer("tiny-mcp", 9300).mcp, path="/mcp", routes=[extra])
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert {"/mcp", "/api/ping"} <= paths
 
 
 if __name__ == "__main__":

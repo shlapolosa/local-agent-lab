@@ -21,26 +21,32 @@ CONFIG = os.path.join(ROOT, "config", "litellm-config.yaml")
 
 
 def _registered_env_names() -> set[str]:
-    """Every `os.environ/X_MCP_URL` the gateway config dereferences for an MCP server."""
+    """Every address the gateway config dereferences — for an MCP server OR a pass-through route.
+
+    Both are the same trap: a name the gateway resolves from the PROCESS environment. Miss one and
+    the server silently publishes nothing, or the route 502s, and in both cases it looks like a
+    grant problem rather than a missing variable.
+    """
     text = open(CONFIG, encoding="utf-8").read()
-    block = text[text.index("mcp_servers:"):]
-    block = block[:block.index("\nrouter_settings:")] if "\nrouter_settings:" in block else block
-    return set(re.findall(r"os\.environ/([A-Z0-9_]+_MCP_URL)", block))
+    return set(re.findall(r"os\.environ/([A-Z0-9_]+_(?:MCP|API)_URL)", text))
 
 
 def _exported_names() -> set[str]:
-    return set(re.findall(r"export\s+[^\n]*|([A-Z0-9_]+_MCP_URL)=", open(LAB_SH, encoding="utf-8").read())) | \
-           set(re.findall(r"([A-Z0-9_]+_MCP_URL)=\"\$\{", open(LAB_SH, encoding="utf-8").read()))
+    """Every address lab.sh puts into the process environment. Same pattern as the registered side —
+    they must widen together, or the test passes while the gap it exists to catch is real."""
+    text = open(LAB_SH, encoding="utf-8").read()
+    return set(re.findall(r"([A-Z0-9_]+_(?:MCP|API)_URL)=", text))
 
 
 def test_every_registered_mcp_server_address_is_exported_by_lab_sh():
     registered, exported = _registered_env_names(), _exported_names()
-    assert registered, "no MCP server urls found in the gateway config — the parser is wrong"
+    assert registered, "no gateway-dereferenced addresses found — the parser is wrong"
     missing = sorted(registered - exported)
     assert not missing, (
         f"{missing} are dereferenced by config/litellm-config.yaml but never exported by lab.sh. "
-        "The gateway reads the PROCESS environment, so it will publish ZERO tools for that server "
-        "and the failure will look like a missing team grant. Add it to lab.sh's export line.")
+        "The gateway reads the PROCESS environment, so an MCP server publishes ZERO tools and a "
+        "pass-through route fails — both of which look like a grant problem rather than a missing "
+        "variable. Add it to lab.sh's export line.")
 
 
 def test_the_gateway_role_receives_every_registered_address_in_the_cloud():

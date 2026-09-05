@@ -1,0 +1,52 @@
+{
+  "_about": "The meeting vocabulary as DATA. Concept-centred, not people-centred (user decision, Sep 4 2026): keywords and decisions are what the semantic layer is for; who said them is thin attribution. A Meeting is PROVENANCE, not a container — which is why RaisedIn points FROM the durable thing TO its evidence. That direction is what lets a WorkItem become the hub later without re-parenting anything: a decision simply gains a second RaisedIn edge. Nothing in code knows any of these names.",
+  "natures": {
+    "concept": "The knowledge itself — what is being talked about and decided on.",
+    "commitment": "Something the organisation is now accountable for.",
+    "provenance": "Where a concept or commitment came from — evidence, not ownership.",
+    "party": "A human, referenced only to attribute a commitment."
+  },
+  "pii": {
+    "none": "No personal data; any property may be written.",
+    "identifying": "Names a real human. Only a label and the kind of id may be written — never an address."
+  },
+  "elements": {
+    "Concept": {"nature": "concept", "pii": "none",
+      "definition": "A thing the organisation talks about and decides on — a capability, a system, a policy, a term of art. Durable and shared: the same concept in two meetings is the same node.",
+      "examples": ["Claims Adjudication", "Unified Patient Record", "Prior Authorisation"]},
+    "Decision": {"nature": "commitment", "pii": "none",
+      "definition": "A settled choice about one or more concepts. Durable: it happened to be raised in a meeting, and may later be raised against a work item.",
+      "examples": ["Retire the legacy portal", "Adopt FHIR R4 for referrals"],
+      "confusable_with": "An ActionItem is work someone owes; a Decision is a choice already made."},
+    "ActionItem": {"nature": "commitment", "pii": "none",
+      "definition": "Work one person owes, about one or more concepts, often carrying out a decision.",
+      "examples": ["Draft the migration plan by 12 Oct", "Confirm the licence count with the vendor"]},
+    "Meeting": {"nature": "provenance", "pii": "none",
+      "definition": "One recorded conversation. Evidence for the concepts and commitments that reference it — never their owner.",
+      "examples": ["Architecture review, 4 Sep 2026"]},
+    "Person": {"nature": "party", "pii": "identifying",
+      "definition": "A human, referenced only to attribute a decision or own an action. Deliberately thin: the semantic layer is knowledge, not a directory.",
+      "examples": ["the meeting organiser", "an external vendor architect"]}
+  },
+  "relations": {
+    "Concerns":    {"definition": "This commitment is about that concept — the core edge of the model.", "category": "knowledge"},
+    "Resolves":    {"definition": "A later decision revises or supersedes an earlier one.", "category": "knowledge"},
+    "Implements":  {"definition": "An action item carries out a decision.", "category": "knowledge"},
+    "BroaderThan": {"definition": "A concept generalises another — the term hierarchy, when one emerges.", "category": "knowledge"},
+    "RaisedIn":    {"definition": "PROVENANCE: where this was first recorded. Points FROM the durable thing TO its evidence, never the reverse — so a work item can become a second target without moving anything.", "category": "provenance"},
+    "DecidedBy":   {"definition": "Who took this decision.", "category": "attribution"},
+    "OwnedBy":     {"definition": "Who owes this action item.", "category": "attribution"},
+    "Attended":    {"definition": "A person was present at a meeting.", "category": "attribution"}
+  },
+  "permitted": {
+    "Decision":   {"Concept": ["Concerns"], "Decision": ["Resolves"], "Meeting": ["RaisedIn"], "Person": ["DecidedBy"]},
+    "ActionItem": {"Concept": ["Concerns"], "Decision": ["Implements"], "Meeting": ["RaisedIn"], "Person": ["OwnedBy"]},
+    "Concept":    {"Concept": ["BroaderThan"], "Meeting": ["RaisedIn"]},
+    "Person":     {"Meeting": ["Attended"]}
+  },
+  "rules": [
+    "Every Decision and every ActionItem must Concern at least one Concept — that is what makes the model concept-centred rather than a pile of minutes.",
+    "A Meeting is never the source of a relation: provenance points from the durable thing to its evidence, so adding a WorkItem later is an extra RaisedIn target and not a re-parenting.",
+    "A Person carries a label and the kind of id only. An address is never written into the graph."
+  ]
+}

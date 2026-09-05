@@ -1,5 +1,14 @@
 # Production-code coverage (CLAUDE.md: TDD for production code; spikes/scripts/probes exempt).
-# Run: tests/run.sh [--cov]     Target: >= 95 % of production code (user decision, Sep 3 2026).
+# Run: tests/run.sh [--cov]
+#
+# TARGET: >= 80 % overall, judged PER PACKAGE rather than per file (user decision, Sep 4 2026,
+# replacing the earlier 95 %-per-file rule). Why the change: per-file 95 % was producing tests for
+# `__main__` guards and one-line delegators — ceremony that caught nothing — while the same rule's
+# real value (a whole area of behaviour being untested) is visible at package level anyway. Judge a
+# PACKAGE: `lab.core.speech`, `lab.substrate.mcp.speech`, `lab.workloads.<process>`.
+#
+# What is deliberately NOT worth testing is EXCLUDED below rather than tested to satisfy a number.
+# Excluding something is a claim that it carries no behaviour worth pinning — if it does, test it.
 [run]
 branch = True
 data_file = var/coverage/.coverage
@@ -8,8 +17,18 @@ omit =
     tests/*
     src/lab/workloads/visio_to_archimate/make_sample_vsdx.py
 [report]
-fail_under = 95
+fail_under = 80
 omit =
     tests/*
+exclude_also =
+    # A CLI entry point: running it IS the test, and asserting on it tests argparse, not the lab.
+    if __name__ == "__main__":
+    # Type-checking-only imports never execute.
+    if TYPE_CHECKING:
+    # An abstract/Protocol member with no body — the implementations are what carry behaviour.
+    \.\.\.$
+    raise NotImplementedError
+    # Explicitly opted out, with a reason required at the call site.
+    pragma: no cover
 skip_empty = True
 show_missing = False

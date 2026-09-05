@@ -1,5 +1,5 @@
 # SUBSTRATE — the shared platform plane, deployed ONCE and referenced by every workload.
-# Governance (gateway), shared tools (semantic-mcp, adoit-mcp, storage-mcp, workflow-mcp, graph-mcp),
+# Governance (gateway), shared tools (semantic-mcp, adoit-mcp, storage-mcp, workflow-frontdoor, graph-mcp),
 # the human approval gate (review),
 # and local tracing. All durable state lives OUTSIDE this compose (Neon, Redis Cloud, artifact
 # store in Postgres); on Railway, tracing is the remote Jaeger instead of the local one here.
@@ -10,27 +10,32 @@
 # Usage (local, needs a Docker engine):
 #   docker compose --env-file ../../.env -f deploy/substrate/compose.yml up --build
 # Workloads then join this network (see deploy/workloads/<name>/compose.yml).
+# The shared environment as its OWN anchor. `<<` merges only TOP-LEVEL keys, so a service that
+# writes `environment:` REPLACES this mapping rather than extending it — which is why a service
+# needing one extra variable must say `environment: {<<: *env, EXTRA: ...}` and not just `EXTRA:`.
+x-env: &env
+  BIND_HOST: 0.0.0.0
+  GATEWAY_URL: http://gateway:4000
+  ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
+  SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
+  STORAGE_MCP_URL: http://storage-mcp:9300/mcp
+  GRAPH_MCP_URL: http://graph-mcp:9500/mcp
+  REVIEW_APP_URL: ${REVIEW_APP_URL:-http://review:8501}
+  JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
+  # the substrate's own Redis (service above) — overrides the machine-local .env value, which
+  # inside a container would point at the container itself. HOST/PORT/PASSWORD feed litellm's
+  # router_settings; URL feeds everything else (src/lab/substrate/approvals.py, litellm cache).
+  REDIS_URL: redis://redis:6379/0
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+  OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+
 x-sub: &sub
   build: { context: ../.., dockerfile: deploy/Dockerfile }
   env_file: [../../.env]
-  environment:
-    BIND_HOST: 0.0.0.0
-    GATEWAY_URL: http://gateway:4000
-    ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
-    SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
-    STORAGE_MCP_URL: http://storage-mcp:9300/mcp
-    GRAPH_MCP_URL: http://graph-mcp:9500/mcp
-    REVIEW_APP_URL: ${REVIEW_APP_URL:-http://review:8501}
-    JAEGER_UI_URL: ${JAEGER_UI_URL:-http://jaeger:16686}
-    # the substrate's own Redis (service above) — overrides the machine-local .env value, which
-    # inside a container would point at the container itself. HOST/PORT/PASSWORD feed litellm's
-    # router_settings; URL feeds everything else (src/lab/substrate/approvals.py, litellm cache).
-    REDIS_URL: redis://redis:6379/0
-    REDIS_HOST: redis
-    REDIS_PORT: "6379"
-    REDIS_PASSWORD: ""
-    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
-    OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+  environment: *env
   restart: unless-stopped
   networks: [substrate]
 
@@ -71,34 +76,38 @@ services:
   storage-mcp:                # READ-ONLY governed object store (uploads) — internal only. Holds the
     <<: *sub                  # bucket credentials (S3_*/UPLOADS_URL from .env); workloads never do.
     command: ["python", "-m", "lab.substrate.mcp.storage.server"]
-  workflow-mcp:               # the governed FRONT DOOR to every business process (submit/status/result
+  workflow-frontdoor:               # the governed FRONT DOOR to every business process (submit/status/result
     <<: *sub                  # + the approval tools). Redis + tracing only — holds NO store credential.
     command: ["python", "-m", "lab.substrate.mcp.workflow.server"]
   graph-mcp:                  # the COLLABORATION port (gateway alias collab_mcp) — internal only.
     <<: *sub                  # Holds the provider credential (GRAPH_*) AND bucket credentials:
     command: ["python", "-m", "lab.substrate.mcp.graph.server"]   # collab_fetch streams content in.
   speech-mcp:                 # the SPEECH port (gateway alias speech_mcp) — internal only. Holds the
-    <<: *svc                  # speech credential AND bucket keys: it reads the audio out of the upload
-    command: python -m lab.substrate.mcp.speech.server   # store and writes the segment timeline back
-    environment:              # as an art:// ref. No Redis: it publishes no event and holds no approval.
-      <<: *env
+    <<: *sub                  # speech credential AND bucket keys: it reads the audio out of the upload
+    command: ["python", "-m", "lab.substrate.mcp.speech.server"]   # store, writing the segment
+    environment:              # timeline back as an art:// ref. No Redis: it publishes no event.
+      <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
       AUDIO_EXTRACT_BIN: ${AUDIO_EXTRACT_BIN:-ffmpeg}    # a meeting recording is VIDEO; providers take audio
 
   continuations:              # approving an approval starts the run it releases. Redis only:
-    <<: *svc                  # no store, no bucket, no model, no provider credential, no ingress.
-    command: python -m lab.substrate.continuations
-    environment: { <<: *env }
+    <<: *sub                  # no store, no bucket, no model, no provider credential, no ingress.
+    command: ["python", "-m", "lab.substrate.continuations"]
 
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]
     environment:
+      # Re-merged, not replaced: naming `environment` here overrides *sub's copy wholesale, and
+      # without this the gateway falls back to the machine-local .env REDIS_URL — which inside a
+      # container points at the gateway itself. It needs the substrate's Redis for litellm's
+      # router/cache state AND for custom_auth's JIT developer keys.
+      <<: *env
       BIND_HOST: 0.0.0.0
       GATEWAY_URL: http://gateway:4000
       ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
       SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
       STORAGE_MCP_URL: http://storage-mcp:9300/mcp
-      WORKFLOW_MCP_URL: http://workflow-mcp:9400/mcp
+      WORKFLOW_MCP_URL: http://workflow-frontdoor:9400/mcp
       GRAPH_MCP_URL: http://graph-mcp:9500/mcp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
@@ -109,7 +118,7 @@ services:
       # verified). Skip schema management in containers; migrate the DB once, natively.
       DISABLE_SCHEMA_UPDATE: "true"
     ports: ["4000:4000"]
-    depends_on: [adoit-mcp, semantic-mcp, storage-mcp, workflow-mcp, graph-mcp]
+    depends_on: [adoit-mcp, semantic-mcp, storage-mcp, workflow-frontdoor, graph-mcp]
   review:                     # human approval gate (cross-cutting) — public, password-gated
     <<: *sub
     command: ["streamlit", "run", "src/lab/substrate/review/app.py", "--server.port", "8501", "--server.headless", "true"]

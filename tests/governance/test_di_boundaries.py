@@ -25,8 +25,13 @@ SCRIPT_PATTERNS = ("provision", "bootstrap_registry")
 CONFIG = "src/lab/platform/config.py"
 # composition roots: processes wire env -> config here (host/consumer/devui) — allowed by design
 PROVIDER_ROOTS = ["src/lab/platform/container.py", "src/lab/substrate/container.py"]   # the ONLY files with `providers.*`
-COMPOSITION_ROOTS = {"src/lab/workloads/visio_to_archimate/host.py", "src/lab/workloads/visio_to_archimate/consumer.py",
-                     "src/lab/workloads/visio_to_archimate/devui_entry.py"}
+# The poll loop that composes a process container moved to lab/workloads/consumer.py when a second
+# business process needed it — so THAT is the composition root now, and a per-process consumer is a
+# thin module naming its own identity and inputs. The one-shot hosts still compose their own.
+COMPOSITION_ROOTS = {"src/lab/workloads/consumer.py",
+                     "src/lab/workloads/visio_to_archimate/host.py",
+                     "src/lab/workloads/visio_to_archimate/devui_entry.py",
+                     "src/lab/workloads/meeting_to_transcript/host.py"}
 # ratchet: files that still read env inside logic (each is a scheduled finding) — shrink, never grow
 KNOWN_ENV_READERS = {
     "src/lab/workloads/visio_to_archimate/workflow.py",   # BA_MODE / ARCHITECT_MODE / VISIO_AGENT_MODEL (A-F9, C-H4)

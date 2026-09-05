@@ -36,7 +36,7 @@ from jsonschema import Draft7Validator
 
 from lab.workloads.visio_to_archimate import agents as A
 from lab.workloads.visio_to_archimate import inputs as I
-from lab.workloads import ids, workflowviz  # (live run visibility: Runs board + graph)
+from lab.workloads import gateway, ids, workflowviz  # (live run visibility: Runs board + graph)
 from lab.platform import runlog
 from lab.platform.contracts import ArtifactRef, EATools, SemanticTools, StorageTools
 from lab.workloads.visio_to_archimate import ba_tools as BT  # (BA_MODE=tools accumulator)
@@ -189,41 +189,14 @@ async def preflight(cfg) -> None:
     alias-agnostic (the gateway prefixes `<server alias>-`), so renaming an alias does not break it
     and must not fail preflight either. What DOES break it — a renamed or withdrawn tool — is caught.
     """
-    async with Client(StreamableHttpTransport(cfg["mcp_url"], headers=cfg.get("ar_headers") or {})) as c:
-        exposed = [t.name for t in await c.list_tools()]
-    missing = [t for t in REQUIRED_TOOLS if not any(n.endswith(t) for n in exposed)]
-    if missing:
-        raise RuntimeError(
-            f"gateway does not expose {missing} — this workload and the gateway are running different "
-            f"versions, or this identity is not granted those servers. Redeploy both from the same "
-            f"image (the deploy CLI's `substrate images` shows what each service runs) or fix "
-            f"the team grant. Exposed: {sorted(exposed)}")
+    await gateway.preflight(cfg["mcp_url"], cfg.get("ar_headers") or {}, REQUIRED_TOOLS)
 
 
-async def _call_tools_raw(headers, mcp_url, calls):
-    """Call gateway-MCP tools by name suffix; returns the raw fastmcp results (keeps `.content`,
-    which is where image blocks live — `.data` is None for image results)."""
-    async with Client(StreamableHttpTransport(mcp_url, headers=headers)) as c:
-        names = [t.name for t in await c.list_tools()]
-
-        def pick(suffix):
-            m = [n for n in names if n.endswith(suffix)]
-            if not m:
-                raise RuntimeError(f"tool *{suffix} not exposed by gateway ({names})")
-            return m[0]
-
-        return [await c.call_tool(pick(sfx), args) for sfx, args in calls]
+_call_tools_raw = gateway.call_tools_raw    # the ONE gateway-MCP transport (lab.workloads.gateway)
+_call_tools = gateway.call_tools
 
 
-async def _call_tools(headers, mcp_url, calls):
-    return [r.data for r in await _call_tools_raw(headers, mcp_url, calls)]
-
-
-def _ref_from(res, key: str = "spec_ref") -> str:
-    """The art:// ref out of an MCP result — a dict, or a JSON string (MCP results can arrive as
-    strings, AF #3313) — validated as a well-formed `ArtifactRef` (a malformed ref fails HERE, not
-    three tool calls later)."""
-    return str(ArtifactRef.parse((res if isinstance(res, dict) else json.loads(res))[key]))
+_ref_from = gateway.ref_from
 
 
 _rid = ids.rid   # one relation-id formula in the repo (src/lab/workloads/ids.py), shared with the accumulators

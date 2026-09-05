@@ -209,7 +209,20 @@ def register(server: LabServer) -> None:
                    "answer_labels": labels, "answer_required": True}
         if continuation:
             payload["continuation"] = Continuation.from_dict(continuation).to_dict()   # validated NOW
-        payload |= dict(artifacts or {})          # refs a reviewer may open; no store is reached
+        # Refs a reviewer may open; no store is reached. The merge is guarded because `|=` resolves
+        # collisions in favour of the right operand: an `artifacts` entry named `answer_labels` would
+        # silently replace the completeness contract declared two lines above, and `check_answer`
+        # reads exactly that field — so `artifacts={"answer_labels": []}` would make an approval that
+        # asked about four speakers approvable with no answer at all. The reserved names are
+        # `_NOT_ARTIFACTS`, the SAME tuple the read side uses to decide what is not an artifact, so
+        # the two ends of this module cannot drift into disagreeing about what a caller may set.
+        clashes = sorted(set(artifacts or {}) & set(_NOT_ARTIFACTS))
+        if clashes:
+            raise ValueError(f"{clashes} cannot be passed as artifacts — those names carry the "
+                             "approval's own meaning (the question, its completeness contract, the "
+                             "continuation, the reviewer's brief). Pass artifacts under names of "
+                             "your own.")
+        payload |= dict(artifacts or {})
         rid = approvals.request(kind=ApprovalKind.SPEAKER_MAPPING.value, subject=subject,
                                 payload=payload, requester=requester or SOURCE, client=_client())
         span().set_attributes({"approval.request_id": rid, "approvals.asked": len(prompts)})

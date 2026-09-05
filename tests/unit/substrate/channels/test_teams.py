@@ -82,7 +82,8 @@ def test_card_carries_everything_a_reviewer_needs_to_decide():
 
     actions = {a["title"]: a for a in card["actions"]}
     assert all(a["type"] == "Action.OpenUrl" for a in actions.values())
-    assert actions["Review & decide"]["url"] == "http://review.test"
+    # Deep-linked to THIS approval: a reviewer with three open should not have to go and find theirs.
+    assert actions["Review & decide"]["url"] == "http://review.test?approval=apr-1"
     assert actions["Open trace"]["url"] == "http://jaeger.test/trace/abc123def456"
 
 
@@ -227,3 +228,77 @@ def test_main_entry_runs_the_channel(monkeypatch):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q", "-p", "no:warnings"]))
+
+
+# ------------------------------------------------------------------ asking a human a question
+QUESTION = {
+    "question": {"prompt": "Who is each speaker?",
+                 "items": [{"label": "SPEAKER_00", "seconds": 900.5, "turns": 42,
+                            "samples": ["خلينا نعمل migration بعد الـ review", "we retire the portal"]},
+                           {"label": "SPEAKER_01", "seconds": 12.0, "turns": 3, "samples": []}]},
+    "answer_labels": ["SPEAKER_00", "SPEAKER_01"], "answer_required": True,
+    "summary": {"speakers": 2, "duration_s": 2612.4},
+}
+
+
+def _envelope(payload, kind="speaker-mapping", subject="weekly sync"):
+    ch = T.TeamsChannel(webhook="https://example.invalid/hook", review_url="http://review.invalid")
+    return ch.card({"request_id": "apr-1", "kind": kind, "subject": subject,
+                    "requester": "wf-meeting", "trace_id": "", "payload": json.dumps(payload)})
+
+
+def _text(card) -> str:
+    return json.dumps(card, ensure_ascii=False)
+
+
+def test_a_question_card_shows_every_speaker_a_human_must_identify():
+    body = _text(_envelope(QUESTION))
+    assert "Who is each speaker?" in body
+    assert "SPEAKER_00" in body and "SPEAKER_01" in body
+
+
+def test_it_shows_the_evidence_a_person_needs_to_tell_voices_apart():
+    """Duration and turns separate a main participant from someone who said 'yes' twice, and a
+    verbatim line is what actually triggers recognition."""
+    body = _text(_envelope(QUESTION))
+    assert "خلينا نعمل migration" in body
+    assert "42" in body and "15" in body or "900" in body     # turns and how long they spoke
+
+
+def test_the_button_lands_on_this_approval_not_the_review_apps_front_page():
+    """A reviewer with three approvals open should not have to go and find theirs."""
+    card = _envelope(QUESTION)
+    urls = [a["url"] for a in card["attachments"][0]["content"]["actions"]
+            if a["type"] == "Action.OpenUrl"]
+    assert any(u.endswith("?approval=apr-1") for u in urls)
+
+
+def test_the_card_says_the_answer_cannot_be_given_in_teams_without_a_flow():
+    """An incoming webhook is send-only: Teams renders Action.Submit and has nowhere to post it.
+    Saying so is better than a button that silently does nothing."""
+    body = _text(_envelope(QUESTION)).lower()
+    assert "submit" not in body or "action.submit" not in body
+    assert "review app" in body or "open" in body
+
+
+def test_an_ea_approval_still_renders_its_summary_unchanged():
+    """The change must be invisible to every approval that asks nothing — which is all of them so
+    far. The card dispatches on what the PAYLOAD carries, never on the approval kind."""
+    body = _text(_envelope({"summary": {"elements": 12, "relations": 9, "views": 2,
+                                    "violations": 1, "warnings": 0, "domain": "Claims"}},
+                           kind="ea-import", subject="claims"))
+    assert "Claims" in body and "12" in body
+    assert "validation violation" in body
+
+
+def test_nothing_in_the_card_builder_dispatches_on_the_approval_kind():
+    """Keeping that true is what lets a new kind of question arrive without touching any channel."""
+    import ast
+    import inspect
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(T.TeamsChannel.card)))
+    fn = tree.body[0]
+    if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(fn.body[0].value, ast.Constant):
+        fn.body = fn.body[1:]
+    code = ast.unparse(ast.Module(body=fn.body, type_ignores=[])).lower()
+    assert "kind ==" not in code and "'ea-import'" not in code and "speaker" not in code

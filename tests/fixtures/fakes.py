@@ -256,6 +256,7 @@ class FakeRedis:
         entries = list(self.x.get(stream, []))
         return [(eid, dict(f)) for eid, f in entries[: count or None]]
 
+    @_op
     def xrevrange(self, stream, max="+", min="-", count=None):
         entries = list(reversed(self.x.get(stream, [])))
         return [(eid, dict(f)) for eid, f in entries[: count or None]]

@@ -20,13 +20,28 @@ FAKE = ProcessSpec(
 
 
 # ------------------------------------------------------------------ the catalogue is derived
-def test_workflow_catalogue_is_generated_three_tools_per_registered_process():
+def test_workflow_catalogue_is_generated_from_the_registered_processes():
+    """Three tools per process a caller may START, two for a continuation-only one — and the catalogue
+    is where that is decided, because it is the PORT: a grant names these strings and
+    test_contracts_match_servers checks them against the server in both directions."""
     assert WorkflowTools.SERVER == "workflow_mcp" and WorkflowTools.VERBS == ("submit", "status", "result")
     generated = WorkflowTools.names() - ApprovalTools.names()    # the fixed approval gate rides along
-    assert generated == {f"{p}_{v}" for p in PROCESSES for v in WorkflowTools.VERBS}
-    assert len(generated) == 3 * len(PROCESSES)
+    assert generated == {spec.tool(v) for spec in PROCESSES.values()
+                         for v in WorkflowTools.verbs_for(spec)}
+    assert len(generated) == sum(3 if s.external else 2 for s in PROCESSES.values())
     assert "visio_to_archimate_submit" in WorkflowTools.names()
     assert "workflow_mcp" not in WorkflowTools.names()          # SERVER is the alias, not a tool
+
+
+def test_a_continuation_only_process_contributes_no_submit_tool():
+    """See tests/unit/substrate/mcp/workflow/test_external_processes.py for why, and for the same
+    refusal on the REST surface."""
+    closed = [s for s in PROCESSES.values() if not s.external]
+    assert closed, "the invariant is only meaningful while some process is continuation-only"
+    for spec in closed:
+        assert spec.tool("submit") not in WorkflowTools.names()
+        assert {spec.tool("status"), spec.tool("result")} <= WorkflowTools.names()
+        assert WorkflowTools.verbs_for(spec) == ("status", "result")
 
 
 def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_three_grants():
@@ -37,8 +52,8 @@ def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_three_gr
     be a governed tool. A workload gets RAISE and never WRITE — it may ask, never answer its own
     question, which is the entire control."""
     assert ApprovalTools.SERVER == WorkflowTools.SERVER
-    assert ApprovalTools.names() == {"approvals_list", "approvals_get", "approvals_ask",
-                                     "approvals_decide"}
+    assert {"approvals_list", "approvals_get", "approvals_ask",
+            "approvals_decide"} <= ApprovalTools.names()
     assert ApprovalTools.names() < WorkflowTools.names()         # reachable under the one alias
     grants = (set(ApprovalTools.READ), set(ApprovalTools.RAISE), set(ApprovalTools.WRITE))
     assert set.union(*grants) == ApprovalTools.names()           # every tool belongs to a grant
@@ -132,8 +147,10 @@ def test_input_field_coerce_is_the_one_validator():
     # decision rather than a drift. REF/REF_LIST carry content by reference; HANDLE, IDENTITY and
     # MAPPING exist so a low-code trigger can start a run in ONE call and a human's answer can reach
     # the run that needs it. Each must also have an ANNOTATION below, or the schema generator raises.
-    assert list(InputKind) == [InputKind.REF, InputKind.REF_LIST, InputKind.HANDLE,
-                               InputKind.IDENTITY, InputKind.MAPPING]
+    # The INVARIANT, not the list: adding a kind is fine, adding one with no generated-schema
+    # annotation is not — that is a KeyError waiting for the first process that uses it.
+    assert {InputKind.REF, InputKind.REF_LIST, InputKind.HANDLE,
+            InputKind.IDENTITY, InputKind.MAPPING} <= set(InputKind)
     assert set(ANNOTATION) == set(InputKind), "every kind needs a generated-schema annotation"
 
 

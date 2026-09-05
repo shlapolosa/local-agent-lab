@@ -1,7 +1,7 @@
 """Deploy the lab to Railway as two independent tiers (see deploy/README.md):
 
   substrate  — the shared plane: redis (internal), gateway (public), semantic-mcp + adoit-mcp +
-               storage-mcp + workflow-mcp + graph-mcp (internal), review (public), plus every approval CHANNEL
+               storage-mcp + workflow-frontdoor + graph-mcp (internal), review (public), plus every approval CHANNEL
                that is configured (telegram, teams — internal, no ingress). Lives in the project
                alongside Jaeger, so the gateway reaches the MCP servers over Railway private DNS
                (*.railway.internal).
@@ -104,7 +104,7 @@ SUBSTRATE = {
     # approval gate a run pauses at (approvals_list/get/decide). Redis ONLY: it publishes
     # workflow:requests events, reads their status and appends approval decisions — no store, no
     # bucket, no ADOIT credential.
-    "workflow-mcp": {"cmd": "python -m lab.substrate.mcp.workflow.server", "port": None},
+    "workflow-frontdoor": {"cmd": "python -m lab.substrate.mcp.workflow.server", "port": None},
     # the COLLABORATION port (gateway alias collab_mcp): files and meetings from wherever the
     # organisation collaborates. "s3": True because collab_fetch WRITES what it fetches into the
     # upload store — a meeting recording is streamed there and comes back as an art:// ref, so this
@@ -197,6 +197,12 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
         "GRAPH_MCP_URL", "SPEECH_MCP_URL",         # ... incl. the collab_mcp and speech_mcp aliases' services
+        "WORKFLOW_API_URL",                        # the front door's REST ingress, which the gateway
+                                                   # pass-through forwards to. Authorised HERE, not there:
+                                                   # the pass-through replaces the caller's Authorization,
+                                                   # so identity does not survive the hop (lab.substrate.
+                                                   # apipolicy + custom_auth). Hence the ENTRA_* below are
+                                                   # load-bearing for /api, not only for agent auth.
         "REDIS_URL",                               # custom_auth.py; litellm falls back to it when REDIS_HOST/PORT/
                                                    # PASSWORD are absent (verified) — those three stay OUT (unchanged
                                                    # from the old drop-set; the cloud Redis has no password)
@@ -225,7 +231,7 @@ ROLE_ENV = {
         "BA_MAX_*",                                # docparse.py size limits (BA_MAX_DOC_CHARS, BA_MAX_EMBEDDED_IMAGES)
         _OTLP,
     ],                                             # + S3_KEYS via the "s3" flag (the only writer/reader pair of the bucket)
-    "workflow-mcp": [                              # src/lab/substrate/mcp/workflow/{server,approval_tools}.py + lab.substrate.approvals + lab.platform.{workflows,contracts} — Redis ONLY
+    "workflow-frontdoor": [                              # src/lab/substrate/mcp/workflow/{server,approval_tools}.py + lab.substrate.approvals + lab.platform.{workflows,contracts} — Redis ONLY
         "MCP_SHARED_SECRET", "BIND_HOST", "WORKFLOW_MCP_PORT",
         "REDIS_URL",                               # workflows.request/status + approvals streams — the ONLY backend it holds
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # approval_tools.py: the two LINKS a reviewer follows
@@ -278,16 +284,18 @@ ROLE_ENV = {
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
         _OTLP,
     ],
-    "workload": [                                  # src/lab/workloads/visio_to_archimate/{host,consumer,agents,workflow}.py + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
+    # What EVERY workload needs, and nothing more. A workload reaches the substrate only through the
+    # gateway, Redis and tracing — the same seam as Container Apps -> APIM. Anything process-specific
+    # (its agents' credentials, its own settings) belongs in WORKLOAD_ENV below, not here: one shared
+    # list meant the meeting workload was handed the visio agents' client secrets, which is exactly
+    # the blast radius this table exists to prevent.
+    "workload": [                                  # src/lab/workloads/* + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
         "GATEWAY_URL",                             # the ONLY substrate coordinate (LLM + MCP via the gateway)
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # reported to the human (host.py prints; consumer writes back)
         "REDIS_URL",                               # workflows.py (consume requests) + runlog.py (live node status)
         _OTLP,                                     # lab.platform.otel.tracer; service name is set in code, not from env
-        "BA_*", "ARCHITECT_*",                     # identity.agent_headers(): <PREFIX>_CLIENT_ID/SECRET/KEY; BA_MODE, BA_RUN_TIMEOUT,
-                                                   # BA_MAX_* (docparse), ARCHITECT_MODE (workflow.py)
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE",   # identity.py MSAL authority + scope
         "AGENT_*",                                 # agents.py: AGENT_RESPONSES_STORE / REQUEST_TIMEOUT / MAX_RETRIES / MAX_OUTPUT_TOKENS
-        "VISIO_AGENT_MODEL", "VISIO_DIAGRAM", "VISIO_REQUIREMENTS",   # agents.py model; host.py cloud-job inputs (NOT VISIO_TEAM_ID etc.)
         "WF_CONSUMER",                             # consumer.py replica name (spec env)
     ],
     # image services built from nothing in this repo: they get NO .env keys at all
@@ -296,11 +304,41 @@ ROLE_ENV = {
 }
 
 
-def env_for_role(role: str, base: dict, s3: bool = False) -> dict:
+# What ONE workload needs on top of the shared list — its agents' credentials and its own settings.
+# Adding a process means adding a row here; an unlisted prefix is SILENTLY dropped in the cloud, which
+# is the failure this table is named after.
+WORKLOAD_ENV: dict[str, list[str]] = {
+    "visio": [
+        "BA_*", "ARCHITECT_*",                     # identity.agent_headers(): <PREFIX>_CLIENT_ID/SECRET/KEY;
+                                                   # BA_MODE, BA_RUN_TIMEOUT, BA_MAX_* (docparse), ARCHITECT_MODE
+        "VISIO_AGENT_MODEL", "VISIO_DIAGRAM", "VISIO_REQUIREMENTS",   # model; cloud-job inputs
+    ],
+    "minutes": [
+        "MINUTES_*",                               # identity.agent_headers(): MINUTES_AGENT_CLIENT_ID/
+                                                   # SECRET/KEY, and MINUTES_AGENT_MODEL. This process
+                                                   # writes the minutes with OUR model, so it needs an
+                                                   # LLM identity where the transcription one does not.
+        "AGENT_*",                                 # agents.py: responses-store toggle, timeouts, caps
+    ],
+    "meeting": [
+        "MEETING_*",                               # MEETING_AGENT_CLIENT_ID/SECRET/KEY, and MEETING_LANGUAGES —
+                                                   # the language HINT that selects a model able to transcribe
+                                                   # speech switching language mid-sentence.
+    ],
+}
+# The one-shot job runs the SAME process as its long-lived twin, so it gets the same allowlist —
+# declared rather than defaulted, because "unknown workload" must stay an error.
+WORKLOAD_ENV["visio-job"] = WORKLOAD_ENV["visio"]
+
+
+def env_for_role(role: str, base: dict, s3: bool = False, workload: str | None = None) -> dict:
     """Select from `base` (parsed .env + layered coordinates) exactly the keys ROLE_ENV[role]
-    allows, plus S3_KEYS iff the service is flagged `s3`. Unknown role -> KeyError (never ship a
-    full env by accident). Empty values are dropped (Railway would store them as empty strings)."""
+    allows, plus S3_KEYS iff the service is flagged `s3`, plus WORKLOAD_ENV[workload] for a workload
+    role. Unknown role -> KeyError (never ship a full env by accident). Empty values are dropped
+    (Railway would store them as empty strings)."""
     pats = list(ROLE_ENV[role]) + (list(S3_KEYS) if s3 else [])
+    if workload is not None:
+        pats += list(WORKLOAD_ENV[workload])       # KeyError on an unregistered process, deliberately
     return {k: v for k, v in base.items()
             if v != "" and any(fnmatch.fnmatchcase(k, p) for p in pats)}
 
@@ -509,9 +547,10 @@ def substrate_env(name, spec, base_env) -> dict:
     env["ADOIT_MCP_URL"] = "http://adoit-mcp.railway.internal:9100/mcp"
     env["SEMANTIC_MCP_URL"] = "http://semantic-mcp.railway.internal:9200/mcp"
     env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
-    env["WORKFLOW_MCP_URL"] = "http://workflow-mcp.railway.internal:9400/mcp"
+    env["WORKFLOW_MCP_URL"] = "http://workflow-frontdoor.railway.internal:9400/mcp"
     env["GRAPH_MCP_URL"] = "http://graph-mcp.railway.internal:9500/mcp"
     env["SPEECH_MCP_URL"] = "http://speech-mcp.railway.internal:9600/mcp"
+    env["WORKFLOW_API_URL"] = "http://workflow-frontdoor.railway.internal:9400/api"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))
@@ -711,6 +750,21 @@ WORKLOADS = {
         "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
         "markers": ("consumer ready", "request "),   # what workload_status reads from the logs
     },
+    "meeting": {
+        "service": "wf-meeting-transcript",
+        "cmd": "python -m lab.workloads.meeting_to_transcript.consumer",
+        "restart": "ALWAYS",
+        "env": {"WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    # Started by the continuation runner when an organiser answers, not normally by a person.
+    "minutes": {
+        "service": "wf-meeting-minutes",
+        "cmd": "python -m lab.workloads.transcript_to_minutes.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
     # The one-shot job (demo / smoke): run to completion on the generated fixture, or on real
     # uploaded refs via `# CLOUD: VISIO_DIAGRAM=` / `VISIO_REQUIREMENTS=` in .env.
     # Railway has no volume mounts and both fixture inputs are git-ignored GENERATED files
@@ -733,24 +787,25 @@ def _public(ids, name):
     return f"https://{d}" if d else None
 
 
-def workload_env(spec, base_env, gw, review=None) -> dict:
-    """The exact variables a workload receives. The two-tier isolation invariant is the ALLOWLIST
-    itself (ROLE_ENV["workload"]): no MCP server addresses (it reaches tools only via the gateway),
-    no store credentials (inputs are art:// refs read through storage-mcp, its spec goes to
-    semantic-mcp), no gateway/ADOIT/bucket secrets. Pure — used by `up` and `env`."""
+def workload_env(name, spec, base_env, gw, review=None) -> dict:
+    """The exact variables ONE workload receives. The two-tier isolation invariant is the ALLOWLIST
+    itself — the shared `ROLE_ENV["workload"]` plus this process's own `WORKLOAD_ENV[name]`: no MCP
+    server addresses (it reaches tools only via the gateway), no store credentials (inputs are
+    art:// refs read through storage-mcp, its spec goes to semantic-mcp), no gateway/ADOIT/bucket
+    secrets, and none of ANOTHER process's agent credentials. Pure — used by `up` and `env`."""
     env = dict(base_env)
     env["GATEWAY_URL"] = gw                                     # the ONLY substrate coordinate
     env["REVIEW_APP_URL"] = review or env.get("REVIEW_APP_URL", "")
-    env = env_for_role("workload", env)
+    env = env_for_role("workload", env, workload=name)
     env.update(spec.get("env", {}))
     return env
 
 
-def configure_workload(sid, spec, base_env, ids):
+def configure_workload(name, sid, spec, base_env, ids):
     gw = _public(ids, "gateway")
     if not gw:
         raise SystemExit("substrate gateway has no public domain — deploy the substrate first")
-    env = workload_env(spec, base_env, gw, _public(ids, "review"))
+    env = workload_env(name, spec, base_env, gw, _public(ids, "review"))
     _print_env_keys(spec["service"], env)
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
@@ -771,7 +826,7 @@ def workload_up(name):
     print(f"deploying workload '{name}' as service {spec['service']} "
           f"({'created' if created else 'exists '} {sid[:8]}) from "
           f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
-    gw = configure_workload(sid, spec, base, ids)
+    gw = configure_workload(name, sid, spec, base, ids)
     deploy(sid)
     print(f"  references substrate gateway {gw}; restart={spec.get('restart')}; no ingress (job)")
     print(f"  image {IMAGE} — run `railway.py substrate images` to confirm every service agrees")
@@ -782,7 +837,7 @@ def workload_env_report(name):
     """OFFLINE audit: the exact key names workload `name` receives (gateway/review URLs shown as
     placeholders — the real public domains are resolved at `up`)."""
     spec = WORKLOADS[name]
-    env = workload_env(spec, load_env_for_cloud(), "https://<gateway public domain>", "https://<review public domain>")
+    env = workload_env(name, spec, load_env_for_cloud(), "https://<gateway public domain>", "https://<review public domain>")
     print(f"workload '{name}' env allowlist (from .env, `# CLOUD:` profile)")
     _print_env_keys(spec["service"], env)
 

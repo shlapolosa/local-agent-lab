@@ -132,3 +132,58 @@ def test_main_entry_runs_the_channel(monkeypatch):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q", "-p", "no:warnings"]))
+
+
+# ------------------------------------------------------------------ a question, not a staged model
+QUESTION = {"question": {"prompt": "Who is each speaker?",
+                         "items": [{"label": "SPEAKER_00"}, {"label": "SPEAKER_01"}]},
+            "answer_labels": ["SPEAKER_00", "SPEAKER_01"], "answer_required": True}
+
+
+def _sent(payload, kind="speaker-mapping", subject="weekly sync"):
+    sent = []
+    ch = T.TelegramChannel(token="t", chat="c", api=lambda m, **kw: sent.append(kw) or {},
+                           review_url="http://review.invalid")
+    ch.notify({"request_id": "apr-9", "kind": kind, "subject": subject, "requester": "wf-meeting",
+               "payload": json.dumps(payload)})
+    return sent[0]["text"]
+
+
+def test_a_question_is_announced_as_one_not_as_a_staged_model():
+    text = _sent(QUESTION)
+    assert "question needs answering" in text.lower()
+    assert "SPEAKER_00" in text and "SPEAKER_01" in text
+    assert "elements" not in text, "the EA summary must not be invented for an approval that has none"
+
+
+def test_it_links_to_where_the_question_can_actually_be_answered():
+    """A chat line cannot collect two fields per speaker, so it must not pretend to."""
+    text = _sent(QUESTION)
+    assert "http://review.invalid?approval=apr-9" in text
+    assert "/approve apr-9" not in text, "offering approve here would produce a refusal, not an answer"
+    assert "/decline apr-9" in text, "but declining is always available"
+
+
+def test_a_staged_model_still_reads_exactly_as_before():
+    text = _sent({"summary": {"elements": 3, "relations": 1, "views": 2, "violations": 0,
+                              "warnings": 1}}, kind="ea-import", subject="Malaffi model")
+    assert "Approval needed: ea-import" in text and "3 elements" in text
+    assert "/approve apr-9" in text
+
+
+def test_nothing_here_dispatches_on_the_approval_kind():
+    import ast
+    import inspect
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(T.TelegramChannel.notify)))
+    fn = tree.body[0]
+    if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(fn.body[0].value, ast.Constant):
+        fn.body = fn.body[1:]
+    code = ast.unparse(ast.Module(body=fn.body, type_ignores=[])).lower()
+    # About DISPATCH, not vocabulary: the word "speakers" appears in prose a human reads, which is
+    # fine. What must never appear is a branch on the approval kind or on a specific kind value —
+    # that is what would force every channel to be edited when a new kind of question arrives.
+    assert "kind ==" not in code and "kind !=" not in code
+    assert not any(v in code for v in ("'ea-import'", '"ea-import"',
+                                       "'speaker-mapping'", '"speaker-mapping"'))
+    assert "question" in code, "it branches on what the PAYLOAD carries instead"

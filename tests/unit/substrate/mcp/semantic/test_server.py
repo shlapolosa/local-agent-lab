@@ -294,3 +294,17 @@ def test_main_serves():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_load_model_accepts_a_reference_like_validate_does():
+    """A WORKLOAD holds no store credentials, so anything it produced is already an art:// ref and
+    cannot be passed by value. `validate_model` had this and `load_model` did not, which made the
+    load path unreachable from the one caller that needs it most."""
+    ref = STORE.put("m.spec.json", json.dumps(MODEL).encode(), "application/json")
+    out = call("semantic_load_model", spec_ref=ref, model_id="by-ref")
+    assert out["triples"] > 0 and out["model"].endswith("by-ref")
+
+
+def test_load_model_refuses_a_nameless_model():
+    """`model_id` names the graph it lands in; without one the load has no address at all."""
+    assert "model_id" in call_error("semantic_load_model", spec=MODEL, model_id="")

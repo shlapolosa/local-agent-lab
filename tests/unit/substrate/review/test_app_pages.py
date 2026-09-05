@@ -42,7 +42,7 @@ def test_review_page_no_pending_shows_history_and_acks_channel_events():
     st = install(FakeSt(), approvals=ap)
     APP._review_page("ann")
     assert ap.acked == [("review-app", "1-0"), ("review-app", "2-0")]
-    assert st.said("info", "No models awaiting review")
+    assert st.said("info", "Nothing awaiting a person")
     assert st.said("write", "`apr-7` **approve** by ann via cli")
     assert ("sidebar.metric", ("Pending", 0), {}) in st.calls
     assert ap.decisions == []
@@ -467,3 +467,138 @@ def test_a_blank_reviewer_cannot_release_a_write(monkeypatch):
     import pytest as _pytest
     with _pytest.raises(ValueError, match="actor is required"):
         approvals.human_decision("apr-x", "approve", "   ", "review-app", "")
+
+
+# ============================================================ answering a question a run could not
+QUESTION_REQ = {
+    "request_id": "apr-9", "subject": "Weekly sync — who is speaking?", "requester": "wf-meeting",
+    "status": "pending", "created_at": "2026-09-04T10:00:00+00:00", "trace_id": "",
+    "payload": {
+        "question": {"prompt": "Who is each speaker?",
+                     "items": [{"label": "SPEAKER_00", "seconds": 900.5, "turns": 42,
+                                "samples": ["خلينا نعمل migration بعد الـ review"]},
+                               {"label": "SPEAKER_01", "seconds": 12.0, "turns": 3, "samples": []}]},
+        "answer_labels": ["SPEAKER_00", "SPEAKER_01"], "answer_required": True,
+        "recording": "art://r/rec.mp4", "transcript": "art://t/x.json"},
+}
+
+ANSWERED = {"Directory identity": "", "or a free tag": ""}
+
+
+def _answering(**widgets):
+    ap = FakeApprovals(items=[QUESTION_REQ])
+    st = install(FakeSt(**widgets), approvals=ap, store=_store_for(QUESTION_REQ))
+    return ap, st
+
+
+def test_the_form_shows_each_speaker_with_the_evidence_to_recognise_them():
+    ap, st = _answering()
+    APP._review_page("ann")
+    assert st.said("subheader", "Who is each speaker?")
+    assert st.said("markdown", "**SPEAKER_00** — 900s across 42 turn(s)")
+    assert st.said("markdown", "**SPEAKER_01** — 12s across 3 turn(s)")
+    assert st.said("code", "خلينا نعمل migration بعد الـ review")
+
+
+def test_an_unanswered_speaker_blocks_approval_rather_than_being_refused_after_the_click():
+    """Letting someone fill half a form, click approve and then be told no is the worst of both."""
+    ap, st = _answering()
+    APP._review_page("ann")
+    assert st.said("info", "still unanswered") or st.said("info", "Every speaker must be answered")
+    assert ap.decisions == []
+
+
+def test_a_complete_answer_is_recorded_with_the_decision():
+    ap, st = _answering(**{"✅ Approve — start the minutes": True,
+                           "Directory identity": "maria@contoso.com",
+                           "or a free tag": ""})
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert ap.decisions and ap.decisions[0][:2] == ("apr-9", "approve")
+    # every label answered, and each with exactly one of identity/tag
+    assert ap.answers["apr-9"] == {"SPEAKER_00": {"identity": "maria@contoso.com"},
+                                   "SPEAKER_01": {"identity": "maria@contoso.com"}}
+
+
+def test_giving_both_an_identity_and_a_tag_is_treated_as_unanswered():
+    """Ambiguous is not answered: which one would the transcript use?"""
+    ap, st = _answering(**{"Directory identity": "maria@contoso.com",
+                           "or a free tag": "the vendor's architect"})
+    APP._review_page("ann")
+    assert ap.decisions == []
+    assert st.said("info", "exactly one")
+
+
+def test_declining_a_question_carries_no_answer():
+    """A reviewer who cannot tell two voices apart must be able to say so."""
+    ap, st = _answering(**{"⛔ Decline": True, "Comment (required for changes / decline)": "cannot tell"})
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert ap.decisions[0][1] == "decline" and ap.answers["apr-9"] is None
+
+
+def test_an_ordinary_approval_shows_no_form_and_keeps_its_own_button():
+    """The change must be invisible to every approval that asks nothing."""
+    ap = FakeApprovals(items=[_request()])
+    st = install(FakeSt(**{"✅ Approve — release for import": True}), approvals=ap,
+                 store=_store_for(_request()))
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert ap.decisions[0][1] == "approve" and ap.answers["apr-1"] is None
+    assert not st.said("subheader", "Who is each speaker?")
+
+
+def test_a_card_deep_link_lands_on_that_approval():
+    """A reviewer with three open should not have to go and find theirs."""
+    other = {**QUESTION_REQ, "request_id": "apr-8", "subject": "Another meeting"}
+    ap = FakeApprovals(items=[other, QUESTION_REQ])
+    st = install(FakeSt(), approvals=ap, store=_store_for(QUESTION_REQ))
+    st.query_params = {"approval": "apr-9"}
+    APP._review_page("ann")
+    assert st.said("subheader", "Weekly sync — who is speaking?")
+
+
+def _widget_keys(st):
+    """Every `key=` the form handed Streamlit, in order."""
+    return [k["key"] for _path, _a, k in st.calls if "key" in k]
+
+
+def test_two_open_approvals_do_not_share_speaker_widget_state():
+    """Streamlit keys widget state on the key string for the whole browser session, and a speaker
+    label is an anonymous placeholder every meeting reuses — every run has a SPEAKER_00. Keyed on the
+    label alone, switching between two pending approvals in the sidebar re-fills the second one's
+    fields with what was typed into the first; a pre-filled value passes the one-of-identity-or-tag
+    check, so the reviewer approves meeting B carrying meeting A's identities and the audit log shows
+    them doing it on purpose. Disjoint keys per approval is what stops that."""
+    other = dict(QUESTION_REQ, request_id="apr-OTHER", subject="Tuesday standup — who is speaking?")
+    ap = FakeApprovals(items=[QUESTION_REQ, other])
+    st = install(FakeSt(**ANSWERED), approvals=ap, store=_store_for(QUESTION_REQ))
+    APP._review_page("ann")
+    first = [k for k in _widget_keys(st) if k.startswith(("id_", "tag_"))]
+
+    st2 = install(FakeSt(**ANSWERED, Requests=f'{other["subject"]} · apr-OTHER'),
+                  approvals=FakeApprovals(items=[QUESTION_REQ, other]), store=_store_for(other))
+    APP._review_page("ann")
+    second = [k for k in _widget_keys(st2) if k.startswith(("id_", "tag_"))]
+
+    assert first and second, "the speaker form rendered in both"
+    assert not set(first) & set(second), (
+        f"the two approvals share widget state: {sorted(set(first) & set(second))}")
+    # and the id is what separates them, so the scoping is by approval and not by accident
+    assert all("apr-9" in k for k in first) and all("apr-OTHER" in k for k in second)
+
+
+def test_the_same_approval_keeps_stable_widget_keys_across_reruns():
+    """The flip side: keys must NOT be random, or a rerun would wipe what the reviewer has typed."""
+    ap, st = _answering(**ANSWERED)
+    APP._review_page("ann")
+    once = [k for k in _widget_keys(st) if k.startswith(("id_", "tag_"))]
+    ap2, st2 = _answering(**ANSWERED)
+    APP._review_page("ann")
+    assert once == [k for k in _widget_keys(st2) if k.startswith(("id_", "tag_"))]

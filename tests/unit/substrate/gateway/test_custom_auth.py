@@ -402,3 +402,157 @@ def test_return_type_is_always_none_or_str():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ============================================================ /api per-operation authorisation
+# The front door's REST ingress is authorised HERE and not at the front door, because LiteLLM's
+# pass-through replaces the caller's Authorization with a static one — measured: the backend receives
+# only accept, authorization, connection, host, user-agent. The caller's identity does not survive
+# the hop, so the check runs where the validated claims already are. These tests pin that rule.
+from lab.platform.contracts import ApiRoles                                          # noqa: E402
+from lab.substrate import apipolicy                                                  # noqa: E402
+
+SUBMIT_PATH = "/api/processes/meeting_to_transcript/runs"
+DECIDE_PATH = "/api/approvals/apr-1/decide"
+
+
+class Req:
+    """The slice of starlette's Request the hook reads: a method and a URL path."""
+    def __init__(self, path, method="POST"):
+        self.url = type("U", (), {"path": path})()
+        self.method = method
+
+
+def auth_req(token, request):
+    return asyncio.run(ca.user_api_key_auth(request, token))
+
+
+def _denied(token, request):
+    """The ValueError the hook raises for a refused call, as a string."""
+    with pytest.raises(ValueError) as e:
+        auth_req(token, request)
+    return str(e.value)
+
+
+def test_api_call_with_the_required_role_is_authorised_and_maps_to_the_virtual_key():
+    p, _ = _fresh()
+    try:
+        tok = mint({"roles": [ApiRoles.SUBMIT]})
+        assert auth_req(tok, Req(SUBMIT_PATH)) == AGENT_KEY
+        assert auth_req(tok, Req(SUBMIT_PATH.rsplit("/", 1)[0] + "/runs/wfr-1", "GET")) == AGENT_KEY
+    finally:
+        p.undo()
+
+
+def test_api_call_without_the_required_role_is_refused_and_says_which_role_it_wanted():
+    """The likeliest cause is a missing appRoleAssignment, so the error names the role and what the
+    app registration actually holds — not a bare 401 someone has to guess at."""
+    p, _ = _fresh()
+    try:
+        msg = _denied(mint({"roles": ["EA.Model"]}), Req(SUBMIT_PATH))
+        assert ApiRoles.SUBMIT in msg and "EA.Model" in msg and AGENT_APP in msg
+    finally:
+        p.undo()
+
+
+def test_reading_approvals_does_not_let_a_caller_decide_one():
+    """The split that matters most: a relay granted only READ must not be able to answer for a human.
+    Nothing else in the lab enforces this for REST — per-tool ACLs cannot see a path."""
+    p, _ = _fresh()
+    try:
+        reader = mint({"roles": [ApiRoles.READ]})
+        assert auth_req(reader, Req("/api/approvals", "GET")) == AGENT_KEY
+        assert auth_req(reader, Req("/api/approvals/apr-1", "GET")) == AGENT_KEY
+        assert ApiRoles.DECIDE in _denied(reader, Req(DECIDE_PATH))
+        # and the converse: DECIDE alone does not confer listing
+        assert ApiRoles.READ in _denied(mint({"roles": [ApiRoles.DECIDE]}), Req("/api/approvals", "GET"))
+    finally:
+        p.undo()
+
+
+def test_a_virtual_key_cannot_call_api_because_it_carries_no_roles():
+    """Every /api caller is an app registration by design. A static key authenticates but says
+    nothing about what it may do, so it is refused with the acquisition instructions."""
+    p, _ = _fresh()
+    try:
+        p.env("LITELLM_MASTER_KEY", "sk-the-master")
+        msg = _denied("sk-some-agent-key", Req(SUBMIT_PATH))
+        assert "Entra access token" in msg and AUD in msg
+        # ... while the same key is untouched everywhere else
+        assert auth_req("sk-some-agent-key", Req("/v1/chat/completions")) is None
+    finally:
+        p.undo()
+
+
+def test_the_master_key_is_the_admin_plane_and_still_reaches_api():
+    p, _ = _fresh()
+    try:
+        p.env("LITELLM_MASTER_KEY", "sk-the-master")
+        assert auth_req("sk-the-master", Req(SUBMIT_PATH)) is None          # -> LiteLLM key auth
+        assert auth_req("Bearer sk-the-master", Req(DECIDE_PATH)) is None
+    finally:
+        p.undo()
+
+
+def test_an_unset_master_key_does_not_make_the_empty_credential_an_admin():
+    """`"" == os.environ.get(..., "")` would have been true — the bug this guards."""
+    p, _ = _fresh()
+    try:
+        p.env("LITELLM_MASTER_KEY", None)
+        for cred in ("", None, "Bearer "):
+            assert "Entra access token" in _denied(cred, Req(SUBMIT_PATH))
+    finally:
+        p.undo()
+
+
+def test_an_unknown_api_path_is_denied_rather_than_allowed():
+    """Default deny. A route added without a policy entry must fail closed, not become reachable by
+    anyone holding any role."""
+    p, _ = _fresh()
+    try:
+        msg = _denied(mint({"roles": list(ApiRoles.ALL)}), Req("/api/secret-new-route"))
+        assert "not an operation of the workflow front door" in msg
+        assert all(o.name in msg for o in apipolicy.OPERATIONS)
+    finally:
+        p.undo()
+
+
+def test_a_token_this_tenant_did_not_issue_is_refused_on_api_instead_of_falling_through():
+    """Off /api an unrecognised JWT falls through to key auth (it may be the LiteLLM UI's own).
+    On /api that would authorise an operation on an unverified token, so it must refuse."""
+    p, _ = _fresh()
+    try:
+        foreign = mint(key=_OTHER)                                  # signed by the wrong key
+        assert auth_req(foreign, Req("/v1/chat/completions")) is None
+        assert "not a valid Entra token" in _denied(foreign, Req(SUBMIT_PATH))
+    finally:
+        p.undo()
+
+
+def test_a_delegated_user_token_is_refused_on_api_and_still_works_elsewhere():
+    """A user token carries `scp`, not `roles`, so there is nothing to authorise the operation with.
+    A signed-in human decides at the review app, which reaches the gate in-process."""
+    p, fake = _fresh()
+    try:
+        p.env("DEVELOPERS_TEAM_ID", None)
+        p.set(ca, "_REDIS", FakeRedis())          # the off-/api branch consults its key cache first
+        user = mint({"scp": "access_as_user", "oid": "user-oid-1"})
+        assert "APP ROLES" in _denied(user, Req(DECIDE_PATH))
+        # off /api it takes the JIT developer-key path (which needs the team id — absent, so it
+        # raises for a DIFFERENT, named reason, proving the branch was reached)
+        assert "DEVELOPERS_TEAM_ID" in _denied(user, Req("/v1/models", "GET"))
+    finally:
+        p.undo()
+
+
+def test_non_api_routes_are_completely_unaffected_by_the_policy():
+    """The role check must not leak onto model calls or the MCP surface, which are governed by
+    LiteLLM's key auth and per-tool ACLs."""
+    p, _ = _fresh()
+    try:
+        roleless = mint({"roles": []})
+        for path in ("/v1/chat/completions", "/mcp/", "/health", "/apifoo"):
+            assert auth_req(roleless, Req(path, "GET")) == AGENT_KEY, path
+        assert auth_req(roleless, None) == AGENT_KEY            # no request at all (LiteLLM internals)
+    finally:
+        p.undo()

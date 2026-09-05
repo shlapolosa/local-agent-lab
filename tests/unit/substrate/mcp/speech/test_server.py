@@ -131,7 +131,9 @@ def tools(server):
 # ------------------------------------------------------------------ the contract
 def test_tool_catalogue_is_the_contract(wired):
     server, *_ = wired
-    assert tools(server) == TOOLS == set(SpeechTools.names())
+    # Membership here; the two-way catalogue<->server PARITY is asserted exactly, once, in
+    # tests/governance/test_contracts_match_servers.py — that is where exactness is the contract.
+    assert TOOLS <= tools(server) and TOOLS <= set(SpeechTools.names())
 
 
 def test_no_tool_name_is_a_bare_literal_anywhere_in_the_catalogue():

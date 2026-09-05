@@ -152,7 +152,10 @@ def _has(env, *prefixes):
 
 
 def test_workload_receives_no_substrate_secrets():
-    env = railway.env_for_role("workload", FAKE)
+    # Per-workload now: the shared list plus THIS process's own. One shared list meant the meeting
+    # workload was handed the visio agents' client secrets, which is the blast radius this table
+    # exists to prevent — so the visio slice is asserted here and the isolation below.
+    env = railway.env_for_role("workload", FAKE, workload="visio")
     for k in ("LITELLM_MASTER_KEY", "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "MCP_SHARED_SECRET",
               "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "ADOIT_MCP_URL", "SEMANTIC_MCP_URL",
               "STORAGE_MCP_URL", "BIND_HOST", "REVIEW_APP_PASSWORD", "EA_AGENT_KEY", "ENTRA_CLIENT_TO_KEY"):
@@ -167,6 +170,26 @@ def test_workload_receives_no_substrate_secrets():
         assert k in env, k
     assert _has(env, "OTEL_")                               # tracing sink present ...
     assert "OTEL_SERVICE_NAME" not in env                   # ... but not the gateway's service name
+
+
+def test_one_workload_never_receives_another_workloads_agent_credentials():
+    """The shared list is what every workload needs; a process's own agents are its own. A single
+    combined list handed the meeting workload BA_AGENT_CLIENT_SECRET, which it has no use for and
+    should never be able to leak."""
+    meeting = railway.env_for_role("workload", FAKE, workload="meeting")
+    assert not _has(meeting, "BA_", "ARCHITECT_", "VISIO_")
+    for k in ("GATEWAY_URL", "REDIS_URL", "REVIEW_APP_URL", "ENTRA_TENANT_ID"):
+        assert k in meeting, k                              # the shared coordinates still arrive
+    visio = railway.env_for_role("workload", FAKE, workload="visio")
+    assert not _has(visio, "MEETING_")
+
+
+def test_an_unregistered_workload_is_refused_rather_than_given_a_default():
+    """Never ship an env by accident: a process with no allowlist row raises instead of quietly
+    receiving only the shared keys (or, worse, everything)."""
+    import pytest as _pytest
+    with _pytest.raises(KeyError):
+        railway.env_for_role("workload", FAKE, workload="not_a_process")
 
 
 def test_gateway_receives_exactly_what_it_consumes():
@@ -196,10 +219,10 @@ def test_adoit_mcp_receives_exactly_what_it_consumes():
     }
 
 
-def test_workflow_mcp_holds_redis_and_two_links_and_no_store():
+def test_the_front_door_holds_redis_and_two_links_and_no_store():
     """The role that carries the process tools AND the approval gate: Redis is its ONLY backend, and
     the two URLs are addresses a reviewer follows — never a store or bucket credential."""
-    env = railway.env_for_role("workflow-mcp", FAKE)
+    env = railway.env_for_role("workflow-frontdoor", FAKE)
     assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
                         "REVIEW_APP_URL", "JAEGER_UI_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not _has(env, "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_")
@@ -359,3 +382,24 @@ def test_e2e_smoke_reader_reuses_parser():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------- /api authorisation in the cloud
+def test_the_gateway_role_carries_what_api_authorisation_needs():
+    """The REST front door's per-operation role check runs in the GATEWAY process
+    (lab.substrate.gateway.custom_auth against lab.substrate.apipolicy), not in the front door — the
+    pass-through replaces the caller's Authorization, so identity does not survive the hop. That makes
+    these three settings load-bearing for /api and not only for agent authentication: without them
+    `_validate` cannot verify a token, and every /api call fails closed. Failing closed is correct,
+    but a silently broken connector is not, so pin the allowlist."""
+    gw = set(railway.ROLE_ENV["gateway"])
+    assert {"ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE", "ENTRA_CLIENT_TO_KEY"} <= gw
+    assert "WORKFLOW_API_URL" in gw, "the pass-through target"
+
+
+def test_no_other_role_is_handed_the_app_to_key_mapping():
+    """ENTRA_CLIENT_TO_KEY pairs every app registration with its virtual key. Only the process that
+    validates tokens needs it; anywhere else it is a list of live credentials."""
+    for role, keys in railway.ROLE_ENV.items():
+        if role != "gateway":
+            assert "ENTRA_CLIENT_TO_KEY" not in set(keys), role

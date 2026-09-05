@@ -208,7 +208,7 @@ def railway(fake):
         urllib.request.urlopen = real
 
 
-ALL_SUBSTRATE = ["redis", "semantic-mcp", "adoit-mcp", "storage-mcp", "workflow-mcp", "graph-mcp",
+ALL_SUBSTRATE = ["redis", "semantic-mcp", "adoit-mcp", "storage-mcp", "workflow-frontdoor", "graph-mcp",
                  "speech-mcp", "continuations", "gateway", "review"]
 
 
@@ -288,7 +288,7 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     assert gw["ADOIT_MCP_URL"] == "http://adoit-mcp.railway.internal:9100/mcp"
     assert gw["SEMANTIC_MCP_URL"] == "http://semantic-mcp.railway.internal:9200/mcp"
     assert gw["STORAGE_MCP_URL"] == "http://storage-mcp.railway.internal:9300/mcp"
-    assert gw["WORKFLOW_MCP_URL"] == "http://workflow-mcp.railway.internal:9400/mcp"
+    assert gw["WORKFLOW_MCP_URL"] == "http://workflow-frontdoor.railway.internal:9400/mcp"
     assert gw["GRAPH_MCP_URL"] == "http://graph-mcp.railway.internal:9500/mcp"
     assert gw["REDIS_URL"] == "redis://redis.railway.internal:6379/0"    # `# CLOUD:` value
     assert gw["LITELLM_MASTER_KEY"] == "sk-master-fake" and gw["OLLAMA_API_KEY"] == "ollama-fake"
@@ -307,7 +307,7 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     assert not any(k.startswith("S3_") for k in upserts["svc-semantic-mcp"]["variables"])
     assert not any(k.startswith("S3_") for k in upserts["svc-adoit-mcp"]["variables"])
     # workflow-mcp publishes/reads workflow:requests and NOTHING else: Redis + trust + tracing only
-    wf = upserts["svc-workflow-mcp"]["variables"]
+    wf = upserts["svc-workflow-frontdoor"]["variables"]
     assert wf["REDIS_URL"] == "redis://redis.railway.internal:6379/0"
     assert wf["MCP_SHARED_SECRET"] == "secret-fake" and wf["BIND_HOST"] == "::"
     for k in ("DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "S3_ACCESS_KEY_ID",
@@ -784,7 +784,7 @@ def test_cli_usage_and_credential_errors():
     for argv in ((), ("nonsense", "up"), ("workload", "nope", "up"), ("workload",)):
         text, code, fake = _cli(*argv)
         assert code and code.startswith("usage: railway.py substrate up|down|status|env"), argv
-        assert "workload <visio|visio-job>" in code and "bucket up|status" in code
+        assert "workload <" in code and "bucket up|status" in code
         assert fake.calls == []
     text, code, fake = _cli("substrate", "status", env={"RAILWAY_TOKEN": None})
     assert code.startswith("missing RAILWAY_TOKEN") and fake.calls == []            # checked before any call

@@ -37,13 +37,31 @@ class TelegramChannel:
 
     # --- outbound: request -> human ---
     def notify(self, f):
-        p = json.loads(f["payload"]); s = p.get("summary", {})
-        text = (f'Approval needed: {f["kind"]} — {f["subject"]}\n'
-                f'id {f["request_id"]} from {f["requester"]}\n'
-                f'{s.get("elements","?")} elements, {s.get("relations","?")} relationships, '
-                f'{s.get("views","?")} views, {s.get("violations","?")} violations, {s.get("warnings","?")} warnings\n'
-                f'Diagrams: {self.review_url}\n'
-                f'Reply: /approve {f["request_id"]}  |  /decline {f["request_id"]} <reason>  |  /update {f["request_id"]} <changes>')
+        """Tell a human what is waiting.
+
+        Payload-driven like every other channel: an approval carrying a QUESTION is announced as
+        one, an approval carrying a staged model as one. Telegram cannot render the evidence a
+        speaker question needs — a chat line is not a form — so it says what is being asked, names
+        the labels, and links to where it can be answered.
+        """
+        p = json.loads(f["payload"]); question = p.get("question") or {}
+        rid, url = f["request_id"], f'{self.review_url.rstrip("/")}?approval={f["request_id"]}'
+        if question:
+            labels = [i.get("label", "?") for i in (question.get("items") or [])]
+            text = (f'A question needs answering: {f["subject"]}\n'
+                    f'id {rid} from {f["requester"]}\n'
+                    f'{question.get("prompt", "")}\n'
+                    f'Speakers: {", ".join(labels) or "none"}\n'
+                    f'Answer here (the labels need identities, which a chat line cannot collect): {url}\n'
+                    f'Or /decline {rid} <reason> if you cannot tell them apart.')
+        else:
+            s = p.get("summary", {})
+            text = (f'Approval needed: {f["kind"]} — {f["subject"]}\n'
+                    f'id {rid} from {f["requester"]}\n'
+                    f'{s.get("elements","?")} elements, {s.get("relations","?")} relationships, '
+                    f'{s.get("views","?")} views, {s.get("violations","?")} violations, {s.get("warnings","?")} warnings\n'
+                    f'Diagrams: {url}\n'
+                    f'Reply: /approve {rid}  |  /decline {rid} <reason>  |  /update {rid} <changes>')
         if not self.enabled:
             print("[telegram not configured] would send:\n" + text); return
         self._call("sendMessage", chat_id=self.chat, text=text)
@@ -64,6 +82,9 @@ class TelegramChannel:
                 try:
                     # human_decision, not decide: ONE validated path for every human channel —
                     # identified actor, legal decision, and a final answer that is not re-decided
+                    # An approval that asks a question cannot be approved from a chat line: the
+                    # answer needs a form. human_decision refuses it, and the refusal is relayed
+                    # verbatim rather than reworded, so the person is told exactly why.
                     approvals.human_decision(parts[1], cmd, actor, self.name,
                                              parts[2] if len(parts) > 2 else "")
                     self._call("sendMessage", chat_id=self.chat, text=f"Recorded {cmd} for {parts[1]}")

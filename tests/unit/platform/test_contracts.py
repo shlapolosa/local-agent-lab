@@ -41,10 +41,13 @@ def test_gateway_qualified_names_use_the_gateway_server_alias():
 
 
 def test_registry_maps_gateway_aliases_to_catalogues_and_tools_are_globally_unique():
-    assert C.SERVERS == {"storage_mcp": StorageTools, "semantic_mcp": SemanticTools, "ea_mcp": EATools,
-                         "workflow_mcp": C.WorkflowTools,   # generated from PROCESSES; see tests/unit/substrate/mcp/workflow/
-                         "collab_mcp": C.CollabTools,       # files + meetings; served by graph-mcp
-                         "speech_mcp": C.SpeechTools}       # recorded talk -> attributable words; served by speech-mcp
+    # Membership and invariants, not a census: an exact-set assertion breaks on every added server
+    # and catches nothing an invariant would miss (decision Sep 4 2026).
+    for alias, cls in {"storage_mcp": StorageTools, "semantic_mcp": SemanticTools, "ea_mcp": EATools,
+                       "workflow_mcp": C.WorkflowTools,     # generated from PROCESSES
+                       "collab_mcp": C.CollabTools,         # files + meetings; served by graph-mcp
+                       "speech_mcp": C.SpeechTools}.items():  # talk -> attributable words
+        assert C.SERVERS[alias] is cls
     assert all(cls.SERVER == alias for alias, cls in C.SERVERS.items())
     every = [n for cls in C.SERVERS.values() for n in cls.names()]
     assert len(every) == len(set(every)) and C.ALL_TOOLS == frozenset(every)

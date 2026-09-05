@@ -109,16 +109,29 @@ class EATools(ToolCatalogue):
 
 class WorkflowTools(ToolCatalogue):
     """workflow-mcp — the governed front door to every business PROCESS. Its process tools are not fixed
-    constants: they are GENERATED, three per entry in `PROCESSES` below (`<process>_submit`,
+    constants: they are GENERATED per entry in `PROCESSES` below (`<process>_submit`,
     `<process>_status`, `<process>_result`), so registering a process is the one place that changes.
     The same server also carries the APPROVAL tools (`ApprovalTools` below) — a run PAUSES for a human
-    approval, so the pause is part of the lifecycle this front door exposes."""
+    approval, so the pause is part of the lifecycle this front door exposes.
+
+    A CONTINUATION-ONLY process (`ProcessSpec.external` false) contributes only status and result: it
+    has no submit tool because there is no way to start it correctly except by approving the question
+    that produced its input. The catalogue must say so, not merely the server — this is the PORT, it
+    is what a team grant names and what `test_contracts_match_servers` checks in both directions, so a
+    name here that no server exposes is exactly the drift that test exists to catch.
+    """
     SERVER = "workflow_mcp"
     VERBS = ("submit", "status", "result")             # a tuple, so `names()`'s string filter ignores it
 
     @classmethod
+    def verbs_for(cls, spec: "ProcessSpec") -> tuple[str, ...]:
+        """The tools this process actually gets. One place, read by the catalogue and by the server's
+        registration, so the two cannot disagree about what exists."""
+        return cls.VERBS if spec.external else tuple(v for v in cls.VERBS if v != "submit")
+
+    @classmethod
     def names(cls) -> frozenset[str]:
-        return (frozenset(spec.tool(v) for spec in PROCESSES.values() for v in cls.VERBS)
+        return (frozenset(spec.tool(v) for spec in PROCESSES.values() for v in cls.verbs_for(spec))
                 | ApprovalTools.names())
 
 
@@ -152,6 +165,33 @@ class ApprovalTools(ToolCatalogue):
     READ = (list, get)          # the GRANTS, as tuples so `names()`'s string filter ignores them
     RAISE = (ask,)              # a workload's step, over the gateway — it publishes, never decides
     WRITE = (decide,)           # the human-gated write — granted deliberately, never by default
+
+
+class ApiRoles:
+    """Entra APP ROLES for the front door's REST ingress (`/api`) — the caller-facing half of the
+    same governance the MCP ingress gets from per-tool ACLs.
+
+    WHY ROLES AND NOT TOOL ACLs. The gateway gates MCP by server and tool name; a REST path is
+    neither, so `mcp_tool_permissions` cannot see one. An app role is what an Entra app registration
+    can actually be granted, it arrives in the `roles` claim of the client-credentials token the
+    caller already presents, and it is what APIM's `<required-claims>` checks — so the same three
+    strings survive the migration untouched.
+
+    ONE ROLE PER POWER, and the split is the control. `SUBMIT` starts work. `READ` shows a human what
+    is waiting. `DECIDE` records what they said — the power that releases a run, and the one a relay
+    should have to be granted deliberately rather than inherit from being able to read. The mapping
+    from operation to role is `lab.substrate.apipolicy`, kept apart from this vocabulary so the
+    enforcement point can move without touching either.
+
+    NOT a grant on WHICH process may be started: that is `ProcessSpec.external`, because it is true of
+    every caller and a role check would have to be re-granted correctly forever to say the same thing.
+    """
+
+    SUBMIT = "Workflow.Submit"
+    READ = "Approvals.Read"
+    DECIDE = "Approvals.Decide"
+
+    ALL: tuple[str, ...] = (SUBMIT, READ, DECIDE)
 
 
 class SpeechTools(ToolCatalogue):
@@ -618,9 +658,10 @@ MAX_MAPPING_BYTES = 8192
 @dataclass(frozen=True)
 class InputField:
     """One field of a process's input contract: its name, kind, prose (the JSON-schema description an
-    agent reads) and whether it is required. `coerce` is the validator, meant to be the ONE validator
-    every producer shares — workflow-mcp uses it today; the review app's Submit page and the
-    `workflows.py` CLI still publish unvalidated and are to be moved onto it."""
+    agent reads) and whether it is required. `coerce` is the validator, and it is now the ONE
+    validator every producer shares: the front door's MCP tools, its REST routes, the review app's
+    Submit page and the CLI all reach it through `workflows.submit`, so no surface can accept what
+    another would refuse."""
 
     name: str
     kind: InputKind
@@ -731,6 +772,12 @@ class ProcessSpec:
     description: str                   # what it does, for a tool description an agent reads unaided
     inputs: tuple[InputField, ...]
     outputs: tuple[str, ...] = ()      # request-hash fields a finished run publishes
+    # May an OUTSIDE caller START this process? Some processes are a CONTINUATION of another — they
+    # exist to run after a human answered a question, and starting one directly would skip the gate
+    # that gave it its input. That is a property of the PROCESS, not a permission on a caller, so it
+    # is declared here and refused on every external surface at once. Note the asymmetry: submit is
+    # refused, status/result are not — a caller may always observe a run it caused indirectly.
+    external: bool = True
 
     def tool(self, verb: str) -> str:
         """The name of one of this process's generated tools (`<process>_<verb>`)."""
@@ -783,7 +830,73 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
     outputs=("trace_id", "approval_id", "review_app", "xml_ref", "import_artifacts", "summary"),
 )
 
-PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE,)}
+MEETING_TO_TRANSCRIPT = ProcessSpec(
+    name="meeting_to_transcript",
+    group="wf-meeting-transcript",
+    title="Meeting recording to a diarized transcript, with speaker attribution requested",
+    description=(
+        "Fetch ONE meeting recording from the collaboration platform into the lab's governed upload "
+        "store, transcribe and separate the speakers, and ask the meeting's organiser — once, for "
+        "every speaker at the same time — to say who each anonymous SPEAKER_nn label actually is: a "
+        "directory identity, or a free tag for anyone outside the organisation. "
+        "The run FINISHES when the question is asked. It returns an approval_id, and approving that "
+        "approval automatically starts the run that writes the minutes. "
+        "Transcription takes several minutes for an hour of audio, so it is asynchronous: submit "
+        "returns a request_id immediately."),
+    inputs=(
+        InputField("owner", InputKind.IDENTITY,
+                   "The meeting ORGANISER's directory identity — their user principal name (e.g. "
+                   "maria@contoso.com) or their directory object id. This is the person who will be "
+                   "asked to identify the speakers, so it must be someone who was actually in the "
+                   "meeting. Not a display name, and not whoever triggered the flow."),
+        InputField("recording", InputKind.HANDLE,
+                   "The recording to transcribe: ONE collab://<kind>/<scope>/<id> handle exactly as "
+                   "collab_recordings or collab_list handed it out. Never a download URL, never a "
+                   "file path, and never the bytes — the run fetches it into the lab's own store "
+                   "through the governed gateway. Video is fine; its audio is extracted."),
+    ),
+    outputs=("trace_id", "approval_id", "review_app", "recording_ref", "transcript_ref",
+             "speakers", "summary"),
+)
+
+TRANSCRIPT_TO_MINUTES = ProcessSpec(
+    name="transcript_to_minutes",
+    group="wf-meeting-minutes",
+    title="Attributed transcript to minutes and keywords in the semantic layer",
+    description=(
+        "Rewrite a diarized transcript with the real speakers a human identified, then write the "
+        "meeting's minutes — what it was about, what was decided, and who owes what — and load them "
+        "into the semantic layer so later runs can ask what was decided about a thing and what a "
+        "person committed to. The minutes are written by the lab's OWN governed model, never by the "
+        "transcription vendor. "
+        "Started ONLY by approving the speaker-mapping question of a meeting_to_transcript run: the "
+        "attributed speakers are the answer a human gave, so there is no way to start this process "
+        "correctly without going through that gate."),
+    inputs=(
+        InputField("transcript", InputKind.REF,
+                   "ONE art://<id>/<name> reference to the DIARIZED segments a meeting_to_transcript "
+                   "run produced (its `transcript_ref`): the utterances with their anonymous "
+                   "SPEAKER_nn labels and timings."),
+        InputField("speaker_map", InputKind.MAPPING,
+                   "The organiser's answer: every SPEAKER_nn label in the transcript mapped to "
+                   'exactly one of {"identity": "<user principal name>"} for someone in the '
+                   'directory, or {"tag": "<free text>"} for anyone outside it. Every label the '
+                   "transcript uses must appear exactly once — an unattributed speaker fails the run "
+                   "rather than reaching the minutes as SPEAKER_03."),
+        InputField("owner", InputKind.IDENTITY,
+                   "The meeting organiser, recorded as the owner of the resulting minutes.",
+                   required=False),
+    ),
+    outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary"),
+    # Continuation-only. `speaker_map` is a HUMAN'S answer to the approval the transcript run raised;
+    # a caller who could submit this directly would supply their own attribution and bypass the one
+    # gate the meeting pipeline has. The continuation runner starts it in-process, so this refusal
+    # costs the legitimate path nothing.
+    external=False,
+)
+
+PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
+                                                         TRANSCRIPT_TO_MINUTES)}
 
 
 # ----------------------------------------------------------------------------- the registry of servers
@@ -795,10 +908,11 @@ ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.nam
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "ApprovalTools", "CollabTools", "SpeechTools", "SERVERS", "ALL_TOOLS",
+           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "SpeakerPrompt", "speaker_prompts", "SpeakerIdentity", "SpeakerMap", "check_answer",
            "Continuation", "continuation_of",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
-           "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE"]
+           "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE",
+           "MEETING_TO_TRANSCRIPT", "TRANSCRIPT_TO_MINUTES"]

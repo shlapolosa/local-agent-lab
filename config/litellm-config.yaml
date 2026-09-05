@@ -139,6 +139,38 @@ router_settings:                      # Redis: shared state for rate limits, bud
   redis_password: os.environ/REDIS_PASSWORD
 
 general_settings:
+  # The REST ingress of workflow-frontdoor, reached THROUGH the gateway so it inherits the whole
+  # governance plane: custom_auth validates an Entra token (issuer, audience, signature against the
+  # tenant's JWKS) and maps the app registration to its virtual key, so a REST caller gets exactly
+  # the grants, metering and tracing an MCP caller gets. There is no second implementation of "who
+  # is calling" — which is how two surfaces would start disagreeing.
+  #
+  # `auth: true` is REQUIRED. An entry without it is genuinely open to anyone who can reach the
+  # gateway, which for a door that starts business processes and records human decisions would be
+  # the worst possible default.
+  # ONE entry with include_subpath, not a route list: every /api/... path on the front door is
+  # covered, including the poll URL a flow hits every few seconds, and adding a process adds no
+  # config here. A per-path list would have to be kept in step with a registry it cannot see.
+  #
+  # `auth: true` is REQUIRED. Without it the entry is genuinely open to anyone who can reach the
+  # gateway — for a door that starts business processes and records human decisions, the worst
+  # possible default. With it, LiteLLM runs its normal key auth, which includes the lab's
+  # custom_auth hook: an Entra token is validated (issuer, audience, signature via the tenant's
+  # JWKS) and mapped to the caller's virtual key. That is the APIM `validate-jwt` policy's stand-in.
+  #
+  # WHAT THIS DOES NOT DO: per-operation authorisation. `mcp_tool_permissions` is keyed by MCP
+  # server and tool name, and a REST path is neither — so a valid key reaching /api can call any
+  # /api route. APIM does this natively with a policy per operation; until then the front door
+  # itself must check the caller's role, which is why the identity is forwarded below.
+  pass_through_endpoints:
+    - path: "/api"
+      target: "os.environ/WORKFLOW_API_URL"
+      include_subpath: true
+      auth: true
+      headers:
+        # the front door trusts the gateway, exactly as it does on /mcp
+        Authorization: "Bearer os.environ/MCP_SHARED_SECRET"
+
   master_key: os.environ/LITELLM_MASTER_KEY
   background_health_checks: true       # populates the UI Health tab; each cycle pings every model
   health_check_interval: 3600          # hourly — pings cost a few tokens per model (incl. Anthropic)

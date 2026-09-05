@@ -132,6 +132,7 @@ class FakeApprovals:
     def __init__(self, items=(), events=(), history=()):
         self.items, self.events, self.hist = list(items), list(events), list(history)
         self.acked, self.decisions = [], []
+        self.answers = {}          # what a human answered, when the approval asked a question
 
     def channel_events(self, channel, block_ms=0, **_):
         assert channel == "review-app" and block_ms == 0
@@ -149,9 +150,12 @@ class FakeApprovals:
     def decide(self, rid, decision, actor, channel, comment):
         self.decisions.append((rid, decision, actor, channel, comment))
 
-    def human_decision(self, rid, decision, actor, channel, comment=""):
-        """The one human-gate path the real module enforces: an identified actor, and one final
-        answer. The double keeps the SAME contract so a channel cannot be tested on weaker terms."""
+    def human_decision(self, rid, decision, actor, channel, comment="", *, answer=None):
+        """The one human-gate path the real module enforces: an identified actor, one final answer,
+        and the structured answer when the approval asked a question. The double keeps the SAME
+        signature and the same refusals — a double that lags what it stands in for is how a test
+        passes against an interface that no longer exists."""
+        self.answers[rid] = answer
         if not (actor or "").strip():
             raise ValueError("actor is required — a decision must carry the human who made it")
         if any(d[0] == rid and d[1] in ("approve", "decline") for d in self.decisions):
@@ -234,11 +238,22 @@ def _request(**over):
 
 
 def _store_for(req):
-    """Every ref the approval mentions — the model, its previews and each import artifact — in a store."""
+    """Every ref the approval mentions, in a store.
+
+    An approval need not stage a model: one that asks a human a QUESTION carries a recording and a
+    transcript and no XML at all, so every part here is optional. A fixture that insisted on the EA
+    shape would make a legitimate payload look like an application bug.
+    """
     p = req["payload"]
-    objs = {p["xml_ref"]: XML}
-    objs.update({a["ref"]: b"PK-file" for a in p.get("import_artifacts", []) if a["ref"] != p["xml_ref"]})
-    objs.update({ref: f"<svg>{label}</svg>".encode() for label, ref in p["svg_refs"].items()})
+    xml = p.get("xml_ref")
+    objs = {xml: XML} if xml else {}
+    objs.update({a["ref"]: b"PK-file" for a in p.get("import_artifacts", []) if a["ref"] != xml})
+    objs.update({ref: f"<svg>{label}</svg>".encode() for label, ref in (p.get("svg_refs") or {}).items()})
+    # anything ELSE the payload references by art:// ref (a recording, a transcript) — never
+    # overwriting a ref already given real content above
+    for v in p.values():
+        if isinstance(v, str) and v.startswith("art://") and v not in objs:
+            objs[v] = b"BYTES"
     return FakeStore(objs)
 
 

@@ -116,7 +116,9 @@ def test_registry_ontologies_and_vocab_kind_error():
     sc = synthetic_scheme()
     S.registry.add(sc); S.schemes_[sc.name] = sc
     names = S.registry.names()
-    assert names == ["archimate-3.1", "synthetic-v1"]
+    # Membership, not a census: registering another vocabulary is an additive change and must not
+    # break an unrelated test (decision Sep 4 2026).
+    assert {"archimate-3.1", "synthetic-v1"} <= set(names)
     assert S.ontologies() == [S.registry.get(n).summary() for n in names]
     assert S.vocab("archimate-3.1") is S.vocab()
     try:

@@ -1,0 +1,461 @@
+{
+  "//": "TEMPLATE — a Logic Apps / Power Automate workflow definition for the lab's meeting_to_transcript process. See README.md in this folder before importing. Substitute ${GATEWAY_URL} and ${ENTRA_GATEWAY_AUDIENCE} from .env; fill every <<PLACEHOLDER>> in the Power Automate designer. NEVER commit a real client secret: the secret placeholder below is deliberately not a value.",
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": { "type": "Object", "defaultValue": {} },
+    "$authentication": { "type": "SecureObject", "defaultValue": {} }
+  },
+
+  "triggers": {
+    "When_a_recording_is_saved": {
+      "//": "PROPERTIES ONLY (operationId OnNewFilesV2), not the content variant (OnNewFileV2): the content trigger skips every file over 50 MB and a meeting recording is far bigger. We want the item id, never the bytes — the lab fetches the recording itself, through the gateway.",
+      "type": "OpenApiConnectionNotification",
+      "inputs": {
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness",
+          "connectionName": "shared_onedriveforbusiness",
+          "operationId": "OnNewFilesV2"
+        },
+        "parameters": {
+          "folderId": "<<ONEDRIVE_RECORDINGS_FOLDER_ID — pick /Recordings with the folder picker in the designer>>",
+          "includeSubfolders": false,
+          "maxFileCount": 20
+        },
+        "authentication": "@parameters('$authentication')"
+      },
+      "recurrence": { "frequency": "Minute", "interval": 5 },
+      "splitOn": "@triggerOutputs()?['body']"
+    }
+  },
+
+  "actions": {
+
+    "Get_my_profile": {
+      "//": "The connection owner — the person whose OneDrive this is, i.e. whoever started the recording. That is the human who will be asked to identify the speakers. If this flow ever runs under a service account, this is WRONG and `owner` must come from somewhere else; see the README.",
+      "type": "OpenApiConnection",
+      "inputs": {
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365users",
+          "connectionName": "shared_office365users",
+          "operationId": "MyProfile_V2"
+        },
+        "parameters": { "$select": "mail,userPrincipalName,displayName" },
+        "authentication": "@parameters('$authentication')"
+      },
+      "runAfter": {}
+    },
+
+    "Initialize_organiser": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "organiser",
+            "type": "string",
+            "value": "@{coalesce(body('Get_my_profile')?['mail'], body('Get_my_profile')?['userPrincipalName'])}"
+          }
+        ]
+      },
+      "runAfter": { "Get_my_profile": ["Succeeded"] }
+    },
+
+    "Initialize_drive_id": {
+      "//": "The OneDrive trigger returns the ITEM id but not the DRIVE id, and FileLocator is an opaque connector token, not a drive id. The drive is this flow owner's own OneDrive, so the id is a constant — fetch it once (three ways in the README) and paste it here.",
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          { "name": "driveId", "type": "string", "value": "<<ORGANISER_DRIVE_ID>>" }
+        ]
+      },
+      "runAfter": { "Initialize_organiser": ["Succeeded"] }
+    },
+
+    "Initialize_run_state": {
+      "type": "InitializeVariable",
+      "inputs": { "variables": [ { "name": "runState", "type": "object", "value": {} } ] },
+      "runAfter": { "Initialize_drive_id": ["Succeeded"] }
+    },
+
+    "Initialize_answer": {
+      "//": "Built label by label after the card comes back. Initialize actions must live at the top level, which is why this one is here rather than beside the loop that fills it.",
+      "type": "InitializeVariable",
+      "inputs": { "variables": [ { "name": "answer", "type": "object", "value": {} } ] },
+      "runAfter": { "Initialize_run_state": ["Succeeded"] }
+    },
+
+    "Is_a_recording": {
+      "//": "The Recordings folder collects more than recordings (.vtt transcripts, thumbnails), and the OneDrive trigger is documented to fire more than once for the same change. Anything that is not a video ends the run here, quietly and successfully.",
+      "type": "If",
+      "expression": {
+        "and": [
+          { "equals": [ "@triggerOutputs()?['body/IsFolder']", false ] },
+          { "greater": [ "@coalesce(triggerOutputs()?['body/Size'], 0)", 0 ] },
+          {
+            "or": [
+              { "endsWith": [ "@toLower(triggerOutputs()?['body/Name'])", ".mp4" ] },
+              { "startsWith": [ "@toLower(coalesce(triggerOutputs()?['body/MediaType'], ''))", "video/" ] }
+            ]
+          }
+        ]
+      },
+      "actions": {},
+      "else": {
+        "actions": {
+          "Not_a_recording": {
+            "type": "Terminate",
+            "inputs": { "runStatus": "Succeeded" }
+          }
+        }
+      },
+      "runAfter": { "Initialize_answer": ["Succeeded"] }
+    },
+
+    "Start_run": {
+      "//": "STEP 1. Enqueue and acknowledge: 202 with a request_id, never a finished run. `recording` is a handle carrying two ids and nothing else — no URL, no download link, no bytes. `idempotency_key` is the item id, so a trigger that fires twice for one file does not queue a second 10-minute run; the duplicate call returns the SAME request_id with duplicate: true, which this flow polls exactly as it polls a fresh one.",
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "${GATEWAY_URL}/api/processes/meeting_to_transcript/runs",
+        "headers": { "Content-Type": "application/json; charset=utf-8" },
+        "body": {
+          "owner": "@{variables('organiser')}",
+          "recording": "@{concat('collab://item/', variables('driveId'), '/', triggerOutputs()?['body/Id'])}",
+          "requester": "power-automate",
+          "idempotency_key": "@{triggerOutputs()?['body/Id']}"
+        },
+        "authentication": {
+          "type": "ActiveDirectoryOAuth",
+          "tenant": "<<ENTRA_TENANT_ID>>",
+          "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+          "clientId": "<<FLOW_APP_CLIENT_ID>>",
+          "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+        }
+      },
+      "runAfter": { "Is_a_recording": ["Succeeded"] }
+    },
+
+    "Explain_why_the_run_was_refused": {
+      "//": "A 422 carries `error` (a sentence) and `expected` (every input with its description). Both go into the failure message so whoever opens the run history can read what the process actually wanted.",
+      "type": "Terminate",
+      "inputs": {
+        "runStatus": "Failed",
+        "runError": {
+          "code": "MeetingToTranscriptSubmitRefused",
+          "message": "@{concat('meeting_to_transcript refused the run: ', coalesce(body('Start_run')?['error'], string(coalesce(body('Start_run'), 'no response body'))), ' -- expected inputs: ', string(coalesce(body('Start_run')?['expected'], json('{}'))))}"
+        }
+      },
+      "runAfter": { "Start_run": ["Failed", "TimedOut"] }
+    },
+
+    "Poll_until_the_question_exists": {
+      "//": "STEP 2. Transcription takes several minutes for an hour of audio. One minute between polls, ninety polls, ninety minutes of patience; the run either reaches `done` (and carries approval_id, speakers, transcript_ref, summary) or `failed` (and carries a readable `error`).",
+      "type": "Until",
+      "expression": "@or(equals(variables('runState')?['status'], 'done'), equals(variables('runState')?['status'], 'failed'))",
+      "limit": { "count": 90, "timeout": "PT1H30M" },
+      "actions": {
+        "Wait_a_minute": {
+          "type": "Wait",
+          "inputs": { "interval": { "count": 1, "unit": "Minute" } },
+          "runAfter": {}
+        },
+        "Get_run": {
+          "type": "Http",
+          "inputs": {
+            "method": "GET",
+            "uri": "@{concat('${GATEWAY_URL}/api/processes/meeting_to_transcript/runs/', body('Start_run')?['request_id'])}",
+            "authentication": {
+              "type": "ActiveDirectoryOAuth",
+              "tenant": "<<ENTRA_TENANT_ID>>",
+              "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+              "clientId": "<<FLOW_APP_CLIENT_ID>>",
+              "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+            }
+          },
+          "runAfter": { "Wait_a_minute": ["Succeeded"] }
+        },
+        "Remember_run": {
+          "type": "SetVariable",
+          "inputs": { "name": "runState", "value": "@body('Get_run')" },
+          "runAfter": { "Get_run": ["Succeeded"] }
+        }
+      },
+      "runAfter": { "Start_run": ["Succeeded"] }
+    },
+
+    "Stop_if_the_run_did_not_finish": {
+      "type": "If",
+      "expression": {
+        "not": { "equals": [ "@variables('runState')?['status']", "done" ] }
+      },
+      "actions": {
+        "Report_the_run_failure": {
+          "type": "Terminate",
+          "inputs": {
+            "runStatus": "Failed",
+            "runError": {
+              "code": "MeetingToTranscriptRunNotDone",
+              "message": "@{if(equals(variables('runState')?['status'], 'failed'), concat('the transcription run failed: ', coalesce(variables('runState')?['error'], 'no reason given')), concat('run ', coalesce(body('Start_run')?['request_id'], '?'), ' was still ', coalesce(variables('runState')?['status'], 'unknown'), ' when the poll window closed; it may still finish, and the question will then be waiting in the review app'))}"
+            }
+          },
+          "runAfter": {}
+        }
+      },
+      "else": { "actions": {} },
+      "runAfter": { "Poll_until_the_question_exists": ["Succeeded"] }
+    },
+
+    "Build_speaker_blocks": {
+      "//": "One Adaptive Card Container per speaker, built as OBJECTS so the engine does the JSON escaping. Never assemble card JSON by string concatenation: a quote or a newline inside an Arabic sample utterance would break the card, and hand-escaping is how encoding gets mangled.",
+      "type": "Select",
+      "inputs": {
+        "from": "@coalesce(variables('runState')?['speakers'], json('[]'))",
+        "select": {
+          "type": "Container",
+          "separator": true,
+          "spacing": "Medium",
+          "items": [
+            {
+              "type": "TextBlock",
+              "text": "@{item()['label']}",
+              "weight": "Bolder",
+              "size": "Medium",
+              "wrap": true
+            },
+            {
+              "type": "TextBlock",
+              "text": "@{concat('spoke for ', string(item()['seconds']), ' seconds across ', string(item()['turns']), ' turns')}",
+              "isSubtle": true,
+              "spacing": "None",
+              "wrap": true
+            },
+            {
+              "type": "TextBlock",
+              "text": "@{if(empty(coalesce(item()['samples'], json('[]'))), '(no sample utterance was captured for this voice)', join(item()['samples'], decodeUriComponent('%0A%0A')))}",
+              "wrap": true,
+              "isSubtle": false
+            },
+            {
+              "type": "Input.Text",
+              "id": "@{concat('identity_', item()['label'])}",
+              "label": "Directory identity (email or user principal name)",
+              "placeholder": "maria@contoso.com",
+              "isRequired": false
+            },
+            {
+              "type": "Input.Text",
+              "id": "@{concat('tag_', item()['label'])}",
+              "label": "OR a free tag, if they are not in the directory",
+              "placeholder": "the vendor's architect",
+              "isRequired": false
+            }
+          ]
+        }
+      },
+      "runAfter": { "Stop_if_the_run_did_not_finish": ["Succeeded"] }
+    },
+
+    "Compose_card": {
+      "type": "Compose",
+      "inputs": {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "@{concat('Who is speaking in ', coalesce(variables('runState')?['summary']?['recording'], 'this meeting'), '?')}",
+            "weight": "Bolder",
+            "size": "Large",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "For every speaker below, give the person's directory identity if they are in the organisation, or a free tag describing them if they are not — a guest, a vendor, anyone external. Fill exactly one of the two boxes for each. Use the duration, the turn count and the sample quotes to tell the voices apart; an unidentified speaker stops the minutes being written.",
+            "wrap": true,
+            "isSubtle": true
+          },
+          {
+            "type": "Container",
+            "items": "@outputs('Build_speaker_blocks')"
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Submit",
+            "title": "Submit",
+            "data": { "action": "approve" }
+          },
+          {
+            "type": "Action.Submit",
+            "title": "I can't answer this",
+            "data": { "action": "decline" }
+          }
+        ]
+      },
+      "runAfter": { "Build_speaker_blocks": ["Succeeded"] }
+    },
+
+    "Ask_the_organiser": {
+      "//": "STEP 3. 'Post adaptive card and wait for a response' (operationId PostCardAndWaitForResponse) — the Flow bot posts it, so no bot registration and no Teams app deployment is needed. The card is passed as a serialized string; string() keeps the Arabic as UTF-8 rather than escaping it.",
+      "type": "OpenApiConnectionWebhook",
+      "inputs": {
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+          "connectionName": "shared_teams",
+          "operationId": "PostCardAndWaitForResponse"
+        },
+        "parameters": {
+          "poster": "Flow bot",
+          "location": "Chat with Flow bot",
+          "body/recipient": "@variables('organiser')",
+          "body/messageBody": "@{string(outputs('Compose_card'))}",
+          "body/updateMessage": "Thank you — the speakers have been recorded and the minutes have been started.",
+          "body/shouldUpdateCard": true
+        },
+        "authentication": "@parameters('$authentication')"
+      },
+      "limit": { "timeout": "P7D" },
+      "runAfter": { "Compose_card": ["Succeeded"] }
+    },
+
+    "Was_it_answered": {
+      "type": "If",
+      "expression": {
+        "equals": [ "@coalesce(body('Ask_the_organiser')?['data']?['action'], 'approve')", "approve" ]
+      },
+      "actions": {
+
+        "Read_the_answers": {
+          "//": "Back from the card's inputs to the labels the approval asked about. Reading by label rather than by position means a card that renders speakers in a different order still answers the right ones.",
+          "type": "Select",
+          "inputs": {
+            "from": "@coalesce(variables('runState')?['speakers'], json('[]'))",
+            "select": {
+              "label": "@item()['label']",
+              "identity": "@trim(coalesce(body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])], ''))",
+              "tag": "@trim(coalesce(body('Ask_the_organiser')?['data']?[concat('tag_', item()['label'])], ''))"
+            }
+          },
+          "runAfter": {}
+        },
+
+        "Find_the_ambiguous_ones": {
+          "//": "Exactly one of identity or tag. Both filled is ambiguous, neither is unanswered, and the lab refuses to resolve either silently — so the flow refuses too, rather than quietly preferring one box.",
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Read_the_answers')",
+            "where": "@equals(empty(item()['identity']), empty(item()['tag']))"
+          },
+          "runAfter": { "Read_the_answers": ["Succeeded"] }
+        },
+
+        "Stop_if_the_answer_is_ambiguous": {
+          "type": "If",
+          "expression": { "greater": [ "@length(body('Find_the_ambiguous_ones'))", 0 ] },
+          "actions": {
+            "Report_the_ambiguous_answer": {
+              "type": "Terminate",
+              "inputs": {
+                "runStatus": "Failed",
+                "runError": {
+                  "code": "SpeakerAnswerAmbiguous",
+                  "message": "@{concat('every speaker needs exactly one of a directory identity or a free tag; these had both or neither: ', string(body('Find_the_ambiguous_ones')), '. The approval is still open — answer it in the review app, or run this flow again.')}"
+                }
+              },
+              "runAfter": {}
+            }
+          },
+          "else": { "actions": {} },
+          "runAfter": { "Find_the_ambiguous_ones": ["Succeeded"] }
+        },
+
+        "Build_the_answer": {
+          "//": "setProperty on an empty object builds {\"identity\": ...} or {\"tag\": ...} with the engine doing the escaping — no string concatenation, so a tag containing a quote or an Arabic phrase survives intact. Concurrency is pinned to 1 because a variable set inside a parallel loop races.",
+          "type": "Foreach",
+          "foreach": "@body('Read_the_answers')",
+          "actions": {
+            "Add_one_speaker": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "answer",
+                "value": "@setProperty(variables('answer'), item()['label'], if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity'])))"
+              },
+              "runAfter": {}
+            }
+          },
+          "runtimeConfiguration": { "concurrency": { "repetitions": 1 } },
+          "runAfter": { "Stop_if_the_answer_is_ambiguous": ["Succeeded"] }
+        },
+
+        "Send_the_answer": {
+          "//": "STEP 4. `actor` is the signed-in person who answered the card, taken from the card response and from nowhere else. There is deliberately no fallback: a blank actor is refused with a 422, which is the correct outcome, because 'who identified these speakers' is the whole point of the audit record. Approving starts the minutes run inside the lab; this flow must not, and its credential cannot.",
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "@{concat('${GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
+            "headers": { "Content-Type": "application/json; charset=utf-8" },
+            "body": {
+              "decision": "approve",
+              "actor": "@{coalesce(body('Ask_the_organiser')?['responder']?['email'], body('Ask_the_organiser')?['responder']?['userPrincipalName'], '')}",
+              "channel": "power-automate",
+              "answer": "@variables('answer')"
+            },
+            "authentication": {
+              "type": "ActiveDirectoryOAuth",
+              "tenant": "<<ENTRA_TENANT_ID>>",
+              "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+              "clientId": "<<FLOW_APP_CLIENT_ID>>",
+              "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+            }
+          },
+          "runAfter": { "Build_the_answer": ["Succeeded"] }
+        },
+
+        "Explain_why_the_answer_was_refused": {
+          "type": "Terminate",
+          "inputs": {
+            "runStatus": "Failed",
+            "runError": {
+              "code": "SpeakerAnswerRefused",
+              "message": "@{concat('the approval refused the answer: ', coalesce(body('Send_the_answer')?['error'], string(coalesce(body('Send_the_answer'), 'no response body'))), '. The approval is still open in the review app.')}"
+            }
+          },
+          "runAfter": { "Send_the_answer": ["Failed", "TimedOut"] }
+        }
+      },
+
+      "else": {
+        "actions": {
+          "Send_the_decline": {
+            "//": "A decline carries no answer — the approval closes without releasing the minutes run.",
+            "type": "Http",
+            "inputs": {
+              "method": "POST",
+              "uri": "@{concat('${GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
+              "headers": { "Content-Type": "application/json; charset=utf-8" },
+              "body": {
+                "decision": "decline",
+                "actor": "@{coalesce(body('Ask_the_organiser')?['responder']?['email'], body('Ask_the_organiser')?['responder']?['userPrincipalName'], '')}",
+                "channel": "power-automate",
+                "comment": "declined from the Teams card"
+              },
+              "authentication": {
+                "type": "ActiveDirectoryOAuth",
+                "tenant": "<<ENTRA_TENANT_ID>>",
+                "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+                "clientId": "<<FLOW_APP_CLIENT_ID>>",
+                "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+              }
+            },
+            "runAfter": {}
+          }
+        }
+      },
+
+      "runAfter": { "Ask_the_organiser": ["Succeeded"] }
+    }
+  },
+
+  "outputs": {}
+}

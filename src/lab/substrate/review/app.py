@@ -396,6 +396,61 @@ def _views(p):
                         f'<img src="data:image/svg+xml;base64,{data}"/></div>', unsafe_allow_html=True)
 
 
+def _answer_form(p, request_id):
+    """The form for an approval that asks a QUESTION, or None when it asks nothing.
+
+    `request_id` is here ONLY to scope the widget keys, and that is load-bearing rather than tidy.
+    Streamlit keys widget state on the key string for the whole browser session, and a speaker label
+    is an anonymous provider placeholder — every meeting has a SPEAKER_00. Keyed on the label alone,
+    switching between two pending approvals in the sidebar re-fills the second one's fields with what
+    was typed into the first, and a pre-filled value counts as answered by the check below. The
+    reviewer then approves meeting B carrying meeting A's identities, and the audit log records them
+    doing it deliberately — the exact misattribution this whole gate exists to prevent.
+
+    Rendered from what the PAYLOAD declares, never from the approval kind — the same property the
+    Teams card and the approval tools keep, and what lets a new kind of question reach this page
+    without it being edited.
+
+    Returns the answer object, and the reason it is not yet answerable, so the caller can disable
+    the approve button rather than let someone submit half an answer and be refused.
+    """
+    q = p.get("question") or {}
+    prompts = contracts.speaker_prompts(p)
+    if not prompts:
+        return None, ""
+
+    st.divider()
+    st.subheader("Who is each speaker?")
+    if q.get("prompt"):
+        st.caption(q["prompt"])
+
+    answer, missing = {}, []
+    for prompt in prompts:
+        st.markdown(f'**{prompt.label}** — {prompt.seconds:.0f}s across {prompt.turns} turn(s)')
+        # the verbatim lines are what actually let a person recognise a voice
+        for sample in prompt.samples:
+            st.code(sample, language=None)
+        c1, c2 = st.columns(2)
+        identity = c1.text_input("Directory identity", key=f"id_{request_id}_{prompt.label}",
+                                 placeholder="maria@contoso.com",
+                                 help="Their user principal name, if they are in the organisation.")
+        tag = c2.text_input("or a free tag", key=f"tag_{request_id}_{prompt.label}",
+                            placeholder="the vendor's architect",
+                            help="For anyone outside the organisation. Not everyone in the room is "
+                                 "in the directory, and guessing is worse than saying so.")
+        identity, tag = identity.strip(), tag.strip()
+        if bool(identity) == bool(tag):
+            missing.append(prompt.label)
+        else:
+            answer[prompt.label] = {"identity": identity} if identity else {"tag": tag}
+
+    if missing:
+        st.info(f'Give exactly one of identity or tag for: {", ".join(missing)}. '
+                "Every speaker must be answered — an unidentified voice stops the minutes.")
+        return answer, f'{len(missing)} speaker(s) still unanswered'
+    return answer, ""
+
+
 def _review_page(reviewer):
     # drain this channel's unseen events (mark delivered) — the pending set drives the UI
     for eid, _ in approvals.channel_events("review-app", block_ms=0):
@@ -405,15 +460,18 @@ def _review_page(reviewer):
     items = approvals.pending()
     st.sidebar.metric("Pending", len(items))
     if not items:
-        st.info("No models awaiting review. Runs that call `ea_stage_import` will appear here "
-                "(start one from **Submit** mode).")
+        st.info("Nothing awaiting a person. Staged models and questions a run could not answer "
+                "itself both appear here.")
         st.subheader("Recent decisions")
         for h in approvals.history(20):
             st.write(f'`{h["request_id"]}` **{h["decision"]}** by {h["actor"]} via {h["channel"]} — {h["comment"]} ({h["decided_at"]})')
         return
 
     labels = [f'{i["subject"]} · {i["request_id"]}' for i in items]
-    choice = st.sidebar.radio("Requests", labels)
+    # A card links here with ?approval=<id>: a reviewer with three open should land on theirs.
+    wanted = st.query_params.get("approval")
+    index = next((n for n, i in enumerate(items) if i["request_id"] == wanted), 0)
+    choice = st.sidebar.radio("Requests", labels, index=index)
     req = items[labels.index(choice)]
     p = req["payload"]
 
@@ -446,6 +504,7 @@ def _review_page(reviewer):
     _model_contents(p)
     _views(p)
     _import_files(p)
+    answer, blocked = _answer_form(p, req["request_id"])
 
     # --- decision ---
     st.divider()
@@ -458,11 +517,16 @@ def _review_page(reviewer):
         try:
             # the ONE human-gate path (identified actor, legal decision, one final answer claimed
             # atomically) — the same terms Teams, Telegram, the CLI and approvals_decide record on
-            approvals.human_decision(req["request_id"], d, reviewer, "review-app", comment.strip())
+            approvals.human_decision(req["request_id"], d, reviewer, "review-app", comment.strip(),
+                                     answer=answer if d == "approve" else None)
         except ValueError as e:                 # blank reviewer, or already decided
             st.error(str(e)); return
         st.success(f"Recorded: {d}"); st.rerun()
-    if b1.button("✅ Approve — release for import", type="primary"): _decide("approve")
+    # An approval that asks a question is approved by ANSWERING it, so the button says so and is
+    # disabled until every speaker has one — better than letting someone submit and be refused.
+    approve_label = "✅ Approve — start the minutes" if answer is not None else "✅ Approve — release for import"
+    if b1.button(approve_label, type="primary", disabled=bool(blocked),
+                 help=blocked or None): _decide("approve")
     if b2.button("✏️ Request changes"): _decide("update")
     if b3.button("⛔ Decline"): _decide("decline")
 

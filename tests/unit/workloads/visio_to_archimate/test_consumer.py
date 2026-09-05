@@ -19,6 +19,7 @@ import pytest
 from lab.platform import runlog
 from lab.platform import workflows as real_workflows
 from lab.platform.contracts import WorkflowRequest
+from lab.workloads import consumer as base
 from lab.workloads.visio_to_archimate import consumer
 
 
@@ -101,19 +102,29 @@ def _fake_run_once(out=OUT, error=None, trace="ab" * 16):
 
 
 class _Patched:
+    """Patch a name wherever it actually lives.
+
+    The poll loop, the ack and the flush moved to `lab.workloads.consumer` when a second process
+    needed them; what stayed here is this process's identity and how it unpacks its own inputs. A
+    test that patched only this module would silently patch nothing, so each name is set on every
+    module that defines it — and `_flush` is this module's alias for the shared `flush`.
+    """
+
     def __init__(self, **attrs):
-        self.attrs, self.saved = attrs, {}
+        self.attrs, self.saved = attrs, []
 
     def __enter__(self):
-        for k, v in self.attrs.items():
-            self.saved[k] = getattr(consumer, k)
-            setattr(consumer, k, v)
+        for key, value in self.attrs.items():
+            name = "flush" if key == "_flush" else key
+            for mod in (consumer, base):
+                if hasattr(mod, name):
+                    self.saved.append((mod, name, getattr(mod, name)))
+                    setattr(mod, name, value)
         return self
 
     def __exit__(self, *exc):
-        for k, v in self.saved.items():
-            setattr(consumer, k, v)
-        consumer._stop = False
+        for mod, name, value in reversed(self.saved):
+            setattr(mod, name, value)
         return False
 
 
@@ -139,7 +150,11 @@ def test_handle_runs_the_request_and_writes_running_trace_done_then_acks_with_th
     assert wf.acks == [(consumer.GROUP, "7-0")] and flushed == [1]
     assert wf.clients and all(c is REDIS for c in wf.clients)                     # every call: the container's client
     assert "request wfr-1 running: art://d/sys.vsdx + 1 doc(s)" in buf.getvalue()
-    assert "request wfr-1 done in" in buf.getvalue() and "-> approval apr-1" in buf.getvalue()
+    # The console line says what ran and how long it took. The approval id deliberately is NOT
+    # repeated here: it is written to the request hash, the run log and the Runs board, and a log
+    # line is not the audit trail — adding a hook to the shared loop for a cosmetic suffix would be
+    # machinery serving a string.
+    assert "request wfr-1 done in" in buf.getvalue()
 
 
 def test_handle_marks_failed_with_a_bounded_error_and_still_acks():
@@ -185,80 +200,39 @@ def test_flush_uses_force_flush_only_when_the_provider_has_one():
         consumer._flush()                       # no force_flush -> no-op, no error
 
 
-def test_request_stop_sets_the_flag():
-    assert consumer._stop is False
-    consumer._request_stop(signal.SIGTERM, None)
-    assert consumer._stop is True
-    consumer._stop = False
+# The poll loop itself — crash hygiene, the back-off on a Redis blip, stopping on a signal — moved
+# into the shared `lab.workloads.consumer` when a second business process needed it, and is tested
+# there (tests/unit/workloads/test_consumer.py) rather than once per process. What stays here is
+# what THIS process owns: how it unpacks its own inputs and which result key carries its approval.
+def test_module_entry_point_wires_this_process_into_the_shared_loop():
+    """`python -m ...consumer` must reach the shared serve loop with THIS process's identity.
 
+    It asserts the WIRING, not the loop. The loop — crash hygiene, the back-off, stopping on a
+    signal — belongs to `lab.workloads.consumer` now and is tested there against a fake Redis. This
+    test previously drove the real loop and broke it out by setting a module-global `_stop`; after
+    the extraction that global does not exist, and the old version simply spun forever. Which is
+    worth recording: a test that hangs is far more expensive than one that fails, because the whole
+    run dies with no summary and looks like a memory problem.
+    """
+    seen = {}
 
-def _run_main(wf, run_once):
-    saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
-    sleeps, buf, built, root = [], io.StringIO(), [], FakeRoot()
-    fake_time = SimpleNamespace(time=time.time, sleep=sleeps.append)
-    fake_container = SimpleNamespace(build=lambda service, **kw: built.append(service) or root)
+    def fake_serve(**kw):
+        seen.update(kw)
+
+    saved, real_workflows_serve = base.serve, None
+    base.serve = fake_serve
     try:
-        with _Patched(workflows=wf, run_once=run_once, container=fake_container, _shutdown=lambda: None,
-                      _flush=lambda: None, time=fake_time), contextlib.redirect_stdout(buf):
-            consumer.main()
+        runpy.run_module("lab.workloads.visio_to_archimate.consumer", run_name="__main__",
+                         alter_sys=True)
     finally:
-        for s, h in saved.items():
-            signal.signal(s, h)
-    assert built == [consumer.SERVICE] and root.tracers == 1      # ONE container, its tracer installed once
-    return sleeps, buf.getvalue(), root
+        base.serve = saved
 
-
-def test_main_fails_stale_entries_serves_requests_and_stops_on_signal():
-    stale = [("1-0", {"request_id": "wfr-old"}),          # pending from a crashed run -> failed
-             ("2-0", {"request_id": "wfr-done"}),         # already finished -> only acked
-             ("3-0", {"request_id": "wfr-gone"})]         # hash gone -> mark raises KeyError -> acked
-    wf = FakeWorkflows(stale=stale, loop=[[("5-0", _fields())]],
-                       statuses={"wfr-old": {"status": "running"}, "wfr-done": {"status": "done"},
-                                 "wfr-gone": {"status": "pending"}},
-                       unknown={"wfr-gone"})
-    run_once, calls = _fake_run_once()
-    sleeps, text, root = _run_main(wf, run_once)
-    assert wf.reads[0] == (consumer.GROUP, consumer.CONSUMER, 0, 50, True)
-    assert wf.reads[1] == (consumer.GROUP, consumer.CONSUMER, 3000, 1, False)
-    assert wf.marks[0] == ("wfr-old", "failed", {"error": "consumer restarted mid-run"})
-    assert [a for a in wf.acks[:3]] == [(consumer.GROUP, "1-0"), (consumer.GROUP, "2-0"), (consumer.GROUP, "3-0")]
-    assert calls == [(root, "art://d/sys.vsdx", ["art://r/a.md"])] and wf.acks[-1] == (consumer.GROUP, "5-0")
-    assert [m[:2] for m in wf.marks[1:]] == [("wfr-1", "running"), ("wfr-1", "running"), ("wfr-1", "done")]
-    assert all(c is REDIS for c in wf.clients)                   # hygiene, poll and handle: one client
-    assert "marked failed (stale from a previous run)" in text and text.count("marked failed") == 3
-    assert f"consumer ready  service={consumer.SERVICE} group={consumer.GROUP}" in text
-    assert text.rstrip().endswith("consumer stopped") and sleeps == []
-    assert signal.getsignal(signal.SIGTERM) is not consumer._request_stop      # handlers restored by the test
-
-
-def test_main_backs_off_on_a_redis_hiccup_and_keeps_serving():
-    wf = FakeWorkflows(loop=[ConnectionError("redis gone"), []])
-    run_once, calls = _fake_run_once()
-    sleeps, text, _ = _run_main(wf, run_once)
-    assert sleeps == [5] and "consumer loop error: ConnectionError: redis gone" in text
-    assert calls == [] and "consumer stopped" in text
-
-
-def test_module_entry_point_runs_main():
-    saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
-    reads = []
-
-    def channel_events(group, consumer="1", block_ms=0, count=1, pending_only=False, client=None):
-        reads.append((pending_only, type(client).__name__))
-        sys.modules["__main__"]._stop = True
-        return []
-    orig, buf = real_workflows.channel_events, io.StringIO()
-    real_workflows.channel_events = channel_events
-    try:
-        with contextlib.redirect_stdout(buf):
-            runpy.run_module("lab.workloads.visio_to_archimate.consumer", run_name="__main__", alter_sys=True)
-    finally:
-        real_workflows.channel_events = orig
-        for s, h in saved.items():
-            signal.signal(s, h)
-    # the stop requested during the crash-hygiene read already ends the loop before the first poll;
-    # the client is the real container's pooled redis.Redis (constructed, never connected)
-    assert reads == [(True, "Redis")] and "consumer stopped" in buf.getvalue()
+    assert seen["process"] == "visio_to_archimate"
+    assert seen["service"] == consumer.SERVICE
+    # this process supplies its own input unpacking, its output renaming and its log label
+    assert callable(seen["run"]) and callable(seen["outputs"]) and callable(seen["describe"])
+    assert seen["outputs"]({"request_id": "apr-1", "review_app": "http://r"}) == {
+        "approval_id": "apr-1", "review_app": "http://r"}
 
 
 if __name__ == "__main__":

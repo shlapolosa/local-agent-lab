@@ -40,6 +40,7 @@ import urllib.request
 from lab.platform import config
 from lab.substrate import approvals
 
+MAX_SAMPLE = 160        # a sample is evidence for recognition, not a transcript excerpt
 CARD_SCHEMA = "http://adaptivecards.io/schemas/adaptive-card.json"
 CARD_VERSION = "1.4"                    # Teams renders up to 1.5; 1.4 is the safe floor everywhere
 SUMMARY_FACTS = (("Elements", "elements"), ("Relationships", "relations"), ("Views", "views"),
@@ -62,34 +63,76 @@ class TeamsChannel:
 
     # --- outbound: request -> human ---
     def card(self, f):
-        """The Teams message envelope wrapping one Adaptive Card. Pure — no I/O, so it is the
-        thing the tests assert on."""
-        s = (json.loads(f.get("payload") or "{}") or {}).get("summary", {})
-        facts = [{"title": "Request", "value": f["request_id"]},
-                 {"title": "Requester", "value": f.get("requester", "?")}]
-        if s.get("domain"):
-            facts.append({"title": "Domain", "value": str(s["domain"])})
-        facts += [{"title": t, "value": str(s.get(k, "?"))} for t, k in SUMMARY_FACTS]
+        """The Teams message envelope wrapping one Adaptive Card. Pure — no I/O, so it is the thing
+        the tests assert on.
 
+        Payload-driven, never kind-driven. An approval that carries a `question` is rendered as one;
+        an approval that carries a `summary` is rendered as one. Nothing here dispatches on the
+        approval KIND, which is what lets a new kind of question reach every channel without any of
+        them being edited — the same property the review app and the approval tools keep.
+        """
+        payload = json.loads(f.get("payload") or "{}") or {}
+        question = payload.get("question") or {}
         body = [{"type": "TextBlock", "text": f'Approval needed: {f["kind"]}',
                  "weight": "Bolder", "size": "Large", "wrap": True},
                 {"type": "TextBlock", "text": f.get("subject", ""), "spacing": "None",
-                 "isSubtle": True, "wrap": True},
-                {"type": "FactSet", "facts": facts}]
-        if s.get("violations"):
-            body.append({"type": "TextBlock", "color": "Attention", "weight": "Bolder", "wrap": True,
-                         "text": f'{s["violations"]} validation violation(s) — review before approving.'})
-        body.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
-                     "text": "Diagrams are not shown here — open the review app for the views and to decide."})
+                 "isSubtle": True, "wrap": True}]
+        body += self._question_blocks(question) if question else self._summary_blocks(f, payload)
 
-        actions = [{"type": "Action.OpenUrl", "title": "Review & decide", "url": self.review_url}]
-        trace = approvals.trace_url(f.get("trace_id"), self.jaeger_url)   # one link construction, shared
+        # The deep link carries the request id: a reviewer with three approvals open should not have
+        # to go and find theirs.
+        # The label says what the reviewer is actually being asked to do — answering a question and
+        # releasing a staged write are different acts and should not read the same.
+        actions = [{"type": "Action.OpenUrl",
+                    "title": "Answer in the review app" if question else "Review & decide",
+                    "url": f'{self.review_url.rstrip("/")}?approval={f["request_id"]}'}]
+        trace = approvals.trace_url(f.get("trace_id"), self.jaeger_url)   # one link construction
         if trace:
             actions.append({"type": "Action.OpenUrl", "title": "Open trace", "url": trace})
         return {"type": "message", "attachments": [{
             "contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
             "content": {"$schema": CARD_SCHEMA, "type": "AdaptiveCard", "version": CARD_VERSION,
                         "body": body, "actions": actions}}]}
+
+    def _question_blocks(self, question) -> list:
+        """One row per thing a human must identify.
+
+        What a person actually needs to tell two voices apart is how long each spoke, how often, and
+        a line they said — so all three are on the card. No `Action.Submit`: an incoming webhook is
+        SEND-ONLY, Teams renders a submit button and has nowhere to post it, and a button that
+        silently does nothing is worse than none. The card says where to answer instead.
+        """
+        blocks = [{"type": "TextBlock", "text": question.get("prompt", ""), "wrap": True}]
+        for item in question.get("items") or []:
+            said = " · ".join(str(s)[:MAX_SAMPLE] for s in (item.get("samples") or [])[:2])
+            blocks.append({"type": "Container", "separator": True, "items": [
+                {"type": "FactSet", "facts": [
+                    {"title": item.get("label", "?"),
+                     "value": f'{round(float(item.get("seconds") or 0))}s · '
+                              f'{item.get("turns", 0)} turns'}]},
+                *([{"type": "TextBlock", "text": said, "wrap": True, "isSubtle": True,
+                    "spacing": "None"}] if said else []),
+            ]})
+        blocks.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
+                       "text": "Answer in the review app, or through a flow that posts this card and "
+                               "waits for a response — a webhook card cannot send an answer back."})
+        return blocks
+
+    def _summary_blocks(self, f, payload) -> list:
+        """The staged-model summary: counts, the target domain, and violations called out in red."""
+        s = payload.get("summary") or {}
+        facts = [{"title": "Request", "value": f["request_id"]},
+                 {"title": "Requester", "value": f.get("requester", "?")}]
+        if s.get("domain"):
+            facts.append({"title": "Domain", "value": str(s["domain"])})
+        facts += [{"title": t, "value": str(s.get(k, "?"))} for t, k in SUMMARY_FACTS]
+        out = [{"type": "FactSet", "facts": facts}]
+        if s.get("violations"):
+            out.append({"type": "TextBlock", "color": "Attention", "weight": "Bolder", "wrap": True,
+                        "text": f'{s["violations"]} validation violation(s) — review before approving.'})
+        out.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
+                    "text": "Diagrams are not shown here — open the review app for the views and to decide."})
+        return out
 
     def notify(self, f):
         payload = self.card(f)

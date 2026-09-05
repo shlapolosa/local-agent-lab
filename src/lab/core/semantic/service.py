@@ -10,6 +10,7 @@
   ask(question, **params)            named traceability questions (SPARQL templates)
 """
 from .archimate import build as build_archimate
+from .meeting import build as build_meeting
 from .model_rdf import model_iri, spec_to_triples
 from .ontology import Registry, SemanticStore, Vocabulary
 from .reference import load_all as load_reference_models
@@ -84,6 +85,7 @@ class SemanticService:
     def __init__(self, reference_dir=None):
         self.registry = Registry()
         self.registry.add(build_archimate())
+        self.registry.add(build_meeting())      # knowledge from conversations, concept-centred
         self.schemes_ = {}
         for sc in load_reference_models(reference_dir):
             self.registry.add(sc); self.schemes_[sc.name] = sc

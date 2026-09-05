@@ -14,6 +14,7 @@ from unittest.mock import patch
 from agent_framework import Content, Message
 from opentelemetry import trace
 
+from lab.workloads import gateway
 from lab.workloads.visio_to_archimate import workflow as W
 from lab.workloads import ids
 
@@ -290,7 +291,12 @@ def harness(agents: Agents, tools: dict | None = None, *, env: dict | None = Non
     router = Router(default_tools(**(tools or {})), hidden=hidden, full=True)
     rl, tracer = RunLog(), RecordingTracer()
     with ExitStack() as st:
+        # TWO seams, and both are needed. `lab.workloads.gateway` is the shared gateway-MCP
+        # transport every workload uses (preflight + tool calls); `W.Client` is the one session the
+        # visio workflow opens itself, for a multi-term EA search. Patch only one and a test reaches
+        # the network — which is how it fails, loudly, rather than silently passing.
         st.enter_context(patch.object(W, "Client", router.client_class()))
+        st.enter_context(patch.object(gateway, "Client", router.client_class()))
         st.enter_context(patch.object(W.A, "make_agent", agents.make_agent))
         st.enter_context(patch.object(W.A, "ba_tools", lambda headers: FakeMcpTool("storage", headers)))
         st.enter_context(patch.object(W.A, "architect_tools", lambda headers: FakeMcpTool("ea-tools", headers)))

@@ -32,7 +32,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
         git zip openssl ca-certificates \
+        ffmpeg \
  && rm -rf /var/lib/apt/lists/*
+# ffmpeg: the speech role's AUDIO_EXTRACT_BIN. A meeting recording is VIDEO and every speech provider
+# surveyed takes audio only, so without it every recording is refused — correctly, with a sentence
+# naming the missing tool, but refused. Locally macOS ships `afconvert` and needs no install; a
+# container has nothing, which is exactly the kind of gap that only shows up in the cloud.
 
 # node + npm for prisma's CLI (gateway role). prisma-python resolves BOTH globally (shutil.which) and,
 # if EITHER is missing, downloads its own nodeenv — whose npm then fails with exit 127 (verified

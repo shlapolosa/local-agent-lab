@@ -61,7 +61,9 @@ def test_schemes_and_exact_match_mappings():
     h = S.schemes()[0]
     assert h["title"].startswith("BA Guild Healthcare") and h["source"] == "healthcare-provider-v2.0.xlsx"
     assert h["counts"] == {"capability": {"L1": 2, "L2": 3, "L3": 1}, "value-stream": {"L1": 1}}
-    assert S.registry.names() == ["archimate-3.1", "healthcare-provider-v2.0", "insurance-v5.0"]
+    # Membership: the two reference schemes and the built-in metamodel must be there; a third
+    # vocabulary registered elsewhere is not this test's business.
+    assert {"archimate-3.1", "healthcare-provider-v2.0", "insurance-v5.0"} <= set(S.registry.names())
     try:
         S.scheme("nope")
     except KeyError as e:

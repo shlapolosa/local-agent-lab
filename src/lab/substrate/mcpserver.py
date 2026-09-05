@@ -103,20 +103,30 @@ class LabServer:
                     return fn(*a, **kw)
         return traced
 
-    def serve(self) -> None:
-        serve(self.mcp, self.service, self.port, path=self.path)
+    def serve(self, routes=()) -> None:
+        """Serve this server. `routes` adds a second ingress beside /mcp — see `app_for`."""
+        serve(self.mcp, self.service, self.port, path=self.path, routes=routes)
 
 
-def app_for(mcp, *, path: str = "/mcp"):
-    """The ASGI app for a FastMCP server with the lab's middleware chain applied."""
+def app_for(mcp, *, path: str = "/mcp", routes=()):
+    """The ASGI app for a FastMCP server with the lab's middleware chain applied.
+
+    `routes` adds plain HTTP routes BESIDE the MCP path. That is how one service carries two
+    ingresses over the same port — MCP for agents, REST for clients that are not agents — while both
+    sit behind the same middleware: the same bearer check, the same request spans, the same trace
+    context. A second app would have meant a second copy of all three.
+    """
     from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
     app = mcp.http_app(path=path)
+    for route in routes:
+        app.router.routes.append(route)
     app.add_middleware(OpenTelemetryMiddleware)   # inbound request spans + traceparent extraction
     app.add_middleware(BearerAuthMiddleware)      # gateway must present MCP_SHARED_SECRET (if set)
     return app
 
 
-def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = "info") -> None:
+def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = "info",
+          routes=()) -> None:
     """Run `mcp` as a streamable-HTTP server on config.BIND_HOST:`port``path` (blocking)."""
     import uvicorn
     if config.BIND_HOST not in LOOPBACK and not config.MCP_SHARED_SECRET:
@@ -124,7 +134,8 @@ def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = 
                          "MCP_SHARED_SECRET would expose an ungoverned MCP server to the network; "
                          "set MCP_SHARED_SECRET or bind to loopback")
     print(f"{service}: serving on http://{config.BIND_HOST}:{port}{path}", flush=True)
-    uvicorn.run(app_for(mcp, path=path), host=config.BIND_HOST, port=port, log_level=log_level)
+    uvicorn.run(app_for(mcp, path=path, routes=routes), host=config.BIND_HOST, port=port,
+                log_level=log_level)
 
 
 __all__ = ["LabServer", "span", "serve", "app_for", "LOOPBACK"]

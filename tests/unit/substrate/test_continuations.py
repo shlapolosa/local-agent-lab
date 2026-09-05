@@ -216,3 +216,53 @@ def test_a_signal_stops_the_loop_rather_than_killing_it_mid_write(monkeypatch, r
     finally:
         continuations._stop = False
     assert signal_mod.SIGTERM in handlers and signal_mod.SIGINT in handlers
+
+
+def test_a_redis_blip_costs_a_log_line_and_a_backoff_never_the_process(monkeypatch, capsys, r):
+    """It died in the lab for exactly this: the poll loop was unguarded while the workload
+    consumer's was not, so one read timeout ended the only thing that turns an approved answer into
+    the next run. A blip must be survivable — silence here means approvals are answered and nothing
+    ever happens."""
+    import signal as signal_mod
+
+    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: None)
+    monkeypatch.setattr(continuations, "_client", lambda: r)
+    monkeypatch.setattr(continuations.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(continuations, "_stop", False)
+    # the startup pass reads the same stream, so neutralise it or it eats the first fake call
+    monkeypatch.setattr(continuations, "run_once", lambda **kw: [])
+
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("Timeout reading from 127.0.0.1:6379")
+        continuations._stop = True
+        return iter([])
+
+    monkeypatch.setattr(continuations.approvals, "decision_events", flaky)
+    try:
+        continuations.main()
+    finally:
+        continuations._stop = False
+    out = capsys.readouterr().out
+    assert "continuation loop error" in out and "Timeout reading" in out
+    assert calls["n"] >= 2, "it must have kept serving after the blip"
+
+
+def test_a_failing_crash_hygiene_pass_does_not_stop_the_runner_starting(monkeypatch, capsys, r):
+    """The startup pass reads Redis too. If it throws, the runner must still come up — otherwise a
+    blip at the wrong moment takes the mechanism down until someone notices."""
+    import signal as signal_mod
+
+    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: None)
+    monkeypatch.setattr(continuations, "_client", lambda: r)
+    monkeypatch.setattr(continuations, "run_once",
+                        lambda **kw: (_ for _ in ()).throw(TimeoutError("redis blipped")))
+    monkeypatch.setattr(continuations, "_stop", True)
+    try:
+        continuations.main()
+    finally:
+        continuations._stop = False
+    assert "crash-hygiene pass failed" in capsys.readouterr().err

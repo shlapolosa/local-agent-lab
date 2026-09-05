@@ -35,7 +35,7 @@ class Unreachable:
     def __getattr__(self, name):
         if name.startswith("__"):                    # dependency_injector probes __IS_PROVIDER__ etc.
             raise AttributeError(name)
-        raise AssertionError(f"workflow-mcp must hold no store: {name} was used")
+        raise AssertionError(f"the front door must hold no store: {name} was used")
 
 
 @pytest.fixture
@@ -84,14 +84,16 @@ def test_the_registry_drives_the_tool_list_and_the_contract_catalogue(server):
     by = tools(server)
     assert set(by) == WorkflowTools.names()
     # the process tools are exactly the registry's; the fixed approval gate rides on the same server
-    assert set(by) - ApprovalTools.names() == {f"{p}_{v}" for p in PROCESSES
-                                               for v in ("submit", "status", "result")}
+    assert set(by) - ApprovalTools.names() == {spec.tool(v) for spec in PROCESSES.values()
+                                               for v in WorkflowTools.verbs_for(spec)}
     assert ApprovalTools.names() <= set(by)     # see tests/…/test_approval_tools.py for their behaviour
     assert all(by[n].description and len(by[n].description) > 80 for n in by), "an agent picks a tool by its description"
 
 
 def test_adding_a_process_to_the_registry_adds_its_three_tools_and_nothing_else():
     built = srv.build({**PROCESSES, FAKE.name: FAKE})
+    # FAKE is startable, so it brings a full triple; the registry's own processes bring whatever
+    # `verbs_for` says they bring, which is the point — this test is about ADDITIVITY, not the count.
     assert set(tools(built)) == WorkflowTools.names() | {"fake_process_submit", "fake_process_status",
                                                          "fake_process_result"}
     only = srv.build({FAKE.name: FAKE})                       # a registry of ONE process -> one triple
@@ -307,15 +309,15 @@ def test_this_role_reaches_no_store(server, redis):
 
 
 def test_server_identity_and_main(server):
-    assert srv.SERVICE == "workflow-mcp" and srv.server.service == "workflow-mcp"
+    assert srv.SERVICE == "workflow-frontdoor" and srv.server.service == "workflow-frontdoor"
     assert srv.server.port == config.WORKFLOW_MCP_PORT == 9400
-    assert srv.server.mcp.name == "workflow-mcp"
+    assert srv.server.mcp.name == "workflow-frontdoor"
     import lab.substrate.mcpserver as ms
     served, real = [], ms.serve
     ms.serve = lambda mcp, service, port, **kw: served.append((service, port))
     try:
         runpy.run_path(SERVER_FILE, run_name="__main__")
-        assert served == [("workflow-mcp", config.WORKFLOW_MCP_PORT)]
+        assert served == [("workflow-frontdoor", config.WORKFLOW_MCP_PORT)]
     finally:
         ms.serve = real
 

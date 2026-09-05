@@ -29,8 +29,23 @@ def model_iri(model_id: str) -> str:
 
 
 def spec_to_triples(spec: dict, vocab, model_id: str):
+    """One model spec -> triples, against ANY vocabulary (it needs only `.cls()` and `.rel()`).
+
+    An element may declare a GLOBAL `iri`, and that is load-bearing rather than a convenience.
+    Without it every element is scoped to its own model graph, so with one graph per meeting the
+    same concept or the same person in two meetings becomes two unjoinable nodes — and a
+    content-addressed id does not rescue it, because the hash is only the fragment. Declaring the
+    iri is what makes "what did this person commit to, across every meeting" answerable at all.
+
+    `props` carries datatype properties (a due date, a status, a confidence) into `meta:`. The
+    ArchiMate spec never needed them; a commitment does.
+
+    Both are optional and no existing spec carries either, so nothing that worked before changes.
+    """
     base = model_iri(model_id) + "#"
-    E = lambda eid: URIRef(base + eid)
+    iris = {e["id"]: URIRef(e["iri"]) if e.get("iri") else URIRef(base + e["id"])
+            for e in spec["elements"]}
+    E = lambda eid: iris.get(eid) or URIRef(base + eid)
     T = []
     T.append((URIRef(model_iri(model_id)), RDFS.label, Literal(spec.get("name", model_id))))
     for e in spec["elements"]:
@@ -41,6 +56,8 @@ def spec_to_triples(spec: dict, vocab, model_id: str):
         T.append((u, META.id, Literal(e["id"])))
         if e.get("doc"):
             T.append((u, RDFS.comment, Literal(e["doc"])))
+        for k, v in (e.get("props") or {}).items():
+            T.append((u, META[k], Literal(v)))
     for i, r in enumerate(spec.get("relations", [])):
         s, t = E(r["src"]), E(r["tgt"])
         T.append((s, vocab.rel(r["type"]), t))

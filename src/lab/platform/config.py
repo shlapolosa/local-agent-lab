@@ -17,7 +17,8 @@ GATEWAY_MCP_URL  = _e("GATEWAY_MCP_URL", GATEWAY_URL.rstrip("/") + "/mcp/")
 ADOIT_MCP_URL    = _e("ADOIT_MCP_URL", "http://127.0.0.1:9100/mcp")     # as seen by the gateway
 SEMANTIC_MCP_URL = _e("SEMANTIC_MCP_URL", "http://127.0.0.1:9200/mcp")
 STORAGE_MCP_URL  = _e("STORAGE_MCP_URL", "http://127.0.0.1:9300/mcp")   # read-only governed object store
-WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # submit/status/result of every business process
+WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # the front door's AGENT ingress
+WORKFLOW_API_URL = _e("WORKFLOW_API_URL", "http://127.0.0.1:9400/api")  # ... and its REST one, for clients that are not agents
 GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the COLLABORATION port (alias collab_mcp)
 SPEECH_MCP_URL   = _e("SPEECH_MCP_URL", "http://127.0.0.1:9600/mcp")    # the SPEECH port (alias speech_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
@@ -128,3 +129,19 @@ MUNSIT_BASE_URL = _e("MUNSIT_BASE_URL", "https://api.munsit.com/api/v1")
 # `ffmpeg` in a container, `afconvert` on macOS (built in, nothing to install). Unset disables
 # extraction, and a video input then fails with a sentence naming the missing tool.
 AUDIO_EXTRACT_BIN = _e("AUDIO_EXTRACT_BIN", "")
+
+# Which languages a meeting actually uses, as a HINT to the speech provider. Both together is what
+# selects a model able to transcribe speech that switches language MID-SENTENCE; declaring one when
+# two are spoken is what makes an engine translate or transliterate the switch instead.
+MEETING_LANGUAGES = tuple(l.strip() for l in _e("MEETING_LANGUAGES", "ar,en").split(",") if l.strip())
+
+# This replica's name INSIDE its consumer group — stable per replica, so its pending list survives a
+# restart. Not a process selector: two replicas of one process are "1" and "2", and another
+# process's "1" does not collide because the GROUP differs.
+WF_CONSUMER = _e("WF_CONSUMER", "1")
+
+# The model that writes the minutes — OURS, through the gateway, never the transcription vendor's.
+MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "kimi-k3")
+# The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
+# back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
+AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

@@ -170,3 +170,31 @@ def test_reading_an_approval_shows_the_question_a_low_code_flow_must_render(tool
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+def test_artifacts_cannot_overwrite_the_fields_that_carry_the_approvals_meaning(tools):
+    """`payload |= artifacts` resolves collisions in favour of artifacts, so without a guard an asker
+    could pass `answer_labels: []` and make its OWN question approvable with no answer at all —
+    `check_answer` drives completeness purely from that field. The reserved names are the same tuple
+    the read side uses to decide what is not an artifact, so one list governs both ends."""
+    server, r = tools
+    for reserved in ("answer_labels", "answer_required", "question", "continuation",
+                     "summary", "import_artifacts", "instructions"):
+        msg = call_error(server, "approvals_ask", subject="s", prompt="p",
+                         items=[{"label": "SPEAKER_00"}], artifacts={reserved: []})
+        assert reserved in msg, msg
+    from lab.substrate import approvals
+    assert approvals.pending(client=r) == [], "nothing was published for any refused call"
+
+
+def test_an_ordinary_artifact_still_rides_along(tools):
+    """The guard must refuse only the reserved names — carrying refs a reviewer can open is the
+    entire point of the field."""
+    server, r = tools
+    out = call(server, "approvals_ask", subject="s", prompt="p",
+               items=[{"label": "SPEAKER_00"}],
+               artifacts={"recording": "art://r/rec.mp4", "transcript": "art://t/x.json"})
+    from lab.substrate import approvals
+    payload = approvals.status(out["request_id"], client=r)["payload"]
+    assert payload["recording"] == "art://r/rec.mp4" and payload["transcript"] == "art://t/x.json"
+    assert payload["answer_labels"] == ["SPEAKER_00"], "and the approval's own fields are intact"

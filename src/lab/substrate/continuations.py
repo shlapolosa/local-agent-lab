@@ -38,6 +38,7 @@ SERVICE = "continuations"
 GROUP = approvals.DEC_GROUPS[0]
 CONSUMER = "1"
 BLOCK_MS = 3000            # under the Redis client's socket timeout, like every other consumer here
+BACKOFF_S = 5              # after a Redis blip: long enough not to spin, short enough to recover
 
 _stop = False
 
@@ -112,13 +113,24 @@ def main() -> None:
     approvals.ensure_decision_groups(r)
     print(f"continuation runner ready  group={GROUP} consumer={CONSUMER} "
           f"review={config.REVIEW_APP_URL}", flush=True)
-    # crash hygiene: anything this consumer took before but never acked
-    run_once(client=r, pending_only=True)
+    # Crash hygiene: anything this consumer took before but never acked. Guarded like the loop
+    # below — a Redis blip on STARTUP must not stop the runner from ever starting.
+    try:
+        run_once(client=r, pending_only=True)
+    except Exception as e:                          # noqa: BLE001
+        print(f"crash-hygiene pass failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     while not _stop:
-        for eid, fields in approvals.decision_events(GROUP, CONSUMER, block_ms=BLOCK_MS, count=10,
-                                                     client=r):
-            _handle(eid, fields, client=r)
-        time.sleep(0.1)
+        # A Redis read can time out — the local socket timeout is 5 s and a busy machine will hit
+        # it. This runner is the ONLY thing that turns an approved answer into the next run, so a
+        # blip must cost a log line and a back-off, never the process. It died once for exactly
+        # this reason: the loop below was unguarded while the workload consumer's was not.
+        try:
+            for eid, fields in approvals.decision_events(GROUP, CONSUMER, block_ms=BLOCK_MS,
+                                                         count=10, client=r):
+                _handle(eid, fields, client=r)
+        except Exception as e:                      # noqa: BLE001 — log, back off, keep serving
+            print(f"continuation loop error: {type(e).__name__}: {e}", flush=True)
+            time.sleep(BACKOFF_S)
     print("continuation runner stopped", flush=True)
 
 

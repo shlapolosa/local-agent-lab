@@ -72,6 +72,13 @@ is written to, and reviewed against, the same bar — a standing standard, not a
   in `.env`, never in domain code. Guarded by `tests/governance/test_di_boundaries.py`
   (no platform name such as "railway" in production code; env reads confined to `config` + composition
   roots + a shrinking ratchet) and `tests/unit/platform/test_container.py`.
+- **Assert MEMBERSHIP and INVARIANTS, not exact sets** (user decision Sep 4 2026). A test that pins
+  `list(SomeEnum) == [...]` or `REGISTRY == {...}` breaks on every additive change and catches
+  almost nothing: today's additions broke six such tests and none of them was a bug. Assert what
+  must be TRUE — this member exists, these grants partition the whole set, every kind has a schema
+  annotation, every alias maps to a catalogue whose `SERVER` matches. The exception is a two-way
+  PARITY test (`test_contracts_match_servers`), where exactness IS the contract: a catalogue and
+  its server must agree in both directions, and drift either way is the defect.
 - **No dead code** — unused imports/params/paths and stale comments are removed in the same change.
 - **Testability + TDD for production code** — pure logic separated from I/O; seams to fake
   Redis/LLM/store/HTTP; tests live in the repo (`tests/`), run offline without the gateway/LLM;
@@ -79,7 +86,11 @@ is written to, and reviewed against, the same bar — a standing standard, not a
   code is developed test-first**: for anything imported by a running service or workflow (everything under
   `src/lab/` — core, platform, substrate, workloads — plus `deploy/railway.py`) write the failing test for the new
   or changed behaviour, make it pass, refactor — a production change without a test is incomplete.
-  **Coverage target: ≥ 95 % line+branch per production file** (`tests/run.sh --cov`; today 99 %).
+  **Coverage target: ≥ 80 % line+branch, judged PER PACKAGE** (`tests/run.sh --cov`; user decision
+  Sep 4 2026, replacing 95 %-per-file). The old rule produced tests for `__main__` guards and
+  one-line delegators — ceremony that caught nothing — while its real value, a whole area of
+  behaviour going untested, shows up at package level anyway. Code genuinely not worth testing is
+  EXCLUDED in `.coveragerc` with a reason, never tested to satisfy a number.
   **Exempt: spikes, experiments, one-off scripts and probes** (`scripts/` generators, scratchpad
   spikes, `scripts/e2e_smoke.py`-style probes) — but a spike that graduates into production code brings
   its tests with it when it graduates.
@@ -226,6 +237,36 @@ silently refusing what a human asked for is worse than a run they can see. Still
 host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` is granted to the teams
 that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
 agents.
+
+**`ProcessSpec.external` (default true) says whether an OUTSIDE caller may START a process.** Some
+processes are a CONTINUATION of another: `transcript_to_minutes` takes the speaker mapping a HUMAN
+gave as input, so a caller able to start it directly would supply its own attribution and walk past
+the only gate the meeting pipeline has. That is true of EVERY caller, so it is declared on the process
+and enforced by **not generating the entry point at all** — `WorkflowTools.verbs_for(spec)` drops
+`submit` from the catalogue, and the server and `rest.routes` both obey it, so a grant cannot name a
+tool that does not exist. Verified live: the minutes submit path is 404 for the connector AND for the
+master key. Status and result stay, deliberately — refusing to START is not refusing to OBSERVE, and a
+flow that cannot poll the run its own approval began cannot tell a person the minutes are ready. The
+continuation runner submits IN-PROCESS, so the legitimate path pays nothing.
+
+**The front door's REST ingress (`/api`) is authorised PER OPERATION by Entra app roles, enforced at
+the GATEWAY.** `lab.substrate.apipolicy` is the table — `(method, path) -> role`, default DENY for an
+unmatched path under the prefix — and `lab.platform.contracts.ApiRoles` is the vocabulary:
+`Workflow.Submit` (start a run, read one), `Approvals.Read` (list/read), `Approvals.Decide` (record a
+human's answer; separate from READ for the same reason `ApprovalTools.WRITE` is). The check runs in
+`gateway/custom_auth.py`, NOT in the front door, and that is measured rather than preferred: LiteLLM's
+pass-through sends the backend a STATIC `Authorization` and `forward_headers` drops any incoming
+header colliding with a configured one, while `x-pass-` headers are caller-controlled — the front door
+receives only accept, authorization (the shared secret), connection, host, user-agent. **The caller's
+identity does not survive the gateway hop**, so enforcing where the validated claims already are needs
+no forwarding at all. Per-tool ACLs cannot help here either: `mcp_tool_permissions` is keyed by MCP
+server + tool name and a REST path is neither. A VIRTUAL KEY cannot call `/api` (it authenticates but
+carries no roles); the master key is excepted as the admin plane; a DELEGATED user token is refused
+(`scp`, not `roles`) — a signed-in human decides at the review app, which reaches the gate in-process.
+This is the APIM `validate-jwt` + `<required-claims>` analogue and migrates as CONFIGURATION: the
+table moves to an inbound policy, the front door changes not at all. The connector's identity is
+`scripts/provision_connector_identity.py` (idempotent; APPENDS to `lab-gateway`'s `appRoles`, because
+a PATCH replaces the collection and would un-grant every existing agent).
 
 Each business process is one host under `src/lab/workloads/<name>/` with a distinct OTel service name.
 The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the reference:

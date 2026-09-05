@@ -71,10 +71,24 @@ def semantic_validate_model(spec: dict | None = None, vocab: str = "archimate-3.
 
 
 @server.tool()
-def semantic_load_model(spec: dict, model_id: str, vocab: str = "archimate-3.1") -> dict:
-    """Load a model into the semantic store as RDF (with derived relationships) so it can
-    be queried with semantic_query / semantic_ask."""
-    return S.load_model(spec, model_id, vocab)
+def semantic_load_model(spec: dict | None = None, model_id: str = "", vocab: str = "archimate-3.1",
+                        spec_ref: str | None = None) -> dict:
+    """Load a model into the semantic store as RDF (with derived relationships) so it can be queried
+    with semantic_query / semantic_ask.
+
+    Pass the spec by value (`spec`) or by artifact reference (`spec_ref`, art://…), exactly as
+    semantic_validate_model does. The reference is what a WORKLOAD must use: it holds no store
+    credentials, so a spec it produced is already an art:// ref and cannot be passed any other way.
+
+    NOTE the store is IN-MEMORY and per process: what is loaded here is queryable for the life of
+    this server and does not survive a restart or reach a second replica. Keep the durable copy as
+    an artifact (semantic_store_spec) and reload it when it is needed."""
+    spec = server.spec(spec, spec_ref=spec_ref)
+    if not model_id:
+        raise ValueError("model_id is required — it names the graph this model is loaded into")
+    r = S.load_model(spec, model_id, vocab)
+    span().set_attributes({"semantic.triples": r["triples"], "semantic.derived": r["derived_relations"]})
+    return r
 
 
 @server.tool()

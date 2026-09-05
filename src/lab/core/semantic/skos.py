@@ -10,11 +10,11 @@ ValueStream elements with Composition, ready for the engine and the governed ADO
 """
 from __future__ import annotations
 
-import hashlib
 import re
 
 from rdflib import RDF, RDFS, Graph, Literal, Namespace, URIRef
 
+from .ids import content_id
 from .ontology import META
 
 SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
@@ -139,6 +139,11 @@ class SkosScheme:
                 "elements": elements, "relations": relations, "views": vws, "standard_views": False}
 
 
-def concept_id(scheme_name, path):
-    """Stable id from the scheme + full label path (the workbooks carry no ids)."""
-    return "cap-" + hashlib.md5(f"{scheme_name}|{'/'.join(path)}".encode()).hexdigest()[:10]
+def concept_id(scheme_name: str, path, prefix: str = "cap-") -> str:
+    """A stable id for one concept: the hash of its full label path, since the workbooks carry none.
+
+    A one-line caller of `ids.content_id` now. The default keeps `cap-` and the exact same digest,
+    because these ids are in exported specs and possibly already in the EA repository — changing one
+    would duplicate an object on the next import.
+    """
+    return content_id(prefix, scheme_name, "/".join(path))

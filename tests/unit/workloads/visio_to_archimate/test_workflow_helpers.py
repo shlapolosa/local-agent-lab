@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from agent_framework import Content, Message
 from jsonschema import Draft7Validator
 
+from lab.workloads import gateway
 from lab.workloads.visio_to_archimate import workflow as W
 from fixtures.workflow import (  # noqa: E402
     BA_OK, SCHEMA, SPEC_OK, EXECUTOR_IDS, FakeResult, Router, image_block, make_cfg, text_block)
@@ -128,8 +129,12 @@ def test_ba_run_timeout_defaults_to_15_minutes():
 
 # ------------------------------------------------------------------ gateway MCP calls (fake Client)
 def _with_client(router, coro_fn):
+    """Both seams. The shared transport (`lab.workloads.gateway`) serves preflight and every tool
+    call; this workflow opens ONE session of its own, for the multi-term EA search. A helper that
+    patched only one would let a test reach the network."""
     from unittest.mock import patch
-    with patch.object(W, "Client", router.client_class()):
+    with patch.object(gateway, "Client", router.client_class()), \
+         patch.object(W, "Client", router.client_class()):
         return asyncio.run(coro_fn())
 
 
