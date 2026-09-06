@@ -176,7 +176,7 @@
       }
     },
     "Start_run": {
-      "//": "STEP 1. Enqueue and acknowledge: 202 with a request_id, never a finished run. `recording` is a handle carrying two ids and nothing else — no URL, no download link, no bytes. `idempotency_key` is the item id, so a trigger that fires twice for one file does not queue a second 10-minute run; the duplicate call returns the SAME request_id with duplicate: true, which this flow polls exactly as it polls a fresh one.",
+      "//": "The OneDrive trigger's body/Id is a COMPOSITE '<driveId>.<itemId>', not a bare item id — asking Graph for an item whose id contains a drive id returns 400 invalidRequest. Graph item ids never contain a dot, so the last dot-segment is the item id, and the expression is correct for a bare id too. Verified live: the composite form failed every run until this was split.",
       "type": "Http",
       "inputs": {
         "method": "POST",
@@ -186,7 +186,7 @@
         },
         "body": {
           "owner": "@{variables('organiser')}",
-          "recording": "@{concat('collab://item/', variables('driveId'), '/', triggerOutputs()?['body/Id'])}",
+          "recording": "@{concat('collab://item/', variables('driveId'), '/', last(split(triggerOutputs()?['body/Id'], '.')))}",
           "requester": "power-automate",
           "idempotency_key": "@{triggerOutputs()?['body/Id']}"
         },

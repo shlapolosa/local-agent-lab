@@ -83,6 +83,19 @@ def idempotency_key_for(process, key):
     return f"{IDEM}{process}:{key}"
 
 
+def _failed(r, request_id) -> bool:
+    """Did this run FAIL (or has its state vanished)? Only then may a repeated key start a new run.
+
+    Deliberately narrow: pending and running are live work and must still de-duplicate, and a DONE run
+    is exactly what idempotency is protecting — re-running it would stage a second human approval for
+    an answer that already exists."""
+    status = r.hget(f"workflow:req:{request_id}", "status")
+    if status is None:
+        return True                                # no state at all: nothing to protect
+    status = status.decode() if isinstance(status, bytes) else status
+    return status == WorkflowStatus.FAILED.value
+
+
 def submit(process, inputs, requester, *, spec=None, idempotency_key=None, ttl=IDEMPOTENCY_TTL, client=None):
     """Publish a run request; returns `(request_id, duplicate)`.
 
@@ -92,7 +105,9 @@ def submit(process, inputs, requester, *, spec=None, idempotency_key=None, ttl=I
     lookup; otherwise `PROCESSES[process]` is used and an unknown process is a ValueError.
 
     `idempotency_key` makes a submission SAFE TO RETRY: the same key publishes ONE event and every
-    later call gets the first `request_id` back with `duplicate=True` (see `idempotency_key_for` for
+    later call gets the first `request_id` back with `duplicate=True` — UNLESS that run FAILED, which
+    releases the key, because de-duplication exists to stop the same work happening twice and a failed
+    run did none (see `idempotency_key_for` for
     the TTL and what expiry means). The claim is taken with SET NX EX — atomically, before the stream
     write — so two concurrent retries cannot both create a run; if the write then fails the claim is
     RELEASED, or every retry would return the id of a request that was never published.
@@ -112,9 +127,16 @@ def submit(process, inputs, requester, *, spec=None, idempotency_key=None, ttl=I
     rid = f"wfr-{uuid.uuid4().hex[:12]}"
     if claim is not None and not r.set(claim, rid, nx=True, ex=int(ttl)):
         held = r.get(claim)
-        if held:                                  # the first submission owns this key — hand back its run
-            return (held.decode() if isinstance(held, bytes) else held), True
-        r.set(claim, rid, ex=int(ttl))            # it expired between the SET NX and the GET: claim it now
+        held = held.decode() if isinstance(held, bytes) else held
+        if held and not _failed(r, held):         # the first submission owns this key — hand back its run
+            return held, True
+        # The held run FAILED, or its state is gone. The claim exists to stop the same work being done
+        # TWICE; a failed run did no work, so continuing to honour its key would make the submission
+        # unretryable for the whole TTL — for a file-triggered producer, whose key is the file's id,
+        # that means one transient error puts that file permanently out of reach for a day. Found the
+        # hard way: a Power Automate flow resubmitted a failed recording and was handed the failure
+        # back, identical, with nothing having run.
+        r.set(claim, rid, ex=int(ttl))
     ensure_groups(r)
     fields = WorkflowRequest(request_id=rid, process=process, inputs=inputs, requester=requester,
                              created_at=_now(), created_ts=f"{time.time():.6f}").to_fields()
