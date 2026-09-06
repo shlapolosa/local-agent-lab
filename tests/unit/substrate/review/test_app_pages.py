@@ -138,13 +138,25 @@ def test_review_page_degrades_when_artifacts_are_missing():
 
 
 def test_the_review_page_degrades_to_nothing_on_an_empty_payload():
+    """Every section is PAYLOAD-DRIVEN, the rule the Teams card already states: a section renders
+    when the payload carries what it needs and is silent otherwise. An approval with no model is not
+    a broken approval — a speaker-mapping question has no `xml_ref` at all, and this is the only
+    channel that can answer one, so an error here would put a red box on every one of them."""
     st = install(FakeSt())
     assert APP._xml_bytes({}) is None
     APP._import_files({})                       # a repository that writes over its own API stages none
     APP._views({})
-    assert st.calls == []
     APP._model_contents({})
-    assert st.said("error", "model artifact not available: None")
+    assert st.calls == []
+
+
+def test_a_model_that_was_promised_and_cannot_be_read_still_says_so():
+    """The one case that IS an error: the payload declared a ref and the store could not produce it.
+    Silence there would hide a broken artifact behind the same blank space as a question that never
+    had a model."""
+    st = install(FakeSt(), store=FakeStore({}))
+    APP._model_contents({"xml_ref": "art://gone/model.archimate.xml"})
+    assert st.said("error", "model artifact not available: art://gone/model.archimate.xml")
 
 
 def test_an_approval_staged_before_the_neutral_payload_still_offers_every_file():

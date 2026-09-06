@@ -338,7 +338,16 @@ def _xml_bytes(p):
 def _model_contents(p):
     """What the reviewer is judging: the ArchiMate model itself, grouped by type. The DOWNLOAD of it
     belongs to `_import_files` — the repository's adapter decides which files a human needs and how to
-    label them, and one of them may well be this XML."""
+    label them, and one of them may well be this XML.
+
+    PAYLOAD-DRIVEN, never kind-driven — the rule every other channel already follows (see
+    `channels/teams.py`, which picks its sections from what the payload HAS). An approval that
+    carries no model is not a broken approval: a speaker-mapping question has no `xml_ref` at all,
+    and this is the one channel that can actually answer one. Saying nothing is the correct render;
+    an error is reserved for a ref that was DECLARED and could not be read.
+    """
+    if not p.get("xml_ref"):
+        return
     xml_bytes = _xml_bytes(p)
     if not xml_bytes:
         st.error(f"model artifact not available: {p.get('xml_ref')}")
