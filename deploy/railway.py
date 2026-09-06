@@ -618,6 +618,10 @@ def image_of(sid):
     return None
 
 
+# A service with no live deployment runs nothing, so it has no build to disagree about. Reporting one
+# as a version mismatch is a false alarm, and a check that cries wolf is a check people stop reading.
+STOPPED = {"REMOVED", "CRASHED", "FAILED", "NONE"}
+
 BUILD_RE = re.compile(r"build=([0-9a-f]{7,40}|dev)")
 
 
@@ -660,6 +664,8 @@ def version_report():
         img = image_of(sid)
         if img is None or not img.startswith(ours):
             continue                                   # repo-built, or a third-party image
+        if latest(sid).get("status") in STOPPED:
+            continue                                   # runs nothing: no build to disagree about
         tag = img.split(":", 1)[1]
         build = running_build(sid)
         print(f"  {name:22} {tag:28} {build or '(no build line in its logs)'}")
@@ -697,6 +703,9 @@ def image_report():
         img = image_of(sid)
         if img is None:
             continue                                   # repo-built service: no image to compare
+        if latest(sid).get("status") in STOPPED:
+            print(f"  {name:15} {img}  (not running)")
+            continue                                   # a stopped service runs no build at all
         print(f"  {name:15} {img}")
         if img.startswith(ours):                       # third-party images (redis, jaeger) run their
             seen.setdefault(img, []).append(name)      # OWN versions on purpose — never a mismatch

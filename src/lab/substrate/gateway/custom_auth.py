@@ -42,7 +42,14 @@ import urllib.request
 
 from fastapi import Request
 
+from lab.platform import config
 from lab.substrate import apipolicy
+
+# The gateway is litellm, not one of this lab's own servers, so it has no startup line of its own to
+# carry the build. This module is imported ONCE by litellm at boot (general_settings.custom_auth), so
+# this is the gateway's equivalent — and it is what `deploy/railway.py substrate versions` reads to
+# tell what the gateway is actually running, as opposed to what its tag says it was asked to run.
+print(f"litellm-gateway: lab hooks loaded  {config.build_id()}", flush=True)
 
 log = logging.getLogger("lab.custom_auth")
 

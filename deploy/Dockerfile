@@ -22,8 +22,14 @@
 #    dependency), so a source-only change no longer re-runs it (~15 s per service per deploy).
 #  * COPY order is least-changing first, so a src/ edit invalidates only the last two layers.
 FROM python:3.12-slim
+# BYTECODE IS COMPILED AT BUILD, NEVER AT RUN. These two used to say the opposite (COMPILE_BYTECODE=0
+# with DONTWRITEBYTECODE=1), which meant the image shipped ZERO `.pyc` and every container start
+# re-parsed every dependency it imported — measured at ~35% of import time on `openai` alone (0.60 s
+# cold vs 0.42 s warm), paid on every start and every crash-loop restart, forever.
+# `PYTHONDONTWRITEBYTECODE` STAYS: with everything precompiled there is nothing left to write, and a
+# container that cannot write into its own site-packages is the one we want. It costs image size.
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 BIND_HOST=0.0.0.0 \
-    UV_LINK_MODE=copy UV_COMPILE_BYTECODE=0 PIP_DISABLE_PIP_VERSION_CHECK=1
+    UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 
 # git+zip: scripts/register_skill.sh zips a skill and derives the source from `git remote`.
@@ -68,6 +74,11 @@ COPY deploy/ /app/deploy/
 COPY pyproject.toml /app/
 COPY src/ /app/src/
 RUN uv pip install --system --no-deps -e .   # `lab` importable everywhere; REPO_ROOT=/app, runtime state in /app/var
+# `-e .` is an EDITABLE install: it puts /app/src on the path rather than copying into site-packages,
+# so UV_COMPILE_BYTECODE does not reach this code. Compile it here instead. `|| true` because
+# compileall exits non-zero on any file it cannot parse, and a syntax error in an unused script is
+# not a reason to fail the image — the role smoke test in CI is what catches a broken module.
+RUN python -m compileall -q /app/src || true
 
 # WHICH COMMIT THIS IMAGE IS, baked in at build time and reported at runtime by every role that has
 # a startup line. The image TAG says what Railway was asked to run; this says what the container

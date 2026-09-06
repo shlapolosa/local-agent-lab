@@ -566,7 +566,21 @@ def _review_page(reviewer):
 PAGES = {"Review": _review_page, "Submit": _submit_page, "Runs": _runs_page}
 
 
+def _announce_build():
+    """Print the build ONCE per process, not once per Streamlit rerun.
+
+    Streamlit re-executes the whole script on every interaction, so a module-level print would put a
+    line in the deploy log for every click — and `deploymentLogs` returns a bounded window, so the
+    startup line of a busy app would scroll away exactly when someone needs it. A process-global
+    flag keeps it to one.
+    """
+    if not getattr(_announce_build, "done", False):
+        print(f"review: serving  {config.build_id()}", flush=True)
+        _announce_build.done = True
+
+
 def main():
+    _announce_build()
     st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
     if config.REVIEW_APP_PASSWORD:      # minimal gate; production fronts this app with Entra / an identity-aware proxy
         if st.session_state.get("authed") is not True:

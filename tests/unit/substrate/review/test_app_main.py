@@ -13,7 +13,9 @@ from fixtures.streamlit import APP, FakeSt, FakeWorkflows, Rerun, Stop, install 
 
 def _main(st, password=None):
     install(st)
-    APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=password)
+    # `build_id` too: the app announces which build it is on start, so a person reading the deploy
+    # log can tell what is actually serving — the same line every other role prints.
+    APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=password, build_id=lambda: "build=test")
     APP.main()
     return st
 
@@ -80,7 +82,8 @@ def test_streamlit_entry_point_runs_main():
     real_st = sys.modules.get("streamlit")
     sys.modules["streamlit"] = fake_st
     lab.platform.runlog = FakeRunlog()
-    lab.platform.config = SimpleNamespace(REVIEW_APP_PASSWORD=None, JAEGER_UI_URL="http://jaeger.test/")
+    lab.platform.config = SimpleNamespace(REVIEW_APP_PASSWORD=None, JAEGER_UI_URL="http://jaeger.test/",
+                                          build_id=lambda: "build=test")
     try:
         runpy.run_path(os.path.join(ROOT, "src", "lab", "substrate", "review", "app.py"), run_name="__main__")
     finally:
