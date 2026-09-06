@@ -20,6 +20,7 @@ something to consume the decision. Two processes need only that one thing.
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
@@ -90,8 +91,19 @@ async def _owning_meeting(cfg, state: dict) -> dict:
     try:
         meetings = await _call(cfg, CollabTools.meetings, {"organizer": state.get("owner", ""),
                                                            "limit": CANDIDATE_MEETINGS})
-        for m in (meetings or {}).get("items", [])[:CANDIDATE_MEETINGS]:
-            recs = await _call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")})
+        candidates = (meetings or {}).get("items", [])[:CANDIDATE_MEETINGS]
+        # CONCURRENT, because the questions are independent: "does meeting N own this handle" does
+        # not depend on the answer for meeting N-1. Serially this was up to ten gateway round trips
+        # in a row — on a 22 s run, most of it. `return_exceptions` keeps the best-effort contract
+        # exact: one meeting the provider will not answer for costs that meeting, not the picker.
+        answers = await asyncio.gather(
+            *(_call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")}) for m in candidates),
+            return_exceptions=True)
+        # FIRST match in calendar order, not first to answer — the order is the provider's "most
+        # recent", and a run must not resolve a different meeting depending on which call was quicker.
+        for m, recs in zip(candidates, answers):
+            if isinstance(recs, BaseException):
+                continue
             if any(r.get("handle") == state["recording"] for r in (recs or {}).get("items", [])):
                 return m
     except Exception as e:                      # noqa: BLE001 — a picker is never worth a failed run
@@ -108,6 +120,12 @@ def build_workflow(cfg):
     """The typed graph. Every node is deterministic, so each one either produces its artifact or
     fails naming what was wrong — there is no 'the model skipped a step' path to defend against."""
 
+    # Work started early and collected later. Per RUN, because `run_workflow` builds the graph once
+    # per run — never module state, which two concurrent runs would share. It is a closure cell and
+    # not a field of `state` deliberately: `state` is the message passed BETWEEN executors, and a
+    # pending task is not something to hand to the next node as data.
+    started: dict = {}
+
     @executor(id="fetch_recording")
     async def fetch_recording(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Stream the recording into the lab's own upload store and keep only the reference.
@@ -116,6 +134,12 @@ def build_workflow(cfg):
         credentials, so `collab_fetch` writes it and hands back an `art://` reference.
         """
         with _span(cfg, "fetch_recording"):
+            # Off the critical path. Resolving the meeting needs only `recording` and `owner`, both
+            # present in the run's INITIAL input, so it has no reason to wait for a transcription
+            # that takes minutes. Started here and awaited in `resolve_candidates`, which therefore
+            # costs ~nothing while the node, its span and its Runs-board row stay exactly where they
+            # were. `_owning_meeting` never raises, so this task can never go unretrieved.
+            started["meeting"] = asyncio.ensure_future(_owning_meeting(cfg, dict(state)))
             got = await _call(cfg, CollabTools.fetch, {"handle": state["recording"]})
             state = state | {"recording_ref": got["ref"], "recording_name": got.get("name", ""),
                              "recording_bytes": got.get("bytes", 0)}
@@ -180,7 +204,11 @@ def build_workflow(cfg):
         would put the wrong people in front of the human — worse than offering nobody.
         """
         with _span(cfg, "resolve_candidates"):
-            meeting = await _owning_meeting(cfg, state)
+            task = started.pop("meeting", None)
+            # The lookup has been running since the recording was fetched; this is where it is
+            # collected. Falling back to a direct call keeps the node correct on its own, so a host
+            # that runs this executor without the first one still works.
+            meeting = await task if task is not None else await _owning_meeting(cfg, state)
             state = state | {"meeting": meeting, "candidates": _candidates_of(meeting)}
         await ctx.send_message(state)
 

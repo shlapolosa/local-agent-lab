@@ -300,6 +300,23 @@ def test_the_meeting_that_owns_this_recording_supplies_the_people_to_pick_from(g
     assert gw.args_for(ApprovalTools.ask)["candidates"] == out["candidates"], "and they reach the human"
 
 
+def test_the_meetings_are_asked_about_concurrently_but_answered_in_calendar_order(gw, monkeypatch):
+    """The lookup asks up to ten meetings "do you own this recording", and the questions are
+    independent — so they go out together instead of one round trip after another, which on a 22 s
+    run is most of it.
+
+    The ORDER of the answers is not negotiable, though: the provider's list is "most recent first",
+    so the first MATCH in that order wins, never the first call to come back. Otherwise which meeting
+    a recording belongs to would depend on which request happened to be quicker."""
+    slow_first = {"m-other": {"items": [{"handle": HANDLE}]},          # both claim it; m-other is
+                  "meeting-1": {"items": [{"handle": HANDLE}]}}        # first in the provider's order
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw, recs=slow_first))
+    out = _run()
+    assert out["candidates"] == [{"identity": "x@contoso.com", "display": ""}], "the earlier meeting"
+    asked = [a["meeting_id"] for s, a in gw.calls if s == CollabTools.recordings]
+    assert asked == ["m-other", "meeting-1"], "every candidate is asked, not just up to the match"
+
+
 def test_a_recording_no_meeting_claims_offers_nobody_rather_than_guessing(gw, monkeypatch):
     monkeypatch.setattr(W.gateway, "call_tools",
                         _with_meetings(gw, recs={"meeting-1": {"items": [{"handle": "collab://x/y/z"}]}}))
