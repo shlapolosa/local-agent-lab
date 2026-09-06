@@ -27,6 +27,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 
 REPO = "shlapolosa/local-agent-lab"
@@ -689,6 +690,69 @@ def version_report():
     return bad
 
 
+def release(wait_s: int = 600):
+    """Roll every EXISTING service onto THIS commit's image. Returns True on any problem.
+
+    What CD runs, and deliberately the smaller half of `substrate up`: it sets the image and
+    redeploys. It does NOT create services and does NOT write environment variables.
+
+    That split is the point. `configure()` pushes credentials out of `.env` — Neon, Entra, Graph,
+    the LiteLLM master key — and a CD job that did the same would need all of them in GitHub
+    Actions, which is a much larger blast radius than shipping code deserves. So **CD ships CODE and
+    a human ships CONFIGURATION**: a new service, a new secret or a changed grant is a deliberate
+    `substrate up` from a machine that has `.env`. A service that does not exist yet is skipped with
+    a line saying so, because creating it without its env would produce a container that starts and
+    then fails on its first call.
+    """
+    ids = services()
+    names = [n for n in substrate_names(deploy_profile(), ids) if n not in (REDIS_NAME, JAEGER_NAME)]
+    names += [w["service"] for w in WORKLOADS.values()]
+    print(f"releasing {IMAGE}")
+    rolled, missing = [], []
+    for name in names:
+        sid = ids.get(name)
+        if not sid:
+            missing.append(name)
+            # NOT a failure. A one-shot job service (`wf-visio-job`) exists only while a job is
+            # running, and a substrate service that has never been created needs env this job
+            # deliberately does not hold. Failing on either would make CD red on every green push,
+            # and a check that is always red is a check nobody reads.
+            print(f"  {name:22} skipped — not created (needs `substrate up` from a machine with .env)")
+            continue
+        gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
+            'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
+            {"s": sid, "e": ENV, "in": {"source": {"image": IMAGE}}})
+        deploy(sid, latest=False)
+        rolled.append((name, sid))
+        print(f"  {name:22} rolling")
+    if not rolled:
+        print("\n  nothing to release")
+        return True
+    print(f"\n  waiting up to {wait_s}s for {len(rolled)} service(s) to come up")
+    pending, deadline = list(rolled), time.time() + wait_s
+    while pending and time.time() < deadline:
+        time.sleep(10)
+        for name, sid in list(pending):
+            st = latest(sid).get("status")
+            if st in ("SUCCESS", "CRASHED", "FAILED"):
+                print(f"  {name:22} {st}")
+                pending.remove((name, sid))
+    for name, _sid in pending:
+        print(f"  {name:22} STILL DEPLOYING after {wait_s}s")
+    # A release FAILS only on something that is actually wrong with THIS release: a service that
+    # crashed on the new image, or one still deploying when the wait ran out. `missing` is reported
+    # above and is not a failure — see the note there.
+    bad = bool(pending)
+    for name, sid in rolled:
+        if latest(sid).get("status") in ("CRASHED", "FAILED"):
+            print(f"  {name:22} FAILED on this image")
+            bad = True
+    if missing:
+        print(f"\n  not released (never created): {', '.join(missing)}")
+    print("\n  release " + ("INCOMPLETE" if bad else "complete"))
+    return bad
+
+
 def image_report():
     """Print the image every service runs and return True if they DISAGREE.
 
@@ -990,6 +1054,8 @@ if __name__ == "__main__":
              "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status|env\n"
              "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)\n"
              "       railway.py substrate images        (what image each service runs; exit 1 on a MISMATCH)\n"
+             "       railway.py release                 (roll every EXISTING service onto this commit's\n"
+             "                                           image; sets NO env vars — what CI/CD runs)\n"
              "       railway.py substrate versions      (what each service is ASKED to run vs what it SAYS\n"
              "                                           it is running — catches a tag that moved under a\n"
              "                                           service that never restarted; exit 1 on a mismatch)\n"
@@ -998,6 +1064,8 @@ if __name__ == "__main__":
     cmd = (sys.argv[3] if tier == "workload" else sys.argv[2]) if len(sys.argv) > (3 if tier == "workload" else 2) else "status"
     if cmd != "env":
         _require_railway()                                 # every other command talks to Railway
+    if tier == "release":                                  # what CD runs: code, never configuration
+        sys.exit(1 if release() else 0)
     if tier == "substrate":
         {"up": substrate_up, "down": substrate_down, "status": substrate_status,
          "env": substrate_env_report, "images": lambda: sys.exit(1 if image_report() else 0),

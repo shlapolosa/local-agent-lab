@@ -80,3 +80,51 @@ jobs:
                     'lab.workloads.visio_to_archimate.consumer', 'lab.substrate.gateway.custom_auth'):
               importlib.import_module(m); print('ok', m)
           "
+
+  # ---------------------------------------------------------------------------------------------
+  # CD. A push that changes the image is a push that should be RUNNING, not one that waits for
+  # somebody to remember to deploy it — that gap is exactly how a workload and the gateway came to
+  # run different commits. Railway cannot do this itself here: its auto-deploy watches a connected
+  # GITHUB REPO, and every service in this project is an IMAGE service on an immutable tag, which
+  # Railway does not poll. So the trigger is external, and it is the same `deploy/railway.py` a
+  # person would run — never a dashboard click, never an ad-hoc API call.
+  #
+  # `release` SETS THE IMAGE AND REDEPLOYS. It writes no environment variables, on purpose: pushing
+  # env means holding `.env` — Neon, Entra, Graph, the LiteLLM master key — and putting all of that
+  # into GitHub Actions is a far larger blast radius than shipping code deserves. So CD ships CODE
+  # and a human ships CONFIGURATION: a new service, a new secret or a changed grant stays a
+  # deliberate `substrate up` from a machine that has `.env`.
+  #
+  # Skipped, not failed, when the Railway secrets are absent — a fork, or a repo whose owner has not
+  # wired a project, should still get its image built.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:                 # never two releases racing onto the same project
+      group: railway-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4      # railway.py derives the image tag from HEAD
+
+      - name: release
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::notice::no RAILWAY_TOKEN — image built, deploy skipped"; exit 0
+          fi
+          python deploy/railway.py release            # stdlib only: no pip install needed
+
+      - name: verify — one build everywhere, and it is the one just pushed
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+        run: |
+          [ -n "$RAILWAY_TOKEN" ] || exit 0
+          python deploy/railway.py substrate images
+          # what each container SAYS it is, which a tag cannot tell you — a tag that moves under a
+          # service that never restarted leaves it serving the previous build
+          python deploy/railway.py substrate versions

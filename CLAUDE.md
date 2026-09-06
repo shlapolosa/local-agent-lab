@@ -494,7 +494,17 @@ stateless and address each other only through `src/lab/platform/config.py` env v
   `deploy/railway.py` defaults to **image mode** (`BUILD_MODE`, override `LAB_BUILD=repo`), so every
   substrate role AND every workload is an IMAGE service pulling that same immutable tag and differing
   only in start command + env. Railway builds nothing: a deploy is N pulls, not N identical builds,
-  and every role provably runs the same bits. Pin/roll back with `LAB_IMAGE_TAG=sha-<short>`; the GHCR
+  and every role provably runs the same bits. **A push to `main` DEPLOYS itself**: the `deploy` job in
+  that workflow runs `deploy/railway.py release`, which sets every existing service's image to this
+  commit's tag, redeploys, waits, and then runs `substrate images` + `substrate versions`. Railway
+  cannot do this natively here — its auto-deploy watches a connected GitHub REPO, and every service
+  is an IMAGE service on an immutable tag, which it does not poll. **`release` writes no environment
+  variables, deliberately**: pushing env means holding `.env` (Neon, Entra, Graph, the master key),
+  and putting that in GitHub Actions is a far larger blast radius than shipping code deserves — so
+  **CD ships CODE and a human ships CONFIGURATION**, and a new service, secret or grant stays a
+  deliberate `substrate up` from a machine with `.env`. It fails only on a service that crashed on
+  the new image or never finished deploying; a service that does not exist (the one-shot
+  `wf-visio-job`) is reported and is not a failure. Pin/roll back with `LAB_IMAGE_TAG=sha-<short>`; the GHCR
   package must be PUBLIC (or give the services a registry credential). Dockerfile speed rules, all
   measured: `python:3.12-slim` (not the full image — ~20 s of every build was export/push); node+npm
   COPYed from `node:22-bookworm-slim` because **prisma resolves BOTH `node` and `npm` globally and
