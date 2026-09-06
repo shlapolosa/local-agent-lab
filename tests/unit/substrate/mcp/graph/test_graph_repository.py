@@ -37,7 +37,9 @@ def test_the_adapter_satisfies_the_domain_port():
 def test_the_shallow_probe_reads_the_tokens_own_roles_without_calling_graph():
     made, t = repo()
     table = made.capabilities()
-    assert set(table) == set(CAPABILITIES) and all(v is None for v in table.values())
+    assert set(table) == set(CAPABILITIES)
+    # `uploads` is absent from this token's roles on purpose — the read identity does not write.
+    assert all(table[c] is None for c in CAPABILITIES if c != "uploads")
     assert t.calls == []
 
 
@@ -615,8 +617,14 @@ def test_a_deep_probe_never_reports_a_capability_available_because_the_network_i
     made, _ = repo(_Unreachable())
     table = made.capabilities(deep=True)
     assert set(table) == set(CAPABILITIES)
-    assert all(isinstance(v, CollabUnavailable) for v in table.values())
-    assert all("could not be reached" in v.reason for v in table.values())
+    assert all(isinstance(v, CollabUnavailable) for v in table.values()), "nothing may look available"
+    # Every capability this token's ROLES cover is unavailable because the tenant is unreachable.
+    # `uploads` is unavailable for a better reason — the read identity has no write permission, which
+    # the role table already knows — and reporting the permission rather than the network is the more
+    # useful answer, so it is asserted separately rather than lumped in.
+    reachable = [c for c in CAPABILITIES if c != "uploads"]
+    assert all("could not be reached" in table[c].reason for c in reachable)
+    assert "permission" in table["uploads"].remedy.lower()
 
 
 def test_the_meeting_resolution_cache_is_bounded_because_the_server_outlives_every_call():
@@ -634,3 +642,72 @@ def test_the_meeting_resolution_cache_is_bounded_because_the_server_outlives_eve
     before = len(t.calls)
     assert made._resolve("chair@lab.example", "https://teams.example/keep") == "m-real"
     assert len(t.calls) == before, "a cached meeting must not be looked up again"
+
+
+# ---------------------------------------------------------------- uploads (WRITE)
+def test_put_sends_the_bytes_as_content_not_as_json():
+    """Every other verb json-encodes its body and forces application/json, which is right for a
+    Graph resource and wrong for content: an upload's bytes ARE the body, with the caller's type."""
+    t = FakeTransport()
+    t.expect("/content", method="PUT", body={"id": "new-1", "name": "minutes.json", "size": 2})
+    made, _ = repo(t)
+    item = made.put("collab://item/drive-1/folder-9", "minutes.json", b"{}", "application/json")
+    assert item.id == "new-1" and item.drive_id == "drive-1"
+    sent = t.calls[-1]
+    assert sent["body"] == b"{}", "the bytes travelled unaltered"
+    assert sent["headers"]["Content-Type"] == "application/json"
+
+
+def test_put_refuses_content_over_the_simple_upload_ceiling_before_a_byte_moves():
+    """Above it an upload needs a resumable session — a lot of machinery for the documents this lab
+    writes back — so it refuses with a sentence naming the ceiling and the setting instead."""
+    t = FakeTransport()
+    made, _ = repo(t, max_upload_bytes=8)
+    with pytest.raises(CollabUnavailable) as e:
+        made.put("collab://item/drive-1/folder-9", "big.json", b"x" * 9)
+    assert e.value.capability == "uploads"
+    assert "ceiling" in e.value.reason and "GRAPH_MAX_UPLOAD_BYTES" in e.value.remedy
+    assert t.calls == [], "nothing was sent"
+
+
+def test_put_replaces_rather_than_accumulating_copies():
+    """A re-run of the same meeting should correct its own output, not leave `minutes 1.json`."""
+    t = FakeTransport()
+    t.expect("/content", method="PUT", body={"id": "n", "name": "m.json", "size": 2})
+    made, _ = repo(t)
+    made.put("collab://item/drive-1/folder-9", "m.json", b"{}")
+    assert "conflictBehavior=replace" in t.calls[-1]["url"]
+
+
+def test_put_writes_into_a_folder_named_by_an_id_never_a_path():
+    """A folder is named the way everything else here is — by an id a listing minted."""
+    t = FakeTransport()
+    made, _ = repo(t)
+    for bad, _why in (("collab://recording/m/r", "not a folder"), ("not-a-handle", "not a handle")):
+        with pytest.raises(ValueError):
+            made.put(bad, "m.json", b"{}")
+    with pytest.raises(ValueError, match="name"):
+        made.put("collab://item/drive-1/folder-9", "sub/dir/m.json", b"{}")
+
+
+def test_writes_use_their_own_credential_when_one_is_configured():
+    """The read app holds only read grants and its NAME says so. A credential that can overwrite
+    anything it can see belongs to the one service that writes, not to every read path — so `put`
+    goes through its own client while everything else keeps the reader's."""
+    read_t, write_t = FakeTransport(), FakeTransport()
+    write_t.expect("/content", method="PUT", body={"id": "n", "name": "m.json", "size": 2})
+    read_t.expect("/drive/root", body={"id": "d", "name": "Documents"})
+    writer = GraphClient(FakeTokens("writer-token"), transport=write_t, sleep=FakeSleep(), now=lambda: 0.0)
+    made, _ = repo(read_t, write_client=writer)
+
+    made.put("collab://item/drive-1/folder-9", "m.json", b"{}")
+    assert write_t.calls and not read_t.calls, "the write went out on the write credential"
+    assert write_t.calls[-1]["headers"]["Authorization"] == "Bearer writer-token"
+
+
+def test_without_a_writer_the_upload_uses_the_reader_and_is_simply_refused():
+    """Not a fallback so much as an honest default: no writer means the upload asks with a token
+    that lacks the permission, and Graph's refusal names it. Better than a silent second path."""
+    t = FakeTransport()
+    made, _ = repo(t)
+    assert made.write_client is made.client

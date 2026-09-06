@@ -254,6 +254,7 @@ class CollabTools(ToolCatalogue):
     recordings = "collab_recordings"
     transcripts = "collab_transcripts"
     fetch = "collab_fetch"                   # handle -> art:// ref, streamed into the upload store
+    put = "collab_put"                       # art:// ref -> a file in a folder: the ONLY write of content
     watches = "collab_watches"
     watch = "collab_watch"
     watch_renew = "collab_watch_renew"
@@ -261,7 +262,14 @@ class CollabTools(ToolCatalogue):
 
     READ = (capabilities, sites, drives, user_drive, list, item, meetings, recordings, transcripts,
             fetch, watches)
-    WRITE = (watch, watch_renew, unwatch)    # tuples, so `names()`'s string filter ignores them
+    # WRITE is not one thing. A SUBSCRIPTION is egress to a caller-supplied url and a durable object
+    # outliving the run; PUT writes lab-authored content into someone else's tenant under the
+    # provider's identity. Both are writes and both are granted deliberately, but they are different
+    # powers with different blast radii, so they are named separately and a grant may hold one
+    # without the other — the minutes workload needs `put` and must never have a subscription.
+    SUBSCRIBE = (watch, watch_renew, unwatch)
+    PUT = (put,)
+    WRITE = SUBSCRIBE + PUT                  # tuples, so `names()`'s string filter ignores them
 
 
 # ----------------------------------------------------------------------------- artifact references

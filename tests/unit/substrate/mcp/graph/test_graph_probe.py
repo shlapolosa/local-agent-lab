@@ -14,10 +14,23 @@ def explain(status, code="", message="", capability="items"):
 
 
 # ------------------------------------------------------------------ the roles table
-def test_a_token_declaring_every_read_permission_reports_every_capability_available():
+READ_CAPABILITIES = tuple(c for c in CAPABILITIES if c != "uploads")
+
+
+def test_a_token_declaring_every_read_permission_reports_every_read_capability_available():
+    """Every READ capability — not every capability. `uploads` needs a permission the read path
+    deliberately does not hold, which is the whole reason the write side runs under its own app
+    registration; a read-only token reporting itself able to write would hide exactly that."""
     table = graph_probe.capabilities_from_roles(READ_ALL)
     assert set(table) == set(CAPABILITIES)
-    assert all(v is None for v in table.values())
+    assert all(table[c] is None for c in READ_CAPABILITIES)
+    assert table["uploads"] is not None, "a reader must not report itself able to write"
+    assert "Files.ReadWrite.All" in table["uploads"].remedy
+
+
+def test_a_token_with_write_permission_reports_uploads_available():
+    table = graph_probe.capabilities_from_roles(READ_ALL + ("Files.ReadWrite.All",))
+    assert table["uploads"] is None
 
 
 def test_a_missing_grant_is_reported_per_capability_naming_what_would_fix_it():

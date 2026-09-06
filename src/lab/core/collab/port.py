@@ -38,7 +38,7 @@ __all__ = ["CAPABILITIES", "CollabRepository"]
 # because a tenant grants them separately (reading files is a different permission from reading a
 # meeting's transcript, and subscribing is different again).
 CAPABILITIES: tuple[str, ...] = ("sites", "drives", "items", "content", "meetings", "recordings",
-                                 "transcripts", "watches")
+                                 "transcripts", "watches", "uploads")
 
 
 @runtime_checkable
@@ -89,6 +89,26 @@ class CollabRepository(Protocol):
         over-large object until the download has already been paid for, which defeats the point of
         streaming; an implementation reports `0` when the provider declares nothing rather than
         guessing."""
+
+    def put(self, parent: DriveItem | str, name: str, content: bytes, media_type: str = "") -> DriveItem:
+        """Write ONE small file into a folder, answering the item it became.
+
+        The only verb that sends bytes TO the provider, and deliberately the mirror image of `open`:
+        that one streams because a recording does not fit in memory, this one does not because what
+        the lab writes back is a document — minutes, an attributed transcript — and a streaming
+        upload means a resumable session, which is a great deal of machinery for text. An
+        implementation REFUSES anything too large with a typed `CollabUnavailable` rather than
+        silently starting one.
+
+        `parent` is the folder to write into (a `DriveItem` from a listing, or its id); `name` is a
+        FILE NAME and never a path, for the same reason a handle carries ids and never a URL. An
+        existing file of that name is replaced, because a re-run of the same meeting should correct
+        its own output rather than accumulate copies.
+
+        Separated from the read verbs in the same way `watch` is, and for a sharper reason: this one
+        puts lab-authored content into someone else's tenant under the PROVIDER's identity, so it is
+        granted on its own and its adapter needs a credential the read path does not have.
+        """
 
     def meetings(self, since: str = "", until: str = "", organizer: str = "",
                  limit: int | None = None, cursor: str | None = None) -> Page[Meeting]:

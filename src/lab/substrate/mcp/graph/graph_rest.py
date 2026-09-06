@@ -178,6 +178,16 @@ class GraphClient:
         items = value if isinstance(value, list) else [data]
         return items, data.get("@odata.nextLink")
 
+    def upload(self, path: str, data: bytes, media_type: str = "application/octet-stream") -> dict:
+        """PUT raw bytes — the one call that does NOT send JSON.
+
+        Every other verb here json-encodes its body and forces `Content-Type: application/json`,
+        which is right for the Graph resource model and wrong for content: an upload's bytes are the
+        body, and its media type is the caller's. Kept to a SIMPLE upload deliberately — the large
+        path is a resumable session, which is a lot of machinery for the documents this lab writes
+        back, and the repository refuses anything bigger with a sentence instead."""
+        return self._json(self._request("PUT", self._url(path), raw=data, media_type=media_type))
+
     def stream(self, path: str, params: Mapping[str, object] | None = None) -> Content:
         """The body, UNREAD — for `Store.put_stream`. The declared size travels with it so the
         caller can refuse an over-large object before a byte moves."""
@@ -192,16 +202,23 @@ class GraphClient:
                                        quote_via=urllib.parse.quote)
         return f"{url}{'&' if '?' in url else '?'}{query}" if query else url
 
-    def _headers(self, has_body: bool) -> dict:
+    def _headers(self, has_body: bool, media_type: str = "") -> dict:
         headers = {"Authorization": f"Bearer {self.tokens.token()}", "Accept": "application/json"}
         if has_body:
-            headers["Content-Type"] = "application/json"
+            # JSON unless the caller is sending CONTENT, which carries its own type
+            headers["Content-Type"] = media_type or "application/json"
         return headers
 
-    def _request(self, method: str, url: str, body: Mapping[str, object] | None = None) -> Response:
-        raw = json.dumps(body).encode() if body is not None else None
+    def _request(self, method: str, url: str, body: Mapping[str, object] | None = None, *,
+                 raw: bytes | None = None, media_type: str = "") -> Response:
+        # `body` is a resource (json-encoded); `raw` is CONTENT (sent as-is). Never both.
+        if raw is not None and body is not None:
+            raise ValueError("a request carries either a JSON body or raw content, never both")
+        if raw is None:
+            raw = json.dumps(body).encode() if body is not None else None
         for attempt in range(self.max_retries + 1):
-            resp = self.transport(method, url, self._headers(raw is not None), raw, self.timeout)
+            resp = self.transport(method, url, self._headers(raw is not None, media_type), raw,
+                                  self.timeout)
             if resp.status not in RETRY_STATUS or attempt == self.max_retries:
                 break
             delay = self._delay(resp.headers, attempt)

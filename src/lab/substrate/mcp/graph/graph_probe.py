@@ -54,6 +54,9 @@ PERMISSIONS: dict[str, tuple[str, ...]] = {
     # watched. So any read grant makes subscribing possible — which one is enough depends on what is
     # watched, and Graph says so at subscribe time.
     "watches": tuple(dict.fromkeys(_SITES + _FILES + _MEETINGS)),
+    # Writing needs a permission the read path deliberately does not hold — which is the whole
+    # reason the write side runs under its own app registration.
+    "uploads": ("Files.ReadWrite.All", "Sites.ReadWrite.All", "Sites.Selected", "Sites.FullControl.All"),
 }
 # Every capability the port declares must have a permission here, or it cannot be probed at all —
 # asserted by tests/unit/substrate/mcp/graph/test_graph_probe.py rather than at import, because a

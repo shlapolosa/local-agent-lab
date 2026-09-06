@@ -341,6 +341,30 @@ def collab_fetch(handle: str, name: str = "") -> dict:
             "handle": str(ref_handle), "read_with": READ_WITH}
 
 
+# ----------------------------------------------------------------------------- uploads (WRITE)
+@governed
+def collab_put(folder: str, ref: str, name: str = "") -> dict:
+    """Write ONE small document from the lab's store into a folder, and return the item it became.
+
+    The mirror of collab_fetch, and the only verb that sends content OUT. Give it the collab://item
+    handle of a FOLDER (from collab_list) and the art:// reference of what to write; it reads the
+    artifact from the governed store and writes it under the provider's identity. `name` overrides
+    the file name — a plain name, never a path. An existing file of that name is REPLACED, so
+    re-running the same work corrects its own output instead of leaving copies beside it.
+
+    Small on purpose: this exists for documents the lab authored — minutes, an attributed
+    transcript — and it refuses anything over the simple-upload ceiling with a sentence rather than
+    silently opening a resumable session. Returns {id, name, handle, bytes, content_type, folder}."""
+    parent = _handle(folder)
+    data = server.uploads().get(ref)
+    filename = _filename(name) if name else _filename(str(ref).rsplit("/", 1)[-1])
+    media_type = content_type_for(filename)
+    item = server.collab().put(parent, filename, data, media_type)
+    span().set_attributes({"collab.bytes": len(data), "collab.content_type": media_type})
+    return {"id": item.id, "name": item.name, "handle": str(item.handle), "bytes": len(data),
+            "content_type": media_type, "folder": str(parent)}
+
+
 # ----------------------------------------------------------------------------- subscriptions (WRITE)
 @governed
 def collab_watches(limit: int | None = None, cursor: str | None = None) -> dict:

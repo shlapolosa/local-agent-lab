@@ -107,6 +107,16 @@ GRAPH_MEETING_USER = _e("GRAPH_MEETING_USER")         # whose calendar/meetings 
 # GRAPH_MEETING_USER alone.
 GRAPH_MEETING_USERS = tuple(u.strip() for u in (_e("GRAPH_MEETING_USERS") or "").split(",") if u.strip())
 GRAPH_MAX_FETCH_BYTES = int(_e("GRAPH_MAX_FETCH_BYTES") or 2 * 1024 ** 3)   # 2 GiB — a long recording
+# Graph's SIMPLE upload ceiling. Above it an upload needs a resumable session, which is a lot of
+# machinery for the documents this lab writes back — so the adapter refuses instead, naming this
+# setting. 4 MiB is the provider's own limit for the simple path.
+GRAPH_MAX_UPLOAD_BYTES = int(_e("GRAPH_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
+# The WRITE identity, separate from GRAPH_CLIENT_* on purpose: the read app holds only read
+# grants and its name says so, and a credential that can also overwrite anything it can see
+# should be held by the one service that writes, not by every read path. Unset = the reader
+# is used, which simply means uploads refuse for want of the permission.
+GRAPH_WRITER_CLIENT_ID = _e("GRAPH_WRITER_CLIENT_ID", "")
+GRAPH_WRITER_CLIENT_SECRET = _e("GRAPH_WRITER_CLIENT_SECRET", "")
 # Change-notification destinations: egress to a caller-supplied URL, so an EMPTY list REFUSES every
 # subscription rather than allowing all. Comma-separated URL prefixes.
 GRAPH_NOTIFICATION_ALLOWLIST = tuple(u.strip() for u in (_e("GRAPH_NOTIFICATION_ALLOWLIST") or "").split(",") if u.strip())

@@ -70,6 +70,19 @@ def _origin(url: str) -> tuple[str, str]:
     return parts.scheme.lower(), parts.netloc.lower()
 
 
+def _filename(name: str) -> str:
+    """A file NAME, never a path — REFUSED rather than trimmed to its last segment.
+
+    Trimming would silently write `sub/dir/m.json` as `m.json`, which is a different file in a
+    different place from the one the caller asked for; a caller that meant a folder should say so
+    with a folder handle. Same rule and same wording as the server's own `_filename`, so the two
+    ends of this adapter cannot disagree about what a name is."""
+    text = str(name or "").strip()
+    if not text or "/" in text or "\\" in text or text in (".", "..") or text.startswith(".."):
+        raise ValueError(f"a file name is a name, not a path: {name!r}")
+    return text
+
+
 def _seg(value: str) -> str:
     """One id as a URL path segment: decoded back to what Graph issued, then quoted whole (a site id
     carries commas, a drive id an exclamation mark, a meeting id base64 padding)."""
@@ -84,6 +97,7 @@ class GraphCollabRepository:
     def __init__(self, client: GraphClient, tokens, *, meeting_user: str = "",
                  meeting_users: tuple[str, ...] = (), allow_metered: bool = False,
                  notification_allowlist: tuple[str, ...] = (), max_fetch_bytes: int = 0,
+                 max_upload_bytes: int = 0, write_client: GraphClient | None = None,
                  now: Callable[[], datetime] | None = None) -> None:
         self.client, self.tokens = client, tokens
         self.meeting_user = meeting_user
@@ -94,6 +108,11 @@ class GraphCollabRepository:
         self.allow_metered = allow_metered
         self.notification_allowlist = tuple(notification_allowlist)
         self.max_fetch_bytes = max_fetch_bytes
+        self.max_upload_bytes = max_upload_bytes
+        # The identity that WRITES. Defaults to the reading one, which is not a fallback so much as
+        # an honest default: without a writer credential an upload refuses for want of the
+        # permission, and the refusal names it — better than a second silent code path.
+        self.write_client = write_client or client
         self._now = now or (lambda: datetime.now(timezone.utc))
         # Bounded on purpose: the container binds this repository as a SINGLETON in a long-lived
         # server, so an unbounded dict keyed on every join URL ever seen grows for the life of the
@@ -143,7 +162,12 @@ class GraphCollabRepository:
                 "drives": ("/sites/root/drives", {"$top": 1}),
                 "items": ("/sites/root/drive/root/children", {"$top": 1}),
                 "content": ("/sites/root/drive/root", None),
-                "watches": ("/subscriptions", {"$top": 1})}[capability]
+                "watches": ("/subscriptions", {"$top": 1}),
+                # A write cannot be PROVEN without writing, and a probe that leaves a file behind is
+                # not a probe. So the deep call only shows the drive is reachable; whether this
+                # credential may write it is the ROLE table's answer, which the shallow probe gives
+                # and the deep one merges over.
+                "uploads": ("/sites/root/drive/root", None)}[capability]
 
     # ------------------------------------------------------------------ files
     def sites(self, query: str = "", limit: int | None = None, cursor: str | None = None) -> Page[Site]:
@@ -180,6 +204,46 @@ class GraphCollabRepository:
             raise ValueError(f"only a file handle has drive metadata, not {handle.kind.value}: {handle}")
         js = self._call("items", self.client.get, f"/drives/{_seg(handle.scope)}/items/{_seg(handle.id)}")
         return graph_map.drive_item(js, handle.scope)
+
+    # ------------------------------------------------------------------ uploads (WRITE)
+    def put(self, parent, name: str, content: bytes, media_type: str = "") -> DriveItem:
+        """Write one small file into a folder. The mirror of `open`, and deliberately not streamed.
+
+        Bounded by `max_upload_bytes` BEFORE a byte moves, because the large path is a resumable
+        session and this exists for documents — minutes and an attributed transcript. A refusal names
+        the ceiling and the setting, like every other refusal here.
+
+        `@microsoft.graph.conflictBehavior=replace` so a re-run of the same meeting corrects its own
+        output instead of leaving `minutes 1.json` beside `minutes.json`."""
+        drive, folder = self._parent(parent)
+        data = bytes(content)
+        if self.max_upload_bytes and len(data) > self.max_upload_bytes:
+            raise CollabUnavailable(
+                "uploads",
+                f"the content is {len(data)} bytes, over this deployment's "
+                f"{self.max_upload_bytes}-byte simple-upload ceiling",
+                "write a smaller document, or raise GRAPH_MAX_UPLOAD_BYTES if the provider allows a "
+                "larger simple upload")
+        leaf = urllib.parse.quote(_filename(name), safe="")
+        path = (f"/drives/{_seg(drive)}/items/{_seg(folder)}:/{leaf}:/content"
+                "?@microsoft.graph.conflictBehavior=replace")
+        js = self._call("uploads", self.write_client.upload, path, data,
+                        media_type or "application/octet-stream")
+        return graph_map.drive_item(js, drive)
+
+    def _parent(self, parent) -> tuple[str, str]:
+        """(drive id, folder item id) from a listing's `DriveItem` or a `collab://item/...` handle.
+
+        A folder is named the way everything else here is — by an id a listing minted — never by a
+        path the caller typed, for the same reason a handle refuses a URL."""
+        if isinstance(parent, DriveItem):
+            if not parent.folder:
+                raise ValueError(f"content is written into a FOLDER, not into {parent.name!r}")
+            return parent.drive_id, parent.id
+        handle = parent if isinstance(parent, ContentHandle) else ContentHandle.parse(str(parent))
+        if handle.kind is not HandleKind.ITEM:
+            raise ValueError(f"a folder is a file handle, not {handle.kind.value}: {handle}")
+        return handle.scope, handle.id
 
     # ------------------------------------------------------------------ content
     def content(self, handle: ContentHandle) -> Content:
@@ -375,7 +439,9 @@ def build(*, tenant_id: str | None = None, client_id: str | None = None, client_
           meeting_user: str | None = None, meeting_users: tuple[str, ...] | None = None,
           allow_metered: bool | None = None,
           notification_allowlist: tuple[str, ...] | None = None, max_fetch_bytes: int | None = None,
-          client_factory: Callable | None = None, now: Callable[[], datetime] | None = None,
+          max_upload_bytes: int | None = None,
+          client_factory: Callable | None = None, writer_client_id: str | None = None,
+          writer_client_secret: str | None = None, now: Callable[[], datetime] | None = None,
           **client_kwargs) -> GraphCollabRepository:
     """The ONE place this adapter is assembled — what a composition root names. Every value defaults
     to `lab.platform.config` (the single env reader) and can be overridden for a test or a second
@@ -390,11 +456,25 @@ def build(*, tenant_id: str | None = None, client_id: str | None = None, client_
         client_secret=pick(client_secret, config.GRAPH_CLIENT_SECRET),
         static_token=pick(static_token, config.GRAPH_ACCESS_TOKEN),
         client_factory=client_factory)
-    client = GraphClient(tokens, base_url=pick(base_url, config.GRAPH_BASE_URL), **client_kwargs)
+    base = pick(base_url, config.GRAPH_BASE_URL)
+    client = GraphClient(tokens, base_url=base, **client_kwargs)
+    # A second credential ONLY when one is configured. Same mode and tenant — it differs in exactly
+    # one thing, the app registration, and therefore in what Microsoft will let it do.
+    writer_id = pick(writer_client_id, config.GRAPH_WRITER_CLIENT_ID)
+    writer_secret = pick(writer_client_secret, config.GRAPH_WRITER_CLIENT_SECRET)
+    write_client = None
+    if writer_id and writer_secret:
+        write_client = GraphClient(graph_auth.token_source(
+            pick(auth_mode, config.GRAPH_AUTH_MODE),
+            tenant_id=pick(tenant_id, config.ENTRA_TENANT_ID),
+            client_id=writer_id, client_secret=writer_secret,
+            static_token=pick(static_token, config.GRAPH_ACCESS_TOKEN),
+            client_factory=client_factory), base_url=base, **client_kwargs)
     return GraphCollabRepository(
         client, tokens, meeting_user=pick(meeting_user, config.GRAPH_MEETING_USER) or "",
         meeting_users=tuple(pick(meeting_users, config.GRAPH_MEETING_USERS)),
         allow_metered=bool(pick(allow_metered, config.GRAPH_ALLOW_METERED)),
         notification_allowlist=tuple(pick(notification_allowlist, config.GRAPH_NOTIFICATION_ALLOWLIST)),
         max_fetch_bytes=int(pick(max_fetch_bytes, config.GRAPH_MAX_FETCH_BYTES)),
-        now=now)
+        max_upload_bytes=int(pick(max_upload_bytes, config.GRAPH_MAX_UPLOAD_BYTES)),
+        write_client=write_client, now=now)

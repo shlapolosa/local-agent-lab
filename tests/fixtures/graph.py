@@ -16,7 +16,8 @@ from __future__ import annotations
 import io
 import json
 
-from lab.core.collab import (CAPABILITIES, ChangeType, CollabUnavailable, ContentStream, Drive,
+from lab.core.collab import (CAPABILITIES, ChangeType, CollabUnavailable, ContentHandle,
+                             ContentStream, Drive,
                              DriveItem, HandleKind, MediaKind, MediaRecord, Meeting, Page, Site,
                              Watch, clamp_limit)
 from lab.substrate.mcp.graph.graph_rest import Response
@@ -130,6 +131,7 @@ class FakeGraph:
         self.content, self.content_type, self.raises = content, content_type, raises
         self.off = {k for k, on in (capabilities or {}).items() if not on}
         self.calls: list[tuple] = []
+        self.written: list[dict] = []       # what `put` wrote, so a caller can assert the write
 
     # -- the knobs ------------------------------------------------------------------
     def _check(self, capability, *args):
@@ -186,6 +188,21 @@ class FakeGraph:
     def open(self, handle):
         self._check("content", str(handle))
         return ContentStream(iter([self.content]), self.content_type, len(self.content))
+
+    def put(self, parent, name, content, media_type=""):
+        """Record the write and answer the item it became — the same refusals the real adapter makes,
+        so a caller cannot pass this fake and then fail against Graph."""
+        self._check("uploads", name)
+        handle = parent if isinstance(parent, ContentHandle) else ContentHandle.parse(str(parent))
+        if handle.kind is not HandleKind.ITEM:
+            raise ValueError(f"a folder is a file handle, not {handle.kind.value}")
+        if "/" in str(name) or "\\" in str(name) or not str(name).strip():
+            raise ValueError(f"a file needs a name, not a path ({name!r})")
+        item = DriveItem(id=f"put-{len(self.written) + 1}", name=str(name), drive_id=handle.scope,
+                         size=len(content))
+        self.written.append({"folder": str(handle), "name": str(name), "bytes": len(content),
+                             "media_type": media_type, "content": bytes(content)})
+        return item
 
     def meetings(self, since="", until="", organizer="", limit=None, cursor=None):
         window = [m for m in self._meetings

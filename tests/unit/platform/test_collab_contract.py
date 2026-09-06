@@ -13,12 +13,18 @@ def test_alias_and_tools_name_no_vendor():
 
 
 def test_read_and_write_are_separate_grants():
-    """Subscription management is egress to a caller-supplied URL and a durable tenant-side object —
-    it must be grantable apart from reading, like ApprovalTools.READ/.WRITE."""
+    """Reading, subscribing and writing content are three powers, not two. A SUBSCRIPTION is egress
+    to a caller-supplied URL and a durable tenant-side object; a PUT writes lab-authored content into
+    someone else's tenant. Both are writes, both are granted deliberately, and a holder of one has no
+    business holding the other — the minutes workload needs `put` and must never subscribe."""
     read, write = set(CollabTools.READ), set(CollabTools.WRITE)
     assert read and write and not (read & write)
     assert read | write == set(CollabTools.names()), "every tool belongs to exactly one grant"
-    assert write == {CollabTools.watch, CollabTools.watch_renew, CollabTools.unwatch}
+    assert set(CollabTools.SUBSCRIBE) == {CollabTools.watch, CollabTools.watch_renew,
+                                          CollabTools.unwatch}
+    assert set(CollabTools.PUT) == {CollabTools.put}
+    assert write == set(CollabTools.SUBSCRIBE) | set(CollabTools.PUT)
+    assert not set(CollabTools.SUBSCRIBE) & set(CollabTools.PUT)
 
 
 def test_tuples_are_not_mistaken_for_tools():
@@ -34,10 +40,14 @@ def test_gateway_qualifies_and_rejects_a_foreign_tool():
 
 
 def test_the_catalogue_covers_the_planned_surface():
-    assert set(CollabTools.names()) == {
-        "collab_capabilities", "collab_sites", "collab_drives", "collab_user_drive", "collab_list",
-        "collab_item", "collab_meetings", "collab_recordings", "collab_transcripts", "collab_fetch",
-        "collab_watches", "collab_watch", "collab_watch_renew", "collab_unwatch"}
+    """Membership and shape, not a re-typed list: `test_contracts_match_servers` already pins the
+    catalogue to the server in both directions, which is where exactness IS the contract."""
+    names = set(CollabTools.names())
+    assert {"collab_capabilities", "collab_sites", "collab_drives", "collab_user_drive",
+            "collab_list", "collab_item", "collab_meetings", "collab_recordings",
+            "collab_transcripts", "collab_fetch", "collab_watches"} <= names
+    assert all(n.startswith("collab_") for n in names)
+    assert CollabTools.fetch in names and CollabTools.put in names, "content moves both ways"
 
 
 def test_the_port_is_registered_so_the_gateway_and_the_smoke_test_can_see_it():

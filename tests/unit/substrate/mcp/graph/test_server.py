@@ -31,9 +31,22 @@ class FakeUploads:
 
     def __init__(self, chunk=8):
         self.chunk, self.data, self.calls = chunk, b"", []
+        self.objects: dict[str, bytes] = {}
 
     def put(self, *args, **kwargs):
         raise AssertionError("collab_fetch must stream — put() buffers the whole object")
+
+    def stage(self, name: str, data: bytes) -> str:
+        """Put something IN the store for a test to write back out. Not `put`, which stays fatal:
+        the guard above is about the INBOUND path, where a fetched recording is gigabytes."""
+        self.objects[f"art://fake/{name}"] = data
+        return f"art://fake/{name}"
+
+    def get(self, ref: str) -> bytes:
+        """Whole bytes, deliberately. Reading OUT is bounded by what the lab itself authored — a
+        minutes document — and the repository refuses anything over the simple-upload ceiling, so
+        buffering here is a bound rather than the unbounded risk `put` guards against."""
+        return self.objects[ref]
 
     def put_stream(self, name, fileobj, content_type="application/octet-stream", size_hint=None):
         self.calls.append({"name": name, "content_type": content_type, "size_hint": size_hint,
@@ -134,8 +147,15 @@ def test_the_descriptions_teach_the_two_rules_a_caller_must_know(server):
     assert "art://" in by[CollabTools.fetch].description and "never" in by[CollabTools.fetch].description.lower()
     assert "collab://" in by[CollabTools.item].description
     assert "cursor" in by[CollabTools.sites].description.lower()
-    for name in CollabTools.WRITE:
+    # WRITE is no longer one thing: a SUBSCRIPTION teaches "subscription", a PUT teaches where the
+    # bytes come from and that it replaces. Asserting one word across both would have forced the
+    # upload tool to describe itself as something it is not.
+    for name in CollabTools.SUBSCRIBE:
         assert "subscription" in by[name].description.lower()
+    for name in CollabTools.PUT:
+        d = by[name].description.lower()
+        assert "art://" in d and "collab://" in d, "it must say what it reads and where it writes"
+        assert "replace" in d, "a re-run correcting its own output is the caller's to know"
 
 
 # ---------------------------------------------------------------- capabilities
@@ -334,7 +354,13 @@ def test_a_refusal_from_the_provider_arrives_as_a_sentence_never_a_status(upload
 
 # ---------------------------------------------------------------- the write side
 def test_the_subscription_tools_are_exactly_the_write_grant(server):
-    assert set(CollabTools.WRITE) == {CollabTools.watch, CollabTools.watch_renew, CollabTools.unwatch}
+    """SUBSCRIBE, not WRITE. The two writes have different blast radii — a subscription is egress to
+    a caller-supplied url and a durable object outliving the run; a put writes lab-authored content
+    into a tenant — so they are granted separately and a holder of one need not hold the other."""
+    assert set(CollabTools.SUBSCRIBE) == {CollabTools.watch, CollabTools.watch_renew, CollabTools.unwatch}
+    assert set(CollabTools.PUT) == {CollabTools.put}
+    assert set(CollabTools.WRITE) == set(CollabTools.SUBSCRIBE) | set(CollabTools.PUT)
+    assert not set(CollabTools.SUBSCRIBE) & set(CollabTools.PUT), "the two powers do not overlap"
     made = call(server, CollabTools.watch, resource="/drives/drive-1/root",
                 notification_url="https://flow.example/hook", events=["created", "updated"])
     assert made["events"] == ["created", "updated"] and made["notification_url"] == "https://flow.example/hook"
@@ -476,3 +502,42 @@ def test_a_chat_id_is_an_opaque_id_so_it_may_travel():
     assert "@" in m.chat_id and "thread" in m.chat_id      # opaque, provider-shaped
     assert m.organizer == "maria@contoso.com"              # the test is not vacuous:
     assert m.organizer not in m.chat_id                    # a real principal, and it is not in there
+
+
+# ---------------------------------------------------------------- writing content back (WRITE)
+def test_put_writes_an_artifact_into_a_folder_and_names_what_it_became(server):
+    """The mirror of collab_fetch: that one brings bytes IN from the provider, this one is the only
+    verb that sends them out. A caller gives a folder handle and an art:// ref, never bytes."""
+    ref = server.uploads().stage("minutes.json", b'{"summary": "we shipped"}')
+    out = call(server, CollabTools.put, folder="collab://item/drive-1/folder-9", ref=ref)
+    assert out["name"] == "minutes.json" and out["content_type"] == "application/json"
+    assert out["bytes"] == len(b'{"summary": "we shipped"}')
+    assert out["handle"].startswith("collab://item/")
+    written = server.collab().written[0]
+    assert written["folder"] == "collab://item/drive-1/folder-9"
+    assert written["content"] == b'{"summary": "we shipped"}', "the bytes are the store's, unaltered"
+
+
+def test_put_refuses_a_folder_that_is_not_one(server):
+    """A recording handle is content, not a folder — the same refusal `item` makes for the mirror
+    mistake, so a caller cannot pass this fake and then fail against the provider."""
+    ref = server.uploads().stage("minutes.json", b"{}")
+    msg = call_error(server, CollabTools.put, folder="collab://recording/meeting-1/rec-1", ref=ref)
+    assert "folder" in msg.lower()
+
+
+def test_put_refuses_a_path_for_a_name(server):
+    """A name, never a path — the same rule a handle enforces by refusing a URL. Otherwise a caller
+    steers the write somewhere the folder handle never authorised."""
+    ref = server.uploads().stage("minutes.json", b"{}")
+    msg = call_error(server, CollabTools.put, folder="collab://item/drive-1/folder-9", ref=ref,
+                     name="../elsewhere/minutes.json")
+    assert "name" in msg.lower() and "path" in msg.lower()
+
+
+def test_put_takes_its_media_type_from_the_name_not_the_caller(server):
+    """One table decides content types (lab.platform.filetypes), so a file cannot arrive at the
+    provider mislabelled by whoever called."""
+    ref = server.uploads().stage("transcript.md", b"# who said what")
+    out = call(server, CollabTools.put, folder="collab://item/drive-1/folder-9", ref=ref)
+    assert out["content_type"] == "text/markdown"
