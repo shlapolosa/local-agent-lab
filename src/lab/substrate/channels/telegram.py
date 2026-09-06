@@ -10,11 +10,10 @@ Commands understood in the chat:  /approve <id> [comment] | /decline <id> <comme
 Run: .venv/bin/python -m lab.substrate.channels.telegram   (long-poll loop; exits immediately if not configured)
 """
 import json
-import time
 import urllib.parse
 import urllib.request
 
-from lab.platform import config
+from lab.platform import config, streams
 from lab.substrate import approvals
 
 API = "https://api.telegram.org/bot{token}/{method}"
@@ -96,15 +95,19 @@ class TelegramChannel:
         with urllib.request.urlopen(API.format(token=self.token, method=method), data=data, timeout=30) as r:
             return json.load(r)
 
+    def deliver(self, eid, fields):
+        self.notify(fields)
+        approvals.ack(self.name, eid)
+
     def run(self):
         print(f"telegram channel: {'enabled' if self.enabled else 'NOT configured — plumbing only'}")
         if not self.enabled:
             return
-        while True:
-            for eid, f in approvals.channel_events(self.name, block_ms=5000):
-                self.notify(f); approvals.ack(self.name, eid)
-            self.poll_commands()
-            time.sleep(1)
+        # The SHARED loop — see the note in the Teams channel. `tick` is this channel's own extra:
+        # it is the one that also LISTENS, so it polls its inbound commands each pass.
+        streams.serve(name="telegram channel", ready="telegram channel serving",
+                      read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS),
+                      handle=self.deliver, tick=self.poll_commands)
 
 
 if __name__ == "__main__":

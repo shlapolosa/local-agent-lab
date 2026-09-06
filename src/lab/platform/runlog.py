@@ -21,7 +21,7 @@ Every entry point takes `client=` (a redis.Redis) to bypass the shared pool — 
 pools — exactly as src/lab/platform/locks.py does.
 
 Usage in a host:
-    runlog.start(run_id, input=diagram, trace_id=trace_id)
+    runlog.start(run_id, input=diagram, process="visio_to_archimate", trace_id=trace_id)
     with runlog.span_node(run_id, "ba"):
         ...
     runlog.finish_from(run_id, error_or_None, approval_id=…)   # the one way a host closes a run
@@ -85,9 +85,14 @@ def _dump(v):
 
 
 # ------------------------------------------------------------------------------ writers
-def start(run_id: str, *, input: str, trace_id: str | None = None,
-          process: str = "visio_to_archimate", client=None, **fields) -> None:
-    """Register a run as running. Extra `fields` (e.g. mermaid=…, request_id=…) are stored too."""
+def start(run_id: str, *, input: str, process: str, trace_id: str | None = None,
+          client=None, **fields) -> None:
+    """Register a run as running. Extra `fields` (e.g. mermaid=…, request_id=…) are stored too.
+
+    `process` is REQUIRED. It defaulted to one workload's name, which meant every later host had to
+    remember to pass it — and the one that forgot put its rows on the board under someone else's
+    process. A kernel helper shared by every host does not get to carry one caller's identity.
+    """
     fields = {"run_id": run_id, "process": process, "input": _dump(input), "trace_id": trace_id or "",
               "status": "running", "started_at": _now(), "t0": repr(time.time()), "node": "",
               "nodes": "[]", **{k: _dump(v) for k, v in fields.items()}}

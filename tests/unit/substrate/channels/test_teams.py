@@ -5,11 +5,12 @@ Run: pytest tests/unit/substrate/channels/test_teams.py (or as a script)."""
 import io
 import json
 import urllib.request
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
 
 from fixtures.fakes import FakeRedis, patched_client
+from lab.platform import streams
 from lab.substrate import approvals
 from lab.substrate.channels import teams as T
 
@@ -180,17 +181,24 @@ def test_decide_works_even_when_outbound_is_not_configured():
 
 
 # ------------------------------------------------------------------ the loop
+# The loop mechanics belong to `lab.platform.streams.serve` and are tested there. `_stopper` ends a
+# real serve loop the way a container stop does — which a channel could not do at all before, having
+# neither a signal handler nor a guard around its `while True`.
+def _stopper(monkeypatch):
+    import signal as signal_mod
+    handlers = {}
+    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: handlers.setdefault(sig, fn))
+    return lambda: handlers[signal_mod.SIGTERM]()
+
+
 def test_run_notifies_and_acks_each_request(monkeypatch):
     ch = _enabled()
     acked = []
-    monkeypatch.setattr(approvals, "channel_events", lambda name, block_ms: [("e1", REQ)])
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events",
+                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
     monkeypatch.setattr(approvals, "ack", lambda name, eid: acked.append((name, eid)))
-
-    class Stop(Exception):
-        pass
-    monkeypatch.setattr(T.time, "sleep", lambda s: (_ for _ in ()).throw(Stop()))
-    with pytest.raises(Stop):
-        ch.run()
+    ch.run()
     assert acked == [("teams", "e1")] and len(ch.sent) == 1
 
 
@@ -199,17 +207,38 @@ def test_send_failure_does_not_kill_the_loop_and_leaves_the_entry_unacked(monkey
         raise OSError("webhook 503")
     ch = T.TeamsChannel("https://hook.test/x", post=boom)
     acked = []
-    monkeypatch.setattr(approvals, "channel_events", lambda name, block_ms: [("e1", REQ)])
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events",
+                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
     monkeypatch.setattr(approvals, "ack", lambda name, eid: acked.append(eid))
-
-    class Stop(Exception):
-        pass
-    monkeypatch.setattr(T.time, "sleep", lambda s: (_ for _ in ()).throw(Stop()))
     out = io.StringIO()
-    with redirect_stdout(out), pytest.raises(Stop):
+    with redirect_stdout(out):
         ch.run()
     assert acked == []                                    # unacked -> stays in the group's pending list
     assert "webhook 503" in out.getvalue() and "apr-1" in out.getvalue()
+
+
+def test_a_redis_blip_no_longer_ends_the_channel(monkeypatch):
+    """The change this refactor exists for. A channel ran an unguarded `while True`, so one read
+    timeout ended the only thing telling anyone an approval was waiting — the same defect that was
+    fixed in the two newer consumers and never came back here."""
+    ch = _enabled()
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(streams.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def flaky(name, block_ms):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("Timeout reading from 127.0.0.1:6379")
+        stop()
+        return []
+
+    monkeypatch.setattr(approvals, "channel_events", flaky)
+    err = io.StringIO()
+    with redirect_stderr(err):
+        ch.run()
+    assert "Timeout reading" in err.getvalue() and calls["n"] == 2, "it kept serving"
 
 
 def test_teams_is_a_registered_approval_channel():

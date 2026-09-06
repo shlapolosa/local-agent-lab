@@ -31,9 +31,9 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-import redis
 
 from lab.platform import redis_client
+from lab.platform.streams import StreamGroup
 from lab.platform.contracts import PROCESSES, WORKFLOW_FINISHED, WorkflowRequest, WorkflowStatus
 
 REQ = "workflow:requests"
@@ -43,7 +43,6 @@ REQ = "workflow:requests"
 # consumer group can react without every producer knowing who is listening.
 DONE = "workflow:finished"
 DONE_MAXLEN = 10_000                        # a bounded stream: nothing here reads history (see mark())
-RECLAIM_IDLE_MS = 60_000                    # how long an unacked finished-event waits before retry
 IDEM = "workflow:idem:"                     # + <process>:<key> -> the request id that claim created
 IDEMPOTENCY_TTL = 24 * 60 * 60              # 24 h — see idempotency_key_for()
 MAX_KEY = 200                               # a Redis key is not a payload: enough for a GUID or a message id
@@ -61,14 +60,16 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _requests(group, consumer="1") -> StreamGroup:
+    """This group's address on the request stream. `start_id="0"` because a workload host coming up
+    must run what was queued while it was down — the opposite of the finished stream, where a fresh
+    consumer must NOT announce every run the lab ever completed."""
+    return StreamGroup(REQ, group, consumer, start_id="0")
+
+
 def ensure_groups(r=None):
-    r = r or _r()
     for g in GROUPS:
-        try:
-            r.xgroup_create(REQ, g, id="0", mkstream=True)
-        except redis.ResponseError as e:
-            if "BUSYGROUP" not in str(e):
-                raise
+        _requests(g).ensure(r or _r())
 
 
 def idempotency_key_for(process, key):
@@ -202,43 +203,26 @@ def mark(request_id, status, *, client=None, **fields):
     return upd
 
 
+def _finished(group: str, consumer: str = "1") -> StreamGroup:
+    """This group's address on the finished-runs stream. `start_id="$"` — new events only: a
+    consumer of RESULTS coming up for the first time must not announce every run ever completed."""
+    return StreamGroup(DONE, group, consumer)
+
+
 def ensure_finished_group(group: str, r=None) -> None:
     """A consumer group on the finished-runs stream. Idempotent, like the request-side twin."""
-    r = _r(r)
-    try:
-        r.xgroup_create(DONE, group, id="$", mkstream=True)
-    except redis.ResponseError as e:
-        if "BUSYGROUP" not in str(e):
-            raise
-
-
-def _reclaim_finished(r, group, consumer, count):
-    """Entries a consumer of this group took and never acked, handed back after RECLAIM_IDLE_MS.
-
-    The same XAUTOCLAIM the approval channels use, for the same reason: `>` returns only
-    never-delivered entries, so a consumer that crashed mid-handle — or deliberately left an entry
-    unacked because its send failed — would otherwise leave it in the pending list forever, visible
-    to nobody. That is precisely the durability Streams were chosen over pub/sub to get. Best effort:
-    a server without XAUTOCLAIM still gets what is new."""
-    try:
-        _cursor, entries, *_ = r.xautoclaim(DONE, group, consumer, min_idle_time=RECLAIM_IDLE_MS,
-                                            start_id="0-0", count=count)
-    except Exception as e:                      # noqa: BLE001 — old server, or a blip
-        print(f"finished-event reclaim skipped for {group} ({type(e).__name__}: {e})", flush=True)
-        return []
-    return [(eid, f) for eid, f in entries if f]
+    _finished(group).ensure(_r(r))
 
 
 def finished_events(group, consumer="1", block_ms=0, count=10, *, client=None):
-    """Runs that ended and this group has not acked, RECLAIMED ones first. Starts at `$` (new events
-    only), unlike the request side: a consumer of RESULTS that came up for the first time should not
-    announce every run the lab ever completed."""
-    r = _r(client)
-    ensure_finished_group(group, r)
-    stale = _reclaim_finished(r, group, consumer, count)
-    got = redis_client.blocking_read(
-        lambda b: r.xreadgroup(group, consumer, {DONE: ">"}, count=count, block=b), block_ms)
-    return stale + [(eid, fields) for _stream, entries in got for eid, fields in entries]
+    """Runs that ended and this group has not acked, RECLAIMED ones first — so a consumer that
+    crashed mid-handle, or deliberately left an entry unacked because its send failed, gets it back
+    rather than leaving it in a pending list nobody can see."""
+    return _finished(group, consumer).read(block_ms=block_ms, count=count, client=_r(client))
+
+
+def ack_finished(group, entry_id, *, client=None):
+    return _finished(group).ack(entry_id, _r(client))
 
 
 def annotate(request_id, *, client=None, **fields):
@@ -254,10 +238,6 @@ def annotate(request_id, *, client=None, **fields):
            for k, v in fields.items() if v is not None}
     _r(client).hset(f"workflow:req:{request_id}", mapping=upd)
     return upd
-
-
-def ack_finished(group, entry_id, *, client=None):
-    return _r(client).xack(DONE, group, entry_id)
 
 
 def status(request_id, *, client=None):
@@ -296,16 +276,12 @@ def recent(limit=20, *, client=None):
 def channel_events(group, consumer="1", block_ms=0, count=1, pending_only=False, *, client=None):
     """Read this group's unseen requests (or, with pending_only, the entries it already received
     but never acked — what a consumer re-reads after a crash). Returns [(entry_id, fields)]."""
-    r = _r(client); ensure_groups(r)
-    res = redis_client.blocking_read(
-        lambda b: r.xreadgroup(group, f"{group}-{consumer}", {REQ: "0" if pending_only else ">"},
-                               count=count, block=None if pending_only else b),
-        block_ms)
-    return [(eid, f) for _, entries in res for eid, f in entries]
+    return _requests(group, f"{group}-{consumer}").read(
+        block_ms=block_ms, count=count, pending_only=pending_only, client=_r(client))
 
 
 def ack(group, entry_id, *, client=None):
-    _r(client).xack(REQ, group, entry_id)
+    _requests(group).ack(entry_id, _r(client))
 
 
 if __name__ == "__main__":

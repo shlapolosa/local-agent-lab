@@ -75,6 +75,34 @@ channel_status() {  # name, module, required vars — "stopped" alone would read
   alive "$1" && echo "$1    running (pid $(cat "$RUN/$1.pid"))" \
     || echo "$1    stopped${missing:+ (not configured)}"
 }
+# --- always-on substrate DAEMONS: no port, no settings to check, no ingress -----------------------
+# The unconditional siblings of a channel. Each is a long-lived consumer of a Redis stream whose only
+# distinguishing facts are its module and the line it prints when ready — which is exactly a table,
+# and was two hand-rolled copies before. start/down/status all walk it, so adding one is ONE line,
+# and it stays in step with deploy/railway.py's SUBSTRATE table (a daemon that runs locally but is
+# never deployed, or stops in only one of the two runners, is work silently not being done).
+for_each_daemon() {   # calls "$1 <name> <module> <ready line> <what it does>"
+  "$1" continuations    lab.substrate.continuations   "continuation runner ready" "approved approvals start their next run"
+  "$1" meeting-notifier lab.substrate.meeting_notifier "meeting notifier ready"    "a finished minutes run tells its meeting"
+}
+
+start_daemon() {   # name, module, ready line, description
+  if alive "$1"; then printf "%-16s ok  already running (pid %s)\n" "$1" "$(cat "$RUN/$1.pid")"; return 0; fi
+  env -u ANTHROPIC_API_KEY nohup "$PY" -m "$2" >"$LOGS/$1.log" 2>&1 & echo $! >"$RUN/$1.pid"
+  # No port to probe, so the first log line is the readiness signal — same reason as a channel's.
+  local i; for i in 1 2 3; do /usr/bin/grep -q "$3" "$LOGS/$1.log" 2>/dev/null && break; sleep 1; done
+  if /usr/bin/grep -q "$3" "$LOGS/$1.log" 2>/dev/null; then printf "%-16s started  (%s)\n" "$1" "$4"
+  else printf "%-16s WARN     did not report ready — see %s\n" "$1" "$LOGS/$1.log"; fi
+  return 0
+}
+
+stop_daemon() {    # name, module, ...
+  if alive "$1"; then kill "$(cat "$RUN/$1.pid")" && echo "$1 stopped"; fi; rm -f "$RUN/$1.pid"
+  pkill -f "$2" 2>/dev/null || true
+}
+
+daemon_status() { alive "$1" && echo "$1    running (pid $(cat "$RUN/$1.pid"))" || echo "$1    stopped"; }
+
 remote_tracing() { [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && ! echo "$OTEL_EXPORTER_OTLP_ENDPOINT" | /usr/bin/grep -qE "127\.0\.0\.1|localhost"; }
 
 # Jaeger on Railway is metered (trial credit): `up` deploys it, `down` removes the deployment
@@ -154,25 +182,9 @@ up() {
   # the continuation runner: approving an approval starts the run it releases. Started ALWAYS —
   # it holds no credential, and without it an approved question is answered and nothing happens,
   # which is the most confusing possible failure (the human did their part and the lab looks idle).
-  # No port to probe, so its own first log line is the readiness signal, like a channel's.
-  if alive continuations; then printf "%-12s ok  already running (pid %s)\n" continuations "$(cat "$RUN/continuations.pid")"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.continuations >"$LOGS/continuations.log" 2>&1 & echo $! >"$RUN/continuations.pid"
-    for i in 1 2 3; do /usr/bin/grep -q "continuation runner ready" "$LOGS/continuations.log" 2>/dev/null && break; sleep 1; done
-    if /usr/bin/grep -q "continuation runner ready" "$LOGS/continuations.log" 2>/dev/null; then
-      printf "%-12s started  (approved approvals start their next run)\n" continuations
-    else printf "%-12s WARN     did not report ready — see %s\n" continuations "$LOGS/continuations.log"; fi
-  fi
-
-  # meeting-notifier: what turns "the minutes exist" into "the meeting knows about them". Started
-  # here even with MEETING_WEBHOOK_URL unset, because unset means it LOGS what it would post — which
-  # is the only way to watch the announcement before wiring a destination to it.
-  if alive meeting-notifier; then printf "%-12s ok  already running (pid %s)\n" notifier "$(cat "$RUN/meeting-notifier.pid")"; else
-    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.meeting_notifier >"$LOGS/meeting-notifier.log" 2>&1 & echo $! >"$RUN/meeting-notifier.pid"
-    for i in 1 2 3; do /usr/bin/grep -q "meeting notifier ready" "$LOGS/meeting-notifier.log" 2>/dev/null && break; sleep 1; done
-    if /usr/bin/grep -q "meeting notifier ready" "$LOGS/meeting-notifier.log" 2>/dev/null; then
-      printf "%-12s started  (a finished minutes run tells its meeting)\n" notifier
-    else printf "%-12s WARN     did not report ready — see %s\n" notifier "$LOGS/meeting-notifier.log"; fi
-  fi
+  # meeting-notifier is started even with MEETING_WEBHOOK_URL unset, because unset means it LOGS
+  # what it would post — the only way to watch an announcement before wiring a destination to it.
+  for_each_daemon start_daemon
 
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
@@ -243,19 +255,25 @@ channels() {
 }
 
 down() {
+  # The tables are walked, never re-typed: a workload or daemon added to one of them is stopped here
+  # without a second edit. It used to be a hand-typed list beside a pkill that named ONE workload
+  # module, so the other two survived `down` as orphans.
   for_each_channel stop_channel
-  for s in wf-visio wf-meeting-transcript wf-meeting-minutes review litellm meeting-notifier continuations speech-mcp graph-mcp workflow-frontdoor storage-mcp semantic-mcp adoit-mcp jaeger; do
+  for_each_daemon stop_daemon
+  for_each_workload stop_workload
+  for s in review litellm speech-mcp graph-mcp workflow-frontdoor storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
   for m in adoit semantic storage workflow graph; do pkill -f "lab.substrate.mcp.$m.server" 2>/dev/null || true; done
-  pkill -f "lab.workloads.visio_to_archimate.consumer" 2>/dev/null || true
 }
 
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp storage-mcp workflow-frontdoor graph-mcp speech-mcp continuations meeting-notifier litellm wf-visio wf-meeting-transcript wf-meeting-minutes; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp workflow-frontdoor graph-mcp speech-mcp litellm; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for_each_daemon daemon_status
+  for_each_workload workload_status
   # the review app is reported by its HEALTH endpoint, not its pid file: streamlit's recorded pid
   # goes stale across a manual restart while the app keeps serving :8501 (observed), and "stopped"
   # for a running approval UI is exactly the wrong answer
@@ -285,6 +303,13 @@ start_workload() {   # service, module
   env -u ANTHROPIC_API_KEY nohup "$PY" -m "$2" >"$LOGS/$1.log" 2>&1 & echo $! >"$RUN/$1.pid"
   printf "%-22s started  (consumes workflow:requests; log: %s)\n" "$1" "$LOGS/$1.log"
 }
+
+stop_workload() {   # service, module — the pkill catches a host started outside lab.sh
+  if alive "$1"; then kill "$(cat "$RUN/$1.pid")" && echo "$1 stopped"; fi; rm -f "$RUN/$1.pid"
+  pkill -f "$2" 2>/dev/null || true
+}
+
+workload_status() { alive "$1" && echo "$1    running (pid $(cat "$RUN/$1.pid"))" || echo "$1    stopped"; }
 
 consumer() {   # start every workload host
   load_env

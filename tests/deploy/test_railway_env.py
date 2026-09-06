@@ -351,6 +351,35 @@ def test_the_two_runners_agree_on_what_a_channel_is():
     assert sh.count("for_each_channel ") >= 3          # start_channel, channel_status, stop_channel
 
 
+def test_the_two_runners_agree_on_the_always_on_daemons():
+    """The same check for the daemons — the channels' unconditional siblings. A daemon that runs
+    locally but is never deployed is work silently not being done: an approved question that starts
+    no run, or minutes nobody is told about. Both were hand-rolled here twice before there was a
+    table to compare, which is precisely why one of them was missing from `lab.sh` entirely."""
+    sh = open(os.path.join(ROOT, "lab.sh")).read()
+    block = sh.split("for_each_daemon()", 1)[1].split("\n}", 1)[0]
+    rows = re.findall(r'^\s*"\$1"\s+(\S+)\s+(\S+)\s+"([^"]*)"', block, re.M)
+    assert rows, "lab.sh no longer declares its daemons as a table — the parity check is blind"
+    local = {n: m for n, m, _ready in rows}
+    cloud = {n: s["cmd"].split()[-1] for n, s in railway.SUBSTRATE.items()
+             if n in local or n in ("continuations", "meeting-notifier")}
+    assert local == cloud, "a daemon runs in one runner and not the other, or from a different module"
+    for name in local:                                # start/down/status all walk the ONE table
+        assert f"for_each_daemon {name}" not in sh    # (no per-daemon call sites)
+    assert sh.count("for_each_daemon ") >= 3          # start_daemon, daemon_status, stop_daemon
+
+
+def test_down_stops_every_workload_not_just_the_first_one():
+    """`down` walks the workload table. It used to hold a hand-typed service list beside a `pkill`
+    that named ONE workload module by hand, so the other two consumers survived a `down` as orphans
+    still reading `workflow:requests`."""
+    sh = open(os.path.join(ROOT, "lab.sh")).read()
+    down = sh.split("\ndown() {", 1)[1].split("\n}", 1)[0]
+    assert "for_each_workload stop_workload" in down and "for_each_daemon stop_daemon" in down
+    for module in (s["cmd"].split()[-1] for s in railway.WORKLOADS.values()):
+        assert module not in down, f"{module} is named by hand in down() instead of coming from the table"
+
+
 def test_no_role_receives_management_or_unknown_keys():
     for role in railway.ROLE_ENV:
         env = railway.env_for_role(role, FAKE)

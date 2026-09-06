@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from fixtures.fakes import FakeRedis
-from lab.platform import workflows
+from lab.platform import streams, workflows
 from lab.platform.contracts import PROCESSES, WorkflowStatus
 from lab.workloads import consumer as base
 
@@ -109,7 +109,7 @@ def test_the_console_line_says_what_is_running_not_just_which_process(r, capsys)
     rid = _submit(r)
     eid, fields = _events(r)[0]
     base.handle(_root(r), eid, fields, process=PROCESS, run=_ok, group=GROUP,
-                describe=lambda req: f"{req.diagram} + {len(req.requirements)} doc(s)")
+                describe=lambda req: f'{req.inputs["diagram"]} + {len(req.inputs["requirements"])} doc(s)')
     assert "art://d/a.vsdx + 0 doc(s)" in capsys.readouterr().out
 
 
@@ -139,7 +139,9 @@ def test_serve_runs_a_requests_shutdown_hook(r, monkeypatch):
 def test_a_redis_hiccup_is_logged_and_the_loop_keeps_serving(r, monkeypatch, capsys):
     """A blip must not take the host down — it logs, backs off and carries on."""
     monkeypatch.setattr(signal, "signal", lambda sig, fn: None)
-    monkeypatch.setattr(base.time, "sleep", lambda _s: None)
+    # the guard and its back-off live in the SHARED skeleton now (lab.platform.streams.serve), which
+    # is the point: the two approval channels had no guard at all until it was one implementation
+    monkeypatch.setattr(streams.time, "sleep", lambda _s: None)
     calls = {"n": 0}
 
     def flaky(*a, **kw):
@@ -150,7 +152,8 @@ def test_a_redis_hiccup_is_logged_and_the_loop_keeps_serving(r, monkeypatch, cap
 
     monkeypatch.setattr(base.workflows, "channel_events", flaky)
     base.serve(process=PROCESS, service="svc", run=_ok, build=lambda _s: _root(r), once=True)
-    assert "redis blipped" in capsys.readouterr().out
+    out = capsys.readouterr()
+    assert "redis blipped" in out.out + out.err
 
 
 def test_the_replica_name_is_stable_and_not_a_process_selector(monkeypatch):

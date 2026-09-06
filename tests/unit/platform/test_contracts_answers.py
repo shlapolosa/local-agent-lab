@@ -51,43 +51,6 @@ def test_a_payload_with_no_question_yields_no_prompts_rather_than_raising():
     assert C.speaker_prompts({}) == [] and C.speaker_prompts({"summary": {}}) == []
 
 
-# ----------------------------------------------------------------- the answer a human gives
-def test_a_speaker_is_a_directory_identity_or_a_free_tag_never_both():
-    """The user's decision: map to a directory identity, else a free tag, because not everyone in
-    the room is in the directory. Both at once is ambiguous and is refused."""
-    assert C.SpeakerIdentity("SPEAKER_00", identity="maria@contoso.com").identity
-    assert C.SpeakerIdentity("SPEAKER_01", tag="the vendor's architect").tag
-    with pytest.raises(ValueError):
-        C.SpeakerIdentity("SPEAKER_00", identity="a@b.com", tag="also this")
-    with pytest.raises(ValueError):
-        C.SpeakerIdentity("SPEAKER_00")
-
-
-def test_display_never_exposes_a_raw_address():
-    """The transcript the minutes agent reads must carry display names only: the gateway guardrail
-    pseudonymises addresses, so a transcript full of them degrades silently when a model paraphrases
-    the placeholder instead of repeating it."""
-    assert "@" not in C.SpeakerIdentity("SPEAKER_00", identity="maria.perez@contoso.com").display
-    assert C.SpeakerIdentity("SPEAKER_00", identity="maria.perez@contoso.com").display == "maria.perez"
-    assert C.SpeakerIdentity("SPEAKER_01", tag="the vendor's architect").display == "the vendor's architect"
-
-
-def test_a_speaker_map_round_trips_through_the_wire_shape():
-    m = C.SpeakerMap((C.SpeakerIdentity("SPEAKER_00", identity="a@b.com"),
-                      C.SpeakerIdentity("SPEAKER_01", tag="guest")))
-    answer = m.to_answer()
-    assert answer == {"SPEAKER_00": {"identity": "a@b.com"}, "SPEAKER_01": {"tag": "guest"}}
-    assert C.SpeakerMap.from_answer(answer) == m
-    assert m.of("SPEAKER_01").tag == "guest"
-
-
-def test_asking_for_an_unmapped_label_names_it():
-    m = C.SpeakerMap((C.SpeakerIdentity("SPEAKER_00", tag="x"),))
-    with pytest.raises(KeyError) as e:
-        m.of("SPEAKER_09")
-    assert "SPEAKER_09" in str(e.value)
-
-
 # ----------------------------------------------------------------- the generic completeness gate
 QUESTION = {"question": {"prompt": "Who is each speaker?",
                          "items": [{"label": "SPEAKER_00"}, {"label": "SPEAKER_01"}]},

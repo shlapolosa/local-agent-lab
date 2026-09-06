@@ -25,19 +25,16 @@ Three behaviours are the reason this is worth sharing rather than re-deriving:
 from __future__ import annotations
 
 import asyncio
-import signal
 import time
 import traceback
 from typing import Callable
 
 from opentelemetry import trace
 
-from lab.platform import config, container, runlog, workflows
+from lab.platform import config, container, runlog, streams, workflows
 from lab.platform.contracts import PROCESSES, WORKFLOW_OPEN, WorkflowRequest, WorkflowStatus
 
 __all__ = ["consumer_name", "flush", "handle", "serve"]
-
-BLOCK_MS = 3000
 
 
 def consumer_name() -> str:
@@ -111,37 +108,31 @@ def serve(*, process: str, service: str, run: Callable, shutdown: Callable | Non
     root.tracer()                             # installs the provider (service name) for the process
     r = root.redis()
 
-    stop = {"now": False}
+    def close_stale_runs():
+        """Crash hygiene. A request this consumer took and never acked belongs to a run that died
+        with the process — it is not retried, because a 600-second run half-done is not a run to
+        resume, and a request left `running` forever is worse than one that says it failed."""
+        for eid, f in workflows.channel_events(group, name, pending_only=True, count=50, client=r):
+            rid = f.get("request_id", "?")
+            try:
+                if workflows.status(rid, client=r).get("status") in WORKFLOW_OPEN:
+                    workflows.mark(rid, WorkflowStatus.FAILED, error="consumer restarted mid-run",
+                                   client=r)
+            except KeyError:
+                pass
+            workflows.ack(group, eid, client=r)
+            print(f"request {rid} marked failed (stale from a previous run)", flush=True)
 
-    def _request_stop(*_a):
-        """Finish the in-flight request, then leave the poll loop — never killed mid-write."""
-        stop["now"] = True
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _request_stop)
-
-    for eid, f in workflows.channel_events(group, name, pending_only=True, count=50, client=r):
-        rid = f.get("request_id", "?")
-        try:
-            if workflows.status(rid, client=r).get("status") in WORKFLOW_OPEN:
-                workflows.mark(rid, WorkflowStatus.FAILED, error="consumer restarted mid-run",
-                               client=r)
-        except KeyError:
-            pass
-        workflows.ack(group, eid, client=r)
-        print(f"request {rid} marked failed (stale from a previous run)", flush=True)
-
-    print(f"consumer ready  service={service} group={group} consumer={name}", flush=True)
-    while not stop["now"]:
-        try:
-            for eid, f in workflows.channel_events(group, name, block_ms=BLOCK_MS, count=1, client=r):
-                handle(root, eid, f, process=process, run=run, group=group, outputs=outputs,
-                       describe=describe)
-        except Exception as e:                # noqa: BLE001 — Redis hiccup: log, back off, serve on
-            print(f"consumer loop error: {type(e).__name__}: {e}", flush=True)
-            time.sleep(5)
-        if once:
-            break
+    streams.serve(
+        name="consumer",
+        ready=f"consumer ready  service={service} group={group} consumer={name}",
+        on_start=close_stale_runs,
+        # count=1: one 600-1000 s run at a time per replica. Concurrency here is REPLICAS, so a
+        # second in-flight run would double peak memory on an 8 GB budget for no throughput.
+        read=lambda: workflows.channel_events(group, name, block_ms=streams.BLOCK_MS, count=1,
+                                              client=r),
+        handle=lambda eid, f: handle(root, eid, f, process=process, run=run, group=group,
+                                     outputs=outputs, describe=describe),
+        once=once)
     if shutdown:
         shutdown()
-    print("consumer stopped", flush=True)

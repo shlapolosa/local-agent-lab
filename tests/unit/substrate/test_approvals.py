@@ -13,6 +13,7 @@ Offline: a fake Redis, no server.
 Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/test_approvals.py
 """
 from fixtures.fakes import FakeRedis
+from lab.platform import streams
 from lab.substrate import approvals
 
 # ---------------------------------------------------------------- a channel notifies what is OPEN
@@ -129,7 +130,7 @@ def test_a_crashed_channel_does_not_lose_the_approvals_it_had_in_flight():
     # a second call moments later must NOT redeliver — the entry is still live work, and a real
     # server would refuse to claim it under RECLAIM_IDLE_MS. Only an ABANDONED one comes back.
     assert approvals.channel_events("teams", client=r) == []
-    r.age_pending(approvals.REQ, "teams", approvals.RECLAIM_IDLE_MS / 1000 + 1)
+    r.age_pending(approvals.REQ, "teams", streams.RECLAIM_IDLE_MS / 1000 + 1)
 
     again = approvals.channel_events("teams", client=r)           # the restarted process
     assert [f["request_id"] for _e, f in again] == [rid], "the restart must see it again"
@@ -140,7 +141,7 @@ def test_reclaimed_work_still_respects_the_open_filter():
     r = FakeRedis()
     rid = approvals.request("ea-import", "stranded then decided", {}, "wf", client=r)
     approvals.channel_events("teams", client=r)                   # stranded, unacked
-    r.age_pending(approvals.REQ, "teams", approvals.RECLAIM_IDLE_MS / 1000 + 1)
+    r.age_pending(approvals.REQ, "teams", streams.RECLAIM_IDLE_MS / 1000 + 1)
     approvals.human_decision(rid, "approve", "ann", "cli", client=r)
     assert approvals.channel_events("teams", client=r) == []
     assert r.xpending(approvals.REQ, "teams")["pending"] == 0

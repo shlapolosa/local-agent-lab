@@ -26,21 +26,15 @@ Run: .venv/bin/python -m lab.substrate.continuations
 """
 from __future__ import annotations
 
-import signal
 import sys
-import time
 
-from lab.platform import config, workflows
+from lab.platform import config, streams, workflows
 from lab.platform.contracts import Decision, continuation_of
 from lab.substrate import approvals
 
 SERVICE = "continuations"
 GROUP = approvals.DEC_GROUPS[0]
 CONSUMER = "1"
-BLOCK_MS = 3000            # under the Redis client's socket timeout, like every other consumer here
-BACKOFF_S = 5              # after a Redis blip: long enough not to spin, short enough to recover
-
-_stop = False
 
 
 def _handle(entry_id: str, fields: dict, *, client) -> str | None:
@@ -103,35 +97,19 @@ def _client():
 
 
 def main() -> None:
-    def _request_stop(*_a):
-        global _stop
-        _stop = True
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _request_stop)
     r = _client()
     approvals.ensure_decision_groups(r)
-    print(f"continuation runner ready  group={GROUP} consumer={CONSUMER} "
-          f"review={config.REVIEW_APP_URL}", flush=True)
-    # Crash hygiene: anything this consumer took before but never acked. Guarded like the loop
-    # below — a Redis blip on STARTUP must not stop the runner from ever starting.
-    try:
-        run_once(client=r, pending_only=True)
-    except Exception as e:                          # noqa: BLE001
-        print(f"crash-hygiene pass failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-    while not _stop:
-        # A Redis read can time out — the local socket timeout is 5 s and a busy machine will hit
-        # it. This runner is the ONLY thing that turns an approved answer into the next run, so a
-        # blip must cost a log line and a back-off, never the process. It died once for exactly
-        # this reason: the loop below was unguarded while the workload consumer's was not.
-        try:
-            for eid, fields in approvals.decision_events(GROUP, CONSUMER, block_ms=BLOCK_MS,
-                                                         count=10, client=r):
-                _handle(eid, fields, client=r)
-        except Exception as e:                      # noqa: BLE001 — log, back off, keep serving
-            print(f"continuation loop error: {type(e).__name__}: {e}", flush=True)
-            time.sleep(BACKOFF_S)
-    print("continuation runner stopped", flush=True)
+    streams.serve(
+        name="continuation runner",
+        ready=(f"continuation runner ready  group={GROUP} consumer={CONSUMER} "
+               f"review={config.REVIEW_APP_URL}"),
+        # Crash hygiene: anything this consumer took before but never acked. An approved answer that
+        # started no run is the most confusing failure this lab has — the human did their part and
+        # the lab looks idle.
+        on_start=lambda: run_once(client=r, pending_only=True),
+        read=lambda: approvals.decision_events(GROUP, CONSUMER, block_ms=streams.BLOCK_MS,
+                                               count=10, client=r),
+        handle=lambda eid, fields: _handle(eid, fields, client=r))
 
 
 if __name__ == "__main__":

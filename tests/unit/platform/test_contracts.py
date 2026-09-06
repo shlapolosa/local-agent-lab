@@ -177,7 +177,11 @@ def test_workflow_request_round_trips_through_the_stream_fields():
     assert all(isinstance(v, str) for v in fields.values())            # Redis hash / stream values are strings
     back = WorkflowRequest.from_fields(fields)
     assert back == req and back.status is WorkflowStatus.PENDING
-    assert back.diagram == "art://d/x.vsdx" and back.requirements == []
+    assert back.inputs == {"diagram": "art://d/x.vsdx", "requirements": []}
+    # `inputs`, and NOTHING process-shaped on the type: convenience properties for one
+    # process's fields lived here once and were the exact coupling the later consumers
+    # were written to avoid — a consumer reads its own input by name.
+    assert not hasattr(back, "diagram") and not hasattr(back, "requirements")
 
 
 def test_workflow_request_from_fields_tolerates_a_consumer_updated_hash():
@@ -185,7 +189,8 @@ def test_workflow_request_from_fields_tolerates_a_consumer_updated_hash():
               "requester": "u", "status": "running", "created_at": "t", "created_ts": "2", "trace_id": "abc",
               "consumer": "1"}                                            # extra progress fields are ignored
     req = WorkflowRequest.from_fields(fields)
-    assert req.status is WorkflowStatus.RUNNING and req.requirements == ["r1"] and req.diagram == "d"
+    assert req.status is WorkflowStatus.RUNNING
+    assert req.inputs == {"diagram": "d", "requirements": ["r1"]}
     with pytest.raises(KeyError):
         WorkflowRequest.from_fields({"request_id": "x"})                 # a malformed event is an error, not a guess
 

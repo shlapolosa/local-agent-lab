@@ -14,7 +14,7 @@ Offline: a fake Redis. Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q t
 import redis
 
 from fixtures.fakes import FakeRedis
-from lab.platform import workflows
+from lab.platform import streams, workflows
 from lab.platform.contracts import WorkflowStatus
 
 GROUP = "test-consumer"
@@ -129,7 +129,7 @@ def test_an_unacked_entry_comes_back_so_a_crashed_consumer_loses_nothing(monkeyp
     rid = _finished(r)
     assert [f["request_id"] for _e, f in workflows.finished_events(GROUP, client=r)] == [rid]
     assert workflows.finished_events(GROUP, client=r) == [], "not redelivered while it is fresh"
-    monkeypatch.setattr(workflows, "RECLAIM_IDLE_MS", 0)
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)
     assert [f["request_id"] for _e, f in workflows.finished_events(GROUP, client=r)] == [rid]
 
 

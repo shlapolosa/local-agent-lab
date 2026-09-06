@@ -1,10 +1,13 @@
 """What the mapper needs to know about a speaker — declared in the DOMAIN, importing nothing.
 
-`lab.platform.contracts.SpeakerMap` is the APPROVAL contract: how a human's answer travels through
-the gate and back. This is the domain's own, much smaller idea: a name to attribute a commitment to.
-They are deliberately different types, and the workload translates between them at the edge, because
-the tier rule is that `core` imports only `core` — and because the mapper should not care that the
-answer arrived through an approval at all.
+The ONE home for the invariant "a speaker is a directory identity or else a free tag, never both".
+`lab.platform.contracts` used to carry a second copy of it, on the argument that `core` imports only
+`core`; that argument points the wrong way, because `platform` MAY import `core` and already does
+(contracts imports `ContentHandle` from `lab.core.collab`). Two homes for one rule is how the two
+drift, so the copy is gone and this is what everything uses.
+
+`from_answer` is the edge: the wire shape a human's answer arrives in, accepted in one place, so
+nothing else in the domain has to know the answer came through an approval at all.
 """
 from __future__ import annotations
 

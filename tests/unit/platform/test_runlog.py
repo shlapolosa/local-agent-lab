@@ -16,7 +16,7 @@ from fixtures.fakes import DeadRedis, FakeRedis, capture as _quiet  # (tests/fix
 def test_start_node_finish_via_client():
     runlog._RETRY_AT = 0.0
     r = FakeRedis()
-    _, out, _ = _quiet(runlog.start, "run-1", input="d.vsdx", trace_id="t1", mermaid="graph TD", client=r)
+    _, out, _ = _quiet(runlog.start, "run-1", process="visio_to_archimate", input="d.vsdx", trace_id="t1", mermaid="graph TD", client=r)
     assert "[run run-1] started visio_to_archimate input=d.vsdx trace=t1" in out
     h = r.h["run:run-1"]
     assert h["status"] == "running" and h["nodes"] == "[]" and h["mermaid"] == "graph TD"
@@ -46,10 +46,23 @@ def test_start_node_finish_via_client():
     assert runlog.active(client=r) == []
 
 
+def test_a_run_is_logged_under_the_process_that_ran_it():
+    """`process` is REQUIRED. It defaulted to one workload's name, so every later host had to
+    remember to pass it — and the one that forgot put its rows on the board under someone else's
+    process, which is indistinguishable from a bug in that process. A kernel helper shared by every
+    host does not get to carry one caller's identity."""
+    import pytest as _pytest
+    r = FakeRedis()
+    _quiet(runlog.start, "run-m", process="meeting_to_transcript", input="rec.mp4", client=r)
+    assert runlog.get("run-m", client=r)["process"] == "meeting_to_transcript"
+    with _pytest.raises(TypeError):
+        runlog.start("run-x", input="x", client=r)          # no silent default to fall back on
+
+
 def test_span_node_records_failure():
     runlog._RETRY_AT = 0.0
     r = FakeRedis()
-    _quiet(runlog.start, "run-2", input="x", client=r)
+    _quiet(runlog.start, "run-2", process="visio_to_archimate", input="x", client=r)
     try:
         with redirect_stdout(io.StringIO()):
             with runlog.span_node("run-2", "architect", client=r):
@@ -72,27 +85,27 @@ def test_finish_from_closes_a_run_the_same_way_for_every_host():
     a `fail` NODE fails it even when nothing raised, and the artifacts ride along either way."""
     runlog._RETRY_AT = 0.0
     r = FakeRedis()
-    _quiet(runlog.start, "fin-ok", input="x", client=r)
+    _quiet(runlog.start, "fin-ok", process="visio_to_archimate", input="x", client=r)
     assert _quiet(runlog.finish_from, "fin-ok", client=r, approval_id="apr-9",
                   xml_ref="art://x/m.xml", xlsx_ref=None)[0] == "done"
     h = r.h["run:fin-ok"]
     assert h["status"] == "done" and h["approval_id"] == "apr-9" and h["xml_ref"] == "art://x/m.xml"
     assert "xlsx_ref" not in h                                   # None fields are dropped, as in finish()
 
-    _quiet(runlog.start, "fin-raise", input="x", client=r)
+    _quiet(runlog.start, "fin-raise", process="visio_to_archimate", input="x", client=r)
     assert _quiet(runlog.finish_from, "fin-raise", RuntimeError("gateway down"), client=r)[0] == "failed"
     assert r.h["run:fin-raise"]["error"] == "RuntimeError: gateway down"
 
     # a node failed but the call itself returned (Agent Framework can surface an executor error as
     # an event) — the run is still a failure, and it says which node's error
-    _quiet(runlog.start, "fin-node", input="x", client=r)
+    _quiet(runlog.start, "fin-node", process="visio_to_archimate", input="x", client=r)
     _quiet(runlog.node, "fin-node", "ba", "fail", error="ValueError: bad diagram", client=r)
     assert _quiet(runlog.finish_from, "fin-node", client=r, approval_id="apr-8")[0] == "failed"
     assert r.h["run:fin-node"]["error"] == "ValueError: bad diagram"
     assert r.h["run:fin-node"]["approval_id"] == "apr-8"         # whatever it produced is still linked
 
     # a fail node with no error attribute still fails the run
-    _quiet(runlog.start, "fin-bare", input="x", client=r)
+    _quiet(runlog.start, "fin-bare", process="visio_to_archimate", input="x", client=r)
     _quiet(runlog.node, "fin-bare", "ba", "fail", client=r)
     assert _quiet(runlog.finish_from, "fin-bare", client=r)[0] == "failed"
     assert r.h["run:fin-bare"]["error"] == "node failed"
@@ -112,7 +125,7 @@ def test_retry_after_latch():
     """First failure -> one stderr notice, print-only for RETRY_AFTER_S; then Redis is tried again."""
     runlog._RETRY_AT = 0.0
     dead = DeadRedis()
-    _, out, err = _quiet(runlog.start, "run-3", input="x", client=dead)
+    _, out, err = _quiet(runlog.start, "run-3", process="visio_to_archimate", input="x", client=dead)
     assert dead.attempts == 1 and "redis unavailable" in err and "[run run-3] started" in out
     assert runlog._RETRY_AT > time.time() and runlog._RETRY_AT <= time.time() + runlog.RETRY_AFTER_S + 1
     _, out, err = _quiet(runlog.node, "run-3", "ba", "start", client=dead)
@@ -123,7 +136,7 @@ def test_retry_after_latch():
     # the window elapses -> the next call tries Redis again (a healthy client now succeeds)
     runlog._RETRY_AT = time.time() - 1
     ok = FakeRedis()
-    _quiet(runlog.start, "run-4", input="y", client=ok)
+    _quiet(runlog.start, "run-4", process="visio_to_archimate", input="y", client=ok)
     assert "run:run-4" in ok.h and runlog._RETRY_AT == 0.0, "success clears the latch"
     # and a failure after that re-arms it (not a permanent flag either way)
     _, _, err = _quiet(runlog.update, "run-4", k="v", client=dead)

@@ -5,11 +5,12 @@ Run: pytest tests/unit/substrate/channels/test_telegram.py (or as a script)."""
 import io
 import json
 import urllib.request
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
 
 from fixtures.fakes import FakeRedis, patched_client
+from lab.platform import streams
 from lab.substrate import approvals
 from lab.substrate.channels import telegram as T
 
@@ -103,20 +104,52 @@ def test_call_posts_urlencoded_form_to_the_bot_api(monkeypatch):
     assert seen["data"] == b"offset=3&timeout=0" and seen["timeout"] == 30
 
 
-def test_run_loop_notifies_acks_polls_and_sleeps(monkeypatch):
+# The loop mechanics belong to `lab.platform.streams.serve` and are tested there. `_stopper` ends a
+# real serve loop the way a container stop does — which a channel could not do at all before, having
+# neither a signal handler nor a guard around its `while True`.
+def _stopper(monkeypatch):
+    import signal as signal_mod
+    handlers = {}
+    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: handlers.setdefault(sig, fn))
+    return lambda: handlers[signal_mod.SIGTERM]()
+
+
+def test_run_loop_notifies_acks_and_polls_its_own_commands(monkeypatch):
+    """This is the channel that also LISTENS, so polling its inbound commands each pass is its own
+    business — it rides on the shared loop as a `tick` rather than a second loop."""
     ch = _enabled()
     acked, polled = [], []
-    monkeypatch.setattr(approvals, "channel_events", lambda name, block_ms: [("e1", REQ)])
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events",
+                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
     monkeypatch.setattr(approvals, "ack", lambda name, eid: acked.append((name, eid)))
     monkeypatch.setattr(ch, "poll_commands", lambda: polled.append(1))
-
-    class Stop(Exception):
-        pass
-    monkeypatch.setattr(T.time, "sleep", lambda s: (_ for _ in ()).throw(Stop()))
-    with pytest.raises(Stop):
-        ch.run()
+    ch.run()
     assert acked == [("telegram", "e1")] and polled == [1]
     assert ch.sent and ch.sent[0][0] == "sendMessage"
+
+
+def test_a_redis_blip_no_longer_ends_the_channel(monkeypatch):
+    """The change this refactor exists for: an unguarded `while True` meant one read timeout ended
+    the only thing telling anyone an approval was waiting."""
+    ch = _enabled()
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(streams.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(ch, "poll_commands", lambda: None)
+    calls = {"n": 0}
+
+    def flaky(name, block_ms):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("Timeout reading from 127.0.0.1:6379")
+        stop()
+        return []
+
+    monkeypatch.setattr(approvals, "channel_events", flaky)
+    err = io.StringIO()
+    with redirect_stderr(err):
+        ch.run()
+    assert "Timeout reading" in err.getvalue() and calls["n"] == 2, "it kept serving"
 
 
 def test_main_entry_runs_the_channel(monkeypatch):

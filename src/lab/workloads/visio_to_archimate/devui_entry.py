@@ -44,6 +44,7 @@ from opentelemetry import propagate, trace  # noqa: E402
 
 from lab.workloads import workflowviz  # noqa: E402
 from lab.workloads.visio_to_archimate import host as H  # noqa: E402
+from lab.workloads.visio_to_archimate.host import PROCESS  # noqa: E402
 from lab.workloads.visio_to_archimate.workflow import build_workflow, make_cfg  # noqa: E402
 from lab.platform import config, container, runlog  # noqa: E402
 
@@ -195,7 +196,7 @@ def instrument_runs(wf, cfg, trace_id: str, *, client=None, mermaid: str | None 
         out = inner(message, **kw)
         run_id = f"{trace_id}-{next(seq)}"
         cfg["run_id"] = run_id
-        runlog.start(run_id, input=_input_label(message), trace_id=trace_id, client=client,
+        runlog.start(run_id, input=_input_label(message), process=PROCESS, trace_id=trace_id, client=client,
                      mermaid=mermaid or "", host=SERVICE)
         return (_LoggedStream(out, lambda e, o: close(run_id, e, o)) if kw.get("stream")
                 else awaited(out, run_id))

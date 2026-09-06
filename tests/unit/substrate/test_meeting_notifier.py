@@ -11,7 +11,7 @@ Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/tes
 import json
 
 from fixtures.fakes import FakeRedis
-from lab.platform import workflows
+from lab.platform import streams, workflows
 from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, WorkflowStatus
 from lab.substrate import meeting_notifier as N
 
@@ -130,7 +130,7 @@ def test_a_failed_send_is_retried_and_then_acked(monkeypatch):
             raise RuntimeError("the webhook refused")
         return ""
     monkeypatch.setattr(N, "post_json", flaky)
-    monkeypatch.setattr(workflows, "RECLAIM_IDLE_MS", 0)      # do not wait a minute for the retry
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)      # do not wait a minute for the retry
     N.run_once(webhook="https://flow.example/hook", client=r)
     assert N.run_once(webhook="https://flow.example/hook", client=r), "the retry announced it"
     assert calls == ["19:a@thread.v2", "19:a@thread.v2"]
@@ -172,6 +172,16 @@ def test_a_notifier_starting_fresh_does_not_announce_history():
 
 
 # ---------------------------------------------------------------- the service around it
+# The loop mechanics (the guard, the back-off, the signal handler) belong to
+# `lab.platform.streams.serve` and are tested there. `_stopper` ends a real serve loop the way a
+# container stop does — by calling the SIGTERM handler it installed.
+def _stopper(monkeypatch):
+    import signal as signal_mod
+    handlers = {}
+    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: handlers.setdefault(sig, fn))
+    return handlers, (lambda: handlers[signal_mod.SIGTERM]())
+
+
 def test_the_pooled_client_comes_from_the_one_place_that_owns_it(monkeypatch):
     """Never a second pool: it asks the platform's shared client, like every other consumer here."""
     from lab.platform import redis_client
@@ -185,6 +195,7 @@ def test_main_serves_until_stopped_and_says_whether_it_has_a_destination(monkeyp
     configured, because "unset" is a working mode (it logs what it would post) and looks identical
     to "running fine and announcing nothing" otherwise."""
     r = FakeRedis()
+    _handlers, stop = _stopper(monkeypatch)
     monkeypatch.setattr(N, "_client", lambda: r)
     monkeypatch.setattr(N.config, "MEETING_WEBHOOK_URL", "")
     passes = {"n": 0}
@@ -193,15 +204,11 @@ def test_main_serves_until_stopped_and_says_whether_it_has_a_destination(monkeyp
     def counting(*a, **kw):
         passes["n"] += 1
         if passes["n"] > 2:
-            N._stop = True
+            stop()
         return real(*a, **kw)
 
     monkeypatch.setattr(workflows, "finished_events", counting)
-    monkeypatch.setattr(N, "_stop", False)
-    try:
-        N.main()
-    finally:
-        N._stop = False
+    N.main()
     out = capsys.readouterr().out
     assert "meeting notifier ready" in out and "NO webhook" in out
     assert "meeting notifier stopped" in out, "a signal stops the loop, it does not kill the process"
@@ -212,23 +219,20 @@ def test_a_redis_blip_backs_off_instead_of_ending_the_service(monkeypatch, capsy
     """This is the only thing that tells a meeting its minutes exist; a transient read error must
     cost a log line and a pause, never the process."""
     r = FakeRedis()
+    _handlers, stop = _stopper(monkeypatch)
     monkeypatch.setattr(N, "_client", lambda: r)
-    monkeypatch.setattr(N, "BACKOFF_S", 0)
+    monkeypatch.setattr(streams.time, "sleep", lambda _s: None)
     calls = {"n": 0}
 
     def flaky(*a, **kw):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("connection reset")
-        N._stop = True
+        stop()
         return []
 
-    monkeypatch.setattr(N, "run_once", flaky)
-    monkeypatch.setattr(N, "_stop", False)
-    try:
-        N.main()
-    finally:
-        N._stop = False
+    monkeypatch.setattr(workflows, "finished_events", flaky)
+    N.main()
     assert "connection reset" in capsys.readouterr().err and calls["n"] == 2
 
 

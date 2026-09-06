@@ -40,9 +40,8 @@ INBOUND — two paths, both real, only one needs a bot:
 Run: .venv/bin/python -m lab.substrate.channels.teams   (loop; exits immediately if not configured)
 """
 import json
-import time
 
-from lab.platform import config
+from lab.platform import config, streams
 from lab.platform.webhook import post_json
 from lab.substrate import approvals
 
@@ -163,19 +162,29 @@ class TeamsChannel:
         sanctioned direct-egress paths cannot drift apart in timeout or encoding."""
         return post_json(self.webhook, payload)
 
+    def deliver(self, eid, fields):
+        """One request in front of a human. A failed send is deliberately left UNACKED: it stays in
+        this group's pending list, `channel_events` reclaims it, and an outage delays a card rather
+        than dropping the approval — the durability Streams were chosen over pub/sub to get."""
+        try:
+            self.notify(fields)
+        except Exception as e:              # noqa: BLE001 — a webhook hiccup is not this card's end
+            print(f'[teams] send failed for {fields.get("request_id")}: {e}', flush=True)
+            return
+        approvals.ack(self.name, eid)
+
     def run(self):
         print(f"teams channel: {'enabled' if self.enabled else 'NOT configured (set TEAMS_WEBHOOK_URL) — plumbing only'}")
         if not self.enabled:
             return
-        while True:
-            for eid, f in approvals.channel_events(self.name, block_ms=5000):
-                try:
-                    self.notify(f)
-                except Exception as e:      # a webhook hiccup must not kill the channel; the entry is
-                    print(f'[teams] send failed for {f.get("request_id")}: {e}')   # left UNACKED, so it
-                    continue                # stays in this group's pending list and is not lost
-                approvals.ack(self.name, eid)
-            time.sleep(1)
+        # The SHARED loop, and this is the change that matters: a channel used to run an unguarded
+        # `while True` with no signal handler, so a Redis blip ended the only thing telling anyone an
+        # approval was waiting, and a container stop killed it mid-delivery. The two newer consumers
+        # were fixed for exactly that and the fix never came back here, because there was nothing
+        # shared to fix.
+        streams.serve(name="teams channel", ready="teams channel serving",
+                      read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS),
+                      handle=self.deliver)
 
 
 if __name__ == "__main__":

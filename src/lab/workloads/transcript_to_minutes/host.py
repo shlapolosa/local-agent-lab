@@ -11,14 +11,15 @@ import json
 import sys
 from pathlib import Path
 
-from opentelemetry import propagate, trace
-
-from lab.platform import config, container, runlog
+from lab.platform import config, container
+from lab.platform.contracts import TRANSCRIPT_TO_MINUTES
 from lab.workloads.identity import agent_headers
+from lab.workloads.run import governed_run
 from lab.workloads.transcript_to_minutes import agents as A
 from lab.workloads.transcript_to_minutes.workflow import make_cfg, run_workflow
 
 SERVICE = "process-transcript-to-minutes"
+PROCESS = TRANSCRIPT_TO_MINUTES.name        # the registry names the process; nothing re-types it
 AGENT_PREFIX = "MINUTES_AGENT"
 SCHEMA = Path(__file__).resolve().parents[3] / "lab" / "core" / "meetings" / "schemas" / "minutes.schema.json"
 
@@ -39,45 +40,35 @@ def run_fields(out: dict) -> dict:
 async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
                    meeting: dict | None = None, recording: str = "", chat_id: str = "",
                    on_trace=None) -> dict:
-    """One governed run: root span -> identity -> workflow -> minutes in the semantic layer."""
-    tr, r = root.tracer(), root.redis()
-    with tr.start_as_current_span("transcript-to-minutes-run") as span:
-        trace_id = format(span.get_span_context().trace_id, "032x")
-        span.set_attribute("lab.trace_id", trace_id)
-        # counts and shapes only — a span reaches a collector the gateway's guardrail never sees
-        span.set_attribute("minutes.speakers", len(speaker_map or {}))
-        if on_trace:
-            on_trace(trace_id)
-        traceparent: dict = {}
-        propagate.inject(traceparent)
-        root_ctx = trace.set_span_in_context(span)
-        run_id = trace_id
-        runlog.start(run_id, process="transcript_to_minutes", input=_label(transcript),
-                     trace_id=trace_id, client=r)
+    """One governed run: root span -> identity -> workflow -> minutes in the semantic layer.
 
-        cred = _cred()
-        headers = {"traceparent": traceparent.get("traceparent", "")}
-        cfg = make_cfg(credential=cred, traceparent=traceparent.get("traceparent", ""),
-                       schema=_schema(),
-                       agent=A.make_agent(credential=cred, gateway_url=config.GATEWAY_URL,
-                                          model=config.MINUTES_AGENT_MODEL, headers=headers,
-                                          store=config.AGENT_RESPONSES_STORE),
-                       tracer=tr,
-                       root_ctx=root_ctx, mcp_url=root.config.gateway_mcp_url(), run_id=run_id)
-        # The meeting's own identity. A `recording` handle names it properly: the handle is
-        # collab://recording/<meeting>/<record>, so its SCOPE is the meeting and no lookup is
-        # needed. Without one we fall back to the transcript's own label — which is honest but is
-        # NOT a meeting id, so anything writing back beside the meeting must check `resolved`.
-        meeting = meeting or _meeting_from(recording, transcript, chat_id)
-        try:
-            out = await run_workflow(cfg, {"transcript": transcript, "speaker_map": speaker_map,
-                                           "owner": owner, "meeting": meeting,
-                                           "recording": recording})
-        except Exception as e:
-            runlog.finish_from(run_id, e, client=r)
-            raise
-        runlog.finish_from(run_id, client=r, **run_fields(out))
-    return {**out, "trace_id": trace_id}
+    The span, the trace headers, the run-log entry and the one way a run is closed are the SHARED
+    skeleton (`lab.workloads.run.governed_run`).
+    """
+    cred = _cred()
+    headers = {"traceparent": ""}          # filled per run below; the agent is built with the run's
+
+    def cfg(c):
+        headers["traceparent"] = c.traceparent_header
+        return make_cfg(credential=cred, traceparent=c.traceparent_header, schema=_schema(),
+                        agent=A.make_agent(credential=cred, gateway_url=config.GATEWAY_URL,
+                                           model=config.MINUTES_AGENT_MODEL, headers=headers,
+                                           store=config.AGENT_RESPONSES_STORE),
+                        tracer=c.tracer, root_ctx=c.root_ctx, mcp_url=c.mcp_url, run_id=c.run_id)
+
+    # The meeting's own identity. A `recording` handle names it properly: the handle is
+    # collab://recording/<meeting>/<record>, so its SCOPE is the meeting and no lookup is needed.
+    # Without one we fall back to the transcript's own label — which is honest but is NOT a meeting
+    # id, so anything writing back beside the meeting must check `resolved`.
+    meeting = meeting or _meeting_from(recording, transcript, chat_id)
+    return await governed_run(
+        root, span_name="transcript-to-minutes-run", process=PROCESS, label=_label(transcript),
+        on_trace=on_trace,
+        # counts and shapes only — a span reaches a collector the gateway's guardrail never sees
+        attrs={"minutes.speakers": len(speaker_map or {})},
+        cfg=cfg, run=run_workflow, fields=run_fields,
+        inputs={"transcript": transcript, "speaker_map": speaker_map, "owner": owner,
+                "meeting": meeting, "recording": recording})
 
 
 def _meeting_from(recording: str, transcript: str, chat_id: str = "") -> dict:

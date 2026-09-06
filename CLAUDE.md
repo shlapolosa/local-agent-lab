@@ -276,6 +276,16 @@ table moves to an inbound policy, the front door changes not at all. The connect
 `scripts/provision_connector_identity.py` (idempotent; APPENDS to `lab-gateway`'s `appRoles`, because
 a PATCH replaces the collection and would un-grant every existing agent).
 
+**Every workload host runs its workflow through ONE skeleton, `lab.workloads.run.governed_run`** —
+the sibling of `lab.workloads.consumer.serve`: root span, trace id published as soon as it exists
+(a 600-1000 s run is watched live, not after), W3C headers injected so gateway and MCP spans join
+THIS trace, the run registered on the board, and the run closed in exactly one place whether it
+succeeded or raised. A host supplies only what is its own: span name, span attributes (COUNTS AND
+SHAPES — a span reaches a collector the guardrail never sees), its process identity, the label a
+person reads, how it builds its cfg (from a `RunContext`), its inputs, and which outputs belong on
+the board. `runlog.start`'s `process` is REQUIRED for the same reason: it used to default to one
+workload's name, and the host that forgot to override it filed its rows under someone else's process.
+
 Each business process is one host under `src/lab/workloads/<name>/` with a distinct OTel service name.
 The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the reference:
 
@@ -799,16 +809,24 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
   `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
-  **Two things keep a channel honest, both in `approvals.channel_events` — the ONE reader every
-  channel shares, never per channel.** (1) A BLOCKING read is clamped below
-  `redis_client.SOCKET_TIMEOUT_S` and its `redis.TimeoutError` is caught: `block_ms=5000` against a
-  5 s socket timeout is a race the socket usually wins, and the escaping exception KILLED the Teams
+  **Reading a stream, and serving one, live in ONE place: `lab.platform.streams`.** `StreamGroup`
+  (`ensure`/`read`/`ack`) and `serve` — every reader and every long-lived consumer goes through them,
+  and each rule below was learned once and now applies everywhere instead of to whichever copy got
+  fixed. (1) A BLOCKING read is clamped below `redis_client.SOCKET_TIMEOUT_S` (in
+  `redis_client.blocking_read`) and its `redis.TimeoutError` is caught: `block_ms=5000` against a 5 s
+  socket timeout is a race the socket usually wins, and the escaping exception KILLED the Teams
   channel within seconds of its first start — an expired block means "no events", which is `[]`.
-  (2) It RECLAIMS (XAUTOCLAIM, idle > `RECLAIM_IDLE_MS`) what a previous consumer of that group took
-  and never acked: `>` returns only never-delivered entries, so a crashed channel's in-flight
-  approvals would otherwise sit in its pending list forever, visible to nobody — silently losing the
-  approvals that Streams were chosen over pub/sub to protect. Reclaim is best-effort: a server
-  without XAUTOCLAIM still gets what is new.
+  (2) A read RECLAIMS (XAUTOCLAIM, idle > `RECLAIM_IDLE_MS`) what a consumer of that group took and
+  never acked: `>` returns only never-delivered entries, so in-flight work would otherwise sit in the
+  pending list forever, visible to nobody — silently losing what Streams were chosen over pub/sub to
+  protect. Best-effort: a server without XAUTOCLAIM still gets what is new. (3) `serve` GUARDS the
+  loop (log, back off, keep serving), handles SIGTERM/SIGINT so a container stop finishes an
+  in-flight delivery instead of losing it, and runs the crash-hygiene pass before the loop, guarded
+  the same way. `start_id` is the caller's decision and the two answers are both right: `0` for a
+  stream of WORK (a host must run what queued while it was down), `$` for a stream of RESULTS (a
+  fresh consumer must not announce every run the lab ever completed). **Domain policy stays with the
+  domain** — `approvals.channel_events` still drops and acks requests a person has already decided,
+  because a channel announces what needs somebody NOW.
   **A speaker question may carry CANDIDATES** — `contracts.SpeakerCandidate` /
   `speaker_candidates`, resolved by the transcript workload from the meeting that OWNS the recording
   (matched by HANDLE, never by parsing a provider filename). Every surface offers them as a pick

@@ -15,13 +15,14 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from opentelemetry import propagate, trace
-
-from lab.platform import config, container, runlog
+from lab.platform import config, container
+from lab.platform.contracts import MEETING_TO_TRANSCRIPT
 from lab.workloads.identity import agent_headers
 from lab.workloads.meeting_to_transcript.workflow import make_cfg, run_workflow
+from lab.workloads.run import governed_run
 
 SERVICE = "process-meeting-to-transcript"   # one distinct service name per business process
+PROCESS = MEETING_TO_TRANSCRIPT.name        # the registry names the process; nothing re-types it
 AGENT_PREFIX = "MEETING_AGENT"              # this workload's own identity at the gateway
 
 
@@ -40,39 +41,21 @@ def run_fields(out: dict) -> dict:
 async def run_once(root, recording: str, owner: str, on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> a question for the organiser.
 
-    `root` is the process container (tracer and Redis come from it). `on_trace(trace_id)` fires as
-    soon as the span exists, so the consumer can publish the trace id before the run finishes and a
-    reviewer can watch it live rather than after the fact.
-    """
-    tr, r = root.tracer(), root.redis()
-    with tr.start_as_current_span("meeting-to-transcript-run") as span:
-        trace_id = format(span.get_span_context().trace_id, "032x")
-        span.set_attribute("lab.trace_id", trace_id)
-        # Shapes only. The organiser is a real person and span attributes bypass the gateway's PII
-        # guardrail on their way to a collector that is public in this lab — so the fact that an
-        # organiser was supplied is recorded, and never who they are.
-        span.set_attribute("meeting.organiser.given", bool(owner))
-        if on_trace:
-            on_trace(trace_id)
-        traceparent: dict = {}
-        propagate.inject(traceparent)     # W3C headers so gateway and MCP spans join this trace
-        root_ctx = trace.set_span_in_context(span)
-        run_id = trace_id
-        # The default process name is another workload's, so it is passed EXPLICITLY — otherwise
-        # every row here is mislabelled on the board and in the run-log CLI.
-        runlog.start(run_id, process="meeting_to_transcript", input=_run_label(recording),
-                     trace_id=trace_id, client=r)
+    The span, the trace headers, the run-log entry and the one way a run is closed are the SHARED
+    skeleton (`lab.workloads.run.governed_run`). What is below is only what this process owns.
 
-        cfg = make_cfg(credential=_cred(), traceparent=traceparent.get("traceparent", ""),
-                       languages=config.MEETING_LANGUAGES, tracer=tr, root_ctx=root_ctx,
-                       mcp_url=root.config.gateway_mcp_url(), run_id=run_id)
-        try:
-            out = await run_workflow(cfg, {"recording": recording, "owner": owner})
-        except Exception as e:
-            runlog.finish_from(run_id, e, client=r)     # ONE way to close a run
-            raise
-        runlog.finish_from(run_id, client=r, **run_fields(out))
-    return {**out, "trace_id": trace_id}
+    The organiser is a real person and span attributes bypass the gateway's PII guardrail on their
+    way to a collector that is public in this lab — so the span records THAT an organiser was
+    supplied, never who they are.
+    """
+    return await governed_run(
+        root, span_name="meeting-to-transcript-run", process=PROCESS,
+        label=_run_label(recording), on_trace=on_trace,
+        attrs={"meeting.organiser.given": bool(owner)},
+        cfg=lambda c: make_cfg(credential=_cred(), traceparent=c.traceparent_header,
+                               languages=config.MEETING_LANGUAGES, tracer=c.tracer,
+                               root_ctx=c.root_ctx, mcp_url=c.mcp_url, run_id=c.run_id),
+        run=run_workflow, inputs={"recording": recording, "owner": owner}, fields=run_fields)
 
 
 def _run_label(recording: str) -> str:

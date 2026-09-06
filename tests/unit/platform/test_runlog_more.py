@@ -26,7 +26,7 @@ def test_node_tolerates_corrupt_nodes_and_missing_start():
 def test_span_node_success_records_done_with_elapsed():
     runlog._RETRY_AT = 0.0
     r = FakeRedis()
-    capture(runlog.start, "r-ok", input="x", client=r)
+    capture(runlog.start, "r-ok", process="visio_to_archimate", input="x", client=r)
     with redirect_stdout(io.StringIO()):
         with runlog.span_node("r-ok", "architect", client=r, view="A"):
             pass
@@ -64,9 +64,9 @@ def test_cli():
     runlog._RETRY_AT = 0.0
     fake = FakeRedis()
     with patched_client(fake):
-        capture(runlog.start, "cli-1", input="d.vsdx", client=fake)
+        capture(runlog.start, "cli-1", process="visio_to_archimate", input="d.vsdx", client=fake)
         capture(runlog.finish, "cli-1", "done", client=fake)
-        capture(runlog.start, "cli-2", input="e.vsdx", client=fake)
+        capture(runlog.start, "cli-2", process="visio_to_archimate", input="e.vsdx", client=fake)
         code, out, _ = run_script("src/lab/platform/runlog.py", ["list"])
         lines = [l for l in out.splitlines() if l.startswith("cli-")]
         assert code == 0 and lines[0].startswith("cli-2  running") and lines[1].startswith("cli-1  done")

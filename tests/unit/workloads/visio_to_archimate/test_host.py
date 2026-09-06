@@ -45,7 +45,8 @@ def test_run_once_builds_one_cfg_runs_the_workflow_and_closes_the_run_log_via_th
     assert cfg["ba_headers"]["traceparent"] == cfg["traceparent"]["traceparent"]
     assert cfg["schema"]["type"] == "object" and cfg["root_ctx"] is not None and cfg["tracer"] is root.tracer()
     # the run-log is written through the container's ONE Redis client, never a module-level pool
-    assert start.calls == [((tid,), {"input": "sys.vsdx#Page 1", "trace_id": tid, "client": root.redis()})]
+    assert start.calls == [((tid,), {"input": "sys.vsdx#Page 1", "process": "visio_to_archimate",
+                                        "trace_id": tid, "client": root.redis()})]
     assert finish.calls == [((tid, "done"), {"approval_id": "apr-1", "xml_ref": "art://x/m.archimate.xml",
                                              "client": root.redis()})]
 

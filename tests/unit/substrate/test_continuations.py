@@ -16,7 +16,7 @@ Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/tes
 import pytest
 
 from fixtures.fakes import FakeRedis
-from lab.platform import workflows
+from lab.platform import streams, workflows
 from lab.platform.contracts import ApprovalKind, Continuation, Decision, WorkflowStatus
 from lab.substrate import approvals, continuations
 
@@ -150,9 +150,23 @@ def test_run_once_uses_the_process_pool_when_no_client_is_injected(monkeypatch, 
     assert len(continuations.run_once()) == 1
 
 
+
+# The loop MECHANICS — the guard, the back-off, the signal handler, the crash-hygiene pass — belong
+# to `lab.platform.streams.serve` and are tested once, there. What is left here is what this runner
+# owns: that it reads decisions, hands each to `_handle`, and does its own hygiene pass on start.
+# `_stopper` is how a test ends a real serve loop: `serve` installs a SIGTERM handler, so calling it
+# is exactly what a container stop does.
+def _stopper(monkeypatch):
+    handlers = {}
+    import signal as signal_mod
+    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: handlers.setdefault(sig, fn))
+    return handlers, (lambda: handlers[signal_mod.SIGTERM]())
+
+
 def test_main_does_crash_hygiene_then_serves_until_stopped(monkeypatch, r):
     """A restart must pick up what this consumer took but never acked, or an approved run is simply
     lost — and it must then stop cleanly on a signal rather than being killed mid-write."""
+    _handlers, stop = _stopper(monkeypatch)
     monkeypatch.setattr(continuations, "_client", lambda: r)
     rid = _ask(r)
     _decide(r, rid)
@@ -163,15 +177,11 @@ def test_main_does_crash_hygiene_then_serves_until_stopped(monkeypatch, r):
     def counting(*a, **kw):
         passes["n"] += 1
         if passes["n"] > 2:
-            continuations._stop = True
+            stop()
         return real(*a, **kw)
 
     monkeypatch.setattr(approvals, "decision_events", counting)
-    monkeypatch.setattr(continuations, "_stop", False)
-    try:
-        continuations.main()
-    finally:
-        continuations._stop = False
+    continuations.main()
     assert workflows.status(list(workflows.recent(5, client=r))[0]["request_id"], client=r)
 
 
@@ -205,16 +215,10 @@ def test_a_signal_stops_the_loop_rather_than_killing_it_mid_write(monkeypatch, r
     """A container stop must let an in-flight submission finish, not lose it."""
     import signal as signal_mod
 
-    handlers = {}
-    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: handlers.setdefault(sig, fn))
+    handlers, stop = _stopper(monkeypatch)
     monkeypatch.setattr(continuations, "_client", lambda: r)
-    monkeypatch.setattr(continuations, "_stop", False)
-    monkeypatch.setattr(approvals, "decision_events",
-                        lambda *a, **kw: (handlers[signal_mod.SIGTERM](), iter([]))[1])
-    try:
-        continuations.main()                       # the handler fires on the first pass and it exits
-    finally:
-        continuations._stop = False
+    monkeypatch.setattr(approvals, "decision_events", lambda *a, **kw: (stop(), iter([]))[1])
+    continuations.main()                           # the handler fires on the first pass and it exits
     assert signal_mod.SIGTERM in handlers and signal_mod.SIGINT in handlers
 
 
@@ -223,12 +227,9 @@ def test_a_redis_blip_costs_a_log_line_and_a_backoff_never_the_process(monkeypat
     consumer's was not, so one read timeout ended the only thing that turns an approved answer into
     the next run. A blip must be survivable — silence here means approvals are answered and nothing
     ever happens."""
-    import signal as signal_mod
-
-    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: None)
+    _handlers, stop = _stopper(monkeypatch)
     monkeypatch.setattr(continuations, "_client", lambda: r)
-    monkeypatch.setattr(continuations.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(continuations, "_stop", False)
+    monkeypatch.setattr(streams.time, "sleep", lambda _s: None)
     # the startup pass reads the same stream, so neutralise it or it eats the first fake call
     monkeypatch.setattr(continuations, "run_once", lambda **kw: [])
 
@@ -238,31 +239,23 @@ def test_a_redis_blip_costs_a_log_line_and_a_backoff_never_the_process(monkeypat
         calls["n"] += 1
         if calls["n"] == 1:
             raise TimeoutError("Timeout reading from 127.0.0.1:6379")
-        continuations._stop = True
+        stop()
         return iter([])
 
     monkeypatch.setattr(continuations.approvals, "decision_events", flaky)
-    try:
-        continuations.main()
-    finally:
-        continuations._stop = False
-    out = capsys.readouterr().out
-    assert "continuation loop error" in out and "Timeout reading" in out
+    continuations.main()
+    out = capsys.readouterr()
+    assert "continuation runner loop error" in out.err and "Timeout reading" in out.err
     assert calls["n"] >= 2, "it must have kept serving after the blip"
 
 
 def test_a_failing_crash_hygiene_pass_does_not_stop_the_runner_starting(monkeypatch, capsys, r):
     """The startup pass reads Redis too. If it throws, the runner must still come up — otherwise a
     blip at the wrong moment takes the mechanism down until someone notices."""
-    import signal as signal_mod
-
-    monkeypatch.setattr(signal_mod, "signal", lambda sig, fn: None)
+    _handlers, stop = _stopper(monkeypatch)
     monkeypatch.setattr(continuations, "_client", lambda: r)
     monkeypatch.setattr(continuations, "run_once",
                         lambda **kw: (_ for _ in ()).throw(TimeoutError("redis blipped")))
-    monkeypatch.setattr(continuations, "_stop", True)
-    try:
-        continuations.main()
-    finally:
-        continuations._stop = False
+    monkeypatch.setattr(approvals, "decision_events", lambda *a, **kw: (stop(), iter([]))[1])
+    continuations.main()
     assert "crash-hygiene pass failed" in capsys.readouterr().err

@@ -38,7 +38,7 @@ from lab.workloads.visio_to_archimate import agents as A
 from lab.workloads.visio_to_archimate import inputs as I
 from lab.workloads import gateway, ids, workflowviz  # (live run visibility: Runs board + graph)
 from lab.platform import runlog
-from lab.platform.contracts import ArtifactRef, EATools, SemanticTools, StorageTools
+from lab.platform.contracts import EATools, SemanticTools, StorageTools
 from lab.workloads.visio_to_archimate import ba_tools as BT  # (BA_MODE=tools accumulator)
 from lab.workloads.visio_to_archimate import architect_tools as AT  # (ARCHITECT_MODE=tools)
 

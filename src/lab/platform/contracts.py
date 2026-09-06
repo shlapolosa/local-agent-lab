@@ -519,62 +519,6 @@ def speaker_candidates(payload: dict[str, Any]) -> list[SpeakerCandidate]:
     return out
 
 
-@dataclass(frozen=True)
-class SpeakerIdentity:
-    """One human's answer for one speaker: a directory identity, or else a free tag.
-
-    Exactly one of the two, because not everyone in a meeting room is in the directory and pretending
-    otherwise would either lose the external participants or invent identities for them. Both at once
-    is ambiguous and refused.
-    """
-
-    label: str
-    identity: str = ""          # a directory principal — preferred, and resolvable later
-    tag: str = ""               # else free text: an external, a guest, "the vendor's architect"
-
-    def __post_init__(self) -> None:
-        if not (self.label or "").strip():
-            raise ValueError("a speaker answer needs the label it answers for")
-        if bool(self.identity.strip()) == bool(self.tag.strip()):
-            raise ValueError(f"{self.label}: give exactly one of identity or tag, not both or neither")
-
-    @property
-    def display(self) -> str:
-        """What the attributed transcript says — never the raw address.
-
-        The gateway's guardrail pseudonymises addresses in every request body, so a transcript full
-        of them reaches a model as placeholders and degrades silently the moment the model
-        paraphrases one instead of repeating it verbatim. The address stays in the audit log and the
-        structured artifact; what the model reads is a name.
-        """
-        return self.tag.strip() or self.identity.split("@")[0].strip()
-
-    def to_dict(self) -> dict[str, str]:
-        return {"identity": self.identity} if self.identity.strip() else {"tag": self.tag}
-
-
-@dataclass(frozen=True)
-class SpeakerMap:
-    """Every speaker in one transcript, answered together — the user's choice of ONE decision for all."""
-
-    entries: tuple[SpeakerIdentity, ...] = ()
-
-    def to_answer(self) -> dict[str, dict[str, str]]:
-        return {e.label: e.to_dict() for e in self.entries}
-
-    @classmethod
-    def from_answer(cls, answer: dict[str, Any]) -> "SpeakerMap":
-        return cls(tuple(SpeakerIdentity(label=k, identity=str((v or {}).get("identity") or ""),
-                                         tag=str((v or {}).get("tag") or ""))
-                         for k, v in (answer or {}).items()))
-
-    def of(self, label: str) -> SpeakerIdentity:
-        for e in self.entries:
-            if e.label == label:
-                return e
-        raise KeyError(f"{label} was never mapped — every label the transcript uses must be answered")
-
-
 def check_answer(payload: dict[str, Any], answer: dict[str, Any] | None) -> dict[str, Any] | None:
     """The answer this approval asked for, or ValueError naming exactly what is wrong.
 
@@ -698,19 +642,14 @@ class WorkflowRequest:
 
     request_id: str
     process: str
-    inputs: dict[str, Any]            # {"diagram": art://…, "requirements": [art://…]} for visio_to_archimate
+    # Whatever the process's own ProcessSpec declares, and NOTHING process-shaped on this type: a
+    # consumer reads `inputs["diagram"]` by name. Convenience properties for one process's fields
+    # used to live here and were the exact coupling the later consumers were written to avoid.
+    inputs: dict[str, Any]
     requester: str
     created_at: str
     created_ts: str
     status: WorkflowStatus = WorkflowStatus.PENDING
-
-    @property
-    def diagram(self) -> str:
-        return self.inputs["diagram"]
-
-    @property
-    def requirements(self) -> list[str]:
-        return list(self.inputs.get("requirements") or [])
 
     def to_fields(self) -> dict[str, str]:
         """The Redis hash / stream entry (every value a string; `inputs` JSON-encoded)."""
@@ -1054,7 +993,7 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
-           "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "SpeakerIdentity", "SpeakerMap", "check_answer",
+           "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "check_answer",
            "Continuation", "continuation_of",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE",

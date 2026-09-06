@@ -30,21 +30,14 @@ Run: .venv/bin/python -m lab.substrate.meeting_notifier
 from __future__ import annotations
 
 import json
-import signal
-import sys
-import time
 
-from lab.platform import config, workflows
+from lab.platform import config, streams, workflows
 from lab.platform.webhook import post_json
 from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, WorkflowStatus
 
 GROUP = "meeting-notifier"
 CONSUMER = "1"
-BLOCK_MS = 3000            # under the Redis client's socket timeout, like every other consumer here
-BACKOFF_S = 5              # after a Redis blip: long enough not to spin, short enough to recover
 ANNOUNCED_TTL_S = 86400    # long enough to outlive any retry of one run, short enough not to accumulate
-
-_stop = False
 
 
 def announcement(state: dict) -> dict | None:
@@ -147,28 +140,16 @@ def _client():
 
 
 def main() -> None:
-    def _request_stop(*_a):
-        global _stop
-        _stop = True
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _request_stop)
     webhook = config.MEETING_WEBHOOK_URL
     r = _client()
     workflows.ensure_finished_group(GROUP, r)
-    print(f"meeting notifier ready  group={GROUP} "
-          f"{'webhook configured' if webhook else 'NO webhook (MEETING_WEBHOOK_URL unset) — it will log instead'}",
-          flush=True)
-    while not _stop:
-        # Guarded for the same reason the continuation runner is: a Redis read can time out on a
-        # busy machine, and this is the only thing that tells a meeting its minutes exist. A blip
-        # costs a log line and a back-off, never the process.
-        try:
-            run_once(webhook=webhook, client=r, block_ms=BLOCK_MS)
-        except Exception as e:                      # noqa: BLE001 — log, back off, keep serving
-            print(f"notifier loop error: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-            time.sleep(BACKOFF_S)
-    print("meeting notifier stopped", flush=True)
+    streams.serve(
+        name="meeting notifier",
+        ready=(f"meeting notifier ready  group={GROUP} "
+               f"{'webhook configured' if webhook else 'NO webhook (MEETING_WEBHOOK_URL unset) — it will log instead'}"),
+        read=lambda: workflows.finished_events(GROUP, CONSUMER, block_ms=streams.BLOCK_MS,
+                                               count=50, client=r),
+        handle=lambda eid, fields: handle(eid, fields, webhook=webhook, client=r))
 
 
 if __name__ == "__main__":

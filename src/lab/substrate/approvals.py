@@ -21,19 +21,17 @@ CLI (any terminal is also a channel):
                               | update <id> <comment> | count
 """
 import json
-import logging
 import os
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
 
-import redis
 
 from lab.platform import config, redis_client
+from lab.platform.streams import StreamGroup
 from lab.platform.contracts import APPROVAL_FINAL, ApprovalStatus, Decision, check_answer
 
-log = logging.getLogger("lab.approvals")
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
 CHANNELS = ("review-app", "telegram", "teams")
@@ -56,14 +54,15 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _requests(channel, consumer="1") -> StreamGroup:
+    """This channel's address on the approval-request stream. `start_id="0"` — a channel added later
+    must see what is still open, which is why `channel_events` filters rather than the group."""
+    return StreamGroup(REQ, channel, f"{channel}-{consumer}", start_id="0")
+
+
 def ensure_groups(r=None):
-    r = _r(r)
     for ch in CHANNELS:
-        try:
-            r.xgroup_create(REQ, ch, id="0", mkstream=True)
-        except redis.ResponseError as e:
-            if "BUSYGROUP" not in str(e):
-                raise
+        _requests(ch).ensure(_r(r))
 
 
 def request(kind, subject, payload, requester, trace_id=None, *, client=None):
@@ -173,31 +172,28 @@ def human_decision(request_id, decision, actor, channel, comment="", *, answer=N
         raise
 
 
+def _decisions(group, consumer="1") -> StreamGroup:
+    return StreamGroup(DEC, group, consumer, start_id="0")
+
+
 def ensure_decision_groups(r=None):
     """Consumer groups on the DECISIONS stream — the request-side `ensure_groups` twin. Idempotent."""
-    r = _r(r)
     for g in DEC_GROUPS:
-        try:
-            r.xgroup_create(DEC, g, id="0", mkstream=True)
-        except redis.ResponseError as e:
-            if "BUSYGROUP" not in str(e):
-                raise
+        _decisions(g).ensure(_r(r))
 
 
 def decision_events(group, consumer="1", block_ms=0, count=10, pending_only=False, *, client=None):
-    """Decisions this group has not acked yet. Same shape as the request-side reader, so a consumer
-    of either stream is written the same way."""
-    r = _r(client)
-    ensure_decision_groups(r)
-    streams = {DEC: "0" if pending_only else ">"}
-    got = redis_client.blocking_read(lambda b: r.xreadgroup(group, consumer, streams, count=count, block=b), block_ms)
-    for _stream, entries in got:
-        for eid, fields in entries:
-            yield eid, fields
+    """Decisions this group has not acked yet, RECLAIMED ones first. Same shape as the request-side
+    reader, so a consumer of either stream is written the same way — and it now recovers an
+    abandoned entry the same way too, which it did not before: `>` returns only entries never
+    delivered, so an approved answer this runner took and never acked would have turned into a run
+    that simply never started, with nothing anywhere saying so."""
+    return _decisions(group, consumer).read(block_ms=block_ms, count=count,
+                                            pending_only=pending_only, client=_r(client))
 
 
 def ack_decision(group, entry_id, *, client=None):
-    return _r(client).xack(DEC, group, entry_id)
+    return _decisions(group).ack(entry_id, _r(client))
 
 
 def trace_url(trace_id, jaeger_url=None):
@@ -220,30 +216,6 @@ def pending(*, client=None):
 
 def history(limit=50, *, client=None):
     return [f for _, f in _r(client).xrevrange(DEC, count=limit)]
-
-
-RECLAIM_IDLE_MS = 60_000   # an entry taken but unacked this long is presumed abandoned: a channel
-                           # acks as soon as it has delivered, so a minute is already generous.
-
-
-def _fresh(r, channel, me, count, block_ms):
-    res = redis_client.blocking_read(lambda b: r.xreadgroup(channel, me, {REQ: ">"}, count=count, block=b), block_ms)
-    return [(eid, f) for _, entries in res for eid, f in entries] if res else []
-
-
-def _reclaim(r, channel, me, count):
-    """Entries a previous consumer of this group took and never acked, handed to this one.
-
-    XAUTOCLAIM, not XPENDING+XCLAIM: one round trip, and it skips entries whose stream message is
-    gone rather than returning ids that cannot be read. Failure here is never fatal — a channel that
-    cannot reclaim should still deliver what is new."""
-    try:
-        _cursor, entries, *_ = r.xautoclaim(REQ, channel, me, min_idle_time=RECLAIM_IDLE_MS,
-                                            start_id="0-0", count=count)
-    except Exception as e:                               # noqa: BLE001 — old server, or a blip
-        log.debug("reclaim skipped for %s (%s: %s)", channel, type(e).__name__, e)
-        return []
-    return [(eid, f) for eid, f in entries if f]
 
 
 def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=True, client=None):
@@ -274,9 +246,8 @@ def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=Tru
 
     Pass `only_open=False` for an audit or replay consumer that genuinely wants every event.
     """
-    r = _r(client); ensure_groups(r)
-    me = f"{channel}-{consumer}"
-    got = _reclaim(r, channel, me, count) + _fresh(r, channel, me, count, block_ms)
+    r = _r(client)
+    got = _requests(channel, consumer).read(block_ms=block_ms, count=count, client=r)
     if not only_open:
         return got
     open_ = []
@@ -293,7 +264,7 @@ def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=Tru
 
 
 def ack(channel, entry_id, *, client=None):
-    _r(client).xack(REQ, channel, entry_id)
+    _requests(channel).ack(entry_id, _r(client))
 
 
 def await_decision(request_id, timeout_s=300, poll_s=2, *, client=None):
