@@ -37,7 +37,7 @@ def run_fields(out: dict) -> dict:
 
 
 async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
-                   meeting: dict | None = None, on_trace=None) -> dict:
+                   meeting: dict | None = None, recording: str = "", on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> minutes in the semantic layer."""
     tr, r = root.tracer(), root.redis()
     with tr.start_as_current_span("transcript-to-minutes-run") as span:
@@ -63,19 +63,40 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
                                           store=config.AGENT_RESPONSES_STORE),
                        tracer=tr,
                        root_ctx=root_ctx, mcp_url=root.config.gateway_mcp_url(), run_id=run_id)
-        # The meeting's own identity: the transcript reference is what every run of this process is
-        # keyed on, so it is the meeting id when nothing better was supplied.
-        meeting = meeting or {"id": _label(transcript), "subject": _label(transcript),
-                              "transcript_ref": transcript}
+        # The meeting's own identity. A `recording` handle names it properly: the handle is
+        # collab://recording/<meeting>/<record>, so its SCOPE is the meeting and no lookup is
+        # needed. Without one we fall back to the transcript's own label — which is honest but is
+        # NOT a meeting id, so anything writing back beside the meeting must check `resolved`.
+        meeting = meeting or _meeting_from(recording, transcript)
         try:
             out = await run_workflow(cfg, {"transcript": transcript, "speaker_map": speaker_map,
-                                           "owner": owner, "meeting": meeting})
+                                           "owner": owner, "meeting": meeting,
+                                           "recording": recording})
         except Exception as e:
             runlog.finish_from(run_id, e, client=r)
             raise
         runlog.finish_from(run_id, client=r, **run_fields(out))
     return {**out, "trace_id": trace_id}
 
+
+def _meeting_from(recording: str, transcript: str) -> dict:
+    """What this run knows about the meeting, from the recording handle if it was given.
+
+    `resolved` is the flag every downstream reader must honour: false means the id is a filename
+    standing in for a meeting nobody could name, which is fine for keying a model but useless for
+    putting anything back beside the meeting."""
+    from lab.core.collab import ContentHandle
+
+    if recording and ContentHandle.is_handle(recording):
+        try:
+            handle = ContentHandle.parse(recording)
+        except ValueError:
+            handle = None
+        if handle is not None:
+            return {"id": handle.scope, "subject": _label(transcript), "resolved": True,
+                    "transcript_ref": transcript, "recording": recording}
+    return {"id": _label(transcript), "subject": _label(transcript), "resolved": False,
+            "transcript_ref": transcript}
 
 def _label(ref: str) -> str:
     return ref.rstrip("/").split("/")[-1]

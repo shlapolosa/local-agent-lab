@@ -210,3 +210,27 @@ def test_required_tools_are_spelled_from_the_contract():
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------- naming the meeting
+def test_the_meeting_comes_from_the_recording_handle_when_there_is_one():
+    """collab://recording/<meeting>/<record> — the SCOPE is the meeting, so no lookup is needed."""
+    from lab.workloads.transcript_to_minutes.host import _meeting_from
+    m = _meeting_from("collab://recording/alice~m1/rec9", "art://a/x.segments.json")
+    assert m["id"] == "alice~m1" and m["resolved"] is True
+    assert m["recording"] == "collab://recording/alice~m1/rec9"
+
+
+def test_without_a_recording_the_meeting_is_marked_unresolved():
+    """The fallback id is a FILENAME. Fine for keying a model, useless for putting anything back
+    beside the meeting — so `resolved` is false and every writer must honour it."""
+    from lab.workloads.transcript_to_minutes.host import _meeting_from
+    m = _meeting_from("", "art://a/x.segments.json")
+    assert m["resolved"] is False and m["id"] == "x.segments.json"
+
+
+def test_a_malformed_recording_handle_degrades_rather_than_raising():
+    """A bad handle must not cost the minutes; it costs only the meeting association."""
+    from lab.workloads.transcript_to_minutes.host import _meeting_from
+    for bad in ("not-a-handle", "collab://", "collab://recording/only-two"):
+        assert _meeting_from(bad, "art://a/x.segments.json")["resolved"] is False

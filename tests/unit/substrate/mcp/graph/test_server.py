@@ -444,3 +444,35 @@ def test_drives_render_without_a_site_when_they_belong_to_a_person(uploads):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------- the meeting names its own chat
+def test_a_meeting_carries_the_conversation_it_belongs_to():
+    """A meeting's OUTPUTS belong beside the meeting, and its conversation is the only place a
+    person reliably looks afterwards — so whatever writes minutes back has to be able to name it."""
+    from lab.substrate.mcp.graph import graph_map
+    m = graph_map.meeting({"id": "m1", "subject": "weekly sync",
+                           "onlineMeeting": {"joinUrl": "https://teams.example/x",
+                                             "chatInfo": {"threadId": "19:abc@thread.v2"}}},
+                          "maria@contoso.com")
+    assert m.chat_id == "19:abc@thread.v2"
+
+
+def test_a_meeting_with_no_conversation_says_so_rather_than_guessing():
+    """An ad-hoc meeting often has none, and a calendar event never carries one. '' is the honest
+    answer and every caller must cope with it."""
+    from lab.substrate.mcp.graph import graph_map
+    assert graph_map.meeting({"id": "m2", "subject": "s"}, "maria@contoso.com").chat_id == ""
+    assert graph_map.meeting({"id": "m3", "onlineMeeting": {"joinUrl": "https://x"}}, "u").chat_id == ""
+
+
+def test_a_chat_id_is_an_opaque_id_so_it_may_travel():
+    """The span rule bans PRINCIPALS and caller free text, not ids. A thread id names a
+    conversation, not a person — the same reason drive and watch ids are allowed."""
+    from lab.substrate.mcp.graph import graph_map
+    m = graph_map.meeting({"id": "m", "organizer": {"emailAddress": {"address": "maria@contoso.com"}},
+                           "onlineMeeting": {"joinUrl": "https://x",
+                                             "chatInfo": {"threadId": "19:z@thread.v2"}}}, "u")
+    assert "@" in m.chat_id and "thread" in m.chat_id      # opaque, provider-shaped
+    assert m.organizer == "maria@contoso.com"              # the test is not vacuous:
+    assert m.organizer not in m.chat_id                    # a real principal, and it is not in there

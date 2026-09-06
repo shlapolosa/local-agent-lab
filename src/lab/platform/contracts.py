@@ -974,6 +974,12 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
         InputField("owner", InputKind.IDENTITY,
                    "The meeting organiser, recorded as the owner of the resulting minutes.",
                    required=False),
+        InputField("recording", InputKind.HANDLE,
+                   "Optional collab://recording/<meeting>/<id> handle of the recording this "
+                   "transcript came from. Its SCOPE is the meeting, so passing it is what lets the "
+                   "minutes name the meeting they are about — and therefore what lets them be put "
+                   "back beside it. Omitted, the run still writes minutes; it simply cannot say "
+                   "which meeting they belong to.", required=False),
     ),
     outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary"),
     # Continuation-only. `speaker_map` is a HUMAN'S answer to the approval the transcript run raised;

@@ -318,3 +318,27 @@ def test_the_lookup_tools_are_not_required():
     assert CollabTools.meetings not in W.REQUIRED_TOOLS
     assert CollabTools.recordings not in W.REQUIRED_TOOLS
     assert CollabTools.fetch in W.REQUIRED_TOOLS, "fetching the recording IS required"
+
+
+def test_the_owning_meeting_is_kept_not_just_its_participants(gw, monkeypatch):
+    """It was already being resolved here and thrown away, which left the rest of the pipeline with
+    no way to name the meeting — the minutes run ended up deriving one from the transcript's FILE
+    NAME. One lookup now yields both the people to offer and the meeting to carry."""
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    out = _run()
+    cont = gw.args_for(ApprovalTools.ask)["continuation"]
+    assert cont["inputs"]["recording"] == HANDLE, "the handle rides to the minutes run"
+    assert cont["inputs"]["transcript"] and cont["inputs"]["owner"] == OWNER
+
+
+def test_the_recording_handle_is_what_carries_the_meeting():
+    """Its SCOPE is the meeting id, so carrying the handle needs no new lookup and no new tool."""
+    from lab.core.collab import ContentHandle
+    assert ContentHandle.parse(HANDLE).scope == "meeting-1"
+
+
+def test_a_run_with_no_resolvable_meeting_still_carries_the_recording(gw):
+    """`gw` cannot answer collab_meetings, so nothing resolves — the continuation must still carry
+    the handle, because the minutes run can name the meeting from it even when this lookup failed."""
+    _run()
+    assert gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]["recording"] == HANDLE

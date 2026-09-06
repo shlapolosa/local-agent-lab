@@ -151,7 +151,10 @@ def meeting(js: dict, user_id: str = "") -> Meeting:
     attendees = people.get("attendees") if "participants" in js else js.get("attendees")
     return Meeting(id=meeting_ref(user_id, token), subject=js.get("subject", ""), organizer=organizer,
                    start=_when(js, "startDateTime", "start"), end=_when(js, "endDateTime", "end"),
-                   participants=_dedupe([organizer, *(_person(a) for a in (attendees or []))]))
+                   participants=_dedupe([organizer, *(_person(a) for a in (attendees or []))]),
+                   # Only the onlineMeeting shape carries the conversation; a calendar event does
+                   # not, and an ad-hoc meeting may have none at all — "" is the honest answer.
+                   chat_id=str((online.get("chatInfo") or js.get("chatInfo") or {}).get("threadId") or ""))
 
 
 def _person(js: dict) -> str:

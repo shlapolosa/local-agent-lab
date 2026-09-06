@@ -75,13 +75,17 @@ async def _call(cfg, suffix: str, args: dict):
 CANDIDATE_MEETINGS = 10
 
 
-async def _attendees(cfg, state: dict) -> list[dict]:
-    """The participants of the meeting this recording came from, or []. Never raises.
+async def _owning_meeting(cfg, state: dict) -> dict:
+    """The MEETING this recording came from, or {}. Never raises.
 
-    Finds the meeting by asking which of the organiser's recent ones OWNS this recording handle,
-    which is exact and provider-neutral. `participants` is who was CONNECTED, so it is a starting
-    point and not the answer: one device in a room is one participant, and someone can attend and
-    never speak. That is precisely why it is offered as a suggestion beside free text.
+    Finds it by asking which of the organiser's recent meetings OWNS this recording handle — exact,
+    and provider-neutral in a way that parsing the recording's file name would not be.
+
+    The whole meeting is returned, not just its participants. It was already being resolved here and
+    then discarded, which cost the rest of the pipeline any way of naming the meeting: downstream,
+    the minutes run ended up deriving a "meeting id" from the transcript's FILE NAME. The two things
+    the caller wants from it are `participants` (who to offer the human) and `chat_id` (where the
+    outputs belong afterwards), and both come from the same single lookup.
     """
     try:
         meetings = await _call(cfg, CollabTools.meetings, {"organizer": state.get("owner", ""),
@@ -89,10 +93,16 @@ async def _attendees(cfg, state: dict) -> list[dict]:
         for m in (meetings or {}).get("items", [])[:CANDIDATE_MEETINGS]:
             recs = await _call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")})
             if any(r.get("handle") == state["recording"] for r in (recs or {}).get("items", [])):
-                return [{"identity": p, "display": ""} for p in (m.get("participants") or []) if p]
+                return m
     except Exception as e:                      # noqa: BLE001 — a picker is never worth a failed run
-        print(f"[resolve_candidates] no candidates ({type(e).__name__}: {e})", flush=True)
-    return []
+        print(f"[resolve_candidates] no meeting resolved ({type(e).__name__}: {e})", flush=True)
+    return {}
+
+
+def _candidates_of(meeting: dict) -> list[dict]:
+    """The people a human may PICK, from the meeting that owned the recording. Attendance is not
+    speech, so these are suggestions beside free text and never a constraint."""
+    return [{"identity": p, "display": ""} for p in (meeting.get("participants") or []) if p]
 
 def build_workflow(cfg):
     """The typed graph. Every node is deterministic, so each one either produces its artifact or
@@ -170,7 +180,8 @@ def build_workflow(cfg):
         would put the wrong people in front of the human — worse than offering nobody.
         """
         with _span(cfg, "resolve_candidates"):
-            state = state | {"candidates": await _attendees(cfg, state)}
+            meeting = await _owning_meeting(cfg, state)
+            state = state | {"meeting": meeting, "candidates": _candidates_of(meeting)}
         await ctx.send_message(state)
 
     @executor(id="ask_mapping")
@@ -200,9 +211,12 @@ def build_workflow(cfg):
             # because a static "A is followed by B" edge cannot carry the transcript reference of
             # THIS run — and it is validated at construction, so a typo fails now rather than hours
             # later as a human approving and nothing happening.
+            # `recording` rides along because its SCOPE is the meeting id: it is what lets the
+            # minutes run name the meeting it is about, with no second lookup and no new tool.
             cont = Continuation(process=TRANSCRIPT_TO_MINUTES.name,
                                 inputs={"transcript": state["transcript_ref"],
-                                        "owner": state["owner"]},
+                                        "owner": state["owner"],
+                                        "recording": state["recording"]},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await _call(cfg, ApprovalTools.ask, {
                 "subject": f'{state.get("recording_name") or "meeting"} — who is speaking?',

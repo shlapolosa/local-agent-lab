@@ -181,7 +181,13 @@ class DriveItem:
 class Meeting:
     """One online meeting. `participants` are the provider's identifiers for who attended — the
     starting point for attributing what was said, never the answer on its own (one device in a room
-    is one participant)."""
+    is one participant).
+
+    `chat_id` is the meeting's own conversation, when the provider has one. It is here because a
+    meeting's OUTPUTS belong beside the meeting, and the conversation is the only place a person
+    reliably looks afterwards — so whatever writes minutes back needs to name it. Opaque and
+    blank-by-default: a provider without the notion, or an ad-hoc meeting with no discoverable
+    conversation, simply yields "" and every caller must cope rather than assume."""
 
     id: str
     subject: str = ""
@@ -189,6 +195,7 @@ class Meeting:
     start: str = ""
     end: str = ""
     participants: tuple[str, ...] = ()
+    chat_id: str = ""
 
     def __post_init__(self) -> None:
         _require_id("meeting", self.id)

@@ -137,7 +137,10 @@ def _item(i) -> dict:
 
 def _meeting(m) -> dict:
     return {"id": m.id, "subject": m.subject, "organizer": m.organizer, "start": m.start,
-            "end": m.end, "participants": list(m.participants)}
+            "end": m.end, "participants": list(m.participants),
+            # the meeting's own conversation, for whatever puts the meeting's outputs back beside
+            # it; "" when the provider has none (an ad-hoc meeting often has none)
+            "chat_id": m.chat_id}
 
 
 def _record(r) -> dict:
