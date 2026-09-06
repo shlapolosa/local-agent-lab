@@ -989,7 +989,10 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
                    "back beside it. Omitted, the run still writes minutes; it simply cannot say "
                    "which meeting they belong to.", required=False),
     ),
-    outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary"),
+    outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary",
+             # what reached the collaboration platform, where to announce it, and why not when it
+             # did not — delivery is best effort, so its outcome is reported rather than raised
+             "delivered", "chat_id", "delivery"),
     # Continuation-only. `speaker_map` is a HUMAN'S answer to the approval the transcript run raised;
     # a caller who could submit this directly would supply their own attribution and bypass the one
     # gate the meeting pipeline has. The continuation runner starts it in-process, so this refusal

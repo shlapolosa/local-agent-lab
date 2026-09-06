@@ -74,20 +74,31 @@ def test_the_connector_cannot_ask_a_question_of_its_own():
 
 # ------------------------------------------------------------------ least privilege
 def test_neither_workload_can_reach_the_others_capabilities():
-    """The transcription side holds the collaboration and speech credentials' reach; the minutes
-    side holds the semantic write. Neither needs the other's, and swapping them would let one
-    process do the whole thing unobserved."""
+    """The transcription side transcribes and writes the semantic model to nothing; the minutes side
+    writes the semantic model and cannot transcribe. Swapping them would let one process do the whole
+    thing unobserved.
+
+    Both now touch the collaboration port, and the split is in WHICH verbs: the transcript side
+    FETCHES a recording (bytes in), the minutes side PUTS documents back (bytes out). Neither can do
+    the other's, which is the property worth asserting — the mere name of the server is not."""
+    from lab.platform.contracts import CollabTools
     transcript, minutes = set(P.TRANSCRIPT_TOOLS), set(P.MINUTES_TOOLS)
     assert "semantic_mcp" not in transcript and "speech_mcp" not in minutes
-    assert "collab_mcp" not in minutes
+    t_collab = set(P.TRANSCRIPT_TOOLS.get(CollabTools.SERVER, []))
+    m_collab = set(P.MINUTES_TOOLS.get(CollabTools.SERVER, []))
+    assert CollabTools.fetch in t_collab and CollabTools.fetch not in m_collab
+    assert CollabTools.put in m_collab and CollabTools.put not in t_collab
 
 
 def test_no_grant_includes_the_collaboration_subscription_writes():
-    """A subscription is egress to a caller-supplied URL and a durable object that outlives the run.
-    It must never reach a workload's own agents."""
+    """SUBSCRIBE, not every write. A subscription is egress to a caller-supplied URL and a durable
+    object that outlives the run — it must never reach a workload's own agents. Writing a document
+    back into the folder its own input came from is a different power with a different blast radius,
+    which is exactly why CollabTools names the two separately; asserting against all of WRITE would
+    forbid the delivery this pipeline exists to perform."""
     from lab.platform.contracts import CollabTools
     for name, grant in GRANTS.items():
-        assert not set(grant.get(CollabTools.SERVER, [])) & set(CollabTools.WRITE), name
+        assert not set(grant.get(CollabTools.SERVER, [])) & set(CollabTools.SUBSCRIBE), name
 
 
 if __name__ == "__main__":

@@ -541,3 +541,31 @@ def test_put_takes_its_media_type_from_the_name_not_the_caller(server):
     ref = server.uploads().stage("transcript.md", b"# who said what")
     out = call(server, CollabTools.put, folder="collab://item/drive-1/folder-9", ref=ref)
     assert out["content_type"] == "text/markdown"
+
+
+def test_an_item_names_the_folder_it_sits_in_as_an_id_not_only_a_path():
+    """"Put it beside this file" needs an ID. A path is for a person to read; resolving one back to
+    an id is a second call and a second chance to resolve the wrong thing."""
+    from lab.substrate.mcp.graph import graph_map
+    i = graph_map.drive_item({"id": "01FILE", "name": "recording.mp4", "size": 42,
+                              "parentReference": {"driveId": "b!drive", "id": "01FOLDER",
+                                                  "path": "/drive/root:/Recordings"}})
+    assert i.parent == "01FOLDER" and i.path == "Recordings"
+    assert str(i.parent_handle) == "collab://item/b!drive/01FOLDER"
+
+
+def test_an_item_with_no_parent_refuses_to_guess_a_destination():
+    """The drive root reports none. Guessing where to write is worse than saying it is unknown."""
+    from lab.substrate.mcp.graph import graph_map
+    root = graph_map.drive_item({"id": "01ROOT", "name": "root", "parentReference": {"driveId": "b!d"}})
+    assert root.parent == ""
+    with pytest.raises(ValueError, match="no parent"):
+        _ = root.parent_handle
+
+
+def test_the_listing_hands_back_a_folder_a_write_can_be_addressed_to(server):
+    """End to end through the tool: what collab_list returns is what collab_put takes."""
+    listed = call(server, CollabTools.list, drive_id="drive-1")
+    files = [i for i in listed["items"] if not i["folder"]]
+    assert files, "the fixture has a file"
+    assert "parent" in files[0] and "parent_handle" in files[0]

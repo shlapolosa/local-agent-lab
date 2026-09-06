@@ -253,3 +253,70 @@ def test_the_handle_is_kept_whatever_its_kind():
     from lab.workloads.transcript_to_minutes.host import _meeting_from
     for h in ("collab://item/b!d/01F", "collab://recording/alice~m1/rec9"):
         assert _meeting_from(h, "art://a/x.json")["recording"] == h
+
+
+# ---------------------------------------------------------------- putting the outputs back
+ITEM = {"id": "01FILE", "name": "weekly sync.mp4", "drive_id": "b!d", "folder": False,
+        "parent": "01FOLDER", "parent_handle": "collab://item/b!d/01FOLDER"}
+
+
+def _delivering(gw, item=ITEM):
+    gw.answers[W.CollabTools.item] = item
+    gw.answers[W.CollabTools.put] = {"name": "x", "handle": "collab://item/b!d/01NEW", "bytes": 10}
+    return gw
+
+
+def test_the_outputs_are_written_into_the_folder_the_recording_sits_in(gw):
+    """"Beside the recording" is what makes them findable without the lab: a person who goes looking
+    for the recording finds them next to it, and the provider indexes them for search."""
+    _delivering(gw)
+    out = _run(meeting={"id": "mtg-1", "subject": "Arch review", "chat_id": "19:t@thread.v2",
+                        "recording": "collab://item/b!d/01FILE"})
+    folders = {a["folder"] for a in gw.args_for(W.CollabTools.put)}
+    assert folders == {"collab://item/b!d/01FOLDER"}, "the folder came from the item, not a guess"
+    names = [a["name"] for a in gw.args_for(W.CollabTools.put)]
+    assert names == ["weekly sync.transcript.md", "weekly sync.minutes.json"]
+    assert len(out["delivered"]) == 2 and out["chat_id"] == "19:t@thread.v2"
+
+
+def test_only_the_prose_transcript_leaves_the_lab(gw):
+    """The structured transcript is the audit trail and keeps directory addresses. Publishing it
+    would put a list of who-is-who into a folder whose permissions are the recording's — a wider
+    audience than the audit needs. The prose form carries display names only."""
+    _delivering(gw)
+    _run(meeting={"id": "m", "recording": "collab://item/b!d/01FILE"})
+    stored = [a for a in gw.args_for(W.SemanticTools.store_spec) if "transcript" in a.get("name", "")]
+    assert stored, "the prose transcript was stored for upload"
+    assert "@" not in json.dumps(stored[0]["spec"]), "no directory address leaves the lab"
+
+
+def test_delivery_never_costs_the_minutes(gw):
+    """The minutes are written, stored and loaded before this runs. Failing the run because a tenant
+    would not take a copy would throw away the work over its delivery."""
+    _delivering(gw)
+    original = gw.__call__
+
+    async def refuse(headers, mcp_url, calls):
+        if any(s == W.CollabTools.put for s, _ in calls):
+            raise RuntimeError("the tenant refused the upload")
+        return await original(headers, mcp_url, calls)
+    W.gateway.call_tools = refuse
+
+    out = _run(meeting={"id": "m", "recording": "collab://item/b!d/01FILE"})
+    assert out["minutes_ref"] and out["model_id"], "the minutes still exist"
+    assert out["delivered"] == [], "nothing was delivered"
+    assert "refused the upload" in out["delivery"], "and the run says why, without failing"
+
+
+def test_no_recording_handle_means_nowhere_to_put_them_and_says_so(gw):
+    """The honest end of it, rather than a guess at some default folder."""
+    out = _run(meeting={"id": "m", "subject": "s"})
+    assert out["delivered"] == [] and "nowhere" in out["delivery"]
+    assert out["minutes_ref"], "and the minutes are unaffected"
+
+
+def test_an_item_with_no_folder_is_reported_not_guessed(gw):
+    """A file at the drive root names no parent. Writing it somewhere plausible would be worse."""
+    _delivering(gw, item={"id": "01F", "name": "rec.mp4", "drive_id": "b!d", "parent_handle": None})
+    out = _run(meeting={"id": "m", "recording": "collab://item/b!d/01F"})
+    assert out["delivered"] == [] and "folder" in out["delivery"]

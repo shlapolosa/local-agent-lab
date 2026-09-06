@@ -50,6 +50,10 @@ TRANSCRIPT_TOOLS = {
 }
 MINUTES_TOOLS = {
     StorageTools.SERVER: [StorageTools.get, StorageTools.info, StorageTools.read_artifact],
+    # Delivery: read ONE item to find the folder it sits in, and write beside it. Never a
+    # subscription — CollabTools splits SUBSCRIBE from PUT precisely so a workload can hold the
+    # second without the first, and a governance test refuses a grant that mixes them.
+    CollabTools.SERVER: [CollabTools.item, CollabTools.put],
     SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.load_model,
                            SemanticTools.validate_model],
 }

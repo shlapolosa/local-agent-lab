@@ -29,11 +29,15 @@ from jsonschema import Draft7Validator
 
 from lab.core.meetings import Speakers, minutes_to_spec
 from lab.platform import runlog
-from lab.platform.contracts import SemanticTools, StorageTools
+from lab.platform.contracts import CollabTools, SemanticTools, StorageTools
 from lab.workloads import gateway, workflowviz
 
 REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, SemanticTools.load_model,
                   SemanticTools.validate_model)
+# NOT required: delivery is best effort, so a deployment that does not grant the collaboration tools
+# still writes minutes — it simply cannot put them back. Listing them here would refuse the whole run
+# at preflight for want of a convenience, which is the opposite of what best effort means.
+DELIVERY_TOOLS = (CollabTools.item, CollabTools.put)
 
 VOCAB = "meeting-1.0"
 
@@ -103,6 +107,37 @@ def gate(validator, minutes, labels: set[str]) -> list[str]:
     errors = _schema_errors(validator, minutes)
     return errors or _incomplete(minutes, labels)
 
+
+async def _deliver(cfg, state: dict, handle: str) -> dict:
+    """Upload the prose transcript and the minutes into the folder the recording sits in.
+
+    The PROSE transcript, not the structured one: it carries display names only, so what lands in
+    the tenant is readable and holds no directory addresses. The structured form stays in the lab as
+    the audit trail — publishing it would put a list of who-is-who into a folder whose permissions
+    are the recording's, which is a wider audience than the audit needs.
+    """
+    item = await _call(cfg, CollabTools.item, {"handle": handle})
+    folder = item.get("parent_handle")
+    if not folder:
+        return {"delivery": f'{item.get("name") or handle} names no folder to write beside'}
+    stem = str(item.get("name") or "meeting").rsplit(".", 1)[0]
+
+    prose_ref = await _store(cfg, f"{stem}.transcript.md", state["prose"].encode())
+    written = []
+    for ref, name in ((prose_ref, f"{stem}.transcript.md"),
+                      (state["minutes_ref"], f"{stem}.minutes.json")):
+        out = await _call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
+        written.append({"name": out.get("name", name), "handle": out.get("handle", ""),
+                        "bytes": out.get("bytes", 0)})
+    return {"delivered": written, "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
+            "delivery": f"{len(written)} file(s) beside the recording"}
+
+
+async def _store(cfg, name: str, data: bytes) -> str:
+    """The prose transcript as an artifact, so the upload reads it the way everything else does —
+    by reference through the governed store, never as bytes on a tool argument."""
+    stored = await _call(cfg, SemanticTools.store_spec, {"spec": {"text": data.decode()}, "name": name})
+    return stored["ref"] if isinstance(stored, dict) and "ref" in stored else stored
 
 def build_workflow(cfg):
     validator = Draft7Validator(cfg["schema"]) if cfg.get("schema") else None
@@ -189,6 +224,33 @@ def build_workflow(cfg):
             state = state | {"minutes_ref": minutes_ref, "model_id": model_id, "loaded": loaded}
         await ctx.send_message(state)
 
+    @executor(id="deliver")
+    async def deliver(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Put the outputs back where the meeting is, so a person can find them without the lab.
+
+        BEST EFFORT, and deliberately so. The minutes are already written, stored and loaded by the
+        time this runs; failing the run because a tenant would not take a copy would throw away the
+        work over its delivery. Every failure yields an empty `delivered` and a reason, which the
+        outputs carry — so it is visible without being fatal, the same shape as the speaker picker.
+
+        The destination is the FOLDER the recording sits in, which is what "beside the recording"
+        means: a person who goes looking for the recording finds these next to it, and the provider
+        indexes them for search. Without a recording handle there is nowhere to put them, and that
+        is the honest end of it rather than a guess at some default folder.
+        """
+        with _span(cfg, "deliver"):
+            state = state | {"delivered": [], "chat_id": "", "delivery": ""}
+            handle = (state.get("meeting") or {}).get("recording") or ""
+            if not handle:
+                state["delivery"] = "no recording handle: nowhere to put the outputs"
+            else:
+                try:
+                    state = state | await _deliver(cfg, state, handle)
+                except Exception as e:              # noqa: BLE001 — delivery never costs the minutes
+                    state["delivery"] = f"{type(e).__name__}: {e}"
+                    print(f"[deliver] not delivered ({state['delivery']})", flush=True)
+        await ctx.send_message(state)
+
     @executor(id="publish")
     async def publish(state: dict, ctx: WorkflowContext[dict]) -> None:
         with _span(cfg, "publish"):
@@ -197,6 +259,9 @@ def build_workflow(cfg):
                               | {k for k in (m.get("keywords") or []) if k})
             out = {"transcript_ref": state["transcript"], "minutes_ref": state["minutes_ref"],
                    "model_id": state["model_id"], "keywords": keywords,
+                   # what reached the tenant, and where a notifier should announce it
+                   "delivered": state.get("delivered") or [], "chat_id": state.get("chat_id", ""),
+                   "delivery": state.get("delivery", ""),
                    "summary": {"concepts": len(m.get("concepts") or []),
                                "decisions": len(m.get("decisions") or []),
                                "actions": len(m.get("actions") or []),
@@ -206,7 +271,7 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=attribute)
-            .add_chain([attribute, minutes, to_spec, load_semantic, publish]).build())
+            .add_chain([attribute, minutes, to_spec, load_semantic, deliver, publish]).build())
 
 
 def _segments(doc) -> list[dict]:

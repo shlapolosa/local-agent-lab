@@ -132,7 +132,10 @@ def _drive(d) -> dict:
 def _item(i) -> dict:
     return {"id": i.id, "name": i.name, "drive_id": i.drive_id, "folder": i.folder, "size": i.size,
             "modified": i.modified, "path": i.path,
-            "handle": None if i.folder else str(i.handle)}     # a folder holds no content to fetch
+            "handle": None if i.folder else str(i.handle),     # a folder holds no content to fetch
+            # the folder it sits in, addressable — this is what collab_put wants as its `folder`
+            "parent": i.parent or None,
+            "parent_handle": str(i.parent_handle) if i.parent else None}
 
 
 def _meeting(m) -> dict:

@@ -155,7 +155,12 @@ class Drive:
 @dataclass(frozen=True)
 class DriveItem:
     """A folder or a file in a drive. `path` is the folder it sits in, relative to the drive root
-    ("" is the root); `modified` is an ISO-8601 UTC timestamp as the provider reports it."""
+    ("" is the root); `modified` is an ISO-8601 UTC timestamp as the provider reports it.
+
+    `parent` is that same folder as an ID rather than a path, and the two are not interchangeable: a
+    path is for a person to read, an id is what a write can be addressed to. Something given one file
+    and asked to put its outputs BESIDE it has only this to go on — a path would have to be resolved
+    back to an id first, which is a second call and a second chance to resolve the wrong thing."""
 
     id: str
     name: str
@@ -164,6 +169,7 @@ class DriveItem:
     size: int = 0
     modified: str = ""
     path: str = ""
+    parent: str = ""
 
     def __post_init__(self) -> None:
         _require_id("drive item", self.id)
@@ -174,6 +180,15 @@ class DriveItem:
         if self.folder:
             raise ValueError(f"a folder has no content to fetch: {self.name!r}")
         return ContentHandle.item(self.drive_id, self.id)
+
+    @property
+    def parent_handle(self) -> ContentHandle:
+        """The folder this sits in, as a handle a write can be addressed to — what "put it beside
+        this file" means. Raises when the provider named no parent (the drive root reports none),
+        because guessing a destination is worse than saying it is unknown."""
+        if not self.parent:
+            raise ValueError(f"{self.name!r} names no parent folder — nothing to write beside")
+        return ContentHandle.item(self.drive_id, self.parent)
 
 
 # ----------------------------------------------------------------------------- meetings
