@@ -69,5 +69,12 @@ COPY pyproject.toml /app/
 COPY src/ /app/src/
 RUN uv pip install --system --no-deps -e .   # `lab` importable everywhere; REPO_ROOT=/app, runtime state in /app/var
 
+# WHICH COMMIT THIS IMAGE IS, baked in at build time and reported at runtime by every role that has
+# a startup line. The image TAG says what Railway was asked to run; this says what the container
+# actually is — and the two disagree the moment anything pulls a mutable tag. LAST layer on purpose:
+# it changes every commit, so nothing above it is invalidated by it.
+ARG LAB_BUILD_SHA=""
+ENV LAB_BUILD_SHA=$LAB_BUILD_SHA
+
 EXPOSE 4000 9100 9200 9300 8501
 CMD ["python", "-m", "lab.substrate.mcp.adoit.server"]

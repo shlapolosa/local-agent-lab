@@ -62,6 +62,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # the commit, INSIDE the image. A running container then reports what it actually is,
+          # which a tag cannot: a mutable tag makes every service claim the same version while the
+          # bits behind it differ per pull.
+          build-args: LAB_BUILD_SHA=${{ github.sha }}
           platforms: linux/amd64        # Railway runs amd64; a second arch doubles build time
           cache-from: type=gha
           cache-to: type=gha,mode=max   # layer cache across runs: only changed layers rebuild

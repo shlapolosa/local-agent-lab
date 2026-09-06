@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 import redis
 
-from lab.platform import redis_client
+from lab.platform import config, redis_client
 
 # Under the client's socket timeout on purpose — `redis_client.blocking_read` explains why, and a
 # channel died of getting it wrong. Every consumer here uses the same value unless it says otherwise.
@@ -121,7 +121,10 @@ def serve(*, name: str, ready: str, read: Callable[[], Any], handle: Callable[..
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, _request_stop)
-    print(ready, flush=True)
+    # ...with the build it is running. Every long-lived consumer prints one line on start and this
+    # is it, so `deploy/railway.py substrate versions` can read the COMMIT out of a service that has
+    # no HTTP surface at all — which is four of them.
+    print(f"{ready}  {config.build_id()}", flush=True)
     if on_start:
         try:
             on_start()

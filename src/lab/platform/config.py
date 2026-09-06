@@ -31,6 +31,19 @@ TEAMS_WEBHOOK_URL  = _e("TEAMS_WEBHOOK_URL")                              # Team
 # something holding a person's connection must. Unset = the notifier logs what it would say,
 # which is what makes the whole path testable without a tenant.
 MEETING_WEBHOOK_URL = _e("MEETING_WEBHOOK_URL", "")
+# WHICH COMMIT this container is, baked into the image by CI (deploy/Dockerfile ARG LAB_BUILD_SHA).
+# The image TAG says what a service was ASKED to run; this says what it actually IS, and the two
+# disagree the moment anything pulls a mutable tag — which is how a workload came to call a tool the
+# gateway had renamed. Empty outside a CI-built image (a local run, a repo build), and empty is an
+# honest answer: this machine's code is whatever is checked out.
+BUILD_SHA = _e("LAB_BUILD_SHA", "")
+
+
+def build_id() -> str:
+    """What a service prints so a person reading a log can tell which build produced it."""
+    return f"build={BUILD_SHA[:7]}" if BUILD_SHA else "build=dev"
+
+
 JAEGER_UI_URL    = _e("JAEGER_UI_URL", "http://127.0.0.1:16686")
 
 # --- how servers listen ---

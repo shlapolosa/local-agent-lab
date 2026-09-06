@@ -18,7 +18,17 @@ calls **`preflight(cfg)`** first — it lists the gateway's tools and refuses th
 any of `REQUIRED_TOOLS` is missing, resolving by suffix exactly as `_call_tools_raw` does, so the
 workload stays alias-agnostic; `scripts/e2e_smoke.py` asserts **every tool in
 `lab.platform.contracts` is exposed by the LIVE gateway**; images are deployed by an **immutable
-`sha-<short>` tag** (`LAB_IMAGE_TAG` overrides; a mutable `:main` makes "what is deployed"
+`sha-<short>` tag** — and that pin was itself broken for the life of the project until Sep 6 2026:
+`_head_tag()` read `ROOT`, defined twenty lines BELOW the import-time call that ran it, so every
+resolution raised `NameError` into a bare `except` and silently returned the MUTABLE branch tag.
+Nothing failed and nothing printed, so `substrate images` reported every service identical because
+they genuinely all pointed at the same MOVING tag. The lesson generalises: **an instrument that
+cannot fail loudly is not an instrument.** The fallback now prints to stderr, a test asserts the tag
+starts with `sha-`, and the commit is also baked INTO the image (`LAB_BUILD_SHA`, a Dockerfile ARG
+set by CI) and printed by every role on start — so `deploy/railway.py substrate versions` compares
+what a service was ASKED to run with what it SAYS it is running, which is the only pair that catches
+a tag moving under a service that never restarted. (`LAB_IMAGE_TAG` overrides; a mutable `:main`
+makes "what is deployed"
 unknowable); and **`deploy/railway.py substrate images`** prints what each service runs and exits 1
 on a mismatch of THIS repo's image (third-party images like redis/jaeger are excluded). Run it after
 any deploy, and before believing a cloud bug is a code bug. Test doubles must model a REAL gateway:

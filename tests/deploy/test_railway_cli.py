@@ -208,6 +208,31 @@ def railway(fake):
         urllib.request.urlopen = real
 
 
+# ---------------------------------------------------------------- what is actually deployed
+def test_the_image_tag_is_pinned_to_this_commit_not_a_mutable_branch(railway_module):
+    """The whole anti-skew mechanism, and it was broken from the day it was written.
+
+    `_head_tag()` reads `ROOT`, which used to be defined TWENTY LINES BELOW the import-time call that
+    runs it — so every resolution raised NameError into a bare `except` and returned the mutable
+    branch tag. Nothing failed, nothing printed, and every service this project ever deployed ran
+    `:main`; `substrate images` then reported them all identical because they genuinely were all
+    pointed at the same MOVING tag. This test is what makes the pin observable."""
+    assert rw.IMAGE_TAG.startswith("sha-"), \
+        f"the deploy is not pinned to a commit ({rw.IMAGE_TAG!r}) — version skew is invisible again"
+    assert rw.IMAGE == f"ghcr.io/{rw.REPO}:{rw.IMAGE_TAG}"
+    assert rw.IMAGE_TAG != rw.BRANCH
+
+
+def test_a_deploy_that_cannot_pin_its_tag_says_so_out_loud(railway_module, monkeypatch, capsys):
+    """Falling back to the branch is legitimate (a container, a tarball). Falling back SILENTLY is
+    what hid the bug above for the life of the project, so the fallback is now loud."""
+    import subprocess as sp
+    monkeypatch.setattr(sp, "run", lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("git")))
+    assert rw._head_tag() == rw.BRANCH
+    err = capsys.readouterr().err
+    assert "MUTABLE" in err and rw.BRANCH in err
+
+
 def all_substrate():
     """Every non-optional substrate service. DERIVED, not re-typed: a new entry in `SUBSTRATE` would
     otherwise leave the "existing project" tests asserting that it gets CREATED — the opposite of

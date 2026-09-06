@@ -31,6 +31,10 @@ import urllib.request
 
 REPO = "shlapolosa/local-agent-lab"
 BRANCH = "main"
+# Defined HERE and not further down: `_head_tag()` runs at IMPORT to pin the image tag, and it reads
+# ROOT. It used to be defined 20 lines BELOW that call, so every tag resolution raised NameError into
+# a bare `except` and silently fell back to the mutable branch tag — see the note in `_head_tag`.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # --- how the image gets built -------------------------------------------------------------------
 # "image" (default): ONE image is built in CI (.github/workflows/image.yml) and pushed to GHCR;
@@ -53,15 +57,28 @@ def _head_tag():
     exactly how a workload came to call a tool the gateway had renamed). An immutable tag also makes
     rollback a one-word change. Falls back to the branch when git cannot answer (a container, a
     tarball) — and `LAB_IMAGE_TAG` always wins.
+
+    NOT SILENT when it falls back. This function was broken from the day it was written — it reads
+    `ROOT`, which was defined twenty lines BELOW the call that runs it at import, so every resolution
+    raised NameError into the bare `except` and returned the mutable branch tag. Every service this
+    project has ever deployed ran `:main`, and the instrument built to make version skew visible was
+    itself invisible. So the fallback now SAYS SO on stderr: a deploy that cannot pin its tag is a
+    deploy whose "what is running" is a guess, and that is worth one line of noise.
     """
     try:
         import subprocess
         out = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short=7", "HEAD"],
                              capture_output=True, text=True, timeout=5)
         sha = out.stdout.strip()
-        return f"sha-{sha}" if out.returncode == 0 and sha else BRANCH
-    except Exception:                                       # noqa: BLE001 — deploy must not die on git
-        return BRANCH
+        if out.returncode == 0 and sha:
+            return f"sha-{sha}"
+        why = (out.stderr or "").strip() or f"git exited {out.returncode}"
+    except Exception as e:                                  # noqa: BLE001 — deploy must not die on git
+        why = f"{type(e).__name__}: {e}"
+    print(f"[railway] cannot pin an immutable image tag ({why}) — falling back to the MUTABLE "
+          f"'{BRANCH}'. What each service runs is then whatever it last pulled.",
+          file=sys.stderr, flush=True)
+    return BRANCH
 
 
 IMAGE_TAG = os.environ.get("LAB_IMAGE_TAG") or _head_tag()
@@ -85,7 +102,6 @@ H = {"User-Agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/128 Safari
      "Project-Access-Token": os.environ.get("RAILWAY_TOKEN", "")}
 PROJECT = os.environ.get("RAILWAY_PROJECT_ID", "")
 ENV = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _require_railway():
@@ -602,6 +618,71 @@ def image_of(sid):
     return None
 
 
+BUILD_RE = re.compile(r"build=([0-9a-f]{7,40}|dev)")
+
+
+def running_build(sid):
+    """The commit a service's RUNNING container reports, from its own startup line, or None.
+
+    The complement to `image_of`, and the half that cannot be faked. `image_of` reports what Railway
+    was ASKED to run; this reports what the process that is actually serving says it is. They agree
+    only when the tag is immutable and the service has restarted onto it — and the whole reason this
+    exists is that they can silently disagree, which is how a workload came to call a tool the
+    gateway had renamed while every tag read `:main`.
+    """
+    d = latest(sid)
+    if not d.get("id"):
+        return None
+    try:
+        lg = gql('query($d:String!){ deploymentLogs(deploymentId:$d, limit:300){ message } }',
+                 {"d": d["id"]})
+    except SystemExit:
+        return None
+    for m in lg["deploymentLogs"]:
+        found = BUILD_RE.search(m.get("message") or "")
+        if found:
+            return found.group(1)
+    return None
+
+
+def version_report():
+    """Print, per service, the image it was ASKED to run and the build it SAYS it is running.
+
+    Returns True on any disagreement. Two different failures show up here and neither is visible
+    from a tag alone: services deployed from different commits, and a service whose tag moved under
+    it but which never restarted, so it is still serving the previous build.
+    """
+    ids = services()
+    ours = f"ghcr.io/{REPO}:"
+    builds, stale = {}, []
+    print(f"  {'service':22} {'asked to run':28} running")
+    for name, sid in sorted(ids.items()):
+        img = image_of(sid)
+        if img is None or not img.startswith(ours):
+            continue                                   # repo-built, or a third-party image
+        tag = img.split(":", 1)[1]
+        build = running_build(sid)
+        print(f"  {name:22} {tag:28} {build or '(no build line in its logs)'}")
+        if build and build != "dev":
+            builds.setdefault(build[:7], []).append(name)
+            if tag.startswith("sha-") and not build.startswith(tag[4:]):
+                stale.append((name, tag, build[:7]))
+    bad = False
+    if len(builds) > 1:
+        bad = True
+        print("\n  MISMATCH — these services are RUNNING different commits:")
+        for b, names in sorted(builds.items()):
+            print(f"    {b}  <- {', '.join(names)}")
+    for name, tag, build in stale:
+        bad = True
+        print(f"\n  STALE — {name} is configured for {tag} but is still serving {build}: "
+              "it has not restarted onto the image it was given.")
+    if not bad:
+        print("\n  every service runs the same build" if builds else
+              "\n  no service reported a build — an image built before LAB_BUILD_SHA existed")
+    return bad
+
+
 def image_report():
     """Print the image every service runs and return True if they DISAGREE.
 
@@ -900,6 +981,9 @@ if __name__ == "__main__":
              "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status|env\n"
              "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)\n"
              "       railway.py substrate images        (what image each service runs; exit 1 on a MISMATCH)\n"
+             "       railway.py substrate versions      (what each service is ASKED to run vs what it SAYS\n"
+             "                                           it is running — catches a tag that moved under a\n"
+             "                                           service that never restarted; exit 1 on a mismatch)\n"
              "       (`env` = offline audit of the exact key names each service receives; no Railway call)")
     tier = sys.argv[1] if len(sys.argv) > 1 else ""
     cmd = (sys.argv[3] if tier == "workload" else sys.argv[2]) if len(sys.argv) > (3 if tier == "workload" else 2) else "status"
@@ -907,7 +991,8 @@ if __name__ == "__main__":
         _require_railway()                                 # every other command talks to Railway
     if tier == "substrate":
         {"up": substrate_up, "down": substrate_down, "status": substrate_status,
-         "env": substrate_env_report, "images": lambda: sys.exit(1 if image_report() else 0)}[cmd]()
+         "env": substrate_env_report, "images": lambda: sys.exit(1 if image_report() else 0),
+         "versions": lambda: sys.exit(1 if version_report() else 0)}[cmd]()
     elif tier == "bucket":
         {"up": ensure_bucket, "status": bucket_status}[cmd]()
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:

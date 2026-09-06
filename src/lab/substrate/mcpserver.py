@@ -133,7 +133,10 @@ def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = 
         raise SystemExit(f"{service}: refusing to start — BIND_HOST={config.BIND_HOST} with no "
                          "MCP_SHARED_SECRET would expose an ungoverned MCP server to the network; "
                          "set MCP_SHARED_SECRET or bind to loopback")
-    print(f"{service}: serving on http://{config.BIND_HOST}:{port}{path}", flush=True)
+    # The BUILD is part of "serving": a tag says what this service was asked to run, this line says
+    # what it actually is, and a deploy log is where a person looks when a tool call fails oddly.
+    print(f"{service}: serving on http://{config.BIND_HOST}:{port}{path}  {config.build_id()}",
+          flush=True)
     uvicorn.run(app_for(mcp, path=path, routes=routes), host=config.BIND_HOST, port=port,
                 log_level=log_level)
 
