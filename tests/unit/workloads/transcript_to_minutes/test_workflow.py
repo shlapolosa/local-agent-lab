@@ -234,3 +234,22 @@ def test_a_malformed_recording_handle_degrades_rather_than_raising():
     from lab.workloads.transcript_to_minutes.host import _meeting_from
     for bad in ("not-a-handle", "collab://", "collab://recording/only-two"):
         assert _meeting_from(bad, "art://a/x.segments.json")["resolved"] is False
+
+
+def test_a_file_handle_names_a_drive_not_a_meeting():
+    """The case that actually arrives. A producer watching a FOLDER sends
+    collab://item/<drive>/<file>, whose scope is a DRIVE — treating it as a meeting would mint
+    `meeting-b!eTA-...` and tell every downstream reader the meeting was known."""
+    from lab.workloads.transcript_to_minutes.host import _meeting_from
+    m = _meeting_from("collab://item/b!drive-1/01FILE", "art://a/x.segments.json")
+    assert m["resolved"] is False, "a drive id is not a meeting id"
+    assert m["id"] == "x.segments.json"
+    assert m["recording"] == "collab://item/b!drive-1/01FILE", "but the handle is still worth keeping"
+
+
+def test_the_handle_is_kept_whatever_its_kind():
+    """Even when it names no meeting it says which drive and which file — which is what a writer
+    needs to work out where to put the outputs."""
+    from lab.workloads.transcript_to_minutes.host import _meeting_from
+    for h in ("collab://item/b!d/01F", "collab://recording/alice~m1/rec9"):
+        assert _meeting_from(h, "art://a/x.json")["recording"] == h

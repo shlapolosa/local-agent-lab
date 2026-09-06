@@ -80,23 +80,32 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
 
 
 def _meeting_from(recording: str, transcript: str) -> dict:
-    """What this run knows about the meeting, from the recording handle if it was given.
+    """What this run knows about the meeting, given the handle the recording arrived under.
+
+    ONLY a recording/transcript handle names a meeting. `collab://recording/<meeting>/<record>` has
+    the meeting in its scope; `collab://item/<drive>/<file>` has a DRIVE there, and calling that a
+    meeting would mint `meeting-b!eTA-…` and tell every downstream reader the meeting was known. A
+    file-triggered producer (a flow watching a folder) sends the item form, so this is the common
+    case, not the exotic one.
 
     `resolved` is the flag every downstream reader must honour: false means the id is a filename
-    standing in for a meeting nobody could name, which is fine for keying a model but useless for
-    putting anything back beside the meeting."""
-    from lab.core.collab import ContentHandle
+    standing in for a meeting nobody could name — fine for keying a model, useless for putting
+    anything back beside the meeting. The handle is carried either way, because even an item handle
+    says which drive and which file, which is what a writer needs to find where to write."""
+    from lab.core.collab import ContentHandle, HandleKind
 
-    if recording and ContentHandle.is_handle(recording):
-        try:
-            handle = ContentHandle.parse(recording)
-        except ValueError:
-            handle = None
-        if handle is not None:
-            return {"id": handle.scope, "subject": _label(transcript), "resolved": True,
-                    "transcript_ref": transcript, "recording": recording}
-    return {"id": _label(transcript), "subject": _label(transcript), "resolved": False,
+    base = {"id": _label(transcript), "subject": _label(transcript), "resolved": False,
             "transcript_ref": transcript}
+    if not (recording and ContentHandle.is_handle(recording)):
+        return base
+    try:
+        handle = ContentHandle.parse(recording)
+    except ValueError:
+        return base
+    base["recording"] = recording
+    if handle.kind in (HandleKind.RECORDING, HandleKind.TRANSCRIPT):
+        return base | {"id": handle.scope, "resolved": True}
+    return base
 
 def _label(ref: str) -> str:
     return ref.rstrip("/").split("/")[-1]
