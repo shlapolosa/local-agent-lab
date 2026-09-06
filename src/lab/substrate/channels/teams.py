@@ -41,9 +41,9 @@ Run: .venv/bin/python -m lab.substrate.channels.teams   (loop; exits immediately
 """
 import json
 import time
-import urllib.request
 
 from lab.platform import config
+from lab.platform.webhook import post_json
 from lab.substrate import approvals
 
 MAX_SAMPLE = 160        # a sample is evidence for recognition, not a transcript excerpt
@@ -159,10 +159,9 @@ class TeamsChannel:
         return approvals.human_decision(request_id, decision, actor, self.name, comment)
 
     def _post(self, payload):
-        req = urllib.request.Request(self.webhook, data=json.dumps(payload).encode(),
-                                     headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read().decode()
+        """The substrate's one outbound JSON POST — shared with the meeting notifier, so the two
+        sanctioned direct-egress paths cannot drift apart in timeout or encoding."""
+        return post_json(self.webhook, payload)
 
     def run(self):
         print(f"teams channel: {'enabled' if self.enabled else 'NOT configured (set TEAMS_WEBHOOK_URL) — plumbing only'}")

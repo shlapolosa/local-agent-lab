@@ -37,6 +37,13 @@ from lab.platform import redis_client
 from lab.platform.contracts import PROCESSES, WORKFLOW_FINISHED, WorkflowRequest, WorkflowStatus
 
 REQ = "workflow:requests"
+# Runs that ENDED. The request stream says a run was asked for; nothing said one had finished, so
+# anything wanting to act on a result had to poll for it. This is the same shape as
+# `approvals:decisions`: one durable append at the single place a run is closed (`mark`), so a
+# consumer group can react without every producer knowing who is listening.
+DONE = "workflow:finished"
+DONE_MAXLEN = 10_000                        # a bounded stream: nothing here reads history (see mark())
+RECLAIM_IDLE_MS = 60_000                    # how long an unacked finished-event waits before retry
 IDEM = "workflow:idem:"                     # + <process>:<key> -> the request id that claim created
 IDEMPOTENCY_TTL = 24 * 60 * 60              # 24 h — see idempotency_key_for()
 MAX_KEY = 200                               # a Redis key is not a payload: enough for a GUID or a message id
@@ -172,7 +179,85 @@ def mark(request_id, status, *, client=None, **fields):
         upd.setdefault("finished_at", _now())
         r.srem("workflow:pending", request_id)
     r.hset(key, mapping=upd)
+    if status in WORKFLOW_FINISHED:
+        # AFTER the hash is written, never before: a consumer woken by this event immediately reads
+        # the request, and announcing a result that is not yet readable is a race nobody would
+        # diagnose twice. The event carries only ids — a reader fetches the rest itself.
+        #
+        # GUARDED, and that is the point. Closing a run is a hard requirement; announcing it is best
+        # effort. The caller is `consumer.handle`, whose `except` around this call marks the run
+        # FAILED — so an unguarded XADD that raised (an OOM'd Redis, a WRONGTYPE on the key, a blip
+        # on the second round trip) would record a run that had already succeeded, and published its
+        # outputs, as a failure. A missed announcement costs a message; that costs the truth.
+        try:
+            process = r.hget(key, "process") or ""
+            r.xadd(DONE, {"request_id": request_id, "process": process, "status": str(status),
+                          "finished_at": upd["finished_at"]},
+                   # one entry per finished run, forever, on a Redis with a fixed volume. Nothing
+                   # reads history here (the group starts at `$`), so old entries are only cost.
+                   maxlen=DONE_MAXLEN, approximate=True)
+        except Exception as e:                  # noqa: BLE001 — the run IS closed; telling is extra
+            print(f"finished-event not published for {request_id}: {type(e).__name__}: {e}",
+                  flush=True)
     return upd
+
+
+def ensure_finished_group(group: str, r=None) -> None:
+    """A consumer group on the finished-runs stream. Idempotent, like the request-side twin."""
+    r = _r(r)
+    try:
+        r.xgroup_create(DONE, group, id="$", mkstream=True)
+    except redis.ResponseError as e:
+        if "BUSYGROUP" not in str(e):
+            raise
+
+
+def _reclaim_finished(r, group, consumer, count):
+    """Entries a consumer of this group took and never acked, handed back after RECLAIM_IDLE_MS.
+
+    The same XAUTOCLAIM the approval channels use, for the same reason: `>` returns only
+    never-delivered entries, so a consumer that crashed mid-handle — or deliberately left an entry
+    unacked because its send failed — would otherwise leave it in the pending list forever, visible
+    to nobody. That is precisely the durability Streams were chosen over pub/sub to get. Best effort:
+    a server without XAUTOCLAIM still gets what is new."""
+    try:
+        _cursor, entries, *_ = r.xautoclaim(DONE, group, consumer, min_idle_time=RECLAIM_IDLE_MS,
+                                            start_id="0-0", count=count)
+    except Exception as e:                      # noqa: BLE001 — old server, or a blip
+        print(f"finished-event reclaim skipped for {group} ({type(e).__name__}: {e})", flush=True)
+        return []
+    return [(eid, f) for eid, f in entries if f]
+
+
+def finished_events(group, consumer="1", block_ms=0, count=10, *, client=None):
+    """Runs that ended and this group has not acked, RECLAIMED ones first. Starts at `$` (new events
+    only), unlike the request side: a consumer of RESULTS that came up for the first time should not
+    announce every run the lab ever completed."""
+    r = _r(client)
+    ensure_finished_group(group, r)
+    stale = _reclaim_finished(r, group, consumer, count)
+    got = redis_client.blocking_read(
+        lambda b: r.xreadgroup(group, consumer, {DONE: ">"}, count=count, block=b), block_ms)
+    return stale + [(eid, fields) for _stream, entries in got for eid, fields in entries]
+
+
+def annotate(request_id, *, client=None, **fields):
+    """Write extra fields onto a request WITHOUT touching its status or publishing anything.
+
+    For a consumer of a FINISHED run that needs to leave a trace where a person will look — the
+    notifier records why an announcement failed. Deliberately not `mark()`: mark re-publishes to
+    `workflow:finished` for a finished status, so a notifier using it would feed itself its own
+    failure forever."""
+    if not fields:
+        return {}
+    upd = {k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v))
+           for k, v in fields.items() if v is not None}
+    _r(client).hset(f"workflow:req:{request_id}", mapping=upd)
+    return upd
+
+
+def ack_finished(group, entry_id, *, client=None):
+    return _r(client).xack(DONE, group, entry_id)
 
 
 def status(request_id, *, client=None):
@@ -212,9 +297,11 @@ def channel_events(group, consumer="1", block_ms=0, count=1, pending_only=False,
     """Read this group's unseen requests (or, with pending_only, the entries it already received
     but never acked — what a consumer re-reads after a crash). Returns [(entry_id, fields)]."""
     r = _r(client); ensure_groups(r)
-    res = r.xreadgroup(group, f"{group}-{consumer}", {REQ: "0" if pending_only else ">"},
-                       count=count, block=None if pending_only else (block_ms or None))
-    return [(eid, f) for _, entries in res for eid, f in entries] if res else []
+    res = redis_client.blocking_read(
+        lambda b: r.xreadgroup(group, f"{group}-{consumer}", {REQ: "0" if pending_only else ">"},
+                               count=count, block=None if pending_only else b),
+        block_ms)
+    return [(eid, f) for _, entries in res for eid, f in entries]
 
 
 def ack(group, entry_id, *, client=None):

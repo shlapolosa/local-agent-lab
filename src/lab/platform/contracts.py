@@ -730,9 +730,17 @@ class InputKind(StrEnum):
     """How one input field is carried.
 
     The first two are `art://` references (or, for local dev, a path): a workload holds no store
-    credentials, so CONTENT is always passed by reference. The other three exist so a low-code
+    credentials, so CONTENT is always passed by reference. The other four exist so a low-code
     trigger can start a run in ONE call — carrying who owns a recording, a reference to it at the
-    provider, and a human's answer — none of which is content and none of which is an `art://` ref.
+    provider, a human's answer, and where the result is announced — none of which is content and
+    none of which is an `art://` ref.
+
+    CONVERSATION is the newest and the narrowest: a provider's opaque id for a conversation (a Teams
+    meeting chat's thread id, say). It exists because a meeting's outputs belong back in the
+    meeting's own chat, and only the run that RESOLVED the meeting knows which chat that is — the run
+    that writes the minutes is a continuation and never sees the meeting itself. It is an id and is
+    validated as one (no whitespace, no URL, bounded): it names a destination, it grants nothing, and
+    it is not somewhere prose can hide.
 
     Deliberately absent: a general "text" kind. It would admit a URL, a whole document or an injected
     prompt into a contract whose entire discipline is by-reference. When a process genuinely needs
@@ -743,12 +751,16 @@ class InputKind(StrEnum):
     HANDLE = "handle"      # ONE opaque provider handle (ids only — never a URL, never a credential)
     IDENTITY = "identity"  # ONE directory principal: who a question is asked of, or who owns a thing
     MAPPING = "mapping"    # a SMALL flat object of label -> {field: value}, from a human's answer
+    CONVERSATION = "conversation"   # ONE opaque provider conversation id: where a result is announced
 
 
 # A mapping is a human's answer, not a payload. Bounded so it can never become a way to smuggle
 # arbitrary state through an input contract that is otherwise strictly by-reference.
 MAX_MAPPING_ENTRIES = 64
 MAX_MAPPING_BYTES = 8192
+# A conversation id is an id. Teams' own is ~60 characters; the ceiling is generous for a provider
+# that mints longer ones and still far too small to be a paragraph.
+MAX_CONVERSATION_CHARS = 512
 
 
 @dataclass(frozen=True)
@@ -777,6 +789,8 @@ class InputField:
             return self._handle(value)
         if self.kind is InputKind.IDENTITY:
             return self._identity(value)
+        if self.kind is InputKind.CONVERSATION:
+            return self._conversation(value)
         if self.kind is InputKind.MAPPING:
             return self._mapping(value)
         if self.kind is InputKind.REF:
@@ -826,6 +840,23 @@ class InputField:
             return text
         raise ValueError(f"{self.name}: {text!r} is not a principal — expected "
                          "name@domain or a directory object id, not a display name")
+
+    def _conversation(self, value: Any) -> str:
+        """One opaque provider conversation id — where this run's result is announced.
+
+        Checked the way `_identity` checks a principal, and for the same reason: this is a
+        DESTINATION, so it has to resolve at the provider. A URL is refused (somewhere the lab was
+        told to post is not the same thing as a conversation the provider knows), whitespace is
+        refused (an id has none), and the length is bounded so a field meant to hold
+        `19:meeting_...@thread.v2` cannot become a place to carry prose.
+        """
+        text = value.strip() if isinstance(value, str) else ""
+        if not text or any(c.isspace() for c in text) or "://" in text:
+            raise ValueError(f"{self.name} must be an opaque conversation id, got {value!r}")
+        if len(text) > MAX_CONVERSATION_CHARS:
+            raise ValueError(f"{self.name} is {len(text)} characters, longer than the "
+                             f"{MAX_CONVERSATION_CHARS} an id may be")
+        return text
 
     def _mapping(self, value: Any) -> dict[str, dict[str, str]]:
         """A small flat object of label -> {field: value}: a human's answer, carried into the next run.
@@ -982,6 +1013,13 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
         InputField("owner", InputKind.IDENTITY,
                    "The meeting organiser, recorded as the owner of the resulting minutes.",
                    required=False),
+        InputField("chat_id", InputKind.CONVERSATION,
+                   "Optional id of the meeting's own conversation, as the collaboration provider "
+                   "reports it. Where the finished minutes are ANNOUNCED — the outputs are written "
+                   "beside the recording either way, and this is what lets somebody be told. Only "
+                   "the meeting_to_transcript run that resolved the meeting knows it, so it is "
+                   "carried across the approval rather than looked up again; a run without it "
+                   "delivers its files and stays quiet.", required=False),
         InputField("recording", InputKind.HANDLE,
                    "Optional collab://recording/<meeting>/<id> handle of the recording this "
                    "transcript came from. Its SCOPE is the meeting, so passing it is what lets the "

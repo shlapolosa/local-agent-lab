@@ -1,4 +1,4 @@
-# Power Automate: a saved meeting recording becomes a transcript, and a question for a human
+# Power Automate: a saved meeting recording becomes a transcript, and the meeting hears back
 
 This folder holds a client template for a Power Automate cloud flow that watches for a Teams meeting
 recording landing in OneDrive, starts the lab's `meeting_to_transcript` process, waits for it to
@@ -15,6 +15,15 @@ Read `../README.md` first for the client convention this folder follows: committ
 deployment live only in `.env`.
 
 ## Files
+
+`flow.template.json` is the flow described by most of this document: a recording becomes a run, and a
+question reaches a person.
+
+`notify.template.json` is a **second, much smaller flow** going the other way — the lab pushes to it
+when a minutes run has written its outputs back into the tenant, and it posts a message in the
+meeting's own chat. It is described in *The second flow* at the end of this document. The two are
+separate flows on purpose: one is triggered by a file appearing and the other by the lab, they fail
+for unrelated reasons, and neither should be able to stop the other.
 
 `flow.template.json` is a Logic Apps workflow definition — the `triggers` and `actions` of the flow,
 in the schema Power Automate itself stores. It is a working starting point to adapt in the designer,
@@ -451,3 +460,80 @@ run whose approval is declined. If you need those, read the process contract in
 `src/lab/platform/contracts.py` or call `GET ${GATEWAY_URL}/api/processes`, which returns every
 process with its inputs, their descriptions and its declared outputs — it is meant to be read by
 whoever is building a flow.
+
+
+# The second flow: telling the meeting its outputs exist
+
+`notify.template.json`. Two actions, no polling, and nothing to configure but a connection.
+
+## Why a flow at all, rather than the lab posting
+
+Microsoft Graph will not create a chat message with application permissions — that path exists for
+migration and nothing else — and this lab authenticates as an application by design (the
+provider-identity rule: the caller's credential authorises the call to the MCP, the server's own
+registration authorises the call to the provider). On-behalf-of is blocked on identity propagation
+gateway → MCP. So no amount of consent lets the lab post as itself; the only things that can are a
+registered bot or something already holding a person's Teams connection, and a Power Automate
+connection is exactly the second. Uploading the files is the opposite: `Files.ReadWrite.All` is
+enough, so the lab does that part itself and this flow only announces it.
+
+The alternative shape — this flow polling `<process>_status` until the minutes finish — was rejected.
+A flow sitting in a Do-until for the length of an unknown run is a worse thing to operate than a push,
+and the lab already pushes outward to a Workflows webhook for approvals.
+
+## What the lab sends
+
+`lab.substrate.meeting_notifier` POSTs one JSON body per finished run, and only when there is
+something to say: the process was `transcript_to_minutes`, it finished `done`, it resolved a
+`chat_id`, and it actually delivered files. An ad-hoc "Meet now" recording resolves no meeting, so
+nothing is sent — silence is the common case, not the failure case.
+
+```json
+{"chat_id": "19:meeting_...@thread.v2", "request_id": "wfr-...",
+ "files": [{"name": "sync.transcript.md", "url": "https://...", "handle": "collab://item/..."}],
+ "decisions": 3, "actions": 2, "speakers": 4}
+```
+
+**No meeting title.** The lab does not have one: a minutes run is a continuation started from a
+transcript reference, and the title is free text a person typed, which the input contract keeps out
+by design. The message posts into the meeting's own conversation, where the title is already on
+screen, so it says "the minutes for this meeting" rather than carrying an empty field.
+
+Counts, names, ids and links — never the minutes text, the transcript, or who said what. The outputs
+live in the tenant behind the recording folder's own permissions, and this says **where** they are,
+not **what** they say. A person who cannot open the folder gets a link that does not work, which is
+the correct outcome.
+
+`url` is the address a person opens. The `handle` beside it addresses bytes for a tool and is in the
+payload only so a later flow could act on the file; it is deliberately not put in front of anyone.
+
+## Setting it up
+
+1. In Teams, **Workflows → Create → From blank**, trigger *"When a Teams webhook request is
+   received"* — the same trigger the approval channel uses. Set *Who can trigger the flow* to **Anyone**
+   (the lab sends no credential; the URL is the secret, exactly as for `TEAMS_WEBHOOK_URL`).
+2. Paste the schema from `notify.template.json` into the trigger's **Request Body JSON Schema**.
+3. Add **Select** (`Build_links`) and **Post message in a chat or channel** as in the template.
+4. Save, copy the generated URL, and put it in `.env` as `MEETING_WEBHOOK_URL`. Then
+   `deploy/railway.py substrate up` so `meeting-notifier` picks it up. **Unset, the notifier still
+   runs and logs what it would have posted** — which is the right way to watch it before wiring the
+   destination.
+
+## `poster: User` or `poster: Flow bot`
+
+The template uses **User**: the message appears as the owner of this flow's Teams connection, who
+must be a member of the meeting chat. That is the honest option when the flow owner is the person who
+ran the meeting, and it is the one to start with.
+
+**Flow bot** posts as a bot instead, which avoids attributing a machine's message to a person, but the
+bot has to be able to reach the chat. Meeting chats are the surface where this is least predictable,
+so verify it in a real meeting before choosing it — a message that silently does not arrive is worse
+than one from the wrong sender.
+
+## What is not verified here
+
+The `chat_id` the lab sends is `chatInfo.threadId` as Graph reports it, which is documented as the
+meeting chat's thread id and is the id the Teams connector wants for a group chat. **That pairing has
+not been run end to end against a scheduled meeting** — every recording tested so far was ad-hoc and
+resolved no meeting at all. Nor has whether a meeting chat accepts a post from a connection that
+joined the meeting but did not organise it.

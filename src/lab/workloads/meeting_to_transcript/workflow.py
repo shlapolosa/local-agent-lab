@@ -213,10 +213,15 @@ def build_workflow(cfg):
             # later as a human approving and nothing happening.
             # `recording` rides along because its SCOPE is the meeting id: it is what lets the
             # minutes run name the meeting it is about, with no second lookup and no new tool.
+            # `chat_id` rides along for the same reason and cannot be recovered any other way: THIS
+            # run resolved the meeting, and the minutes run is a continuation that never sees it.
+            # Omitted when no meeting was resolved (an ad-hoc recording), which is what makes the
+            # minutes run deliver its files and then stay quiet rather than guess a destination.
             cont = Continuation(process=TRANSCRIPT_TO_MINUTES.name,
                                 inputs={"transcript": state["transcript_ref"],
                                         "owner": state["owner"],
-                                        "recording": state["recording"]},
+                                        "recording": state["recording"],
+                                        "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await _call(cfg, ApprovalTools.ask, {
                 "subject": f'{state.get("recording_name") or "meeting"} — who is speaking?',

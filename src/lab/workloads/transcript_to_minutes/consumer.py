@@ -14,8 +14,10 @@ PROCESS = "transcript_to_minutes"
 async def _run(root, req, on_trace):
     return await run_once(root, req.inputs["transcript"], req.inputs.get("speaker_map") or {},
                           req.inputs.get("owner", ""),
-                          # carried from the transcript run's continuation: its scope is the meeting
-                          recording=req.inputs.get("recording", ""), on_trace=on_trace)
+                          # both carried from the transcript run's continuation: the recording's
+                          # scope is the meeting, and the chat id is where its outputs are announced
+                          recording=req.inputs.get("recording", ""),
+                          chat_id=req.inputs.get("chat_id", ""), on_trace=on_trace)
 
 
 def _describe(req) -> str:

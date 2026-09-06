@@ -26,6 +26,11 @@ TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Tele
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
 TEAMS_WEBHOOK_URL  = _e("TEAMS_WEBHOOK_URL")                              # Teams approval channel: incoming
                                                                           #  webhook; unset = channel disabled
+# Where the meeting notifier POSTs. A Power Automate "when a webhook request is received" flow
+# that posts into the meeting's own chat — Graph refuses to let an application post one, so
+# something holding a person's connection must. Unset = the notifier logs what it would say,
+# which is what makes the whole path testable without a tenant.
+MEETING_WEBHOOK_URL = _e("MEETING_WEBHOOK_URL", "")
 JAEGER_UI_URL    = _e("JAEGER_UI_URL", "http://127.0.0.1:16686")
 
 # --- how servers listen ---
@@ -117,6 +122,7 @@ GRAPH_MAX_UPLOAD_BYTES = int(_e("GRAPH_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
 # is used, which simply means uploads refuse for want of the permission.
 GRAPH_WRITER_CLIENT_ID = _e("GRAPH_WRITER_CLIENT_ID", "")
 GRAPH_WRITER_CLIENT_SECRET = _e("GRAPH_WRITER_CLIENT_SECRET", "")
+
 # Change-notification destinations: egress to a caller-supplied URL, so an EMPTY list REFUSES every
 # subscription rather than allowing all. Comma-separated URL prefixes.
 GRAPH_NOTIFICATION_ALLOWLIST = tuple(u.strip() for u in (_e("GRAPH_NOTIFICATION_ALLOWLIST") or "").split(",") if u.strip())

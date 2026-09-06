@@ -54,4 +54,24 @@ def reset() -> None:
         _CLIENTS.clear()
 
 
-__all__ = ["client", "reset", "DEFAULT_MAX_CONNECTIONS", "SOCKET_TIMEOUT_S"]
+def blocking_read(read, block_ms):
+    """Run a BLOCKING stream read, translating a socket timeout into "nothing arrived".
+
+    The ONE home for this rule, because getting it wrong is expensive and has been paid for once: two
+    things go wrong with `XREAD ... BLOCK`. This client is built with `socket_timeout=SOCKET_TIMEOUT_S`,
+    so a block at or above that timeout races the socket read — and at exactly 5000 ms against a 5 s
+    timeout (what every channel used) the socket usually wins, raising `redis.TimeoutError` out of the
+    loop and KILLING the process within seconds of starting; that is how the Teams channel died on its
+    first run. So the block is CLAMPED below the socket timeout, and the exception is still caught,
+    because a slow network can produce it anyway. An expired block means no events, which is `[]`.
+
+    `read` takes the block in milliseconds (None for "do not block") and returns the raw stream reply.
+    """
+    limit = int(SOCKET_TIMEOUT_S * 1000) - 500
+    try:
+        return read(min(block_ms, limit) if block_ms else None) or []
+    except redis.TimeoutError:
+        return []
+
+
+__all__ = ["client", "reset", "blocking_read", "DEFAULT_MAX_CONNECTIONS", "SOCKET_TIMEOUT_S"]

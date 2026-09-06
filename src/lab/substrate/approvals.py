@@ -173,24 +173,6 @@ def human_decision(request_id, decision, actor, channel, comment="", *, answer=N
         raise
 
 
-def _blocking(r, read, block_ms):
-    """Run a BLOCKING stream read, translating a socket timeout into "nothing arrived".
-
-    Two things go wrong with `XREAD ... BLOCK` and they cost a channel its life. The client is built
-    with `socket_timeout=redis_client.SOCKET_TIMEOUT_S`, so a block at or above that timeout races the
-    socket read — and at exactly 5000 ms against a 5 s timeout (what every channel used) the socket
-    usually wins, raising `redis.TimeoutError` out of the loop and killing the process within seconds
-    of starting. The block is therefore CLAMPED below the socket timeout so the normal path never
-    depends on an exception, and the exception is still caught because a slow network can produce it
-    anyway. An expired block means no events, which is `[]` — not a failure.
-    """
-    limit = int(redis_client.SOCKET_TIMEOUT_S * 1000) - 500
-    try:
-        return read(min(block_ms, limit) if block_ms else None) or []
-    except redis.TimeoutError:
-        return []
-
-
 def ensure_decision_groups(r=None):
     """Consumer groups on the DECISIONS stream — the request-side `ensure_groups` twin. Idempotent."""
     r = _r(r)
@@ -208,7 +190,7 @@ def decision_events(group, consumer="1", block_ms=0, count=10, pending_only=Fals
     r = _r(client)
     ensure_decision_groups(r)
     streams = {DEC: "0" if pending_only else ">"}
-    got = _blocking(r, lambda b: r.xreadgroup(group, consumer, streams, count=count, block=b), block_ms)
+    got = redis_client.blocking_read(lambda b: r.xreadgroup(group, consumer, streams, count=count, block=b), block_ms)
     for _stream, entries in got:
         for eid, fields in entries:
             yield eid, fields
@@ -245,7 +227,7 @@ RECLAIM_IDLE_MS = 60_000   # an entry taken but unacked this long is presumed ab
 
 
 def _fresh(r, channel, me, count, block_ms):
-    res = _blocking(r, lambda b: r.xreadgroup(channel, me, {REQ: ">"}, count=count, block=b), block_ms)
+    res = redis_client.blocking_read(lambda b: r.xreadgroup(channel, me, {REQ: ">"}, count=count, block=b), block_ms)
     return [(eid, f) for _, entries in res for eid, f in entries] if res else []
 
 

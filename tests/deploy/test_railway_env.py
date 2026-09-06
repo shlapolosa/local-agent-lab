@@ -138,6 +138,7 @@ FAKE = {
     "AGENT_RESPONSES_STORE": "false", "VISIO_DIAGRAM": "art://x/y.vsdx", "VISIO_REQUIREMENTS": "",
     "BA_MAX_DOC_CHARS": "60000", "BA_MODE": "json", "ARCHITECT_MODE": "json",
     "TELEGRAM_BOT_TOKEN": "tg", "TELEGRAM_CHAT_ID": "tg", "TEAMS_WEBHOOK_URL": "https://hook",
+    "MEETING_WEBHOOK_URL": "https://flow.example/notify",
     # collaboration adapter (graph-mcp)
     "COLLAB_PROVIDER": "graph", "GRAPH_CLIENT_ID": "g", "GRAPH_CLIENT_SECRET": "g",
     "GRAPH_AUTH_MODE": "app", "GRAPH_BASE_URL": "https://graph.example", "GRAPH_MEETING_USER": "c@l",
@@ -291,6 +292,18 @@ def test_a_channel_receives_only_its_own_settings_and_the_links_it_shows_a_human
                         "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "BA_", "ARCHITECT_", "ENTRA_",
                         "MICROSOFT_", "GATEWAY_URL", "REVIEW_APP_PASSWORD"), role
     assert "TEAMS_WEBHOOK_URL" not in tg and "TELEGRAM_BOT_TOKEN" not in tm
+
+
+def test_the_meeting_notifier_gets_redis_and_one_url_and_nothing_else():
+    """It reads a finished run's state and POSTs ids, names, links and counts to ONE configured URL.
+    It never opens an artifact it announces, never calls the provider and never calls the gateway —
+    so it holds no store, no bucket, no Graph credential and no model key. Announcing a result is
+    the least privileged thing in the substrate, and its env should show that."""
+    env = railway.env_for_role("meeting-notifier", FAKE)
+    assert set(env) == {"REDIS_URL", "MEETING_WEBHOOK_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"}
+    assert not _has(env, "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_", "GRAPH_", "SPEECH_",
+                    "ADOIT_", "LITELLM_", "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "ENTRA_",
+                    "GATEWAY_URL", "TEAMS_WEBHOOK_URL", "TELEGRAM_")
 
 
 def test_a_channel_is_a_substrate_service_only_while_it_is_configured():

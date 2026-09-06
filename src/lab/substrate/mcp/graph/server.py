@@ -136,6 +136,10 @@ def _item(i) -> dict:
             # the folder it sits in, addressable — this is what collab_put wants as its `folder`
             "parent": i.parent or None,
             "parent_handle": str(i.parent_handle) if i.parent else None}
+# Deliberately NOT here: `DriveItem.url`. A listing's results land in an agent's context, and a
+# personal drive's URL embeds its owner — so it is returned only by `collab_put`, whose caller is
+# announcing a file it just wrote to a person. Add it to a listing when something needs it, not
+# before.
 
 
 def _meeting(m) -> dict:
@@ -357,15 +361,17 @@ def collab_put(folder: str, ref: str, name: str = "") -> dict:
 
     Small on purpose: this exists for documents the lab authored — minutes, an attributed
     transcript — and it refuses anything over the simple-upload ceiling with a sentence rather than
-    silently opening a resumable session. Returns {id, name, handle, bytes, content_type, folder}."""
+    silently opening a resumable session. Returns {id, name, handle, url, bytes, content_type,
+    folder} — `url` being the address to put in front of a PERSON, which opening still meets the
+    provider's own permissions to read."""
     parent = _handle(folder)
     data = server.uploads().get(ref)
     filename = _filename(name) if name else _filename(str(ref).rsplit("/", 1)[-1])
     media_type = content_type_for(filename)
     item = server.collab().put(parent, filename, data, media_type)
     span().set_attributes({"collab.bytes": len(data), "collab.content_type": media_type})
-    return {"id": item.id, "name": item.name, "handle": str(item.handle), "bytes": len(data),
-            "content_type": media_type, "folder": str(parent)}
+    return {"id": item.id, "name": item.name, "handle": str(item.handle), "url": item.url,
+            "bytes": len(data), "content_type": media_type, "folder": str(parent)}
 
 
 # ----------------------------------------------------------------------------- subscriptions (WRITE)

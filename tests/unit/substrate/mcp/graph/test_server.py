@@ -422,6 +422,10 @@ def test_no_span_attribute_carries_a_person_or_caller_free_text(uploads):
         call(srv.server, CollabTools.fetch, handle=f"collab://recording/{meeting}/rec-1")
         call(srv.server, CollabTools.watch, resource=f"/users/{person}/drive/root",
              notification_url="https://flow.example/hook")
+        # the put RESULT carries a webUrl, and a personal drive's URL contains its owner — the one
+        # field on a DriveItem that can name a person, and the reason no LISTING returns it
+        call(srv.server, CollabTools.put, folder=f"collab://item/{person}-drive/folder-9",
+             ref=uploads.stage("minutes.json", b"{}"))
 
     values = [str(v) for span in exporter.get_finished_spans()
               for v in (span.attributes or {}).values()]
@@ -516,6 +520,10 @@ def test_put_writes_an_artifact_into_a_folder_and_names_what_it_became(server):
     written = server.collab().written[0]
     assert written["folder"] == "collab://item/drive-1/folder-9"
     assert written["content"] == b'{"summary": "we shipped"}', "the bytes are the store's, unaltered"
+    # ...and the address a PERSON opens it at. A handle addresses bytes for a tool and an id
+    # addresses a write; neither can be put in a message, so without this the notification that
+    # tells a meeting its outputs exist has nothing to link to.
+    assert out["url"] and out["url"].startswith("http")
 
 
 def test_put_refuses_a_folder_that_is_not_one(server):

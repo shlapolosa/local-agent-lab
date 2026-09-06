@@ -199,7 +199,10 @@ class FakeGraph:
         if "/" in str(name) or "\\" in str(name) or not str(name).strip():
             raise ValueError(f"a file needs a name, not a path ({name!r})")
         item = DriveItem(id=f"put-{len(self.written) + 1}", name=str(name), drive_id=handle.scope,
-                         size=len(content))
+                         size=len(content),
+                         # a real provider answers with the address a person opens it at, and the
+                         # notification path is built on it — a fake without one hides that
+                         url=f"https://example.invalid/{handle.scope}/{name}")
         self.written.append({"folder": str(handle), "name": str(name), "bytes": len(content),
                              "media_type": media_type, "content": bytes(content)})
         return item

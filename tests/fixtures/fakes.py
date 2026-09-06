@@ -200,10 +200,16 @@ class FakeRedis:
 
     # --- streams
     @_op
-    def xadd(self, stream, fields, **kw):
+    def xadd(self, stream, fields, maxlen=None, approximate=True, **kw):
         self._seq += 1
         eid = f"{1700000000000 + self._seq}-0"
-        self.x.setdefault(stream, []).append((eid, {f: str(v) for f, v in fields.items()}))
+        entries = self.x.setdefault(stream, [])
+        entries.append((eid, {f: str(v) for f, v in fields.items()}))
+        # `maxlen` is HONOURED, not ignored: a producer that thinks it bounded a stream and did not
+        # is a fake that hides an unbounded one. Trimmed exactly — `approximate` is a real server's
+        # licence to trim lazily, and a fake has no reason to take it.
+        if maxlen is not None and len(entries) > maxlen:
+            del entries[:len(entries) - maxlen]
         return eid
 
     @_op

@@ -170,12 +170,20 @@ These rules define the lab; do not violate them when adding code:
   m365/office365/entra — `graph-mcp` serves the neutral alias **`collab_mcp`** (catalogue `CollabTools`),
   whose PORT is `lab.core.collab.CollabRepository` and whose adapter is chosen from `COLLAB_PROVIDERS`
   by the `COLLAB_PROVIDER` setting: a Google Workspace or Box adapter is one registry line.
-  **Content is never returned inline** — a listing mints a `collab://` handle and `collab_fetch` is the
-  ONLY verb that moves bytes, streaming them into the upload store and returning an `art://` ref the
-  workload reads through storage-mcp (a recording is gigabytes; an agent's context is not).
+  **Content is never returned inline, and never passed inline** — a listing mints a `collab://` handle,
+  and the only two verbs that move bytes take or give a REFERENCE: `collab_fetch` streams content IN,
+  into the upload store, returning an `art://` ref the workload reads through storage-mcp; `collab_put`
+  writes ONE small artifact OUT, by `art://` ref into a folder named by handle, replacing a file of the
+  same name so a re-run corrects its own output (a recording is gigabytes; an agent's context is not).
+  `collab_put` answers with the item it became INCLUDING the `url` a person opens — the third distinct
+  way of naming one file, and the only one that can go in a message: a handle addresses bytes for a
+  tool, an id addresses a write, and a person can use neither. That `url` can embed its owner, so it
+  goes to people and never onto a span.
   **`collab_mcp` and `workflow_mcp` each split READ from WRITE** — subscription management is egress to
   a CALLER-SUPPLIED url plus a durable tenant-side object, so it needs its own grant and must never
-  reach a workload's own agents (ratcheted for every catalogue carrying a `WRITE` tuple).
+  reach a workload's own agents (ratcheted for every catalogue carrying a `WRITE` tuple). `CollabTools`
+  splits its own WRITE further into `SUBSCRIBE` and `PUT`: the two have different blast radii, so the
+  minutes workload holds `collab_put` and no subscription verb.
   **Provider identity, not the caller's**: the caller's credential authorises the call to the MCP; the
   SERVER's own app registration authorises the call to the provider. So the app's permissions are the
   ceiling for every caller, per-caller narrowing is the gateway's per-tool ACL, and the provider-side
@@ -840,7 +848,30 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   **Stated exception to gateway-only egress**: a channel posts outward DIRECTLY (Telegram API, Teams
   webhook). That is SUBSTRATE egress, never a workload's, to a fixed configured URL, carrying only
   counts, ids and links — no model content. A NEW outbound path either goes through the gateway or is
-  added here deliberately.
+  added here deliberately. **`src/lab/substrate/meeting_notifier.py` is the second one so added**: a
+  substrate service consuming the `workflow:finished` stream that POSTs `{chat_id, subject, files:
+  [{name, url}], counts}` to `MEETING_WEBHOOK_URL` when a `transcript_to_minutes` run has written its
+  outputs back into the tenant — so the meeting's own chat gets a link to them. Same bounds as a
+  channel (fixed URL, ids/names/links/counts, never minutes or transcript text) plus: only a DONE run,
+  only one that resolved a `chat_id` AND delivered files. It ACKS when the work is done and leaves a
+  FAILED SEND unacked — `workflows.finished_events` reclaims it (XAUTOCLAIM, like a channel), so a
+  webhook outage delays a meeting's message instead of dropping it; a `notify:sent:<id>` marker set
+  AFTER the send keeps at-least-once from becoming twice, and the reason lands on the run itself
+  (`workflows.annotate`, never `mark` — `mark` would republish and feed the notifier its own failure).
+  **The `chat_id` is CARRIED, not looked up**: only the `meeting_to_transcript` run resolves the
+  meeting, and the minutes run is a continuation started from a transcript reference that never sees
+  one — so it rides the approval as `InputKind.CONVERSATION` (an opaque provider id: no whitespace, no
+  URL, bounded), and a run without one delivers its files and stays quiet. There is deliberately no
+  meeting TITLE anywhere in this path: it is free text the input contract keeps out, and the message
+  lands in the meeting's own conversation where the title is already on screen.
+  **The publish is guarded**: `mark()` appends to `workflow:finished` inside a `try` because
+  `consumer.handle` marks a run FAILED from the `except` around it — an XADD that raised would record
+  a run that had already succeeded as a failure. Closing a run is required; announcing it is extra. It exists because **Graph refuses to create a chat
+  message with application permissions** (migration-only) while the lab authenticates as an
+  application, so a Power Automate flow holding a person's Teams connection does the posting
+  (`config/clients/power-automate/notify.template.json`); UPLOADING needs only `Files.ReadWrite.All`,
+  so the lab does that itself via `collab_put`. Unset `MEETING_WEBHOOK_URL` = it logs what it would
+  post, which is how to watch it before wiring a destination.
 - Requests carry the OTel `trace_id` of the run that produced the model, so a reviewer can
   open the exact trace from the review app.
 

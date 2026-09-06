@@ -132,7 +132,10 @@ def drive_item(js: dict, drive_id: str = "") -> DriveItem:
                      modified=js.get("lastModifiedDateTime", ""), path=_folder_path(parent),
                      # the same folder as an ID: a path is for reading, an id is what a write can be
                      # addressed to. Encoded like every other id this adapter hands out.
-                     parent=encode_id(parent["id"]) if parent.get("id") else "")
+                     parent=encode_id(parent["id"]) if parent.get("id") else "",
+                     # what a person clicks. Graph returns it on every driveItem; it is not an id and
+                     # must never be treated as one — it is for a message, not for a lookup.
+                     url=str(js.get("webUrl") or ""))
 
 
 def _folder_path(parent: dict) -> str:

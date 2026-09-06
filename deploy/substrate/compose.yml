@@ -93,6 +93,10 @@ services:
     <<: *sub                  # no store, no bucket, no model, no provider credential, no ingress.
     command: ["python", "-m", "lab.substrate.continuations"]
 
+  meeting-notifier:           # tells a meeting its minutes exist. Redis + one webhook, nothing else:
+    <<: *sub                  # it announces ids and links, and never opens what it announces.
+    command: ["python", "-m", "lab.substrate.meeting_notifier"]
+
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]

@@ -160,7 +160,14 @@ class DriveItem:
     `parent` is that same folder as an ID rather than a path, and the two are not interchangeable: a
     path is for a person to read, an id is what a write can be addressed to. Something given one file
     and asked to put its outputs BESIDE it has only this to go on — a path would have to be resolved
-    back to an id first, which is a second call and a second chance to resolve the wrong thing."""
+    back to an id first, which is a second call and a second chance to resolve the wrong thing.
+
+    `url` is the address a PERSON opens this at, as the provider reports it — the third distinct way
+    of naming the same file, and the only one a human can use. A handle addresses bytes for a tool
+    and an id addresses a write; neither is something you can put in a message and expect someone to
+    click. It grants nothing: opening it still meets the provider's own permissions. It is also the
+    one field here that can embed a person (a personal drive's URL contains its owner), so it is
+    carried to people and never onto a span."""
 
     id: str
     name: str
@@ -170,6 +177,7 @@ class DriveItem:
     modified: str = ""
     path: str = ""
     parent: str = ""
+    url: str = ""
 
     def __post_init__(self) -> None:
         _require_id("drive item", self.id)

@@ -128,7 +128,9 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
                       (state["minutes_ref"], f"{stem}.minutes.json")):
         out = await _call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
         written.append({"name": out.get("name", name), "handle": out.get("handle", ""),
-                        "bytes": out.get("bytes", 0)})
+                        # the address a person opens — without it the meeting gets a notice it
+                        # cannot act on, which is the same as no notice
+                        "url": out.get("url", ""), "bytes": out.get("bytes", 0)})
     return {"delivered": written, "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
             "delivery": f"{len(written)} file(s) beside the recording"}
 

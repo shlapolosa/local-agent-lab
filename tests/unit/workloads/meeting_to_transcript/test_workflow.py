@@ -263,8 +263,9 @@ def test_approving_the_mapping_releases_the_minutes_run(gw):
 
 
 # ------------------------------------------------------------------ who the human can PICK
+CHAT = "19:meeting_ZmFrZQ@thread.v2"
 MEETINGS = {"items": [{"id": "m-other", "subject": "standup", "participants": ["x@contoso.com"]},
-                      {"id": "meeting-1", "subject": "weekly sync",
+                      {"id": "meeting-1", "subject": "weekly sync", "chat_id": CHAT,
                        "participants": ["maria@contoso.com", "sam@contoso.com", ""]}]}
 RECS = {"m-other": {"items": [{"handle": "collab://recording/m-other/rec-9"}]},
         "meeting-1": {"items": [{"handle": HANDLE}]}}
@@ -341,4 +342,30 @@ def test_a_run_with_no_resolvable_meeting_still_carries_the_recording(gw):
     """`gw` cannot answer collab_meetings, so nothing resolves — the continuation must still carry
     the handle, because the minutes run can name the meeting from it even when this lookup failed."""
     _run()
-    assert gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]["recording"] == HANDLE
+    inputs = gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]
+    assert inputs["recording"] == HANDLE
+    assert not inputs["chat_id"], "and no conversation is invented for a meeting nobody could name"
+
+
+# ------------------------------------------------------------------ the seam to the minutes run
+def test_the_conversation_to_announce_in_crosses_the_approval(gw, monkeypatch):
+    """The ONLY path by which the minutes run can learn where to announce itself. It is a
+    continuation: it is started from a transcript reference and never sees the meeting, so a chat id
+    it does not receive here cannot be recovered later at any price. This run resolved the meeting
+    for the picker anyway, so carrying it costs nothing and needs no second lookup."""
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    _run()
+    assert gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]["chat_id"] == CHAT
+
+
+def test_the_continuation_is_something_the_minutes_run_would_actually_accept(gw, monkeypatch):
+    """The seam this pipeline broke on once: both halves passed their own tests while the inputs one
+    produced were not the inputs the other could take. So validate what THIS run emits against the
+    OTHER process's own contract, with the human's answer bound as the runner would bind it."""
+    from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, continuation_of
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    _run()
+    cont = continuation_of({"continuation": gw.args_for(ApprovalTools.ask)["continuation"]})
+    answered = dict(cont.inputs) | {cont.answer_input: {"SPEAKER_00": {"tag": "a vendor"}}}
+    validated = TRANSCRIPT_TO_MINUTES.validate(answered)
+    assert validated["chat_id"] == CHAT and validated["recording"] == HANDLE

@@ -1,0 +1,71 @@
+{
+  "//": "The MEETING NOTIFIER's other half. The lab POSTs one JSON body here when a minutes run has written its outputs back into the tenant; this flow turns that into a message in the MEETING'S OWN CHAT. It exists because Microsoft Graph refuses to create a chat message with application permissions (that path is migration-only) and the lab authenticates as an application by design — so the only thing that can post as a person is something already holding a person's Teams connection, which is exactly what a Power Automate connection is. Two actions and no polling: the lab pushes when there is something to say, and stays silent otherwise.",
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {"defaultValue": {}, "type": "Object"},
+    "$authentication": {"defaultValue": {}, "type": "SecureObject"}
+  },
+  "triggers": {
+    "When_a_Teams_webhook_request_is_received": {
+      "//": "The SAME trigger the approval channel uses (TEAMS_WEBHOOK_URL) — a Workflows webhook, not an O365 connector, which Microsoft disabled between 18 and 22 May 2026. Copy the URL it generates after saving into `.env` as MEETING_WEBHOOK_URL and redeploy the notifier. The schema below is what `lab.substrate.meeting_notifier.announcement()` sends; keep the two in step, because a field missing from the schema is silently absent in the designer rather than an error.",
+      "type": "Request",
+      "kind": "Teams",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "chat_id": {"type": "string"},
+            "request_id": {"type": "string"},
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "url": {"type": "string"},
+                  "handle": {"type": "string"}
+                }
+              }
+            },
+            "decisions": {"type": "integer"},
+            "actions": {"type": "integer"},
+            "speakers": {"type": "integer"}
+          },
+          "required": ["chat_id", "files"]
+        }
+      }
+    }
+  },
+  "actions": {
+    "Build_links": {
+      "//": "STEP 1. One list item per delivered file. A Select, so the message does not have to know how many files there are — today it is two (the attributed transcript and the minutes) and a third would need no change here. `url` is the address a PERSON opens; the `handle` in the same payload addresses bytes for a tool and is deliberately not put in front of anyone.",
+      "type": "Select",
+      "inputs": {
+        "from": "@triggerBody()?['files']",
+        "select": "@{concat('<li><a href=\"', item()?['url'], '\">', item()?['name'], '</a></li>')}"
+      },
+      "runAfter": {}
+    },
+    "Post_in_the_meeting_chat": {
+      "//": "STEP 2. 'Post message in a chat or channel' (operationId PostMessageToConversation), location 'Group chat', recipient taken from the body. No meeting TITLE in the message: the lab never has it (a minutes run is a continuation started from a transcript reference, not from a meeting) and this posts into the meeting's own conversation, where the title is already on screen — that is the whole point: the destination is the meeting's own conversation, resolved by the lab from the recording, never a chat picked here. `chat_id` is the meeting's threadId as Graph reports it (19:meeting_...@thread.v2). Poster 'User' posts as the OWNER of this flow's Teams connection, who must be a member of that chat; 'Flow bot' is the alternative and needs the bot to be able to reach the chat. See README for which to choose.",
+      "type": "OpenApiConnection",
+      "inputs": {
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+          "connectionName": "shared_teams",
+          "operationId": "PostMessageToConversation"
+        },
+        "parameters": {
+          "poster": "User",
+          "location": "Group chat",
+          "body/recipient": "@triggerBody()?['chat_id']",
+          "body/messageBody": "<p>The minutes for this meeting are ready.</p><p>@{triggerBody()?['speakers']} speaker(s) &middot; @{triggerBody()?['decisions']} decision(s) &middot; @{triggerBody()?['actions']} action(s)</p><ul>@{join(body('Build_links'), '')}</ul><p>They are saved beside the recording; opening them still needs your usual access to that folder.</p>"
+        },
+        "authentication": "@parameters('$authentication')"
+      },
+      "runAfter": {"Build_links": ["Succeeded"]}
+    }
+  },
+  "outputs": {}
+}

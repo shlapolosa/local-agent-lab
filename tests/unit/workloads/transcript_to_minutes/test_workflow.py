@@ -255,6 +255,19 @@ def test_the_handle_is_kept_whatever_its_kind():
         assert _meeting_from(h, "art://a/x.json")["recording"] == h
 
 
+def test_where_to_announce_is_carried_in_and_is_independent_of_naming_the_meeting():
+    """The half of the seam this side owns, and it is deliberately NOT derived from anything here.
+
+    A run can know exactly which conversation to tell and still have no meeting id of its own: the
+    producer that watches a folder sends an ITEM handle, whose scope is a DRIVE. Tying the
+    announcement to `resolved` would therefore silence the common case."""
+    from lab.workloads.transcript_to_minutes.host import _meeting_from
+    m = _meeting_from("collab://item/b!drive-1/01FILE", "art://a/x.json", "19:m@thread.v2")
+    assert m["chat_id"] == "19:m@thread.v2" and m["resolved"] is False
+    assert _meeting_from("collab://item/b!d/01F", "art://a/x.json")["chat_id"] == "", \
+        "and a run told nothing announces nothing rather than guessing a destination"
+
+
 # ---------------------------------------------------------------- putting the outputs back
 ITEM = {"id": "01FILE", "name": "weekly sync.mp4", "drive_id": "b!d", "folder": False,
         "parent": "01FOLDER", "parent_handle": "collab://item/b!d/01FOLDER"}
@@ -262,7 +275,8 @@ ITEM = {"id": "01FILE", "name": "weekly sync.mp4", "drive_id": "b!d", "folder": 
 
 def _delivering(gw, item=ITEM):
     gw.answers[W.CollabTools.item] = item
-    gw.answers[W.CollabTools.put] = {"name": "x", "handle": "collab://item/b!d/01NEW", "bytes": 10}
+    gw.answers[W.CollabTools.put] = {"name": "x", "handle": "collab://item/b!d/01NEW", "bytes": 10,
+                                     "url": "https://lab.sharepoint.example/Recordings/x"}
     return gw
 
 
@@ -277,6 +291,9 @@ def test_the_outputs_are_written_into_the_folder_the_recording_sits_in(gw):
     names = [a["name"] for a in gw.args_for(W.CollabTools.put)]
     assert names == ["weekly sync.transcript.md", "weekly sync.minutes.json"]
     assert len(out["delivered"]) == 2 and out["chat_id"] == "19:t@thread.v2"
+    # each with the address a person opens, which is the whole point of announcing them: a chat
+    # message can carry a link, and can carry neither a handle nor an id
+    assert all(f["url"] for f in out["delivered"])
 
 
 def test_only_the_prose_transcript_leaves_the_lab(gw):

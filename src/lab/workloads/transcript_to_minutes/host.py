@@ -37,7 +37,8 @@ def run_fields(out: dict) -> dict:
 
 
 async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
-                   meeting: dict | None = None, recording: str = "", on_trace=None) -> dict:
+                   meeting: dict | None = None, recording: str = "", chat_id: str = "",
+                   on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> minutes in the semantic layer."""
     tr, r = root.tracer(), root.redis()
     with tr.start_as_current_span("transcript-to-minutes-run") as span:
@@ -67,7 +68,7 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
         # collab://recording/<meeting>/<record>, so its SCOPE is the meeting and no lookup is
         # needed. Without one we fall back to the transcript's own label — which is honest but is
         # NOT a meeting id, so anything writing back beside the meeting must check `resolved`.
-        meeting = meeting or _meeting_from(recording, transcript)
+        meeting = meeting or _meeting_from(recording, transcript, chat_id)
         try:
             out = await run_workflow(cfg, {"transcript": transcript, "speaker_map": speaker_map,
                                            "owner": owner, "meeting": meeting,
@@ -79,7 +80,7 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
     return {**out, "trace_id": trace_id}
 
 
-def _meeting_from(recording: str, transcript: str) -> dict:
+def _meeting_from(recording: str, transcript: str, chat_id: str = "") -> dict:
     """What this run knows about the meeting, given the handle the recording arrived under.
 
     ONLY a recording/transcript handle names a meeting. `collab://recording/<meeting>/<record>` has
@@ -88,6 +89,9 @@ def _meeting_from(recording: str, transcript: str) -> dict:
     file-triggered producer (a flow watching a folder) sends the item form, so this is the common
     case, not the exotic one.
 
+    `chat_id` is not derived from either: only the run that resolved the MEETING could know it, so
+    it is carried across the approval and simply passed through here.
+
     `resolved` is the flag every downstream reader must honour: false means the id is a filename
     standing in for a meeting nobody could name — fine for keying a model, useless for putting
     anything back beside the meeting. The handle is carried either way, because even an item handle
@@ -95,6 +99,12 @@ def _meeting_from(recording: str, transcript: str) -> dict:
     from lab.core.collab import ContentHandle, HandleKind
 
     base = {"id": _label(transcript), "subject": _label(transcript), "resolved": False,
+            # Where the result is ANNOUNCED, carried across the approval by the run that resolved
+            # the meeting. It is independent of `resolved`: the flow that watches a folder sends an
+            # ITEM handle, so a run can know exactly which conversation to tell and still have no
+            # meeting id of its own. Empty is the honest common case — an ad-hoc recording belongs
+            # to no meeting, so there is no conversation to post to.
+            "chat_id": chat_id or "",
             "transcript_ref": transcript}
     if not (recording and ContentHandle.is_handle(recording)):
         return base

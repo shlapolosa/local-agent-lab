@@ -163,6 +163,17 @@ up() {
     else printf "%-12s WARN     did not report ready — see %s\n" continuations "$LOGS/continuations.log"; fi
   fi
 
+  # meeting-notifier: what turns "the minutes exist" into "the meeting knows about them". Started
+  # here even with MEETING_WEBHOOK_URL unset, because unset means it LOGS what it would post — which
+  # is the only way to watch the announcement before wiring a destination to it.
+  if alive meeting-notifier; then printf "%-12s ok  already running (pid %s)\n" notifier "$(cat "$RUN/meeting-notifier.pid")"; else
+    env -u ANTHROPIC_API_KEY nohup "$PY" -m lab.substrate.meeting_notifier >"$LOGS/meeting-notifier.log" 2>&1 & echo $! >"$RUN/meeting-notifier.pid"
+    for i in 1 2 3; do /usr/bin/grep -q "meeting notifier ready" "$LOGS/meeting-notifier.log" 2>/dev/null && break; sleep 1; done
+    if /usr/bin/grep -q "meeting notifier ready" "$LOGS/meeting-notifier.log" 2>/dev/null; then
+      printf "%-12s started  (a finished minutes run tells its meeting)\n" notifier
+    else printf "%-12s WARN     did not report ready — see %s\n" notifier "$LOGS/meeting-notifier.log"; fi
+  fi
+
   # gateway: the governance plane (LLM /v1, MCP /mcp, registry, skills)
   if alive litellm; then echo "gateway      ok  already running (pid $(cat $RUN/litellm.pid))"; else
     free_port 4000                        # ensure :4000 is free so the gateway never binds a random port
@@ -233,7 +244,7 @@ channels() {
 
 down() {
   for_each_channel stop_channel
-  for s in wf-visio wf-meeting-transcript wf-meeting-minutes review litellm continuations speech-mcp graph-mcp workflow-frontdoor storage-mcp semantic-mcp adoit-mcp jaeger; do
+  for s in wf-visio wf-meeting-transcript wf-meeting-minutes review litellm meeting-notifier continuations speech-mcp graph-mcp workflow-frontdoor storage-mcp semantic-mcp adoit-mcp jaeger; do
     if alive "$s"; then kill "$(cat "$RUN/$s.pid")" && echo "$s stopped"; fi; rm -f "$RUN/$s.pid"; done
   load_env 2>/dev/null || true; remote_tracing && railway_jaeger down
   pkill -f "litellm --config config/litellm-config.yaml" 2>/dev/null || true
@@ -244,7 +255,7 @@ down() {
 status() {
   load_env 2>/dev/null || true
   if remote_tracing; then railway_jaeger status; else alive jaeger && echo "jaeger    running (pid $(cat $RUN/jaeger.pid))" || echo "jaeger    stopped"; fi
-  for s in adoit-mcp semantic-mcp storage-mcp workflow-frontdoor graph-mcp speech-mcp continuations litellm wf-visio wf-meeting-transcript wf-meeting-minutes; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
+  for s in adoit-mcp semantic-mcp storage-mcp workflow-frontdoor graph-mcp speech-mcp continuations meeting-notifier litellm wf-visio wf-meeting-transcript wf-meeting-minutes; do alive "$s" && echo "$s    running (pid $(cat $RUN/$s.pid))" || echo "$s    stopped"; done
   # the review app is reported by its HEALTH endpoint, not its pid file: streamlit's recorded pid
   # goes stale across a manual restart while the app keeps serving :8501 (observed), and "stopped"
   # for a running approval UI is exactly the wrong answer

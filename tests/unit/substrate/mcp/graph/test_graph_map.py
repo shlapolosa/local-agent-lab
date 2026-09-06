@@ -98,11 +98,21 @@ def test_a_drive_item_carries_everything_a_caller_needs_to_decide_whether_to_fet
         "id": "01ITEM", "name": "report.docx", "size": 12345,
         "lastModifiedDateTime": "2026-09-01T10:00:00Z",
         "file": {"mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+        "webUrl": "https://lab-my.sharepoint.example/personal/m/Documents/Reports/report.docx",
         "parentReference": {"driveId": "b!abc", "path": "/drives/b!abc/root:/Reports/2026"}})
     assert (item.id, item.name, item.drive_id) == ("01ITEM", "report.docx", "b!abc")
     assert item.size == 12345 and item.modified == "2026-09-01T10:00:00Z"
     assert item.folder is False and item.path == "Reports/2026"
     assert str(item.handle) == "collab://item/b!abc/01ITEM"
+    # the THIRD way of naming the same file, and the only one a person can use: a handle addresses
+    # bytes for a tool, an id addresses a write, and neither can be put in a message
+    assert item.url == "https://lab-my.sharepoint.example/personal/m/Documents/Reports/report.docx"
+
+
+def test_an_item_the_provider_gave_no_address_for_simply_has_none():
+    """Empty, never guessed. A drive URL cannot be reconstructed from ids, and a link that resolves
+    to the wrong file is worse than a notification that says it has no link."""
+    assert graph_map.drive_item({"id": "01", "name": "a.txt"}, drive_id="d").url == ""
 
 
 def test_a_folder_is_marked_as_one_so_a_caller_does_not_try_to_fetch_it():

@@ -118,6 +118,8 @@ SUBSTRATE = {
     # what turns "a human approved" into "the next run started". Redis ONLY: it reads the decisions
     # stream and publishes a workflow request, holds no credential of any kind, and has no ingress.
     "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
+    # what tells a meeting its minutes exist — Redis and one webhook, nothing else
+    "meeting-notifier": {"cmd": "python -m lab.substrate.meeting_notifier", "port": None},
     "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
@@ -262,8 +264,13 @@ ROLE_ENV = {
     "continuations": [                             # src/lab/substrate/continuations.py + lab.substrate.approvals + lab.platform.workflows
         "REDIS_URL",                               # the approvals:decisions group + workflow:requests
         "REVIEW_APP_URL",                          # printed on start so an operator can find the gate
-        _OTLP,                                     # NOTHING else: no store, no bucket, no model, no
+        _OTLP,                                     # NOTHING else: no store, no bucket, no model and no
     ],                                             # provider credential. It cannot read what it releases.
+    "meeting-notifier": [       # src/lab/substrate/meeting_notifier.py + lab.platform.workflows — Redis ONLY
+        "REDIS_URL",            # the finished-runs stream it consumes
+        "MEETING_WEBHOOK_URL",  # where it POSTs. Unset = it logs what it would say
+        _OTLP,                  # NO store, NO Graph credential, NO gateway: it reads run state and
+    ],                          # posts ids and links. It never opens an artifact it announces.
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
         "REDIS_URL",                               # approvals / workflows / runlog streams

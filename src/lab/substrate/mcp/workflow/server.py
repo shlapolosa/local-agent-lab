@@ -53,6 +53,7 @@ SERVICE = "workflow-frontdoor"     # the SERVICE says what it is; the gateway AL
 # the JSON schema an agent reads). One table: a new kind is one line here and one in InputField.coerce.
 ANNOTATION: dict[InputKind, Any] = {InputKind.REF: str, InputKind.REF_LIST: list[str],
                                     InputKind.HANDLE: str, InputKind.IDENTITY: str,
+                                    InputKind.CONVERSATION: str,
                                     InputKind.MAPPING: dict[str, dict[str, str]]}
 
 

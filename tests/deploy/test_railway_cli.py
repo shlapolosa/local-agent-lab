@@ -208,8 +208,11 @@ def railway(fake):
         urllib.request.urlopen = real
 
 
-ALL_SUBSTRATE = ["redis", "semantic-mcp", "adoit-mcp", "storage-mcp", "workflow-frontdoor", "graph-mcp",
-                 "speech-mcp", "continuations", "gateway", "review"]
+def all_substrate():
+    """Every non-optional substrate service. DERIVED, not re-typed: a new entry in `SUBSTRATE` would
+    otherwise leave the "existing project" tests asserting that it gets CREATED — the opposite of
+    what they mean. A function, not a constant, because `rw` is loaded by a fixture, not at import."""
+    return [n for n in rw.substrate_names({}) if n != rw.JAEGER_NAME]
 
 
 def _project(*names, jaeger=True):
@@ -417,7 +420,7 @@ def test_workload_up_uses_the_same_image(monkeypatch):
 
 
 def test_substrate_up_existing_project_is_idempotent_and_redeploys_jaeger():
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE), status={"svc-jaeger": "CRASHED"},
+    fake = FakeRailway(services=_project(*all_substrate()), status={"svc-jaeger": "CRASHED"},
                        domains={"svc-gateway": "gw.example", "svc-review": "rv.example"},
                        volumes=[("svc-redis", "/data")], errors={"serviceDomainCreate": "Domain already exists"})
     with railway(fake) as out:
@@ -431,7 +434,7 @@ def test_substrate_up_existing_project_is_idempotent_and_redeploys_jaeger():
     assert "jaeger        redeploying" in text
     assert "gateway  https://gw.example" in text and "review   https://rv.example" in text
     # a different domain error is reported, not hidden; a healthy jaeger is left alone
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE), status={"svc-jaeger": "SUCCESS"},
+    fake = FakeRailway(services=_project(*all_substrate()), status={"svc-jaeger": "SUCCESS"},
                        volumes=[("svc-redis", "/data")], errors={"serviceDomainCreate": "quota exceeded"})
     with railway(fake) as out:
         rw.substrate_up()
@@ -506,7 +509,7 @@ CHANNEL_ENV = ENV_TEXT + "TEAMS_WEBHOOK_URL=https://teams.example/hook\n"
 def test_a_configured_channel_is_deployed_like_any_other_substrate_service():
     """A channel that has its settings becomes a real service: same image, its own start command,
     restart ALWAYS (it is a loop), NO domain (nothing calls it) and ONLY its own env."""
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE),
+    fake = FakeRailway(services=_project(*all_substrate()),
                        domains={"svc-gateway": "gw.example", "svc-review": "rv.example"},
                        volumes=[("svc-redis", "/data")])
     with env_file(CHANNEL_ENV), railway(fake) as out:
@@ -531,7 +534,7 @@ def test_a_configured_channel_is_deployed_like_any_other_substrate_service():
 
 
 def test_an_unconfigured_channel_is_not_part_of_the_substrate_at_all():
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE), volumes=[("svc-redis", "/data")])
+    fake = FakeRailway(services=_project(*all_substrate()), volumes=[("svc-redis", "/data")])
     with railway(fake) as out:                                             # the default .env: no channel
         rw.substrate_up()
     assert fake.ops("serviceCreate") == []
@@ -547,7 +550,7 @@ def test_an_unconfigured_channel_is_not_part_of_the_substrate_at_all():
 
 def test_status_and_down_cover_a_channel_that_is_deployed_but_no_longer_configured():
     """Settings removed from .env must not orphan a running channel: it is still listed and stopped."""
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE, "teams"),
+    fake = FakeRailway(services=_project(*all_substrate(), "teams"),
                        status={"svc-teams": "SUCCESS", "svc-jaeger": "SUCCESS"})
     with railway(fake) as out:                                             # .env no longer configures it
         rw.substrate_status()
@@ -558,16 +561,16 @@ def test_status_and_down_cover_a_channel_that_is_deployed_but_no_longer_configur
     assert "dep-svc-teams" in [c[1]["id"] for c in fake.ops("deploymentRemove")]
     # ... and BOTH read-side commands still work on a box with no .env at all (neither needed one
     # before channels made the service list depend on it)
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE, "teams"), status={"svc-teams": "SUCCESS"})
+    fake = FakeRailway(services=_project(*all_substrate(), "teams"), status={"svc-teams": "SUCCESS"})
     with env_file_missing(), railway(fake) as out:
         rw.substrate_down()
     assert "teams         stopped" in out.getvalue()
-    with env_file_missing(), railway(FakeRailway(services=_project(*ALL_SUBSTRATE, "teams"))) as out:
+    with env_file_missing(), railway(FakeRailway(services=_project(*all_substrate(), "teams"))) as out:
         rw.substrate_status()
     text = out.getvalue()
     assert "teams         success" in text and "0 keys in the pool" in text   # empty pool, no crash
     # a channel that is neither configured nor deployed is not mentioned at all
-    fake = FakeRailway(services=_project(*ALL_SUBSTRATE))
+    fake = FakeRailway(services=_project(*all_substrate()))
     with railway(fake) as out:
         rw.substrate_status()
     assert "teams" not in out.getvalue() and "telegram" not in out.getvalue()
