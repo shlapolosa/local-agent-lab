@@ -348,7 +348,7 @@
               "placeholder": "Pick who this voice is, or type below",
               "isRequired": false,
               "style": "compact",
-              "choices": "@outputs('Build_choices')",
+              "choices": "@body('Build_choices')",
               "isVisible": "@greater(length(coalesce(variables('runState')?['candidates'], json('[]'))), 0)"
             },
             {
@@ -396,7 +396,7 @@
           },
           {
             "type": "Container",
-            "items": "@outputs('Build_speaker_blocks')"
+            "items": "@body('Build_speaker_blocks')"
           }
         ],
         "actions": [
@@ -420,7 +420,8 @@
         "Build_speaker_blocks": [
           "Succeeded"
         ]
-      }
+      },
+      "//": "A Select's array is at body('Name'), NOT outputs('Name') — outputs() returns the wrapper object, so the card received {\"body\": [...]} where an array was required and Teams rendered nothing. Verified against a live card."
     },
     "Ask_the_organiser": {
       "//": "STEP 3. 'Post adaptive card and wait for a response' (operationId PostCardAndWaitForResponse) — the Flow bot posts it, so no bot registration and no Teams app deployment is needed. The card is passed as a serialized string; string() keeps the Arabic as UTF-8 rather than escaping it.",
