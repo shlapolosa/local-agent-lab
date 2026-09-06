@@ -118,7 +118,7 @@
         ]
       },
       "runAfter": {
-        "Initialize_run_state": [
+        "Initialize_answer_draft": [
           "Succeeded"
         ]
       }
@@ -523,10 +523,23 @@
             "Add_one_speaker": {
               "type": "SetVariable",
               "inputs": {
-                "name": "answer",
+                "name": "answerDraft",
                 "value": "@setProperty(variables('answer'), item()['label'], if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity'])))"
               },
               "runAfter": {}
+            },
+            "Carry_it_forward": {
+              "//": "The copy back. Splitting the write is what keeps either action from self-referencing.",
+              "type": "SetVariable",
+              "inputs": {
+                "name": "answer",
+                "value": "@variables('answerDraft')"
+              },
+              "runAfter": {
+                "Add_one_speaker": [
+                  "Succeeded"
+                ]
+              }
             }
           },
           "runtimeConfiguration": {
@@ -633,6 +646,24 @@
       },
       "runAfter": {
         "Stop_if_the_run_did_not_finish": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Initialize_answer_draft": {
+      "//": "Power Automate REFUSES a Set variable that references the variable it is setting (WorkflowRunActionInputsInvalidProperty: 'Self reference is not supported'). Accumulating into one variable inside a loop is therefore impossible in a single action, so the loop reads `answer`, writes this draft, and copies it back.",
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "answerDraft",
+            "type": "object",
+            "value": {}
+          }
+        ]
+      },
+      "runAfter": {
+        "Initialize_run_state": [
           "Succeeded"
         ]
       }
