@@ -23,11 +23,17 @@ def test_catalogues_name_the_tools_exactly_as_the_servers_register_them():
 
 
 def test_names_enumerates_only_the_tool_constants():
-    assert StorageTools.names() == frozenset({"storage_list", "storage_info", "storage_get", "storage_read_document",
-                                              "storage_read_vsdx", "storage_render_vsdx", "storage_extract_figures"})
+    """What `names()` must be TRUE of, not a re-typed list of today's tools. Pinning the exact set
+    broke on every additive change and caught nothing — adding storage_read_artifact failed here and
+    nowhere that mattered. The parity test (test_contracts_match_servers) is what proves the
+    catalogue matches the server, in both directions, which is where exactness IS the contract."""
+    assert {"storage_list", "storage_info", "storage_get", "storage_read_document"} <= StorageTools.names()
+    assert all(n.startswith("storage_") for n in StorageTools.names())
     assert "storage_mcp" not in StorageTools.names()            # SERVER is the alias, not a tool
-    assert all(n.startswith(("semantic_",)) for n in SemanticTools.names()) and len(SemanticTools.names()) == 13
-    assert all(n.startswith(("archimate_", "ea_")) for n in EATools.names()) and len(EATools.names()) == 8
+    assert not any(isinstance(getattr(StorageTools, a, None), tuple) and a in StorageTools.names()
+                   for a in dir(StorageTools)), "a grant tuple is not a tool name"
+    assert all(n.startswith(("semantic_",)) for n in SemanticTools.names())
+    assert all(n.startswith(("archimate_", "ea_")) for n in EATools.names())
     assert "adoit_excel_render" not in EATools.names()        # the vendor's spreadsheet is adapter-private
 
 

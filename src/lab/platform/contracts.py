@@ -64,6 +64,11 @@ class StorageTools(ToolCatalogue):
     info = "storage_info"
     get = "storage_get"
     read_document = "storage_read_document"
+    # The third family. `image` and `document` are what a HUMAN uploads; `artifact` (json/xml/svg/
+    # xlsx — lab.platform.filetypes) is what the lab itself PRODUCES, and until this existed nothing
+    # could read one back. A workload could write a transcript and then not open it: the minutes run
+    # failed on exactly that, asking read_document for a .segments.json.
+    read_artifact = "storage_read_artifact"
     read_vsdx = "storage_read_vsdx"
     render_vsdx = "storage_render_vsdx"      # the SAME page as a picture: the vision representation
     extract_figures = "storage_extract_figures"
@@ -589,7 +594,30 @@ def check_answer(payload: dict[str, Any], answer: dict[str, Any] | None) -> dict
         raise ValueError(f"the answer is incomplete — nothing given for {missing}")
     if unknown:
         raise ValueError(f"the answer names {unknown}, which this approval did not ask about")
+    # A key present but EMPTY is not an answer. Checked here rather than left to the typed object,
+    # because the point of a completeness gate is that unanswered work cannot proceed, and a blank
+    # slipped through it: a card rendered with no input controls submitted {"X": {"tag": ""}}, the
+    # gate accepted it, and the run it released carried a mapping that identified nobody. Still
+    # GENERIC — "something was actually given" needs no idea of what was being asked.
+    blank = sorted(l for l in wanted if not _answered(answer.get(l)))
+    if blank:
+        raise ValueError(f"the answer is blank for {blank} — a key with nothing in it is not an "
+                         "answer, and approving on one would release work that identifies nobody")
     return answer
+
+
+def _answered(value: Any) -> bool:
+    """Is there anything in this value? A non-blank scalar, or a container holding one — nesting is
+    the surface's business, so this only asks whether SOMETHING was given."""
+    if value is None or isinstance(value, bool):
+        return value is not None and value is not False or value is True
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return any(_answered(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_answered(v) for v in value)
+    return True                                   # a number or another scalar IS a value
 
 
 # ----------------------------------------------------------------------------- what approving releases

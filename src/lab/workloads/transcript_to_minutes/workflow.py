@@ -32,7 +32,7 @@ from lab.platform import runlog
 from lab.platform.contracts import SemanticTools, StorageTools
 from lab.workloads import gateway, workflowviz
 
-REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec, SemanticTools.load_model,
+REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, SemanticTools.load_model,
                   SemanticTools.validate_model)
 
 VOCAB = "meeting-1.0"
@@ -117,7 +117,7 @@ def build_workflow(cfg):
         reaches the model as placeholders and degrades the moment it paraphrases one.
         """
         with _span(cfg, "attribute"):
-            doc = await _call(cfg, StorageTools.read_document, {"ref": state["transcript"]})
+            doc = await _call(cfg, StorageTools.read_artifact, {"ref": state["transcript"]})
             segments = _segments(doc)
             # translate the APPROVAL's answer into the domain's own idea of a speaker:
             # the mapper should not care that it arrived through a human gate

@@ -51,7 +51,7 @@ class FakeAgent:
 
 class FakeGateway:
     def __init__(self, **overrides):
-        self.answers = {StorageTools.read_document: SEGMENTS,
+        self.answers = {StorageTools.read_artifact: SEGMENTS,
                         SemanticTools.validate_model: {"illegal": [], "warnings": []},
                         SemanticTools.store_spec: {"ref": "art://s/x.json"},
                         SemanticTools.load_model: {"triples": 42, "derived_relations": 0}} | overrides
@@ -176,7 +176,7 @@ def test_still_wrong_after_the_retry_fails_the_run(gw):
 # ------------------------------------------------------------------ the answer must match the audio
 def test_a_speaker_nobody_identified_stops_the_run(gw, monkeypatch):
     """An unattributed voice must never reach the minutes as SPEAKER_03."""
-    monkeypatch.setitem(gw.answers, StorageTools.read_document,
+    monkeypatch.setitem(gw.answers, StorageTools.read_artifact,
                         {"segments": SEGMENTS["segments"] + [{"speaker": "SPEAKER_03", "text": "hm"}]})
     with pytest.raises(RuntimeError, match="SPEAKER_03"):
         _run()
@@ -188,7 +188,7 @@ def test_an_answer_naming_someone_who_never_speaks_is_refused(gw):
 
 
 def test_an_empty_transcript_fails_where_it_is_read(gw, monkeypatch):
-    monkeypatch.setitem(gw.answers, StorageTools.read_document, {"segments": []})
+    monkeypatch.setitem(gw.answers, StorageTools.read_artifact, {"segments": []})
     with pytest.raises(RuntimeError, match="no segments"):
         _run()
 
@@ -203,7 +203,7 @@ def test_an_illegal_mapped_model_fails_before_it_is_stored(gw, monkeypatch):
 
 
 def test_required_tools_are_spelled_from_the_contract():
-    assert set(W.REQUIRED_TOOLS) == {StorageTools.read_document, SemanticTools.store_spec,
+    assert set(W.REQUIRED_TOOLS) == {StorageTools.read_artifact, SemanticTools.store_spec,
                                      SemanticTools.load_model, SemanticTools.validate_model}
 
 

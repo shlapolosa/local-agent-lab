@@ -28,7 +28,7 @@ import sys
 
 from fastmcp.utilities.types import Image
 
-from lab.platform import config, docparse, render_vsdx
+from lab.platform import config, docparse, filetypes, render_vsdx
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "storage-mcp"
@@ -97,6 +97,28 @@ def storage_read_document(ref: str, max_chars: int = docparse.MAX_DOC_CHARS) -> 
         raise ValueError(f"{name} is not a document (.docx/.pdf/.md/.txt/.csv)")
     text = docparse.document_text(server.uploads().get(ref), docparse.ext_of(name), max_chars)
     span().set_attributes({"storage.kind": "document", "storage.chars": len(text)})
+    return text
+
+
+@server.tool()
+def storage_read_artifact(ref: str, max_chars: int = docparse.MAX_DOC_CHARS) -> str:
+    """Read an ARTIFACT this lab produced (.json/.xml/.svg) back as text — a diarized transcript, a
+    stored spec, a rendered model. Returns the raw text (capped at max_chars with an explicit
+    truncation marker), so the caller parses it however its own contract says.
+
+    Separate from storage_read_document on purpose: that one is for what a HUMAN uploaded and does
+    prose and figure extraction, while this is for structured output the lab wrote itself and must
+    hand back byte-faithfully. Still READ-ONLY, still the only way a workload reaches the store."""
+    span().set_attribute("storage.ref", ref)
+    name = _name(ref)
+    if filetypes.kind_for(name) != "artifact":
+        raise ValueError(f"{name} is not an artifact (.json/.xml/.svg/.xlsx); use "
+                         "storage_read_document for an uploaded document or storage_get for an image")
+    raw = server.uploads().get(ref)
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"\n...[truncated at {max_chars} characters]"
+    span().set_attributes({"storage.kind": "artifact", "storage.chars": len(text)})
     return text
 
 

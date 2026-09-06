@@ -286,3 +286,41 @@ def test_an_approval_that_offers_nobody_is_normal():
     from lab.platform.contracts import speaker_candidates
     assert speaker_candidates({}) == []
     assert speaker_candidates({"question": {"items": [{"label": "SPEAKER_00"}]}}) == []
+
+
+# ---------------------------------------------------------------- a blank is not an answer
+def test_a_key_with_nothing_in_it_is_refused():
+    """The gate's whole purpose is that unanswered work cannot proceed, and a blank slipped through
+    it live: a card that rendered with no input controls submitted {"SPEAKER_00": {"tag": ""}}, the
+    gate accepted it, and the run it released carried a mapping identifying nobody."""
+    from lab.platform.contracts import check_answer
+    p = {"answer_labels": ["SPEAKER_00"]}
+    for blank in ({"SPEAKER_00": {"tag": ""}}, {"SPEAKER_00": {"identity": "   "}},
+                  {"SPEAKER_00": {}}, {"SPEAKER_00": ""}, {"SPEAKER_00": []}, {"SPEAKER_00": None}):
+        with pytest.raises(ValueError, match="blank"):
+            check_answer(p, blank)
+
+
+def test_a_real_answer_in_either_form_still_passes():
+    from lab.platform.contracts import check_answer
+    p = {"answer_labels": ["SPEAKER_00"]}
+    for good in ({"SPEAKER_00": {"identity": "maria@contoso.com"}},
+                 {"SPEAKER_00": {"tag": "the vendor's architect"}},
+                 {"SPEAKER_00": "maria@contoso.com"}):
+        assert check_answer(p, good) == good
+
+
+def test_only_the_blank_label_is_named():
+    """Two speakers, one answered — the error must say which one needs attention."""
+    from lab.platform.contracts import check_answer
+    p = {"answer_labels": ["SPEAKER_00", "SPEAKER_01"]}
+    with pytest.raises(ValueError) as e:
+        check_answer(p, {"SPEAKER_00": {"identity": "a@b.c"}, "SPEAKER_01": {"tag": ""}})
+    assert "SPEAKER_01" in str(e.value) and "SPEAKER_00" not in str(e.value)
+
+
+def test_a_falsy_but_real_value_is_an_answer():
+    """Genericity cuts both ways: zero is a value, and this gate must not decide otherwise for some
+    future question that is not about speakers."""
+    from lab.platform.contracts import check_answer
+    assert check_answer({"answer_labels": ["n"]}, {"n": 0}) == {"n": 0}

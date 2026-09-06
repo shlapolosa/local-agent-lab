@@ -17,7 +17,10 @@ import zipfile
 from contextlib import contextmanager
 
 import docx
+import json
 import pytest
+
+from lab.platform.contracts import StorageTools
 from docx.shared import Inches
 from fastmcp import Client
 from mcp.types import ImageContent, TextContent
@@ -33,8 +36,9 @@ SERVER = os.path.join(ROOT, "src", "lab", "substrate", "mcp", "storage", "server
 TMP = srv = UP = REFS = None        # set up by `_server` (never at import: it pins the environment)
 ENV_OWNED = False                   # true when no UPLOADS_URL was exported -> we own the fallback
 
-TOOLS = {"storage_list", "storage_info", "storage_get", "storage_read_document", "storage_read_vsdx",
-         "storage_extract_figures", "storage_render_vsdx"}
+# Derived from the catalogue, not re-typed: `test_contracts_match_servers` already pins the two
+# together in both directions, so a second hand-kept list would only ever drift.
+TOOLS = set(StorageTools.names())
 IMAGE_TOOLS = {"storage_get", "storage_extract_figures", "storage_render_vsdx"}
 
 
@@ -342,3 +346,34 @@ def test_main_bucket_env_check_and_serve():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------- reading back what the lab wrote
+def test_an_artifact_the_lab_produced_can_be_read_back():
+    """The gap this closes: `image` and `document` are what a HUMAN uploads, `artifact` is what the
+    lab PRODUCES, and nothing could read one back. A workload wrote a diarized transcript and then
+    could not open it — the minutes run failed asking read_document for a .segments.json."""
+    ref = UP.put("meeting.segments.json", b'{"segments": [{"speaker": "SPEAKER_00", "text": "hello"}]}',
+                 "application/json")
+    out = call("storage_read_artifact", ref=ref).data
+    assert json.loads(out)["segments"][0]["speaker"] == "SPEAKER_00"
+
+
+def test_it_refuses_a_document_and_names_the_right_tool():
+    """Three families, three readers — a wrong call should name the right one rather than fail
+    obscurely, which is exactly how the original defect presented."""
+    msg = call_error("storage_read_artifact", ref=REFS["md"])
+    assert "not an artifact" in msg and "storage_read_document" in msg
+
+
+def test_a_large_artifact_is_truncated_with_a_marker():
+    """Same contract as read_document: bounded, and honest that it was cut."""
+    ref = UP.put("big.json", b'{"x": "' + b"a" * 5000 + b'"}', "application/json")
+    out = call("storage_read_artifact", ref=ref, max_chars=200).data
+    assert len(out) < 400 and "truncated" in out
+
+
+def test_the_transcript_a_speech_run_writes_is_this_family():
+    """The two ends agree: what meeting_to_transcript stores, transcript_to_minutes can open."""
+    from lab.platform import filetypes
+    assert filetypes.kind_for("meeting.mp4.segments.json") == "artifact"

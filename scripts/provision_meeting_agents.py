@@ -49,7 +49,7 @@ TRANSCRIPT_TOOLS = {
     WorkflowTools.SERVER: list(ApprovalTools.RAISE),      # ask, never answer
 }
 MINUTES_TOOLS = {
-    StorageTools.SERVER: [StorageTools.get, StorageTools.info, StorageTools.read_document],
+    StorageTools.SERVER: [StorageTools.get, StorageTools.info, StorageTools.read_artifact],
     SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.load_model,
                            SemanticTools.validate_model],
 }
