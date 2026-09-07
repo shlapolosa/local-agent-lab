@@ -131,17 +131,32 @@ def _normalise_shape(minutes: dict) -> None:
                                     and c[1:].isdigit() else c for c in item["concerns"]]
 
 
+def _who(name: str) -> str:
+    """One speaker name, as this gate compares them: casefolded and stripped.
+
+    Compared as IDENTITY, not as text. A human typed "Motamad" into the mapping card and the model
+    wrote "motamad" in the minutes — the same person, and an exact-string gate rejected the whole
+    meeting over the case of one letter, after a correct transcription and a correct human answer.
+    `casefold` rather than `lower` because these names are not always ASCII: this pipeline exists
+    for meetings held in Arabic and English.
+
+    What the reader SEES is still whatever the model wrote; only the comparison is normalised.
+    """
+    return " ".join(str(name or "").split()).casefold()
+
+
 def _incomplete(minutes: dict, labels: set[str]) -> list[str]:
     """What a schema cannot see. Ordered by how badly each one misleads a reader."""
     bad: list[str] = []
     concepts = {c["id"] for c in minutes.get("concepts") or []}
     if not concepts:
         bad.append("no concepts — a meeting the minutes cannot say was ABOUT anything is not usable")
+    known = {_who(l) for l in labels}
     for key, field in (("decisions", "decided_by"), ("actions", "owner")):
         for item in minutes.get(key) or []:
             named = item.get(field) or []
             for who in ([named] if isinstance(named, str) else named):
-                if who not in labels:
+                if _who(who) not in known:
                     # the single likeliest hallucination, and invisible to a schema
                     bad.append(f'{item.get("id")} names {who!r}, who is not a speaker in this transcript')
             for cid in item.get("concerns") or []:

@@ -277,6 +277,40 @@ def test_where_to_announce_is_carried_in_and_is_independent_of_naming_the_meetin
         "and a run told nothing announces nothing rather than guessing a destination"
 
 
+# ---------------------------------------------------------------- who counts as a speaker
+def test_a_speaker_is_matched_as_an_identity_not_as_a_string():
+    """LOST A MEETING. A human typed "Motamad" into the mapping card; the minutes model wrote
+    "motamad"; the gate compared the two exactly and rejected the whole run — after a correct
+    transcription, a correct human answer, and both retries. The names denote the same person, and
+    the case of one letter is not evidence of a hallucination.
+
+    `casefold`, not `lower`: this pipeline exists for meetings held in Arabic and English, and these
+    names are not always ASCII."""
+    minutes = {"concepts": [{"id": "c1", "label": "x"}],
+               "decisions": [{"id": "d1", "statement": "s", "concerns": ["c1"], "decided_by": "motamad"}],
+               "actions": [{"id": "a1", "commitment": "c", "owner": "  MOTAMAD ", "concerns": ["c1"]}]}
+    assert W._incomplete(minutes, {"Motamad", "socrates"}) == []
+
+
+def test_a_name_nobody_mapped_is_still_refused():
+    """The rule earns its place: attributing a decision to someone who never spoke is the single
+    likeliest hallucination and no schema can see it. Loosening the COMPARISON must not loosen the
+    RULE."""
+    minutes = {"concepts": [{"id": "c1", "label": "x"}],
+               "decisions": [{"id": "d1", "statement": "s", "concerns": ["c1"], "decided_by": "a stranger"}]}
+    bad = W._incomplete(minutes, {"Motamad"})
+    assert bad and "a stranger" in bad[0]
+
+
+def test_the_reader_still_sees_the_name_the_model_wrote():
+    """Only the comparison is normalised. Rewriting the minutes to the mapping's spelling would put
+    words in a speaker's mouth that the model never produced."""
+    minutes = {"concepts": [{"id": "c1", "label": "x"}],
+               "decisions": [{"id": "d1", "statement": "s", "concerns": ["c1"], "decided_by": "motamad"}]}
+    assert W._incomplete(minutes, {"Motamad"}) == []
+    assert minutes["decisions"][0]["decided_by"] == "motamad", "unchanged"
+
+
 # ---------------------------------------------------------------- what the store answered
 def test_the_reference_comes_from_the_one_shared_unwrap():
     """FAILED A LIVE RUN, and the cause was duplication rather than logic. `semantic_store_spec`
