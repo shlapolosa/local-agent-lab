@@ -232,6 +232,48 @@ def ack_finished(group, entry_id, *, client=None):
     return _finished(group).ack(entry_id, _r(client))
 
 
+def replay(request_id, requester, *, client=None):
+    """Run a FAILED request again, from the inputs it already recorded. Returns the new request id.
+
+    Three meetings were lost in one day to failures downstream of a good transcript: a schema the
+    model had never been shown, a lost answer, a case-sensitive name check. Each time the expensive
+    part — the recording, the transcription, and a human's speaker mapping — was intact in the store
+    and there was no way back to it, so the only recovery was to hold the meeting again.
+
+    IT TAKES NO INPUTS FROM THE CALLER, and that is what makes it safe to offer for a process that
+    refuses external submits. `transcript_to_minutes` is `external=False` because a caller who could
+    submit it directly would supply their own speaker attribution and walk past the only gate the
+    pipeline has. A replay supplies nothing: it re-runs inputs this lab already validated and
+    recorded, produced by a human answering that very gate. There is no new attribution to smuggle.
+
+    ONLY A FAILED RUN. A `running` one would be duplicated, a `done` one would redo work someone has
+    already been told about, and a `pending` one is queued already. Retrying is a decision about a
+    run that ended badly, not a way to start arbitrary work.
+
+    Deliberately NOT automatic. Every failure above was DETERMINISTIC — redelivering them would have
+    retried the same failure forever, burning tokens on a poison message. What was missing was a way
+    for a person to say "try that again now that it is fixed", which is this.
+    """
+    state = status(request_id, client=client)
+    if not state:
+        raise KeyError(f"unknown request {request_id}")
+    if state.get("status") != WorkflowStatus.FAILED:
+        raise ValueError(f"{request_id} is {state.get('status')!r}, not failed — only a failed run is "
+                         "replayed, so a running one is never duplicated nor a finished one redone")
+    process = state.get("process") or ""
+    if process not in PROCESSES:
+        raise ValueError(f"{request_id} names process {process!r}, which is not registered")
+    inputs = state.get("inputs") or {}
+    if not inputs:
+        raise ValueError(f"{request_id} recorded no inputs, so there is nothing to run again")
+    # No idempotency key: the point is to run it AGAIN. The claim the original may have taken is its
+    # own, and a replay is a new request with its own id, linked back to what it retries.
+    new_id, _duplicate = submit(process, inputs, requester, client=client)
+    annotate(new_id, client=client, replay_of=request_id)
+    annotate(request_id, client=client, replayed_as=new_id)
+    return new_id
+
+
 def annotate(request_id, *, client=None, **fields):
     """Write extra fields onto a request WITHOUT touching its status or publishing anything.
 

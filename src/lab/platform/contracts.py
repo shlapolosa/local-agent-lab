@@ -127,6 +127,13 @@ class WorkflowTools(ToolCatalogue):
     """
     SERVER = "workflow_mcp"
     VERBS = ("submit", "status", "result")             # a tuple, so `names()`'s string filter ignores it
+    replay = "workflow_replay"                         # run a FAILED request again, from its own inputs
+
+    # ONE grant, and it is a write: a replay starts a run. It is safe to offer even for a process
+    # that refuses external submits, because it takes NO INPUTS from the caller — only the id of a
+    # request this lab already validated and recorded, so there is no new attribution to smuggle. It
+    # is still a write, so it is granted deliberately and never reaches a workload's own agents.
+    WRITE = (replay,)
 
     @classmethod
     def verbs_for(cls, spec: "ProcessSpec") -> tuple[str, ...]:
@@ -137,7 +144,7 @@ class WorkflowTools(ToolCatalogue):
     @classmethod
     def names(cls) -> frozenset[str]:
         return (frozenset(spec.tool(v) for spec in PROCESSES.values() for v in cls.verbs_for(spec))
-                | ApprovalTools.names())
+                | {cls.replay} | ApprovalTools.names())
 
 
 class ApprovalTools(ToolCatalogue):

@@ -375,9 +375,35 @@ def _print_env_keys(label: str, env: dict):
 JAEGER_NAME = "local-agent-lab"   # pre-existing Jaeger service (Docker image; NOT built from our repo)
 
 
+GQL_ATTEMPTS = 3           # a deploy is many calls; one blip must not leave the cluster half-done
+GQL_BACKOFF_S = 2.0
+
+
 def gql(query, variables=None):
-    req = urllib.request.Request(API, data=json.dumps({"query": query, "variables": variables or {}}).encode(), headers=H)
-    r = json.load(urllib.request.urlopen(req, timeout=90))
+    """One Railway API call, RETRIED on a transport failure but never on a rejection.
+
+    A deploy is dozens of these, and a single dropped read used to fail the whole job: CD marked the
+    release red after the substrate had rolled and before the workloads had, leaving the cluster
+    running two commits — the exact skew `substrate versions` exists to catch, caused by the tool
+    meant to prevent it. Measured: `TimeoutError: The read operation timed out`, mid-deploy, with
+    nothing wrong on either side.
+
+    Only TRANSPORT failures are retried. A GraphQL `errors` reply is Railway saying no — repeating it
+    would just say no again, more slowly, and could repeat a mutation that actually landed.
+    """
+    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+    for attempt in range(1, GQL_ATTEMPTS + 1):
+        try:
+            r = json.load(urllib.request.urlopen(
+                urllib.request.Request(API, data=body, headers=H), timeout=90))
+            break
+        except (TimeoutError, urllib.error.URLError, ConnectionError, json.JSONDecodeError) as e:
+            if attempt == GQL_ATTEMPTS:
+                raise SystemExit(f"railway unreachable after {GQL_ATTEMPTS} attempts: "
+                                 f"{type(e).__name__}: {e}") from e
+            print(f"  railway {type(e).__name__} — retrying ({attempt}/{GQL_ATTEMPTS - 1})",
+                  file=sys.stderr, flush=True)
+            time.sleep(GQL_BACKOFF_S * attempt)
     if r.get("errors"):
         raise SystemExit(f"railway error: {[e.get('message') for e in r['errors']]}")
     return r["data"]

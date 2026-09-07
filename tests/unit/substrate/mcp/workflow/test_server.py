@@ -84,7 +84,7 @@ def test_the_registry_drives_the_tool_list_and_the_contract_catalogue(server):
     by = tools(server)
     assert set(by) == WorkflowTools.names()
     # the process tools are exactly the registry's; the fixed approval gate rides on the same server
-    assert set(by) - ApprovalTools.names() == {spec.tool(v) for spec in PROCESSES.values()
+    assert set(by) - ApprovalTools.names() - {WorkflowTools.replay} == {spec.tool(v) for spec in PROCESSES.values()
                                                for v in WorkflowTools.verbs_for(spec)}
     assert ApprovalTools.names() <= set(by)     # see tests/…/test_approval_tools.py for their behaviour
     assert all(by[n].description and len(by[n].description) > 80 for n in by), "an agent picks a tool by its description"
@@ -97,7 +97,7 @@ def test_adding_a_process_to_the_registry_adds_its_three_tools_and_nothing_else(
     assert set(tools(built)) == WorkflowTools.names() | {"fake_process_submit", "fake_process_status",
                                                          "fake_process_result"}
     only = srv.build({FAKE.name: FAKE})                       # a registry of ONE process -> one triple
-    assert set(tools(only)) - ApprovalTools.names() == {"fake_process_submit", "fake_process_status",
+    assert set(tools(only)) - ApprovalTools.names() - {WorkflowTools.replay} == {"fake_process_submit", "fake_process_status",
                                                         "fake_process_result"}
     schema = tools(only)["fake_process_submit"].inputSchema
     assert schema["required"] == ["primary"]

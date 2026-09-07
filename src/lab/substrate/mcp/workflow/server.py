@@ -209,6 +209,37 @@ def register(server: LabServer, spec: ProcessSpec) -> None:
         server.tool()(makers[verb](server, spec))
 
 
+def _register_replay(server: LabServer) -> None:
+    """`workflow_replay` — run a FAILED request again from the inputs it already recorded.
+
+    NOT per process, unlike the tool triple: a replay is about one REQUEST, and which process it
+    belongs to is already written on it. One tool, whatever failed.
+    """
+    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False,
+                              "idempotentHint": False, "openWorldHint": False})
+    def workflow_replay(
+        request_id: Annotated[str, Field(description="The FAILED request (`wfr-…`) to run again.")],
+        requester: Annotated[str, Field(description="Who is retrying it, for the audit trail.")] = "",
+    ) -> dict:
+        """Run a FAILED request again, exactly as it was first submitted.
+
+        It takes NO INPUTS beyond the id: the run uses what this lab already validated and recorded,
+        so a replay cannot introduce anything new. That is what makes it available even for a
+        continuation-only process, whose `submit` tool deliberately does not exist — a caller still
+        cannot supply that process's inputs, only ask that ones already accepted be tried again.
+
+        ONLY a failed request. A running one would be duplicated and a finished one redone.
+
+        Returns {request_id, replay_of, process} — poll the new id with that process's `_status`.
+        """
+        r = server.container.redis()
+        state = workflows.status(request_id, client=r)
+        new_id = workflows.replay(request_id, requester or SERVICE, client=r)
+        span().set_attributes({"workflow.replay_of": request_id, "workflow.request_id": new_id})
+        return {"request_id": new_id, "replay_of": request_id, "process": state.get("process", ""),
+                "next": f"poll {state.get('process','')}_status with {new_id}"}
+
+
 def build(processes: dict[str, ProcessSpec] | None = None) -> LabServer:
     """The server: one tool triple per registered process, plus the approval gate (a run PAUSES for a
     human, so the same front door answers "what is waiting" and "here is the human's decision" —
@@ -217,6 +248,7 @@ def build(processes: dict[str, ProcessSpec] | None = None) -> LabServer:
     server = LabServer(SERVICE, config.WORKFLOW_MCP_PORT)
     for spec in (PROCESSES if processes is None else processes).values():
         register(server, spec)
+    _register_replay(server)
     approval_tools.register(server)
     return server
 

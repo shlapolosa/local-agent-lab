@@ -25,7 +25,9 @@ def test_workflow_catalogue_is_generated_from_the_registered_processes():
     is where that is decided, because it is the PORT: a grant names these strings and
     test_contracts_match_servers checks them against the server in both directions."""
     assert WorkflowTools.SERVER == "workflow_mcp" and WorkflowTools.VERBS == ("submit", "status", "result")
-    generated = WorkflowTools.names() - ApprovalTools.names()    # the fixed approval gate rides along
+    # The FIXED tools ride along with the generated ones: the approval gate, and `workflow_replay`
+    # (one tool for any failed REQUEST, not one per process). Subtracted, never re-typed here.
+    generated = WorkflowTools.names() - ApprovalTools.names() - {WorkflowTools.replay}
     assert generated == {spec.tool(v) for spec in PROCESSES.values()
                          for v in WorkflowTools.verbs_for(spec)}
     assert len(generated) == sum(3 if s.external else 2 for s in PROCESSES.values())

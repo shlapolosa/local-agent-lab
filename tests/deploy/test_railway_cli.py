@@ -248,6 +248,53 @@ def _project(*names, jaeger=True):
 
 
 # ---------------------------------------------------------------- the GraphQL client
+def test_a_dropped_read_is_retried_because_a_deploy_is_many_calls(railway_module, monkeypatch):
+    """A single blip used to fail the whole release. It happened: `TimeoutError: The read operation
+    timed out` mid-deploy, AFTER the substrate had rolled and BEFORE the workloads had — leaving the
+    cluster on two commits, which is the very skew this tool exists to prevent."""
+    monkeypatch.setattr(rw.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def flaky(req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("The read operation timed out")
+        return io.BytesIO(json.dumps({"data": {"ok": True}}).encode())
+
+    monkeypatch.setattr(rw.urllib.request, "urlopen", flaky)
+    assert rw.gql("query{ ok }") == {"ok": True}
+    assert calls["n"] == 2, "retried once, then succeeded"
+
+
+def test_a_rejection_is_never_retried(railway_module, monkeypatch):
+    """A GraphQL `errors` reply is Railway saying no. Repeating it would say no again more slowly —
+    and could repeat a mutation that actually landed."""
+    monkeypatch.setattr(rw.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def refuses(req, timeout=None):
+        calls["n"] += 1
+        return io.BytesIO(json.dumps({"errors": [{"message": "Not Authorized"}]}).encode())
+
+    monkeypatch.setattr(rw.urllib.request, "urlopen", refuses)
+    try:
+        rw.gql("mutation{ serviceDelete }")
+    except SystemExit as e:
+        assert "Not Authorized" in str(e)
+    assert calls["n"] == 1, "asked once"
+
+
+def test_a_provider_that_never_answers_gives_up_and_says_so(railway_module, monkeypatch):
+    monkeypatch.setattr(rw.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(rw.urllib.request, "urlopen",
+                        lambda req, timeout=None: (_ for _ in ()).throw(TimeoutError("timed out")))
+    try:
+        rw.gql("query{ ok }")
+        raise AssertionError("should have given up")
+    except SystemExit as e:
+        assert "unreachable after" in str(e) and "TimeoutError" in str(e)
+
+
 def test_gql_sends_browser_user_agent_and_project_token_and_surfaces_errors():
     fake = FakeRailway()
     with railway(fake):

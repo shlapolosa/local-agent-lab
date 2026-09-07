@@ -15,7 +15,7 @@ import redis
 
 from fixtures.fakes import FakeRedis
 from lab.platform import streams, workflows
-from lab.platform.contracts import WorkflowStatus
+from lab.platform.contracts import PROCESSES, WorkflowStatus
 
 GROUP = "test-consumer"
 INPUTS = {"transcript": "art://t/x.json", "speaker_map": {"S": {"tag": "x"}}}
@@ -198,3 +198,68 @@ def test_annotate_records_a_note_without_touching_status_or_announcing_again():
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------- replaying a failed run
+def _failed(r, error="the model refused"):
+    rid, _ = workflows.submit("transcript_to_minutes", INPUTS, "maria@x.com", client=r)
+    workflows.mark(rid, WorkflowStatus.FAILED.value, client=r, error=error)
+    return rid
+
+
+def test_a_failed_run_is_replayed_from_the_inputs_it_recorded():
+    """Three meetings were lost in one day to failures DOWNSTREAM of a good transcript. Each time the
+    expensive part — the recording, the transcription, a human's speaker mapping — was intact in the
+    store, and the only way back was to hold the meeting again."""
+    r = FakeRedis()
+    rid = _failed(r)
+    new = workflows.replay(rid, "maria@x.com", client=r)
+    assert new != rid
+    fresh = workflows.status(new, client=r)
+    assert fresh["inputs"] == INPUTS, "the same inputs, not new ones"
+    assert fresh["process"] == "transcript_to_minutes" and fresh["status"] == "pending"
+
+
+def test_a_replay_is_linked_to_what_it_retries_in_both_directions():
+    """So a reader of either run can find the other — otherwise a board shows two runs of one meeting
+    and no way to tell which superseded which."""
+    r = FakeRedis()
+    rid = _failed(r)
+    new = workflows.replay(rid, "maria@x.com", client=r)
+    assert workflows.status(new, client=r)["replay_of"] == rid
+    assert workflows.status(rid, client=r)["replayed_as"] == new
+
+
+def test_only_a_failed_run_is_replayed():
+    """A running one would be duplicated; a finished one would redo work someone has already been
+    told about; a pending one is queued already. Retrying is a decision about a run that ended
+    badly, not a way to start arbitrary work."""
+    r = FakeRedis()
+    rid, _ = workflows.submit("transcript_to_minutes", INPUTS, "maria@x.com", client=r)
+    for status in (WorkflowStatus.PENDING, WorkflowStatus.RUNNING, WorkflowStatus.DONE):
+        workflows.mark(rid, status.value, client=r)
+        try:
+            workflows.replay(rid, "maria@x.com", client=r)
+            raise AssertionError(f"replayed a {status.value} run")
+        except ValueError as e:
+            assert status.value in str(e)
+
+
+def test_a_replay_carries_nothing_from_its_caller():
+    """WHY IT IS SAFE for a continuation-only process. `transcript_to_minutes` has no submit tool
+    because a caller who could supply its inputs would supply their own speaker attribution and walk
+    past the only gate the pipeline has. A replay supplies NOTHING — it names a request, and the run
+    uses inputs this lab already validated and recorded. There is no new attribution to smuggle."""
+    import inspect
+    args = set(inspect.signature(workflows.replay).parameters) - {"client"}
+    assert args == {"request_id", "requester"}, f"replay takes {args}"
+    assert not PROCESSES["transcript_to_minutes"].external, "the process still refuses direct submits"
+
+
+def test_an_unknown_or_empty_request_says_so():
+    r = FakeRedis()
+    try:
+        workflows.replay("wfr-nothing", "maria@x.com", client=r)
+        raise AssertionError("replayed a request that does not exist")
+    except KeyError as e:
+        assert "wfr-nothing" in str(e)
