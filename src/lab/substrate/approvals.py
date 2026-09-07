@@ -95,14 +95,43 @@ def decide(request_id, decision, actor, channel, comment="", *, answer=None, cli
     # already reads — the addition must be invisible to the approvals that ask nothing.
     if answer:
         fields["answer"] = json.dumps(answer)
-    r.xadd(DEC, fields)
     state = {"status": decision, "decided_by": actor, "decided_via": channel,
              "comment": comment, "decided_at": fields["decided_at"]}
     if "answer" in fields:
         state["answer"] = fields["answer"]
+    # THE HASH FIRST, THE STREAM SECOND, and the order is the whole point. The continuation runner is
+    # woken by this stream entry and immediately reads the request back — `state.get("answer")` — so
+    # announcing a decision whose answer is not yet readable loses the answer. It happened live: a
+    # human tagged both speakers, `check_answer` accepted the answer, and the continuation still died
+    # with "speaker_map is required" because it read the hash a moment too early. Worse than the
+    # request-stream twin, which survives because an unacked entry is redelivered: the continuation
+    # runner ALWAYS acks, so there is no second chance and the run is simply gone.
+    #
+    # `workflows.mark` states this rule for the finished-runs stream. It is the same rule.
+    # Written first and announced second, then ROLLED BACK if the announcement fails — both halves
+    # are required and each was learned the hard way.
+    #
+    # Order: the continuation runner is woken by the stream entry and immediately reads the request
+    # back, so a decision announced before its answer is readable loses the answer. That happened
+    # live and cost a run outright, because that runner acks unconditionally and never retries.
+    #
+    # Rollback: writing first means a failed append would otherwise leave the request marked decided
+    # with nothing in the audit log — a decision that happened for the reader and never happened for
+    # the record. So the prior fields are restored and the caller's claim released.
+    prior = {k: v for k, v in (r.hgetall(key) or {}).items() if k in state}
     r.hset(key, mapping=state)
     if decision != Decision.UPDATE:
         r.srem("approvals:pending", request_id)
+    try:
+        r.xadd(DEC, fields)
+    except Exception:
+        if prior:
+            r.hset(key, mapping=prior)
+        for field in set(state) - set(prior):
+            r.hdel(key, field)                  # fields this decision INTRODUCED, e.g. the answer
+        if decision != Decision.UPDATE:
+            r.sadd("approvals:pending", request_id)
+        raise
     return fields
 
 

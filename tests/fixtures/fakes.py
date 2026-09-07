@@ -152,6 +152,11 @@ class FakeRedis:
         return new
 
     @_op
+    def hdel(self, k, *fields):
+        d = self.h.get(k, {})
+        return sum(1 for f in fields if d.pop(f, None) is not None)
+
+    @_op
     def hget(self, k, f):
         return self.h.get(k, {}).get(f)
 

@@ -27,6 +27,40 @@ def _finished(r, status=WorkflowStatus.DONE.value):
     return rid
 
 
+# ---------------------------------------------------------------- readable before announced
+class _WakesOnPublish(FakeRedis):
+    """A Redis whose publish immediately runs whatever the announcement wakes — which is what a real
+    consumer does: it is woken by the XADD and reads the record back at once."""
+
+    def __init__(self, on_publish):
+        super().__init__()
+        self._on_publish = on_publish
+
+    def xadd(self, stream, fields, **kw):
+        eid = super().xadd(stream, fields, **kw)
+        self._on_publish(stream, fields)
+        return eid
+
+
+def test_a_request_is_readable_before_it_is_announced():
+    """SEEN LIVE: `consumer loop error: KeyError: 'unknown request wfr-584919feed1c'`, a second
+    before the identical request ran fine. `submit` published to `workflow:requests` and only then
+    wrote the hash, so a consumer woken by the entry read a request that did not exist yet.
+
+    It cost nothing that time only because the workload consumer leaves a failed entry UNACKED and
+    redelivery retried it. Its approvals twin acks unconditionally and lost a run outright — same
+    bug, different blast radius, which is why the ordering is a rule and not a preference."""
+    seen = {}
+
+    def woken(stream, f):
+        if stream == workflows.REQ:
+            seen["exists"] = bool(workflows.status(f["request_id"], client=r))
+
+    r = _WakesOnPublish(woken)
+    workflows.submit("transcript_to_minutes", INPUTS, "test", client=r)
+    assert seen["exists"], "a consumer woken by the request must be able to read it"
+
+
 # ---------------------------------------------------------------- what mark() publishes
 def test_a_finished_run_is_announced_only_after_it_can_be_read():
     """A consumer woken by the event immediately reads the request. Announcing a result that is not

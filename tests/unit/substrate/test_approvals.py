@@ -14,9 +14,80 @@ Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/tes
 """
 from fixtures.fakes import FakeRedis
 from lab.platform import streams
+from lab.platform.contracts import ApprovalKind, ApprovalStatus, Decision
 from lab.substrate import approvals
 
 # ---------------------------------------------------------------- a channel notifies what is OPEN
+class _WakesOnPublish(FakeRedis):
+    """A Redis whose stream publish immediately runs whatever the announcement wakes.
+
+    The real consumers are woken by an XADD and read the record back at once, so anything written
+    AFTER the publish is not there yet for them. Modelling that is the only way a single-threaded
+    test can catch an ordering bug that in production looks like an intermittent lost run.
+    """
+
+    def __init__(self, on_publish):
+        super().__init__()
+        self._on_publish = on_publish
+
+    def xadd(self, stream, fields, **kw):
+        eid = super().xadd(stream, fields, **kw)
+        self._on_publish(stream, fields)
+        return eid
+
+
+def test_a_failed_announcement_leaves_no_trace_of_the_decision():
+    """The other half of the ordering, and the reason the fix is not just a swap.
+
+    Writing the hash first means a failed audit append would otherwise leave the request marked
+    decided with NOTHING in the decisions log — a decision that happened for every reader and never
+    happened for the record. So the prior fields are restored, the fields this decision introduced
+    are removed, and the claim goes back: the request stays answerable, by anyone.
+    """
+    r = FakeRedis()
+    rid = approvals.request(ApprovalKind.SPEAKER_MAPPING, "who spoke?",
+                            {"question": {"prompt": "?"}, "answer_labels": ["SPEAKER_00"],
+                             "answer_required": True}, "maria@x.com", client=r)
+    r.fail("xadd")
+    try:
+        approvals.human_decision(rid, Decision.APPROVE, "maria@x.com", "teams",
+                                 answer={"SPEAKER_00": {"tag": "a guest"}}, client=r)
+    except Exception:
+        pass
+    r.fail("xadd", False)
+    st = approvals.status(rid, client=r)
+    assert st["status"] == ApprovalStatus.PENDING, f"left as {st['status']!r}"
+    assert "answer" not in st, "the answer of a decision that never landed must not be readable"
+    assert rid in r.s["approvals:pending"], "and anyone may still answer it"
+    # ...and the request really is still answerable
+    assert approvals.human_decision(rid, Decision.APPROVE, "omar@x.com", "cli",
+                                    answer={"SPEAKER_00": {"tag": "a guest"}},
+                                    client=r)["decision"] == Decision.APPROVE
+
+
+def test_the_answer_is_readable_before_the_decision_is_announced():
+    """LOST A RUN LIVE. `decide` announced on `approvals:decisions` and only then wrote the answer to
+    the request hash. The continuation runner is woken by that entry and immediately reads
+    `status(rid)["answer"]` — so it saw a decision with no answer, refused the run with "speaker_map
+    is required", and ACKED, which means no redelivery and no second chance. A human had answered
+    correctly; the answer was simply not readable yet.
+
+    `workflows.mark` already states this rule for the finished-runs stream. It is the same rule."""
+    seen = {}
+    def woken(stream, f):                    # only the DECISIONS stream wakes the continuation runner
+        if stream == approvals.DEC:
+            seen["answer"] = approvals.status(f["request_id"], client=r).get("answer")
+
+    r = _WakesOnPublish(woken)
+    rid = approvals.request(ApprovalKind.SPEAKER_MAPPING, "who spoke?",
+                            {"question": {"prompt": "?"}, "answer_labels": ["SPEAKER_00"],
+                             "answer_required": True}, "maria@x.com", client=r)
+    approvals.decide(rid, Decision.APPROVE, "maria@x.com", "teams",
+                     answer={"SPEAKER_00": {"tag": "a guest"}}, client=r)
+    assert seen["answer"] == {"SPEAKER_00": {"tag": "a guest"}}, \
+        "a consumer woken by the decision must be able to read the answer it is about"
+
+
 def test_a_channel_is_not_told_about_approvals_someone_already_decided():
     """A channel that has been off — unconfigured, crashed, or added later — accumulates a backlog of
     requests decided long ago through some OTHER channel. Announcing those on startup buries the few

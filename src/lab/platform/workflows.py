@@ -149,9 +149,16 @@ def submit(process, inputs, requester, *, spec=None, idempotency_key=None, ttl=I
     fields = WorkflowRequest(request_id=rid, process=process, inputs=inputs, requester=requester,
                              created_at=_now(), created_ts=f"{time.time():.6f}").to_fields()
     try:
-        r.xadd(REQ, fields)
+        # THE HASH FIRST, THE STREAM SECOND. A consumer woken by the stream entry immediately reads
+        # the request back, so publishing before it is readable is a race — and it fired live:
+        # `consumer loop error: KeyError: 'unknown request wfr-584919feed1c'`, a second before the
+        # same request ran fine on redelivery. It cost nothing only because that consumer leaves a
+        # failed entry UNACKED; the approvals twin acks unconditionally and lost a run outright.
+        # Failing the other way round is harmless by comparison: a hash with no stream entry is a
+        # request nothing consumes, not a consumer that cannot read what it was told about.
         r.hset(f"workflow:req:{rid}", mapping=fields)
         r.sadd("workflow:pending", rid)
+        r.xadd(REQ, fields)
     except Exception:
         if claim is not None:
             r.delete(claim)                       # nothing was queued: the key must not point at a phantom
