@@ -106,7 +106,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4      # railway.py derives the image tag from HEAD
 
-      - name: release
+      # `.env` is the deploy profile: `load_env_for_cloud()` reads it and lets its `# CLOUD:` lines
+      # win. It is held as ONE secret rather than one-per-key because those override lines carry
+      # meaning no name/value pair can (they redirect Redis, tracing and the URLs for the cloud
+      # tier), and because one blob is one rotation point instead of 28 that drift.
+      - name: materialise the deploy profile
+        env:
+          LAB_ENV: ${{ secrets.LAB_ENV }}
+        run: |
+          if [ -z "$LAB_ENV" ]; then echo "::notice::no LAB_ENV — nothing to configure"; exit 0; fi
+          printf '%s' "$LAB_ENV" > .env            # never echoed; the file is gone with the runner
+          echo "deploy profile: $(grep -c '^[A-Z_]*=' .env) keys, $(grep -c '^# CLOUD:' .env) cloud overrides"
+
+      - name: deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -115,7 +127,15 @@ jobs:
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "::notice::no RAILWAY_TOKEN — image built, deploy skipped"; exit 0
           fi
-          python deploy/railway.py release            # stdlib only: no pip install needed
+          # `substrate up` when there is a profile to push (creates missing services AND writes each
+          # role's env slice AND deploys); `release` when there is not (image + redeploy only), so a
+          # fork or a repo without LAB_ENV still ships code. Both log key NAMES and never values.
+          if [ -s .env ]; then
+            python deploy/railway.py substrate up   # stdlib only: no pip install needed
+            for w in visio meeting minutes; do python deploy/railway.py workload $w up; done
+          else
+            python deploy/railway.py release
+          fi
 
       - name: verify — one build everywhere, and it is the one just pushed
         env:

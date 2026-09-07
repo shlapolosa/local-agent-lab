@@ -502,7 +502,16 @@ stateless and address each other only through `src/lab/platform/config.py` env v
   variables, deliberately**: pushing env means holding `.env` (Neon, Entra, Graph, the master key),
   and putting that in GitHub Actions is a far larger blast radius than shipping code deserves — so
   **CD ships CODE and a human ships CONFIGURATION**, and a new service, secret or grant stays a
-  deliberate `substrate up` from a machine with `.env`. It fails only on a service that crashed on
+  deliberate `substrate up` — **or, since Sep 7 2026, from CI**: the deploy profile is held as the
+  single GitHub secret **`LAB_ENV`** (the whole `.env` verbatim), materialised by the job and fed to
+  `substrate up`, so config AND code ship on a push. ONE secret, not one per key, because `.env`'s 13
+  `# CLOUD:` lines carry meaning no name/value pair can — they redirect Redis, tracing and the URLs
+  for the cloud tier, and `load_env_for_cloud()` needs them. **The cost, stated plainly: GitHub now
+  holds a live copy of the Neon URL, the LiteLLM master key, six Entra client secrets, the Graph
+  write credential and the ADOIT password.** Rotating any of them means rotating in BOTH places — a
+  stale `LAB_ENV` deploys old credentials over good ones, which fails confusingly. Without `LAB_ENV`
+  the job falls back to `release` (image + redeploy, no config), so a fork still ships code. Both
+  paths log key NAMES only, never values. It fails only on a service that crashed on
   the new image or never finished deploying; a service that does not exist (the one-shot
   `wf-visio-job`) is reported and is not a failure. Pin/roll back with `LAB_IMAGE_TAG=sha-<short>`; the GHCR
   package must be PUBLIC (or give the services a registry credential). Dockerfile speed rules, all
