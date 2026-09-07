@@ -31,6 +31,11 @@ SEGMENTS = {"segments": [
 MAP = {"SPEAKER_00": {"identity": "maria.perez@contoso.com"},
        "SPEAKER_01": {"tag": "the vendor's architect"}}
 
+# SPEAKER_nn, because that is what the schema tells the model to write: "Labels only; who they are
+# is the human's answer, not yours." What was missing was not this — it was the prose SHOWING the
+# labels, so the model had them to write.
+SPEAKERS = {"SPEAKER_00", "SPEAKER_01"}
+
 MINUTES = {"summary": "We agreed to retire the legacy portal.",
            "concepts": [{"id": "c1", "label": "Legacy portal"}],
            "decisions": [{"id": "d1", "statement": "Retire the legacy portal", "concerns": ["c1"],
@@ -101,14 +106,19 @@ def test_it_writes_minutes_and_loads_them(gw):
     assert "Legacy portal" in out["keywords"] and "migration" in out["keywords"]
 
 
-def test_the_model_reads_display_names_never_addresses(gw):
-    """The gateway pseudonymises addresses, so a transcript full of them reaches the model as
-    placeholders and degrades the moment it paraphrases one."""
+def test_the_model_reads_both_the_label_and_the_name_never_an_address(gw):
+    """Two requirements at once, and satisfying only one broke every real run.
+
+    NAMES, because the gateway pseudonymises addresses: a transcript full of them reaches the model
+    as placeholders and degrades the moment it paraphrases one. And LABELS, because the schema tells
+    the model to attribute by label — "Labels only; who they are is the human's answer, not yours."
+    Showing only the name demanded a vocabulary the model never saw, and the gate then rejected
+    every attribution it made."""
     agent = FakeAgent()
     _run(agent)
     prompt = agent.prompts[0]
-    assert "maria.perez:" in prompt and "@" not in prompt
-    assert "the vendor's architect:" in prompt
+    assert "SPEAKER_00 (maria.perez):" in prompt and "@" not in prompt
+    assert "SPEAKER_01 (the vendor's architect):" in prompt
 
 
 def test_the_model_is_loaded_under_the_meeting_vocabulary(gw):
@@ -127,8 +137,8 @@ def test_the_minutes_are_stored_before_the_graph_is_loaded(gw):
 
 
 # ------------------------------------------------------------------ the gate
-def _gate(minutes, labels={"SPEAKER_00", "SPEAKER_01"}):
-    return W.gate(VALIDATOR, json.loads(json.dumps(minutes)), labels)
+def _gate(minutes, labels=None):
+    return W.gate(VALIDATOR, json.loads(json.dumps(minutes)), SPEAKERS if labels is None else labels)
 
 
 def test_good_minutes_pass_the_gate():
@@ -158,7 +168,7 @@ def test_the_bare_speaker_shorthand_is_normalised_before_the_schema_sees_it():
     under any of the given schemas' — which a corrective retry cannot act on."""
     m = json.loads(json.dumps(MINUTES))
     m["decisions"][0]["evidence"] = "SPEAKER_01"
-    assert W.gate(VALIDATOR, m, {"SPEAKER_00", "SPEAKER_01"}) == []
+    assert W.gate(VALIDATOR, m, SPEAKERS) == []
     assert m["decisions"][0]["evidence"] == [{"speaker": "SPEAKER_01"}]
 
 
@@ -172,7 +182,7 @@ def test_a_rejected_answer_gets_one_corrective_retry_carrying_the_transcript_aga
     agent = FakeAgent({**MINUTES, "concepts": []}, MINUTES)
     out = _run(agent)
     assert len(agent.prompts) == 2 and out["minutes_ref"]
-    assert "maria.perez:" in agent.prompts[1], "the retry re-sends the transcript"
+    assert "SPEAKER_00 (maria.perez):" in agent.prompts[1], "the retry re-sends the transcript"
     assert "rejected" in agent.prompts[1]
 
 

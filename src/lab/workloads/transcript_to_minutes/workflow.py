@@ -166,12 +166,17 @@ def _incomplete(minutes: dict, labels: set[str]) -> list[str]:
 
 
 def gate(validator, minutes, labels: set[str]) -> list[str]:
-    """Every reason these minutes cannot be used, or an empty list."""
+    """Every reason these minutes cannot be used, or an empty list.
+
+    `labels` are the SPEAKER_nn labels, because that is what the schema tells the model to write:
+    "Labels only; who they are is the human's answer, not yours." The prose it reads must therefore
+    SHOW those labels — see `attribute`, which for a long time showed only display names and so
+    demanded a vocabulary the model was never given."""
     m = minutes if isinstance(minutes, dict) else {}
     _normalise_shape(m)
     _normalise_evidence(m)
     errors = _schema_errors(validator, minutes)
-    return errors or _incomplete(minutes, labels)
+    return errors or _incomplete(m, labels)
 
 
 async def _deliver(cfg, state: dict, handle: str) -> dict:
@@ -234,8 +239,13 @@ def build_workflow(cfg):
             if mapped - used:
                 raise RuntimeError(f"{sorted(mapped - used)} were identified but never speak in this "
                                    "transcript — the answer does not match the recording")
-            prose = "\n".join(f'{mapping.of(s["speaker"]).display}: {s.get("text", "")}'.rstrip()
-                              for s in segments if s.get("text", "").strip())
+            # BOTH: the LABEL the schema tells the model to write back, and the NAME that makes the
+            # transcript readable to a person. Showing only the name demanded a vocabulary the model
+            # never saw — every run failed with "'motamad' is not a speaker in this transcript" while
+            # Motamad plainly was one. Showing only the label would leave a human with SPEAKER_01.
+            prose = "\n".join(
+                f'{s["speaker"]} ({mapping.of(s["speaker"]).display}): {s.get("text", "")}'.rstrip()
+                for s in segments if s.get("text", "").strip())
             state = state | {"segments": segments, "labels": used, "map": mapping, "prose": prose}
         await ctx.send_message(state)
 

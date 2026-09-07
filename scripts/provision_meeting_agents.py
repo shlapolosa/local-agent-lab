@@ -67,13 +67,35 @@ CONNECTOR_TOOLS = {
 }
 
 
+def _grants(tools):
+    """The `object_permission` for a per-tool ACL. `mcp_servers` alone would grant EVERY tool on the
+    server, so the two travel together."""
+    return {"mcp_servers": sorted(tools), "mcp_tool_permissions": tools}
+
+
 def _team(litellm, alias, tools, budget=5.0, models=("kimi-k3", "glm-flash")):
-    """One team with a per-tool ACL. `mcp_servers` alone would grant every tool on the server."""
+    """One team with a per-tool ACL."""
     return litellm("/team/new", {
         "team_alias": alias, "max_budget": budget, "budget_duration": "30d",
-        "models": list(models),
-        "object_permission": {"mcp_servers": sorted(tools), "mcp_tool_permissions": tools},
+        "models": list(models), "object_permission": _grants(tools),
     })["team_id"]
+
+
+def _reconcile(litellm, team_id, alias, tools):
+    """Make an EXISTING team's grants match the table above. Returns the team id.
+
+    Because the tables below are the declaration and this script is what applies them — and it did
+    not. `MINUTES_TOOLS` has named `collab_item` and `collab_put` since delivery was written, but the
+    team was created before that and the id was in `.env`, so `_team` was never called again and the
+    grant was never written. The workload then failed at the last step with `tool *collab_item not
+    exposed by gateway`, having produced correct minutes, while this script printed "Grants written"
+    and had written nothing.
+
+    Declared once at creation and never reconciled is the same defect the image tag had. A table is
+    only the truth if something applies it every time.
+    """
+    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools)})
+    return team_id
 
 
 def _key(litellm, alias, team_id, role, models=("kimi-k3",)):
@@ -96,9 +118,17 @@ def main() -> int:
     meeting_id, meeting_secret = ensure_agent("meeting-agent", [], gw_sp)
     minutes_id, minutes_secret = ensure_agent("minutes-agent", [], gw_sp)
 
-    transcript_team = os.environ.get("MEETING_TEAM_ID") or _team(litellm, "meeting-transcript", TRANSCRIPT_TOOLS)
-    minutes_team = os.environ.get("MINUTES_TEAM_ID") or _team(litellm, "meeting-minutes", MINUTES_TOOLS)
-    connector_team = os.environ.get("CONNECTOR_TEAM_ID") or _team(litellm, "power-automate", CONNECTOR_TOOLS, budget=1.0, models=())
+    # Every team is RECONCILED when it already exists, never merely reused: the tables above are the
+    # declaration and this is what applies them. See `_reconcile` for what reusing them silently cost.
+    def team(env_key, alias, tools, **kw):
+        existing = os.environ.get(env_key)
+        return (_reconcile(litellm, existing, alias, tools) if existing
+                else _team(litellm, alias, tools, **kw))
+
+    transcript_team = team("MEETING_TEAM_ID", "meeting-transcript", TRANSCRIPT_TOOLS)
+    minutes_team = team("MINUTES_TEAM_ID", "meeting-minutes", MINUTES_TOOLS)
+    connector_team = team("CONNECTOR_TEAM_ID", "power-automate", CONNECTOR_TOOLS,
+                          budget=1.0, models=())
 
     meeting_key = os.environ.get("MEETING_AGENT_KEY") or _key(litellm, "meeting-agent", transcript_team, "Meeting transcription")
     minutes_key = os.environ.get("MINUTES_AGENT_KEY") or _key(litellm, "minutes-agent", minutes_team, "Meeting minutes")
@@ -118,7 +148,7 @@ def main() -> int:
     }
     _patch_env(patch)
     print("\n.env updated with:", ", ".join(k for k in patch if "SECRET" not in k and k != "ENTRA_CLIENT_TO_KEY"))
-    print("\nGrants written:")
+    print("\nGrants written (created or reconciled):")
     for name, tools in (("meeting-transcript", TRANSCRIPT_TOOLS), ("meeting-minutes", MINUTES_TOOLS),
                         ("power-automate", CONNECTOR_TOOLS)):
         print(f"  {name}:")
