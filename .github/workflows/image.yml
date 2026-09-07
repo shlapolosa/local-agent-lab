@@ -23,6 +23,8 @@ on:
       - "pyproject.toml"
       - "deploy/Dockerfile"
       - "deploy/requirements.txt"
+      - "deploy/requirements-dev.txt"
+      - "tests/**"                 # the suite GATES the build now, so a test change must run it
       - ".github/workflows/image.yml"
   workflow_dispatch:             # manual rebuild (e.g. after changing the base image)
 
@@ -31,7 +33,40 @@ concurrency:                     # a newer commit supersedes an in-flight build
   cancel-in-progress: true
 
 jobs:
+  # The suite GATES everything below it. Before the pipeline deployed itself a red commit sat on
+  # main until somebody deployed it; now it would reach all 14 services inside two minutes, so
+  # "the tests passed on my machine" is no longer a control — this is.
+  #
+  # It runs `tests/run.sh`, the same entry point a developer runs, rather than a pytest line of its
+  # own: two runners drift, and the one that drifts is always the one nobody watches. That script
+  # wants `.venv`, so the job builds one.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"    # litellm needs >=3.11; the image is 3.12
+
+      # litellm + agent_framework + rdflib + streamlit is a slow install and it changes rarely.
+      - uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py312-${{ hashFiles('deploy/requirements.txt', 'deploy/requirements-dev.txt', 'pyproject.toml') }}
+
+      - name: install
+        run: |
+          [ -d .venv ] || python -m venv .venv
+          .venv/bin/pip install -q -r deploy/requirements.txt -e . -r deploy/requirements-dev.txt
+
+      # NO .env on the runner, deliberately: the suite is offline by contract (CLAUDE.md), and a
+      # test that only passes because a real credential happened to be present is a test that is
+      # lying. If this job fails where a laptop passes, that coupling is the finding.
+      # If the single process is ever OOM-killed here (the symptom is dots and then no summary),
+      # `tests/run.sh --by-tier` is the sized-process fallback.
+      - run: tests/run.sh
   build:
+    needs: test                  # nothing is built, and therefore nothing ships, on a red suite
     runs-on: ubuntu-latest
     permissions:
       contents: read
