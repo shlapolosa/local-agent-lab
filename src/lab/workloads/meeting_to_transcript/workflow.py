@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import datetime
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
@@ -76,6 +77,64 @@ async def _call(cfg, suffix: str, args: dict):
 CANDIDATE_MEETINGS = 10
 
 
+# How far apart the provider's two records of one recording may be and still be the same recording.
+# MEASURED on a live tenant: the callRecording said 08:13:25.877Z and the drive file said 08:13:20Z,
+# five seconds apart. A minute is generous for that and still far tighter than the gap between two
+# meetings a person would hold — and the NEAREST match wins anyway, so a generous window costs
+# accuracy only when two recordings land within a minute of each other, which is not a meeting
+# pattern any calendar produces.
+RECORDING_MATCH_S = 60.0
+
+
+def _instant(value: str) -> float | None:
+    """An ISO-8601 UTC stamp as a float, or None. Graph writes fractional seconds on one object and
+    whole seconds on the other, so the two are compared as instants and never as strings."""
+    text = str(value or "").strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+async def _match(cfg, recording: str, candidates: list, answers: list) -> dict | None:
+    """The meeting whose own recording was created at the same moment as this FILE, or None.
+
+    Only for an `collab://item/...` handle — a file in a drive, which is what a producer watching a
+    folder sends, and which CLAUDE.md calls the common case rather than the exotic one. A file handle
+    and a `collab://recording/...` handle can never be equal, so the exact match below had never once
+    succeeded for it: the speaker picker was empty and the meeting's chat unreachable for every run
+    the lab has ever done.
+
+    Matched on the two objects' own `created` instants, NEVER on the file's name: a provider's naming
+    is a vendor detail this side of the collaboration port must not read, and it is the first thing
+    that changes. The NEAREST recording within `RECORDING_MATCH_S` wins, so a near-miss cannot beat a
+    better one that is checked later, and nothing at all is returned when none is close enough —
+    offering the wrong meeting's participants is worse than offering none.
+    """
+    from lab.core.collab import ContentHandle, HandleKind
+    try:
+        if ContentHandle.parse(recording).kind is not HandleKind.ITEM:
+            return None                                  # a recording handle: the exact match applies
+    except ValueError:
+        return None
+    item = await _call(cfg, CollabTools.item, {"handle": recording})
+    when = _instant((item or {}).get("created"))
+    if when is None:
+        return None
+    best, best_gap = None, RECORDING_MATCH_S
+    for meeting, recs in zip(candidates, answers):
+        if isinstance(recs, BaseException):
+            continue
+        for rec in (recs or {}).get("items", []):
+            made = _instant(rec.get("created"))
+            if made is None:
+                continue
+            gap = abs(made - when)
+            if gap <= best_gap:
+                best, best_gap = meeting, gap
+    return best
+
+
 async def _owning_meeting(cfg, state: dict) -> dict:
     """The MEETING this recording came from, or {}. Never raises.
 
@@ -99,6 +158,9 @@ async def _owning_meeting(cfg, state: dict) -> dict:
         answers = await asyncio.gather(
             *(_call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")}) for m in candidates),
             return_exceptions=True)
+        matched = await _match(cfg, state["recording"], candidates, answers)
+        if matched is not None:
+            return matched
         # FIRST match in calendar order, not first to answer — the order is the provider's "most
         # recent", and a run must not resolve a different meeting depending on which call was quicker.
         for m, recs in zip(candidates, answers):

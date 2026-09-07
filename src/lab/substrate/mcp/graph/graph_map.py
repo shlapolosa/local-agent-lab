@@ -129,7 +129,8 @@ def drive_item(js: dict, drive_id: str = "") -> DriveItem:
     return DriveItem(id=encode_id(js["id"]), name=js.get("name") or js["id"],
                      drive_id=encode_id(decode_id(parent.get("driveId") or drive_id)),
                      folder="folder" in js, size=int(js.get("size") or 0),
-                     modified=js.get("lastModifiedDateTime", ""), path=_folder_path(parent),
+                     modified=js.get("lastModifiedDateTime", ""),
+                     created=js.get("createdDateTime", ""), path=_folder_path(parent),
                      # the same folder as an ID: a path is for reading, an id is what a write can be
                      # addressed to. Encoded like every other id this adapter hands out.
                      parent=encode_id(parent["id"]) if parent.get("id") else "",
@@ -158,9 +159,31 @@ def meeting(js: dict, user_id: str = "") -> Meeting:
     return Meeting(id=meeting_ref(user_id, token), subject=js.get("subject", ""), organizer=organizer,
                    start=_when(js, "startDateTime", "start"), end=_when(js, "endDateTime", "end"),
                    participants=_dedupe([organizer, *(_person(a) for a in (attendees or []))]),
-                   # Only the onlineMeeting shape carries the conversation; a calendar event does
-                   # not, and an ad-hoc meeting may have none at all — "" is the honest answer.
-                   chat_id=str((online.get("chatInfo") or js.get("chatInfo") or {}).get("threadId") or ""))
+                   # The onlineMeeting shape states the conversation outright. A calendar event does
+                   # not — but its JOIN URL embeds the same thread id, and a calendar event is the
+                   # only shape the listable window returns, so without this derivation `chat_id` was
+                   # empty for every meeting the lab ever saw and nothing could be posted back to a
+                   # meeting's own chat. Verified against a live tenant: derived == chatInfo.threadId,
+                   # exactly, for every meeting tried. An ad-hoc meeting with neither still gives "",
+                   # which remains the honest answer.
+                   chat_id=str((online.get("chatInfo") or js.get("chatInfo") or {}).get("threadId")
+                               or _thread_from_join(online.get("joinUrl") or "")))
+
+
+def _thread_from_join(join_url: str) -> str:
+    """The chat thread id inside a Teams join URL, or "".
+
+    A join URL is `…/l/meetup-join/<thread>/0?context=…` where `<thread>` is the percent-encoded
+    `19:meeting_<id>@thread.v2` — the chat the meeting posts into. Parsed structurally (split on the
+    marker, take one segment, unquote), never by pattern-matching the id itself, so a provider that
+    changes the id's shape does not silently start returning nonsense.
+    """
+    marker = "/meetup-join/"
+    if marker not in (join_url or ""):
+        return ""
+    segment = join_url.split(marker, 1)[1].split("/", 1)[0].split("?", 1)[0]
+    thread = urllib.parse.unquote(segment)
+    return thread if thread.startswith("19:") else ""
 
 
 def _person(js: dict) -> str:

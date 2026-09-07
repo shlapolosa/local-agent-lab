@@ -175,6 +175,11 @@ class DriveItem:
     folder: bool = False
     size: int = 0
     modified: str = ""
+    # When the PROVIDER created it, which is not when it was last touched. It is what identifies a
+    # meeting recording: the provider writes the file and the meeting's own recording object within
+    # seconds of each other, and that is the only honest join between the two — a file name is a
+    # vendor's formatting choice this side of the port must not read.
+    created: str = ""
     path: str = ""
     parent: str = ""
     url: str = ""

@@ -135,6 +135,31 @@ def test_a_percent_encoded_folder_path_is_decoded_because_graph_encodes_spaces()
 
 
 # ------------------------------------------------------------------ meetings
+def test_the_chat_id_comes_from_the_join_url_when_the_event_does_not_state_it():
+    """A calendar event carries no `chatInfo` — and the calendar view is the ONLY listable window, so
+    every meeting the lab ever saw had an empty chat id and nothing could be posted back to a
+    meeting's own conversation. The join URL embeds the same thread. Verified against a live tenant:
+    the derived value equalled `chatInfo.threadId` exactly, for every meeting tried."""
+    m = graph_map.meeting({"id": "evt", "subject": "Design review", "isOnlineMeeting": True,
+                           "onlineMeeting": {"joinUrl": "https://teams.microsoft.com/l/meetup-join/"
+                                                        "19%3ameeting_ABC%40thread.v2/0?context=%7B%7D"}})
+    assert m.chat_id == "19:meeting_ABC@thread.v2"
+
+
+def test_a_stated_chat_id_is_preferred_over_the_derived_one():
+    """The onlineMeeting shape says it outright; a derivation is only for the shape that cannot."""
+    m = graph_map.meeting({"id": "m1", "chatInfo": {"threadId": "19:stated@thread.v2"},
+                           "joinUrl": "https://teams.microsoft.com/l/meetup-join/19%3aderived%40thread.v2/0"})
+    assert m.chat_id == "19:stated@thread.v2"
+
+
+def test_a_meeting_with_no_conversation_says_so_rather_than_guessing():
+    """An ad-hoc meeting may genuinely have none, and "" is the honest answer — the notifier reads it
+    and stays silent rather than inventing a destination."""
+    assert graph_map.meeting({"id": "m1"}).chat_id == ""
+    assert graph_map.meeting({"id": "m1", "onlineMeeting": {"joinUrl": "https://example.com/x"}}).chat_id == ""
+
+
 ONLINE_MEETING = {
     "id": "MSpkYzE3Njc0Yw==", "subject": "Design review",
     "startDateTime": "2026-09-01T10:00:00Z", "endDateTime": "2026-09-01T11:00:00Z",

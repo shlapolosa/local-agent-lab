@@ -289,6 +289,69 @@ def _with_meetings(gw, meetings=MEETINGS, recs=RECS):
     return call
 
 
+ITEM_HANDLE = "collab://item/b!drive/01FILE"        # what a folder-watching producer actually sends
+
+
+def _with_item_match(gw, item_created="2026-09-07T08:13:20Z",
+                     rec_created="2026-09-07T08:13:25.877286Z", other="2026-09-07T02:00:00Z"):
+    """A provider answering as the real one does: a drive file, and meetings whose own recordings
+    were created at their own instants."""
+    gw.answers[CollabTools.meetings] = MEETINGS
+    gw.answers[CollabTools.item] = {"id": "01FILE", "name": "rec.mp4", "created": item_created}
+    recs = {"m-other": {"items": [{"handle": "collab://recording/m-other/r9", "created": other}]},
+            "meeting-1": {"items": [{"handle": "collab://recording/meeting-1/r1", "created": rec_created}]}}
+
+    async def call(headers, mcp_url, calls):
+        out = []
+        for suffix, args in calls:
+            gw.calls.append((suffix, args))
+            out.append(recs.get(args.get("meeting_id"), {"items": []})
+                       if suffix == CollabTools.recordings else gw.answers[suffix])
+        return out
+    return call
+
+
+def test_a_drive_file_is_matched_to_its_meeting_by_when_the_provider_made_each(gw, monkeypatch):
+    """The case that had NEVER worked. A producer watching a folder sends `collab://item/...`; the
+    provider's meeting recordings are `collab://recording/...`. The two can never be equal, so the
+    handle match silently found nothing on every real run — an empty speaker picker and no chat to
+    post the minutes back to.
+
+    Matched on the two objects' own creation instants instead. Measured live: the callRecording said
+    08:13:25.877Z and the drive file said 08:13:20Z, five seconds apart. Never on the file NAME — a
+    provider's naming is a vendor detail this side of the port must not read."""
+    monkeypatch.setattr(W.gateway, "call_tools", _with_item_match(gw))
+    out = _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})
+    assert out["candidates"] == [{"identity": "maria@contoso.com", "display": ""},
+                                 {"identity": "sam@contoso.com", "display": ""}]
+
+
+def test_the_chat_id_of_the_matched_meeting_reaches_the_minutes_run(gw, monkeypatch):
+    """Which is the whole point of resolving it: without a chat id the minutes are written beside the
+    recording and nobody is told."""
+    monkeypatch.setattr(W.gateway, "call_tools", _with_item_match(gw))
+    _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})
+    assert gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]["chat_id"] == CHAT
+
+
+def test_a_recording_made_at_a_quite_different_time_is_not_claimed(gw, monkeypatch):
+    """Nothing at all beats the wrong meeting: offering another meeting's participants would put
+    strangers in front of the human as if the lab knew they were there."""
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_item_match(gw, rec_created="2026-09-07T09:30:00Z"))
+    assert _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})["candidates"] == []
+
+
+def test_the_nearest_recording_wins_not_the_first_one_close_enough(gw, monkeypatch):
+    """Both are inside the window; only one is right. Taking the first would make the answer depend
+    on calendar order rather than on the evidence."""
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_item_match(gw, other="2026-09-07T08:13:50Z"))   # m-other: 30s off
+    out = _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})             # meeting-1: 5s off
+    assert out["candidates"] == [{"identity": "maria@contoso.com", "display": ""},
+                                 {"identity": "sam@contoso.com", "display": ""}]
+
+
 def test_the_meeting_that_owns_this_recording_supplies_the_people_to_pick_from(gw, monkeypatch):
     """Matched by HANDLE, never by parsing the recording's filename — a provider's naming is a vendor
     detail this side of the collaboration port must not know, and a wrong match would put the wrong
