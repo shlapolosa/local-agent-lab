@@ -189,8 +189,8 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
 async def _store(cfg, name: str, data: bytes) -> str:
     """The prose transcript as an artifact, so the upload reads it the way everything else does —
     by reference through the governed store, never as bytes on a tool argument."""
-    stored = await _call(cfg, SemanticTools.store_spec, {"spec": {"text": data.decode()}, "name": name})
-    return stored["ref"] if isinstance(stored, dict) and "ref" in stored else stored
+    return gateway.ref_from(await _call(cfg, SemanticTools.store_spec,
+                                       {"spec": {"text": data.decode()}, "name": name}))
 
 def build_workflow(cfg):
     validator = Draft7Validator(cfg["schema"]) if cfg.get("schema") else None
@@ -268,10 +268,10 @@ def build_workflow(cfg):
             model_id = f'meeting-{state["meeting"]["id"]}'
             stored = await _call(cfg, SemanticTools.store_spec,
                                  {"spec": state["minutes"], "name": f"{model_id}.minutes.json"})
-            minutes_ref = stored["ref"] if isinstance(stored, dict) and "ref" in stored else stored
+            minutes_ref = gateway.ref_from(stored)
             spec_stored = await _call(cfg, SemanticTools.store_spec,
                                       {"spec": state["spec"], "name": f"{model_id}.spec.json"})
-            spec_ref = spec_stored["ref"] if isinstance(spec_stored, dict) and "ref" in spec_stored else spec_stored
+            spec_ref = gateway.ref_from(spec_stored)
             loaded = await _call(cfg, SemanticTools.load_model,
                                  {"spec_ref": spec_ref, "model_id": model_id, "vocab": VOCAB})
             state = state | {"minutes_ref": minutes_ref, "model_id": model_id, "loaded": loaded}

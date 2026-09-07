@@ -15,6 +15,7 @@ import pytest
 from jsonschema import Draft7Validator
 
 from lab.platform.contracts import SemanticTools, StorageTools
+from lab.workloads import gateway
 from lab.workloads.transcript_to_minutes import workflow as W
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -55,7 +56,13 @@ class FakeGateway:
     def __init__(self, **overrides):
         self.answers = {StorageTools.read_artifact: SEGMENTS,
                         SemanticTools.validate_model: {"illegal": [], "warnings": []},
-                        SemanticTools.store_spec: {"ref": "art://s/x.json"},
+                        # `spec_ref`, `name` and the counts — what `semantic_store_spec` ACTUALLY
+                        # answers. It said `{"ref": …}` here, a key the tool has never returned, so
+                        # the doubles agreed with the workload's wrong unwrap and the suite was
+                        # green while every real run failed. A double that models a contract nobody
+                        # implements tests nothing.
+                        SemanticTools.store_spec: {"spec_ref": "art://s/x.json", "name": "x.json",
+                                                   "elements": 4, "relations": 3, "views": 0},
                         SemanticTools.load_model: {"triples": 42, "derived_relations": 0}} | overrides
         self.calls = []
 
@@ -268,6 +275,29 @@ def test_where_to_announce_is_carried_in_and_is_independent_of_naming_the_meetin
     assert m["chat_id"] == "19:m@thread.v2" and m["resolved"] is False
     assert _meeting_from("collab://item/b!d/01F", "art://a/x.json")["chat_id"] == "", \
         "and a run told nothing announces nothing rather than guessing a destination"
+
+
+# ---------------------------------------------------------------- what the store answered
+def test_the_reference_comes_from_the_one_shared_unwrap():
+    """FAILED A LIVE RUN, and the cause was duplication rather than logic. `semantic_store_spec`
+    answers `{"spec_ref": …, "name": …, "elements": …}`; this workload hand-rolled `stored["ref"]`
+    in THREE places — a key it has never returned — guarded by `if "ref" in stored`, which made the
+    miss silent. The whole dict travelled on as if it were a reference and the run died two nodes
+    later with `Input validation error: {...} is not valid under any of the given schemas`, naming a
+    tool that had done nothing wrong.
+
+    `gateway.ref_from` already existed, already defaulted to `spec_ref`, and already VALIDATED the
+    result as a well-formed reference — the visio workload had been using it all along. The fix is
+    that this one uses it too, so there is one unwrap and not four."""
+    assert gateway.ref_from({"spec_ref": "art://a/x.json", "name": "x", "elements": 4}) == "art://a/x.json"
+
+
+def test_a_store_that_answered_no_reference_fails_where_it_happened(gw):
+    """Not silently. The whole cost of the original bug was a guard that let a bad answer travel."""
+    import pytest as _pytest
+    gw.answers[W.SemanticTools.store_spec] = {"name": "x", "elements": 4}      # no ref at all
+    with _pytest.raises((KeyError, ValueError, RuntimeError)):
+        _run()
 
 
 # ---------------------------------------------------------------- the contract the model can read
