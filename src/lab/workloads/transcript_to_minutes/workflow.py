@@ -82,6 +82,55 @@ def _normalise_evidence(minutes: dict) -> None:
                 item["evidence"] = [{"speaker": e} if isinstance(e, str) else e for e in ev]
 
 
+# What a model calls these fields when it is not copying the schema. Every one of these is a WORD
+# CHOICE, not a difference in meaning: `name`/`title` for a concept's label, `description` for its
+# definition. Measured, not guessed — a live run emitted `{id: "C1", name, description}` for every
+# concept, was told exactly which properties were unexpected, and emitted the same shape again. A
+# retry cannot teach vocabulary, so the vocabulary is normalised instead.
+_SYNONYMS = {"concepts": {"name": "label", "title": "label", "description": "definition",
+                          "meaning": "definition"},
+             "decisions": {"decision": "statement", "text": "statement", "why": "rationale",
+                           "about": "concerns", "owner": "decided_by"},
+             "actions": {"action": "commitment", "task": "commitment", "what": "commitment",
+                         "assignee": "owner", "deadline": "due", "about": "concerns"}}
+_ID_PREFIX = {"concepts": "c", "decisions": "d", "actions": "a"}
+
+
+def _normalise_shape(minutes: dict) -> None:
+    """Accept the near-misses a model reliably makes, in place, BEFORE the schema sees them.
+
+    Two of them, and both are cosmetic: a synonym for a field name, and an id written `C1` where the
+    schema wants `c1`. Neither changes what the minutes SAY, and rejecting a whole run over the case
+    of a letter throws away a real transcription and a human's speaker mapping.
+
+    Deliberately conservative — a synonym is only applied when the canonical field is ABSENT, so a
+    model that got it right is never overwritten, and an id is only rewritten when it differs from
+    the schema's shape purely by case or by a missing prefix. Anything else still fails the gate.
+    """
+    for key, syn in _SYNONYMS.items():
+        for n, item in enumerate(minutes.get(key) or [], start=1):
+            if not isinstance(item, dict):
+                continue
+            for wrong, right in syn.items():
+                if wrong in item and not str(item.get(right) or "").strip():
+                    item[right] = item.pop(wrong)
+            got = str(item.get("id") or "").strip()
+            want = _ID_PREFIX[key]
+            if got[:1].lower() == want and got[1:].isdigit():
+                item["id"] = got.lower()                    # "C1" -> "c1"
+            elif got.isdigit():
+                item["id"] = f"{want}{got}"                 # "1"  -> "c1"
+            elif not got:
+                item["id"] = f"{want}{n}"                   # absent -> positional, so the cross
+                                                            # references below still have something
+    # ...and the references INTO those ids, which must move with them
+    for key in ("decisions", "actions"):
+        for item in minutes.get(key) or []:
+            if isinstance(item, dict) and isinstance(item.get("concerns"), list):
+                item["concerns"] = [c.lower() if isinstance(c, str) and c[:1].lower() == "c"
+                                    and c[1:].isdigit() else c for c in item["concerns"]]
+
+
 def _incomplete(minutes: dict, labels: set[str]) -> list[str]:
     """What a schema cannot see. Ordered by how badly each one misleads a reader."""
     bad: list[str] = []
@@ -103,7 +152,9 @@ def _incomplete(minutes: dict, labels: set[str]) -> list[str]:
 
 def gate(validator, minutes, labels: set[str]) -> list[str]:
     """Every reason these minutes cannot be used, or an empty list."""
-    _normalise_evidence(minutes if isinstance(minutes, dict) else {})
+    m = minutes if isinstance(minutes, dict) else {}
+    _normalise_shape(m)
+    _normalise_evidence(m)
     errors = _schema_errors(validator, minutes)
     return errors or _incomplete(minutes, labels)
 

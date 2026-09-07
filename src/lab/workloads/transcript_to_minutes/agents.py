@@ -7,6 +7,7 @@ structural rather than a promise.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agent_framework import Agent, ChatOptions
@@ -16,12 +17,27 @@ from openai import AsyncOpenAI
 HERE = Path(__file__).resolve().parent
 
 
-def instructions() -> str:
-    return (HERE / "prompts" / "minutes.md").read_text(encoding="utf-8")
+def instructions(schema: dict | None = None) -> str:
+    """The prompt, WITH the schema it keeps telling the model to obey.
+
+    The prompt has always ended "Emit only the JSON your schema describes" — and the model was never
+    shown one. It guessed the field names, reasonably (`name`, `description`), the gate rejected the
+    lot, the retry quoted jsonschema errors at it, and it guessed the same way again: a whole
+    meeting's minutes lost to a phantom reference. A contract the model cannot read is not a
+    contract. The gate still normalises the near-misses, but this is why they should stop arriving.
+    """
+    prompt = (HERE / "prompts" / "minutes.md").read_text(encoding="utf-8")
+    if not schema:
+        return prompt
+    return (f"{prompt}\n\n## The schema\n\nEmit an object matching EXACTLY this JSON Schema. Use its "
+            f"property names verbatim — `label`, not `name`; `definition`, not `description` — and "
+            f"obey its `pattern`s, including the case of an id.\n\n```json\n"
+            f"{json.dumps(schema, indent=2)}\n```\n")
 
 
 def make_agent(*, credential: str, gateway_url: str, model: str, headers: dict | None = None,
-               store: bool = False, timeout: float = 300.0, max_tokens: int = 32000) -> Agent:
+               store: bool = False, timeout: float = 300.0, max_tokens: int = 32000,
+               schema: dict | None = None) -> Agent:
     """The minutes agent. Every setting arrives as an ARGUMENT — the composition root reads
     configuration, nothing below it does, which is what keeps this workload off the env ratchet.
 
@@ -31,5 +47,5 @@ def make_agent(*, credential: str, gateway_url: str, model: str, headers: dict |
     http = AsyncOpenAI(base_url=gateway_url.rstrip("/") + "/v1/", api_key=credential,
                        default_headers=dict(headers or {}), timeout=timeout, max_retries=3)
     client = OpenAIChatClient(model=model, api_key=credential, async_client=http)
-    return Agent(client=client, name="minutes", instructions=instructions(),
+    return Agent(client=client, name="minutes", instructions=instructions(schema),
                  default_options=ChatOptions(store=store, max_tokens=max_tokens))

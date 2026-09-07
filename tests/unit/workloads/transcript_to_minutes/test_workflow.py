@@ -17,6 +17,8 @@ from jsonschema import Draft7Validator
 from lab.platform.contracts import SemanticTools, StorageTools
 from lab.workloads.transcript_to_minutes import workflow as W
 
+ROOT = Path(__file__).resolve().parents[4]
+
 SCHEMA = json.loads((Path(W.__file__).resolve().parents[3] / "lab" / "core" / "meetings" /
                      "schemas" / "minutes.schema.json").read_text())
 VALIDATOR = Draft7Validator(SCHEMA)
@@ -266,6 +268,64 @@ def test_where_to_announce_is_carried_in_and_is_independent_of_naming_the_meetin
     assert m["chat_id"] == "19:m@thread.v2" and m["resolved"] is False
     assert _meeting_from("collab://item/b!d/01F", "art://a/x.json")["chat_id"] == "", \
         "and a run told nothing announces nothing rather than guessing a destination"
+
+
+# ---------------------------------------------------------------- the contract the model can read
+def test_the_model_is_shown_the_schema_it_is_told_to_obey():
+    """The prompt has always ended "Emit only the JSON your schema describes" and the model was never
+    shown one. It guessed `name`/`description`, the gate rejected everything, the retry quoted
+    jsonschema at it, and it guessed identically again — a whole meeting lost to a phantom reference.
+    A contract the model cannot read is not a contract."""
+    import json as _json
+    from lab.workloads.transcript_to_minutes import agents as A
+    schema = _json.loads((ROOT / "src/lab/core/meetings/schemas/minutes.schema.json").read_text())
+    with_schema = A.instructions(schema)
+    assert '"label"' in with_schema and '"definition"' in with_schema
+    assert "^c[0-9]+$" in with_schema, "the id PATTERN too — case is what it got wrong"
+    assert len(with_schema) > len(A.instructions()), "and it is additive to the prose"
+
+
+# ---------------------------------------------------------------- the shape a model actually emits
+def test_a_synonym_for_a_field_name_is_accepted_not_rejected():
+    """FROM A LIVE RUN. The minutes agent emitted `{id: "C1", name, description}` for every concept,
+    was told by the gate exactly which properties were unexpected and which were missing, and emitted
+    the identical shape again — so a whole meeting was thrown away over word choice. A retry cannot
+    teach vocabulary. These are synonyms, not disagreements about meaning, so they are normalised."""
+    m = {"concepts": [{"id": "C1", "name": "Shafafiya", "description": "the claims platform"}],
+         "decisions": [{"id": "D1", "decision": "ship it", "about": ["C1"], "why": "it is ready"}],
+         "actions": [{"id": "A1", "task": "write the doc", "assignee": "maria@x.com",
+                      "deadline": "Friday", "about": ["C1"]}]}
+    W._normalise_shape(m)
+    assert m["concepts"][0] == {"id": "c1", "label": "Shafafiya", "definition": "the claims platform"}
+    assert m["decisions"][0]["statement"] == "ship it" and m["decisions"][0]["rationale"] == "it is ready"
+    assert m["actions"][0]["commitment"] == "write the doc" and m["actions"][0]["owner"] == "maria@x.com"
+    assert m["actions"][0]["due"] == "Friday"
+
+
+def test_a_reference_moves_with_the_id_it_points_at():
+    """Rewriting `C1` to `c1` and leaving `concerns: ["C1"]` behind would trade a schema failure for
+    a dangling reference — which the completeness gate catches, but only after the model is gone."""
+    m = {"concepts": [{"id": "C1", "label": "x"}],
+         "decisions": [{"id": "D1", "statement": "s", "concerns": ["C1"]}],
+         "actions": [{"id": "A1", "commitment": "c", "owner": "o", "concerns": ["C1"]}]}
+    W._normalise_shape(m)
+    assert m["decisions"][0]["concerns"] == ["c1"] and m["actions"][0]["concerns"] == ["c1"]
+
+
+def test_a_model_that_got_it_right_is_never_overwritten():
+    """The normaliser only fills a canonical field that is ABSENT. A model that emitted BOTH — its
+    own `name` and a correct `label` — must keep the one the schema asked for."""
+    m = {"concepts": [{"id": "c1", "label": "the real label", "name": "a stray synonym"}]}
+    W._normalise_shape(m)
+    assert m["concepts"][0]["label"] == "the real label"
+
+
+def test_an_id_that_is_wrong_in_any_other_way_still_fails(gw):
+    """Conservative on purpose: case and a missing prefix are cosmetic, anything else is a model
+    that did not understand the contract, and the gate should still say so."""
+    m = {"concepts": [{"id": "concept-one", "label": "x"}]}
+    W._normalise_shape(m)
+    assert m["concepts"][0]["id"] == "concept-one", "left alone, so the schema rejects it"
 
 
 # ---------------------------------------------------------------- putting the outputs back

@@ -53,7 +53,10 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
         return make_cfg(credential=cred, traceparent=c.traceparent_header, schema=_schema(),
                         agent=A.make_agent(credential=cred, gateway_url=config.GATEWAY_URL,
                                            model=config.MINUTES_AGENT_MODEL, headers=headers,
-                                           store=config.AGENT_RESPONSES_STORE),
+                                           store=config.AGENT_RESPONSES_STORE,
+                                           # the SAME schema the gate validates against: one
+                                           # contract, shown to the model that must satisfy it
+                                           schema=_schema()),
                         tracer=c.tracer, root_ctx=c.root_ctx, mcp_url=c.mcp_url, run_id=c.run_id)
 
     # The meeting's own identity. A `recording` handle names it properly: the handle is
