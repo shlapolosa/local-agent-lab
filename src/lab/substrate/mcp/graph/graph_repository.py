@@ -118,6 +118,9 @@ class GraphCollabRepository:
         # server, so an unbounded dict keyed on every join URL ever seen grows for the life of the
         # process. The values are immutable ids, so evicting the oldest costs at most one lookup.
         self._resolved: OrderedDict[tuple[str, str], str] = OrderedDict()
+        # UPN -> directory object id. Bounded by `meeting_users`, so it cannot grow: a deployment
+        # reads a fixed, configured set of mailboxes.
+        self._user_ids: dict[str, str] = {}
 
     # ------------------------------------------------------------------ capabilities
     def capabilities(self, deep: bool = False) -> dict[str, CollabUnavailable | None]:
@@ -291,7 +294,7 @@ class GraphCollabRepository:
         if handle.kind is HandleKind.ITEM:
             return f"/drives/{_seg(handle.scope)}/items/{_seg(handle.id)}/content", None
         kind = MediaKind(handle.kind.value)
-        path = f"{self._meeting_path(handle.scope)}/{kind.value}s/{_seg(handle.id)}/content"
+        path = f"{self._meeting_path(handle.scope, f'{kind.value}s')}/{kind.value}s/{_seg(handle.id)}/content"
         # A transcript is delivered in whatever format is asked for; WebVTT is the one a reader wants.
         return path, ({"$format": graph_map.MEDIA_TYPES[kind]} if kind is MediaKind.TRANSCRIPT else None)
 
@@ -317,14 +320,15 @@ class GraphCollabRepository:
 
     def _media(self, meeting_id: str, kind: MediaKind, limit, cursor) -> Page[MediaRecord]:
         capability = f"{kind.value}s"
-        path = f"{self._meeting_path(meeting_id)}/{capability}"
+        path = f"{self._meeting_path(meeting_id, capability)}/{capability}"
         items, nxt = self._call(capability, self.client.paged, path, None, cursor, limit)
         return Page(tuple(graph_map.media_record(i, kind, meeting_id) for i in items), nxt)
 
-    def _meeting_path(self, ref: str) -> str:
+    def _meeting_path(self, ref: str, capability: str = "meetings") -> str:
         user, token = graph_map.split_meeting_ref(ref)
         user = self._user(user)
-        return f"/users/{_seg(user)}/onlineMeetings/{_seg(self._resolve(user, token))}"
+        return (f"/users/{_seg(self._user_id(user, capability))}/onlineMeetings/"
+                f"{_seg(self._resolve(user, token))}")
 
     def _resolve(self, user: str, token: str) -> str:
         """A calendar event knows only the JOIN URL; `/users/{u}/onlineMeetings` can be filtered by
@@ -339,7 +343,8 @@ class GraphCollabRepository:
             # An OData string literal escapes a quote by doubling it. Both halves of a meeting
             # reference come back from the caller, so an unescaped one would let a caller widen the
             # filter to somebody else's meeting.
-            js = self._call("meetings", self.client.get, f"/users/{_seg(user)}/onlineMeetings",
+            js = self._call("meetings", self.client.get,
+                        f"/users/{_seg(self._user_id(user))}/onlineMeetings",
                             {"$filter": "joinWebUrl eq '{}'".format(token.replace("'", "''"))})
             found = js.get("value") or []
             if not found:
@@ -366,6 +371,32 @@ class GraphCollabRepository:
                 "meetings", f"{user} is not a mailbox this deployment reads meetings from",
                 "add it to GRAPH_MEETING_USERS (GRAPH_MEETING_USER is the single-mailbox form)")
         return user
+
+    def _user_id(self, given: str, capability: str = "meetings") -> str:
+        """The same user, as the OBJECT GUID that `/users/{id}/onlineMeetings` insists on.
+
+        `calendarView` accepts a UPN or a GUID; `onlineMeetings` accepts ONLY a GUID and answers a
+        UPN with a flat `400 The userId in request URL is not a valid GUID`. Because listing meetings
+        worked and only the per-meeting lookups failed, this looked for a long time like "ad-hoc
+        recordings resolve no meeting" — it was every meeting, and the best-effort `except` around
+        the caller turned it into an empty speaker picker instead of an error anyone could see.
+
+        Resolved once per user and remembered: a UPN is what a person configures, a GUID is what the
+        endpoint needs, and neither belongs in the other's place.
+        """
+        user = self._user(given)
+        if "@" not in user:
+            return user                              # already an object id
+        oid = self._user_ids.get(user)
+        if not oid:
+            js = self._call(capability, self.client.get, f"/users/{_seg(user)}") or {}
+            oid = str(js.get("id") or "")
+            if not oid:
+                raise CollabUnavailable(
+                    capability, f"the directory did not give {user} an object id",
+                    "check GRAPH_MEETING_USER names a real mailbox in this tenant")
+            self._user_ids[user] = oid
+        return oid
 
     def _window(self, since: str, until: str) -> tuple[str, str]:
         now = self._now()

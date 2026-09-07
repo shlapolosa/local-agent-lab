@@ -19,12 +19,22 @@ ROLES = ("Sites.Read.All", "Files.Read.All", "Calendars.Read",
          "OnlineMeetingRecording.Read.All", "OnlineMeetingTranscript.Read.All")
 
 
+CHAIR_OID = "5f48f64f-21d4-411a-afe7-72026aea94ed"      # what the directory answers for the UPN
+
+
 def repo(transport=None, roles=ROLES, tokens=None, **kw):
     t = transport or FakeTransport()
     tokens = tokens or FakeTokens("tok", roles)
     client = GraphClient(tokens, transport=t, sleep=FakeSleep(), now=lambda: 0.0)
     kw.setdefault("meeting_user", "chair@lab.example")
     kw.setdefault("now", NOW)
+    # Every onlineMeetings path resolves the UPN to an object id first, because Graph accepts only a
+    # GUID there. Answered unconditionally: it is harness, not the thing any single test asserts —
+    # except `test_online_meeting_paths_use_the_object_id`, which asserts it directly.
+    if hasattr(t, "expect"):          # not every double is the rule-driven transport
+        # appended LAST, and rules are tried in order, so a test's own /calendarView or
+        # /onlineMeetings rule still wins over this prefix.
+        t.expect(contains="/users/chair%40lab.example", body={"id": CHAIR_OID}, times=None)
     return graph_repository.GraphCollabRepository(client, tokens, **kw), t
 
 
@@ -200,16 +210,54 @@ def test_a_recordings_content_is_addressed_under_the_user_whose_meeting_it_was()
     made, _ = repo(t)
     ref = graph_map.meeting_ref("chair@lab.example", "MSp/abc==")
     made.content(ContentHandle.recording(ref, "rec-1"))
-    assert "/users/chair%40lab.example/onlineMeetings/" in t.urls[0]
-    assert t.urls[0].endswith("/recordings/rec-1/content")
-    assert "MSp%2Fabc%3D%3D" in t.urls[0]                       # the encoded id, decoded and re-quoted
+    # Searched, not indexed: resolving the UPN to an object id adds a directory call before this
+    # one, and an assertion pinned to urls[0] says more about call ORDER than about the path.
+    got = next(u for u in t.urls if u.endswith("/recordings/rec-1/content"))
+    assert f"/users/{CHAIR_OID}/onlineMeetings/" in got, "onlineMeetings takes the object id"
+    assert "MSp%2Fabc%3D%3D" in got                             # the encoded id, decoded and re-quoted
 
 
 def test_a_transcript_is_asked_for_in_the_format_a_reader_can_use():
     t = FakeTransport().expect("/content", body=b"WEBVTT")
     made, _ = repo(t)
     made.content(ContentHandle.transcript(graph_map.meeting_ref("chair@lab.example", "m1"), "tr-1"))
-    assert "/transcripts/tr-1/content" in t.urls[0] and "text%2Fvtt" in t.urls[0]
+    got = next(u for u in t.urls if "/transcripts/tr-1/content" in u)
+    assert "text%2Fvtt" in got
+
+
+def test_online_meeting_paths_use_the_object_id_because_graph_refuses_a_upn():
+    """MEASURED against the live tenant, and it cost a working feature to find.
+
+    `/users/{id}/calendarView` accepts a UPN or a GUID. `/users/{id}/onlineMeetings` accepts ONLY a
+    GUID and answers a UPN with `400 The userId in request URL is not a valid GUID`. So LISTING
+    meetings worked while every per-meeting lookup failed — and because the caller resolves the
+    owning meeting on a best-effort path, the failure surfaced as an empty speaker picker rather
+    than as an error. Every meeting, scheduled or ad-hoc, for the life of the feature.
+
+    A UPN is what a person configures; a GUID is what this endpoint needs. The adapter resolves once
+    and remembers, and that resolution is what this test pins."""
+    t = FakeTransport().expect("/recordings", body={"value": [{"id": "rec-1"}]}, times=None)
+    made, _ = repo(t)
+    made.recordings(graph_map.meeting_ref("chair@lab.example", "MSp-1"))
+    online = [u for u in t.urls if "/onlineMeetings" in u]
+    assert online, "the recordings lookup went through onlineMeetings"
+    for u in online:
+        assert f"/users/{CHAIR_OID}/" in u, f"a UPN reached onlineMeetings: {u}"
+        assert "chair%40lab.example/onlineMeetings" not in u
+
+
+def test_the_directory_lookup_happens_once_per_user_not_once_per_call():
+    """It is a second network round trip in front of every meeting call, so it is remembered. The
+    set of mailboxes a deployment reads is configured and fixed, so the cache cannot grow."""
+    t = FakeTransport().expect("/recordings", body={"value": []}, times=None)
+    t.expect("/transcripts", body={"value": []}, times=None)
+    made, _ = repo(t)
+    ref = graph_map.meeting_ref("chair@lab.example", "MSp-1")
+    made.recordings(ref)
+    made.recordings(ref)
+    made.transcripts(ref)
+    lookups = [u for u in t.urls if u.endswith("/users/chair%40lab.example")]
+    assert len(lookups) == 1, f"resolved {len(lookups)} times: {lookups}"
 
 
 def test_a_meeting_known_only_by_its_join_url_is_resolved_once_and_remembered():
@@ -221,7 +269,8 @@ def test_a_meeting_known_only_by_its_join_url_is_resolved_once_and_remembered():
     made.content(ContentHandle.recording(ref, "r1"))
     made.content(ContentHandle.recording(ref, "r2"))
     assert len([u for u in t.urls if "$filter" in u or "%24filter" in u]) == 1
-    assert "joinWebUrl" in t.urls[0] and "/onlineMeetings/MSp-real/recordings/r2/" in t.urls[-1]
+    assert any("joinWebUrl" in u for u in t.urls)
+    assert "/onlineMeetings/MSp-real/recordings/r2/" in t.urls[-1]
 
 
 def test_a_join_url_that_matches_no_meeting_says_so_instead_of_calling_a_nonsense_path():
@@ -308,7 +357,7 @@ def test_recordings_and_transcripts_are_listed_per_meeting_the_non_metered_path(
     assert rec.kind is MediaKind.RECORDING and rec.meeting_id == ref
     assert str(rec.handle) == f"collab://recording/{ref}/rec1"
     assert tr.kind is MediaKind.TRANSCRIPT and str(tr.handle) == f"collab://transcript/{ref}/tr1"
-    assert "/users/chair%40lab.example/onlineMeetings/MSp-1/recordings" in t.urls[0]
+    assert f"/users/{CHAIR_OID}/onlineMeetings/MSp-1/recordings" in t.urls[1]
 
 
 def test_a_meeting_reference_that_is_not_one_is_a_caller_error():
