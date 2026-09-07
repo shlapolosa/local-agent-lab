@@ -12,6 +12,7 @@ import tempfile
 
 import pytest
 
+from fixtures.host import needs_real_diagram
 from lab.platform import config
 from lab.workloads.visio_to_archimate import agents as A
 
@@ -58,6 +59,7 @@ def test_instructions_compose_prompts_method_and_skill():
     assert A.architect_tools_addendum() == "\n\n" + _prompt("prompts/architect_tools.md")
 
 
+@needs_real_diagram
 def test_local_dev_function_tools_read_paths():
     read_vsdx = A.read_vsdx_tool()
     assert read_vsdx.__name__ == "read_vsdx" and "BEFORE describing" in read_vsdx.__doc__

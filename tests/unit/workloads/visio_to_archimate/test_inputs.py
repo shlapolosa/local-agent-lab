@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
+from fixtures.host import needs_real_diagram
 from lab.workloads.visio_to_archimate import inputs as I  # noqa: E402
 from lab.platform import docparse  # noqa: E402
 
@@ -46,6 +47,7 @@ def test_read_document_and_extract_images_for_a_text_document():
         assert I.extract_images(p) == []             # a markdown file embeds no figures
 
 
+@needs_real_diagram
 def test_read_vsdx_whole_file_and_one_page():
     d = I.read_vsdx(FIXTURE)
     assert d["file"] == "malaffi-application-solution-arch.vsdx" and d["page"] is None
@@ -55,6 +57,7 @@ def test_read_vsdx_whole_file_and_one_page():
     assert all(s.get("page") in (None, "Shafafiya") for s in one["shapes"])
 
 
+@needs_real_diagram
 def test_render_page_returns_the_same_triple_the_governed_tool_does():
     """The dev twin of storage_render_vsdx: `(bytes, media_type, label)` — the workflow builds the
     BA's "which page am I looking at" line from that label, so the shapes must not diverge."""

@@ -2,3 +2,17 @@
 pytest>=8
 pytest-cov>=5
 coverage>=7
+
+# Below: NOT optional, despite living here. They were absent from every requirements file and the
+# suite only passed because a developer machine happened to have them — CI, starting from a clean
+# venv, failed 7 tests. That is the whole reason for running the suite somewhere other than the
+# machine that wrote it.
+#
+# xmlschema: the ArchiMate XSD gate. Without it `archimate_engine` skips validation SILENTLY, and
+#   two tests assert the gate actually ran — so a missing xmlschema does not weaken the suite, it
+#   fails it, which is the right way round.
+xmlschema>=4
+# agent-framework-devui: the DevUI host (lab.workloads.visio_to_archimate.devui_entry). Deliberately
+#   kept OUT of the image — deploy/requirements.txt pins agent-framework without its extras because
+#   they make pip backtrack forever — but the module is imported by tests, so the test env needs it.
+agent-framework-devui>=1.0.0b260821

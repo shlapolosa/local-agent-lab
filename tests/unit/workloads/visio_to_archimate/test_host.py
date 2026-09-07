@@ -14,7 +14,8 @@ import tempfile
 
 from lab.workloads.visio_to_archimate import host
 
-from fixtures.host import (FIXTURE, OUT, Recorder, Patched, _fake_workflow, _patches, _run_main, make_root)
+from fixtures.host import (FIXTURE, OUT, Patched, Recorder, _fake_workflow, _patches, _run_main,
+                           make_root, needs_real_diagram)
 
 
 def test_cred_strips_bearer_from_the_agent_headers():
@@ -90,6 +91,7 @@ def test_main_prints_the_report_and_flushes_the_exporter():
     assert len(shutdown.calls) == 1
 
 
+@needs_real_diagram
 def test_main_module_exits_on_a_missing_input():
     for argv, env in (([], {"VISIO_DIAGRAM": "/nonexistent/sys.vsdx"}),
                       ([FIXTURE, "-r", "/nonexistent/req.md"], {}),
@@ -101,6 +103,7 @@ def test_main_module_exits_on_a_missing_input():
             assert str(e).startswith("no such file: /nonexistent/")
 
 
+@needs_real_diagram
 def test_main_module_composes_one_container_and_runs_cli_inputs_with_a_page_fragment():
     with tempfile.TemporaryDirectory() as d:
         req = os.path.join(d, "req.md"); open(req, "w").write("# req")
@@ -110,6 +113,7 @@ def test_main_module_composes_one_container_and_runs_cli_inputs_with_a_page_frag
     assert seen["cfg"]["ba_cred"] == "k-BA_AGENT" and "approval requested: apr-1 -> pending" in text
 
 
+@needs_real_diagram
 def test_main_module_takes_cloud_job_inputs_from_env_when_no_cli_args():
     seen, _, _ = _run_main([], {"VISIO_DIAGRAM": FIXTURE, "VISIO_REQUIREMENTS": "art://r/a.md art://r/b.docx"})
     assert seen["inputs"] == {"diagram": FIXTURE, "requirements": ["art://r/a.md", "art://r/b.docx"]}

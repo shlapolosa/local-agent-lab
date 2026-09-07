@@ -11,6 +11,8 @@ import os
 import runpy
 import sys
 
+import pytest
+
 from opentelemetry.sdk.trace import TracerProvider
 
 from fixtures.fakes import FakeRedis
@@ -35,6 +37,14 @@ for _p in ("BA_AGENT", "ARCHITECT_AGENT"):
     os.environ[f"{_p}_KEY"] = f"sk-{_p.lower()}"
 
 FIXTURE = os.path.join(ROOT, "var", "inputs", "visio_to_archimate", "malaffi-application-solution-arch.vsdx")
+# A REAL customer diagram, and it lives in git-ignored `var/` for that reason — it is a client's
+# architecture and this repository is public, so it can never be committed to make CI green. Tests
+# that need the real thing therefore SKIP without it rather than fail: a machine that has it gets the
+# stronger check, and one that does not (a fresh clone, a CI runner) still runs everything else.
+# Anything that can be tested against a synthetic diagram should be, and most of the suite is.
+needs_real_diagram = pytest.mark.skipif(
+    not os.path.exists(FIXTURE),
+    reason=f"needs the real .vsdx at {os.path.relpath(FIXTURE, ROOT)} (git-ignored: customer data)")
 OUT = {"request_id": "apr-1", "status": "pending", "xml_ref": "art://x/m.archimate.xml",
        "import_artifacts": [{"ref": "art://x/o.xlsx", "label": "Download objects", "note": "", "media_type": ""}],
        "svg_refs": {"Overview": "art://s/o.svg"}, "review_app": "http://review.test",
