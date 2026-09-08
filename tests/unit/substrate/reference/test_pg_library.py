@@ -12,6 +12,7 @@ import pytest
 from fixtures.embed import HashEmbedder
 from lab.core.reference.errors import (
     ArtifactUnverified,
+    ReferenceError,
     IndexUnavailable,
     PinExpired,
     ReferenceUnavailable,
@@ -302,3 +303,46 @@ def test_consumers_maps_the_reverse_index():
          "lookup", "2026-09-08", "E2", True)]})
     out = lib.consumers(artifact_id="guardrail-mapping", version="2026.09.1")
     assert out[0].field == "criticality_class" and out[0].hit is True
+
+
+# ---------------------------------------------------------------- the store itself being absent
+
+def _broken(exc):
+    def connect(dsn):
+        raise exc
+    return PostgresReferenceLibrary(dsn="postgres://x", connect=connect, ring=2,
+                                    trust_keys={"k1": PUBLIC})
+
+
+def test_a_corpus_whose_tables_do_not_exist_refuses_as_a_sentence():
+    """Found LIVE, not by a test: the fake connection can never raise a driver error, so a psycopg
+    `UndefinedTable` escaped the typed refusals and reached a caller as
+    `relation "ref_artifact" does not exist`. Everything in this layer exists to give a caller a
+    sentence it can act on, and that was not one."""
+    from lab.core.reference.errors import CorpusUnreachable
+    with pytest.raises(CorpusUnreachable) as e:
+        _broken(RuntimeError('relation "ref_artifact" does not exist')).catalogue()
+    assert "publish init" in str(e.value)
+    assert "ref_artifact" in str(e.value), "the driver's own words survive — an operator needs them"
+
+
+def test_an_unreachable_corpus_is_distinct_from_an_unpublished_one():
+    """`ReferenceUnavailable` means nobody published it to your ring — a publisher's job.
+    `CorpusUnreachable` means the store is not there — an operator's. Telling a caller to publish
+    when the schema does not exist sends them to the wrong person."""
+    from lab.core.reference.errors import CorpusUnreachable, ReferenceUnavailable
+    assert not issubclass(CorpusUnreachable, ReferenceUnavailable)
+    assert issubclass(CorpusUnreachable, ReferenceError)
+
+
+def test_a_typed_refusal_is_never_re_wrapped_as_a_store_failure():
+    """A signature that does not verify is not a database problem, and must not be reported as one."""
+    lib = library({"FROM ref_release r": [resolve_row()]}, trust_keys={})
+    with pytest.raises(ArtifactUnverified):
+        lib.pin(["guardrail-mapping"])
+
+
+def test_a_write_that_cannot_reach_the_store_refuses_the_same_way():
+    from lab.core.reference.errors import CorpusUnreachable
+    with pytest.raises(CorpusUnreachable):
+        _broken(OSError("connection refused"))._write([("INSERT INTO ref_pin VALUES (1)", ())])

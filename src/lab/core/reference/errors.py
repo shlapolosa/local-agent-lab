@@ -16,8 +16,8 @@ operator. Collapsing them sends whoever is on call to the wrong place.
 from __future__ import annotations
 
 __all__ = [
-    "ArtifactUnverified", "IndexUnavailable", "PinExpired", "ReferenceError",
-    "ReferenceUnavailable", "UnknownRecordType",
+    "ArtifactUnverified", "CorpusUnreachable", "IndexUnavailable", "PinExpired",
+    "ReferenceError", "ReferenceUnavailable", "UnknownRecordType",
 ]
 
 
@@ -95,3 +95,24 @@ class UnknownRecordType(ReferenceError):
         super().__init__(_sentence(
             f"no published artifact declares the record type {record_type!r}; known types are "
             f"{known}"))
+
+
+class CorpusUnreachable(ReferenceError):
+    """The store behind the corpus could not be read at all.
+
+    Distinct from `ReferenceUnavailable`, which means "nobody has published this to your ring" —
+    an administrative state with an owner. This one means the corpus itself is not there: the
+    tables have never been created, the credential is wrong, or the database is down. The remedy is
+    an operator's, not a publisher's, and telling a caller to "publish it" when the schema does not
+    exist sends them to the wrong place.
+
+    Its reason is deliberately the driver's own words, trimmed. A caller cannot act on
+    `UndefinedTable` and an operator can, so the sentence carries it rather than flattening it into
+    something tidier and less useful.
+    """
+
+    def __init__(self, reason: str, remedy: str = "") -> None:
+        super().__init__(_sentence(
+            f"the reference corpus could not be read: {reason.strip().splitlines()[0][:200]}",
+            remedy or "run `python -m lab.substrate.reference.publish init --grants` if the corpus "
+                      "has never been created, and check REFERENCE_DB_URL otherwise"))

@@ -21,8 +21,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, Sequence
 
-from lab.core.reference.errors import (
+from lab.core.reference.errors import (  # noqa: I001
+    ReferenceError,
     ArtifactUnverified,
+    CorpusUnreachable,
     IndexUnavailable,
     PinExpired,
     ReferenceUnavailable,
@@ -77,15 +79,25 @@ class PostgresReferenceLibrary:
     # ---------------------------------------------------------------- plumbing
 
     def _rows(self, sql: str, params: Sequence[Any] = ()) -> list[tuple]:
-        with self._connect(self.dsn) as conn, conn.cursor() as cur:
-            cur.execute(sql, tuple(params))
-            return list(cur.fetchall())
+        try:
+            with self._connect(self.dsn) as conn, conn.cursor() as cur:
+                cur.execute(sql, tuple(params))
+                return list(cur.fetchall())
+        except ReferenceError:
+            raise
+        except Exception as exc:                      # noqa: BLE001 — every driver error, one shape
+            raise CorpusUnreachable(f"{type(exc).__name__}: {exc}") from exc
 
     def _write(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> None:
-        with self._connect(self.dsn) as conn, conn.cursor() as cur:
-            for sql, params in statements:
-                cur.execute(sql, tuple(params))
-            conn.commit()
+        try:
+            with self._connect(self.dsn) as conn, conn.cursor() as cur:
+                for sql, params in statements:
+                    cur.execute(sql, tuple(params))
+                conn.commit()
+        except ReferenceError:
+            raise
+        except Exception as exc:                      # noqa: BLE001
+            raise CorpusUnreachable(f"{type(exc).__name__}: {exc}") from exc
 
     # ---------------------------------------------------------------- catalogue
 
