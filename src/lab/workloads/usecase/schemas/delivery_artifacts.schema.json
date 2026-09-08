@@ -1,0 +1,87 @@
+{
+  "type": "object",
+  "properties": {
+    "business_case": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section": {"type": "string", "minLength": 3},
+          "content": {"type": "string", "minLength": 10}
+        },
+        "required": ["section", "content"],
+        "additionalProperties": false
+      }
+    },
+    "decision_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "context": {"type": "string", "minLength": 10},
+          "drivers": {"type": "array", "items": {"type": "string"}},
+          "options": {"type": "array", "items": {"type": "string"}},
+          "decision": {"type": "string", "minLength": 3},
+          "sacrificed": {"type": "string", "minLength": 3},
+          "compensating_control": {"type": "string"},
+          "review_trigger": {"type": "string"},
+          "approver": {"type": "string"}
+        },
+        "required": ["context", "drivers", "options", "decision", "sacrificed",
+                     "compensating_control", "review_trigger"],
+        "additionalProperties": false
+      }
+    },
+    "service_contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "minLength": 3},
+          "consumers": {"type": "array", "items": {"type": "string"}},
+          "offered_behaviour": {"type": "string", "minLength": 10},
+          "service_level": {"type": "string"},
+          "service_level_source": {"type": "string"},
+          "owned_entities": {"type": "array", "items": {"type": "string"}},
+          "failure_semantics": {"type": "string"},
+          "versioning": {"type": "string"}
+        },
+        "required": ["name", "consumers", "offered_behaviour", "service_level",
+                     "service_level_source", "failure_semantics"],
+        "additionalProperties": false
+      }
+    },
+    "work_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {"type": "string", "minLength": 2},
+          "title": {"type": "string", "minLength": 5},
+          "owner": {"type": "string", "minLength": 2},
+          "parent": {"type": "string"},
+          "obligations": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["key", "title", "owner"],
+        "additionalProperties": false
+      }
+    },
+    "catalog_entry": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "minLength": 3},
+        "description": {"type": "string", "minLength": 10},
+        "owner": {"type": "string", "minLength": 2},
+        "capability": {"type": "string"}
+      },
+      "required": ["name", "description", "owner"],
+      "additionalProperties": false
+    },
+    "open_questions": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["business_case", "decision_records", "service_contracts", "work_items",
+               "catalog_entry", "open_questions"],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "delivery_artifacts"
+}

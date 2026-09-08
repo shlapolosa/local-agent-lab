@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from lab.platform import container
+from lab.platform import config, container
 from lab.platform.contracts import USE_CASE_INVESTMENT
 from lab.workloads.identity import agent_headers
 from lab.workloads.run import governed_run
@@ -43,7 +43,10 @@ async def run_once(root, design_ref: str, conformance=None, *, on_trace=None, **
         attrs={"usecase.conformance.given": bool(conformance)},
         cfg=lambda c: make_cfg(credential=_cred(), traceparent=c.traceparent_header,
                                tracer=c.tracer, root_ctx=c.root_ctx, mcp_url=c.mcp_url,
-                               run_id=c.run_id),
+                               run_id=c.run_id,
+                               # The composition root is the only place that reads the tenant's
+                               # delegation policy; unset means the routing escalates and says so.
+                               authority_table=config.DELEGATION_AUTHORITY),
         run=run_workflow, inputs=inputs, fields=run_fields)
 
 

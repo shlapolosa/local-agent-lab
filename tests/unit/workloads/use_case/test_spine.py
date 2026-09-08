@@ -311,13 +311,43 @@ def test_a_proceeding_run_releases_the_investment_decision():
 
 # ---------------------------------------------------------------- investment and provisioning
 
+#: A design package as step 25 leaves it. The investment run READS this rather than re-deriving
+#: anything from it: recomputing would produce a second number for the same case with nothing to
+#: say which one the approver saw.
+COSTED = {
+    "cost": {"monthly": {"expected": 250}, "year_one": {"expected": 30000},
+             "requires_input": [], "gap_flags": []},
+    "benefit": {"summary": {"annual_benefit": 90000.0, "year_one_investment": 30000.0,
+                            "payback_months": 5.0, "requires_input": []},
+                "recommendation": {"verdict": "proceed", "rationale": "it repays",
+                                   "gate_conditions": []}},
+    "delivery_artifacts": {"business_case": [{"section": "Executive summary", "content": "..."}]},
+    "pending_steps": {},
+}
+
+BANDS = ({"limit": 50_000, "authority": "delivery lead"},
+         {"limit": None, "authority": "investment board"})
+
+
+def _investment_router(design=None, **extra):
+    return Router({SemanticTools.store_spec: {"spec_ref": "art://i1/inv.json"},
+                   StorageTools.read_artifact: dict(COSTED if design is None else design),
+                   ApprovalTools.ask: {"request_id": "apr-3", "review_app": "r"},
+                   **extra}, full=True)
+
+
+def _investment_inputs(**kw):
+    return {"design_ref": "art://d/design.json", "conformance": {"decision": "approve"},
+            "submitter": "ba@x.ae"} | kw
+
+
 def test_the_investment_run_routes_to_the_delegated_authority():
     from lab.workloads.use_case_investment import workflow as W
-    router = Router({SemanticTools.store_spec: {"spec_ref": "art://i1/inv.json"},
-                     ApprovalTools.ask: {"request_id": "apr-3", "review_app": "r"}}, full=True)
-    with spine(W, router) as h:
-        out = run_spine(W, h, {"design_ref": "art://d/design.json", "conformance": {"decision": "approve"},
-                      "submitter": "ba@x.ae"})
+    with spine(W, _investment_router()) as h:
+        h.cfg["authority_table"] = BANDS
+        out = run_spine(W, h, _investment_inputs())
+    assert out["authority"] == "delivery lead"
+    assert out["summary"]["escalated"] is False
     assert out["investment_ref"] == "art://i1/inv.json"
     cont = continuation_of({"continuation":
                             [c for c in h.router.calls
@@ -326,22 +356,138 @@ def test_the_investment_run_routes_to_the_delegated_authority():
     assert cont.answer_input == "authorisation"
 
 
-def test_provisioning_is_keyed_on_the_investment_so_a_re_run_creates_nothing_new():
-    """FR-42. Keying on the RUN would make every retry look like new work."""
+def test_with_no_configured_bands_the_funding_decision_escalates_rather_than_guessing():
+    """The delegation thresholds are one of three artifacts neither published source supplies.
+    Shipping a plausible band structure would route real money by a number this lab invented."""
+    from lab.workloads.use_case_investment import workflow as W
+    with spine(W, _investment_router()) as h:
+        out = run_spine(W, h, _investment_inputs())
+    assert out["summary"]["escalated"] is True
+    assert "no delegation-of-authority" in out["summary"]["routing"]
+
+
+def test_a_case_with_anything_still_open_is_not_one_a_delegated_signer_closes_out():
+    from lab.workloads.use_case_investment import workflow as W
+    design = dict(COSTED)
+    design["cost"] = dict(COSTED["cost"]) | {"requires_input": ["build cost: none captured"]}
+    with spine(W, _investment_router(design=design)) as h:
+        h.cfg["authority_table"] = BANDS
+        out = run_spine(W, h, _investment_inputs())
+    assert out["authority"] == "investment board" and out["summary"]["escalated"] is True
+
+
+def test_a_step_that_never_ran_reaches_the_approver_as_an_open_condition():
+    """A case whose delivery artifacts were never drafted looks complete right up until somebody
+    asks for them."""
+    from lab.workloads.use_case_investment import workflow as W
+    design = dict(COSTED) | {"pending_steps": {"25": "generate delivery artifacts"}}
+    with spine(W, _investment_router(design=design)) as h:
+        h.cfg["authority_table"] = BANDS
+        run_spine(W, h, _investment_inputs())
+    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    assert any("step 25" in c for c in package["gate_conditions"])
+
+
+def test_the_figures_are_read_from_the_design_and_never_recomputed():
+    from lab.workloads.use_case_investment import workflow as W
+    with spine(W, _investment_router()) as h:
+        h.cfg["authority_table"] = BANDS
+        out = run_spine(W, h, _investment_inputs())
+    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    assert package["financial_summary"]["year_one_investment"] == 30000.0
+    assert package["business_case"], "the case step 25 drafted, not a second draft nobody reviewed"
+    assert out["recommendation"] == "proceed"
+
+
+APPROVED_WORK = {"work_items": [{"key": "EPIC-1", "title": "Build the triage agent",
+                                 "owner": "delivery lead"}],
+                 "catalog_entry": {"name": "Referral triage", "description": "...",
+                                   "owner": "clinical ops"}}
+
+
+def _provisioning_router(delivery=None, conditions=(), **extra):
+    """The investment package, and the design it points back at.
+
+    Answers BY REF rather than by turn, which is what a store does — a test that depended on the
+    order of two reads would pass while asserting nothing about which artifact each one wanted."""
+    artifacts = APPROVED_WORK if delivery is None else delivery
+    store = {"art://i/inv.json": {"design_ref": "art://d/design.json",
+                                  "gate_conditions": list(conditions)},
+             "art://d/design.json": {"delivery_artifacts": artifacts}}
+    return Router({SemanticTools.store_spec: {"spec_ref": "art://p1/staged.json"},
+                   StorageTools.read_artifact: lambda args: store[args["ref"]],
+                   **extra}, full=True)
+
+
+def test_provisioning_is_keyed_on_the_investment_and_on_what_it_stages():
+    """FR-42. Keying on the RUN would make every retry look like new work; keying on the investment
+    ALONE would make a corrected package silently reuse the key of the one it replaced."""
     from lab.workloads.use_case_provisioning import workflow as W
-    router = Router({SemanticTools.store_spec: {"spec_ref": "art://p1/staged.json"}}, full=True)
-    with spine(W, router) as h:
+    with spine(W, _provisioning_router()) as h:
         out = run_spine(W, h, {"investment_ref": "art://i/inv.json",
-                      "authorisation": {"decision": "approve"}})
+                               "authorisation": {"decision": "approve"}})
     assert out["provisioned"] is True
+    assert out["idempotency"].startswith("art://i/inv.json#")
+
+    changed = dict(APPROVED_WORK) | {"work_items": APPROVED_WORK["work_items"] + [
+        {"key": "EPIC-2", "title": "Wire the evaluation harness", "owner": "delivery lead"}]}
+    with spine(W, _provisioning_router(delivery=changed)) as h2:
+        other = run_spine(W, h2, {"investment_ref": "art://i/inv.json",
+                                  "authorisation": {"decision": "approve"}})
+    assert other["idempotency"] != out["idempotency"]
+
+
+def test_a_re_run_of_the_same_approved_package_stages_the_same_thing():
+    from lab.workloads.use_case_provisioning import workflow as W
+    keys = []
+    for _ in range(2):
+        with spine(W, _provisioning_router()) as h:
+            keys.append(run_spine(W, h, {"investment_ref": "art://i/inv.json",
+                                         "authorisation": {"decision": "approve"}})["idempotency"])
+    assert keys[0] == keys[1]
+
+
+def test_what_is_staged_is_step_25s_work_and_never_drafted_here():
+    """A provisioning run writing its own work items would create work nobody approved — which is
+    what CR-20 exists to stop, one process too late for the grant to help."""
+    from lab.workloads.use_case_provisioning import workflow as W
+    with spine(W, _provisioning_router()) as h:
+        out = run_spine(W, h, {"investment_ref": "art://i/inv.json", "authorisation": {}})
     staged = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
-    assert staged["idempotency"] == "art://i/inv.json"
+    assert staged["work_items"] == APPROVED_WORK["work_items"]
+    assert out["summary"]["work_items"] == 1 and out["summary"]["catalog_entries"] == 1
+
+
+def test_nothing_is_staged_that_has_no_content():
+    """An empty artifact on the review page reads as "released and empty", not "never drafted"."""
+    from lab.workloads.use_case_provisioning import workflow as W
+    with spine(W, _provisioning_router(delivery={})) as h:
+        out = run_spine(W, h, {"investment_ref": "art://i/inv.json", "authorisation": {}})
+    assert out["import_artifacts"] == [] and out["provisioned"] is False
+    assert out["work_items_ref"] == "" and out["catalog_ref"] == ""
+
+
+def test_every_staged_artifact_carries_a_label_and_a_note_a_person_can_act_on():
+    from lab.workloads.use_case_provisioning import workflow as W
+    with spine(W, _provisioning_router()) as h:
+        out = run_spine(W, h, {"investment_ref": "art://i/inv.json", "authorisation": {}})
+    assert len(out["import_artifacts"]) == 2
+    for artifact in out["import_artifacts"]:
+        assert artifact["ref"] and artifact["label"] and artifact["note"]
+
+
+def test_conditions_still_open_reach_whoever_picks_up_the_work():
+    """An investment approved WITH conditions still has them open when the work is created, and the
+    person picking up the tree is the one who has to close them."""
+    from lab.workloads.use_case_provisioning import workflow as W
+    with spine(W, _provisioning_router(conditions=["build cost: none captured"])) as h:
+        out = run_spine(W, h, {"investment_ref": "art://i/inv.json", "authorisation": {}})
+    assert out["summary"]["gate_conditions"] == 1
 
 
 def test_provisioning_is_the_end_of_the_chain():
     from lab.workloads.use_case_provisioning import workflow as W
-    router = Router({SemanticTools.store_spec: {"spec_ref": "art://p1/staged.json"}}, full=True)
-    with spine(W, router) as h:
+    with spine(W, _provisioning_router()) as h:
         run_spine(W, h, {"investment_ref": "art://i/inv.json", "authorisation": {}})
     assert not [c for c in h.router.calls if c[0] == ApprovalTools.ask]
 

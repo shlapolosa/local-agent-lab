@@ -73,7 +73,7 @@ GATE_EVIDENCE = {
     "D": ("criticality",),                        # criticality class: the human's confirmed answer
 }
 
-PENDING_STEPS = {"25": "generate delivery artifacts"}
+PENDING_STEPS: dict[str, str] = {}
 
 CONFORMANCE_PROMPT = (
     "Approve or return this design on CONFORMANCE: is the architecture sound, and is every "
@@ -352,6 +352,12 @@ def build_workflow(cfg):
             await _agent_step(cfg, "23", available, derived, pending)
             await _agent_step(cfg, "24", available, derived, pending)
             await _valuation(cfg, derived, pending, state)
+            available |= {k: v for k, v in derived.items() if v}
+
+            # 25 — write down what was decided. Last, and it reads nearly everything, because it
+            # decides nothing: a delivery artifact drafted before the figures exist would have to
+            # invent them, which is the one thing its own gate refuses.
+            await _agent_step(cfg, "25", available, derived, pending)
 
             package = {"pending_steps": pending,
                        "submission_ref": state["submission_ref"],
@@ -438,6 +444,8 @@ async def _conformance(cfg, state: dict) -> dict:
                                 if (state.get("design") or {}).get("obligations") else ""),
             "recommendation": state.get("recommendation", ""),
             "cost_ref": state["design_ref"] if (state.get("design") or {}).get("cost") else "",
+            "delivery_ref": (state["design_ref"]
+                             if (state.get("design") or {}).get("delivery_artifacts") else ""),
             # Both refs point at the one package, but they are named separately and each is empty
             # until its own step ran. A business_case_ref that is always set means the investment
             # board is handed a link to a case that has no benefit side in it.

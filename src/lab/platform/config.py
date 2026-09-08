@@ -2,10 +2,24 @@
 "the other service is on this machine". Defaults are the local single-machine layout; a cloud
 deployment sets the env vars (see deploy/ and .env.example).
 """
+import json
 import os
 from pathlib import Path
 
 _e = os.environ.get
+
+
+def _rows(name: str) -> tuple[dict, ...]:
+    """A JSON array of objects from the environment, or EMPTY when it is unset or malformed.
+
+    Empty is a real answer here and the callers are built for it: a policy table nobody has
+    configured must make the code that reads it escalate, never fall back to a default that looks
+    like a decision somebody took."""
+    try:
+        value = json.loads(_e(name) or "[]")
+        return tuple(r for r in value if isinstance(r, dict))
+    except (TypeError, ValueError):
+        return ()
 
 # --- where the tree is (paths, not URLs): the repo root and the git-ignored runtime dir ---
 REPO_ROOT = Path(__file__).resolve().parents[3]            # src/lab/platform/config.py -> repo (editable install)
@@ -63,6 +77,12 @@ SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
 REFERENCE_MCP_PORT = int(_e("REFERENCE_MCP_PORT", "9700"))
 DECISION_MCP_PORT = int(_e("DECISION_MCP_PORT", "9800"))
 VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
+
+# --- local policy the published framework deliberately leaves to the tenant ---
+#: The delegation-of-authority bands: [{"limit": 50000, "authority": "delivery lead"}, …, the last
+#: with "limit": null. UNSET by default and that is correct — `lab.core.usecase.authority` escalates
+#: rather than routing a real funding decision by a threshold this lab invented.
+DELEGATION_AUTHORITY = _rows("DELEGATION_AUTHORITY")
 
 # --- the governed reference corpus (signed, versioned artifacts read under a pin) ---
 # The server runs as a READER role: DR-03 says no instance writes to a shared store under any

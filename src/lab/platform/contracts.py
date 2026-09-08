@@ -1192,7 +1192,9 @@ USE_CASE_PROVISIONING = ProcessSpec(
         InputField("submitter", InputKind.IDENTITY, "Carried through.", required=False),
     ),
     outputs=("trace_id", "provisioned", "work_items_ref", "catalog_ref", "import_artifacts",
-             "summary"),
+             # The staging key, declared as an output because it is what makes a re-run checkable
+             # from OUTSIDE: two runs of one approved package answer with the same key.
+             "idempotency", "summary"),
     external=False,
 )
 

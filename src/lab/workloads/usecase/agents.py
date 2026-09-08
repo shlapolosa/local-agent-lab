@@ -54,6 +54,11 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     # never the cost, because a benefit sized to clear a known investment is not evidence.
     "cost_inputs": ("composition", "build_surface", "component_selection", "price_sheet"),
     "benefit_inputs": ("frame", "workflow_graph", "quality_attributes", "criticality"),
+    # Step 25 is the only step that reads nearly everything, and legitimately: it is not deciding
+    # anything, it is writing down what was already decided. The one thing it must NOT invent is a
+    # service level, so it gets the quality attributes the levels have to be derived from.
+    "delivery_artifacts": ("frame", "composition", "obligations", "cost", "benefit",
+                           "component_selection", "quality_attributes", "criticality"),
 }
 
 #: CR-19, as data rather than a convention. Step 12 confirms the criticality class and must never

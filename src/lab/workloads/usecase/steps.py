@@ -290,6 +290,41 @@ def _component_selection(out: dict) -> list[str]:
 # ---------------------------------------------------------------- the registry
 
 #: Steps 3-11 — the pre-work exercises, run by the SCREENING process before the criticality gate.
+#: The eight sections a business case has. Named here rather than counted, so a case missing
+#: "Risks and mitigations" fails on the name a person can go and write.
+BUSINESS_CASE_SECTIONS = ("executive summary", "current state", "proposed solution",
+                          "value drivers", "financial summary", "roadmap",
+                          "risks and mitigations", "approvals and recommendation")
+
+
+def _delivery_artifacts(out: dict) -> list[str]:
+    """Step 25. Four artifacts, and each rule below is the field its own schema calls the one worth
+    keeping — which is exactly the field a model under length pressure drops first."""
+    bad = []
+    written = {str(s.get("section", "")).strip().lower() for s in out.get("business_case") or []}
+    missing = [s for s in BUSINESS_CASE_SECTIONS if s not in written]
+    if missing:
+        bad.append(f"the business case is missing {missing} — an approver reading seven of eight "
+                   f"sections cannot tell which one is absent")
+    for record in out.get("decision_records") or []:
+        if len(record.get("options") or []) < 2:
+            bad.append(f'the decision record for {record.get("decision")!r} considered fewer than '
+                       f'two options, which is a preference and not a decision')
+        if not str(record.get("sacrificed", "")).strip():
+            bad.append(f'the decision record for {record.get("decision")!r} names nothing that was '
+                       f'sacrificed — the field that makes the record worth keeping')
+    for contract in out.get("service_contracts") or []:
+        if not str(contract.get("service_level_source", "")).strip():
+            bad.append(f'the service level for {contract.get("name")!r} names no source; a service '
+                       f'level is DERIVED from the business one, never invented, and an invented '
+                       f'latency target is a promise somebody will be held to')
+    unowned = [w.get("key") for w in out.get("work_items") or []
+               if not str(w.get("owner", "")).strip()]
+    if unowned:
+        bad.append(f"work items {unowned} name no owner — a task nobody has agreed to do")
+    return bad[:5]
+
+
 def _cost_inputs(out: dict) -> list[str]:
     """Sub-steps 23.1-23.2 and 23.5. The arithmetic is the service's; what is checked here is that
     the selection is auditable and that a build cost never arrives without its provenance."""
@@ -360,6 +395,7 @@ DESIGN_STEPS: tuple[Step, ...] = (
     Step("21", "component_selection", "Solution Architect", _component_selection),
     Step("23", "cost_inputs", "Cost Engineer", _cost_inputs),
     Step("24", "benefit_inputs", "Value Analyst", _benefit_inputs),
+    Step("25", "delivery_artifacts", "Product Owner", _delivery_artifacts),
 )
 
 STEPS: tuple[Step, ...] = SCREENING_STEPS + DESIGN_STEPS
