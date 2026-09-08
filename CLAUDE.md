@@ -667,8 +667,19 @@ credential, unlike the ambient key we strip), and `auto`.
 - **Any client, swappable harness**: Claude Code, OpenCode/Codex, IDE plugins, browser, OpenAI-
   standard tools all use the same `(base_url, credential)`. **Committed templates + per-client
   setup live in `config/clients/`** (`config/clients/claude-code/settings.json` copies into any project's
-  `.claude/settings.json`). Claude Code enumerates the full gateway catalogue in `/model` via
-  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; `ANTHROPIC_MODEL=auto` uses the intent router.
+  `.claude/settings.json`). `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` lists the gateway's models
+  in `/model` — but discovery keeps a model only when its id contains **"claude" or "anthropic"**, so
+  the catalogue is served with prefixed ALIASES (`router_settings.model_group_alias`:
+  `claude/kimi-k3` -> `kimi-k3`, …). Measured 8 Sep 2026: 12 models served, exactly the 7 matching ids
+  cached, and `kimi-k3`/`glm-flash`/`gpt-oss-120b`/`kimi-k2.7-code`/`auto` dropped. An ALIAS rather
+  than a rename because `kimi-k3` is named in workload code, in every agent key's `models` list and
+  in the developer allowlist: `model_group_alias` resolves to the SAME model group, so one
+  deployment, one spend identity, every existing caller untouched. Two things bite: an alias absent
+  from `default_internal_user_params.models` is invisible to a DEVELOPER identity (that allowlist is
+  why an Entra identity saw 7 while the master key saw 12, and it applies at user CREATION, so an
+  existing key keeps its old list), and `/v1/models` is ONE endpoint, so an OpenAI-spec client sees
+  the alias names too. Guarded by `tests/governance/test_model_aliases.py`.
+  `ANTHROPIC_MODEL=auto` uses the intent router.
   The two per-deployment values live only in `.env` (`GATEWAY_URL`, `ENTRA_GATEWAY_AUDIENCE`);
   `./lab.sh clients` (also run on `up`) renders `config/clients/*/settings.template.json` →
   git-ignored `settings.json` — so moving the gateway to a cloud host or APIM is an `.env` edit,
