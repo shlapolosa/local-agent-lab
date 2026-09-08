@@ -8,14 +8,14 @@ with two buttons.
 """
 from __future__ import annotations
 
-import contextlib
 import json
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
-from lab.platform import config, runlog
+from lab.platform import config
 from lab.core.usecase import authority as delegation
 from lab.platform.contracts import (
+    USE_CASE_INVESTMENT,
     USE_CASE_PROVISIONING,
     ApprovalTools,
     Continuation,
@@ -24,12 +24,14 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 
+#: Declared on the approval this workload raises, like every other — so a channel serving one
+#: pipeline can leave the others alone without guessing from a subject line. It was missing here,
+#: on the most consequential card in the pipeline.
+PROCESS = USE_CASE_INVESTMENT.name
+
 REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, ApprovalTools.ask)
 
-#: The eight sections a business case has, in order. Read from the design package rather than
-#: re-drafted: step 25 wrote them under a gate, and rewriting them here would be a second draft
-#: nobody reviewed.
-BUSINESS_CASE = "business_case"
+
 
 PROMPT = ("Approve, approve with conditions, or defer this INVESTMENT. Every open gate condition is "
           "listed below; a case carrying a requires-input marker cannot recommend a plain proceed. "
@@ -37,26 +39,16 @@ PROMPT = ("Approve, approve with conditions, or defer this INVESTMENT. Every ope
           "build.")
 
 
-def make_cfg(*, credential="", mcp_url="", traceparent="", agent=None, tracer=None,
+def make_cfg(*, credential="", mcp_url="", traceparent="", tracer=None,
              root_ctx=None, run_id="", authority_table=()):
     """`authority_table` is the tenant's delegation bands, injected by the composition root. Empty
     is the DEFAULT and is honest: with no table there is no threshold that can say who may sign,
     so the routing escalates and says so."""
-    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-    if traceparent:
-        headers["traceparent"] = traceparent
-    return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
-            "credential": credential, "agent": agent, "tracer": tracer, "root_ctx": root_ctx,
+    return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
+            "credential": credential, "tracer": tracer, "root_ctx": root_ctx,
             "run_id": run_id, "authority_table": tuple(authority_table or ())}
 
 
-def _span(cfg, node):
-    rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
-
-
-async def _call(cfg, suffix, args):
-    return (await gateway.call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
 
 
 def open_conditions(design: dict) -> list[str]:
@@ -69,13 +61,15 @@ def open_conditions(design: dict) -> list[str]:
     looks complete right up until somebody asks for them."""
     cost = design.get("cost") or {}
     benefit = design.get("benefit") or {}
-    recommendation = benefit.get("recommendation") or {}
     pending = design.get("pending_steps") or {}
-    return (list(cost.get("requires_input") or ())
-            + list((benefit.get("summary") or {}).get("requires_input") or ())
-            + [c for c in recommendation.get("gate_conditions") or ()
-               if c not in (cost.get("requires_input") or ())]
-            + [f"step {number} was not completed: {why}" for number, why in sorted(pending.items())])
+    # ONE union, order-preserving. `benefit.recommend` already folds the benefit markers into its
+    # gate conditions, so adding both listed every benefit-side marker twice — on the card a person
+    # reads and in the count the routing summary reports.
+    return list(dict.fromkeys(
+        list(cost.get("requires_input") or ())
+        + list((benefit.get("summary") or {}).get("requires_input") or ())
+        + list((benefit.get("recommendation") or {}).get("gate_conditions") or ())
+        + [f"step {number} was not completed: {why}" for number, why in sorted(pending.items())]))
 
 
 def build_workflow(cfg):
@@ -86,21 +80,21 @@ def build_workflow(cfg):
         Read from the design package, never re-derived. The figures were computed by a governed
         service under a version-stamped price sheet, and recomputing them here would produce a
         second number for the same case with nothing to say which one an approver saw."""
-        with _span(cfg, "assemble"):
-            raw = await _call(cfg, StorageTools.read_artifact, {"ref": state["design_ref"]})
+        with gateway.node_span(cfg, "assemble"):
+            raw = await gateway.call(cfg, StorageTools.read_artifact, {"ref": state["design_ref"]})
             design = raw if isinstance(raw, dict) else json.loads(raw or "{}")
             benefit = design.get("benefit") or {}
             summary = benefit.get("summary") or {}
             conditions = open_conditions(design)
             package = {"design_ref": state["design_ref"],
                        "conformance": dict(state.get("conformance") or {}),
-                       "business_case": (design.get("delivery_artifacts") or {}).get(BUSINESS_CASE)
+                       "business_case": (design.get("delivery_artifacts") or {}).get("business_case")
                                         or [],
                        "financial_summary": summary,
                        "cost": design.get("cost") or {},
                        "recommendation": (benefit.get("recommendation") or {}),
                        "gate_conditions": conditions}
-            stored = await _call(cfg, SemanticTools.store_spec,
+            stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": package, "name": "investment.package.json"})
             state = state | {"investment_ref": gateway.ref_from(stored),
                              "gate_conditions": conditions,
@@ -112,7 +106,7 @@ def build_workflow(cfg):
     @executor(id="route_investment")
     async def route_investment(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Route by investment value to the delegated authority. Terminal."""
-        with _span(cfg, "route_investment"):
+        with gateway.node_span(cfg, "route_investment"):
             routing = delegation.route(state.get("year_one_investment"),
                                        cfg.get("authority_table") or (),
                                        open_conditions=state.get("gate_conditions") or ())
@@ -121,7 +115,7 @@ def build_workflow(cfg):
                 inputs={"investment_ref": state["investment_ref"],
                         "submitter": state.get("submitter", "")},
                 answer_input="authorisation", requester=state.get("submitter", ""))
-            asked = await _call(cfg, ApprovalTools.ask, {
+            asked = await gateway.call(cfg, ApprovalTools.ask, {
                 "subject": f"Approve an investment — {routing.authority}",
                 "prompt": f"{PROMPT}\n\nRouted to: {routing.authority}. {routing.reason}.",
                 "items": [{"label": "decision",
@@ -130,7 +124,8 @@ def build_workflow(cfg):
                 "continuation": cont.to_dict(),
                 "artifacts": {"investment": state["investment_ref"],
                               "design": state["design_ref"]},
-                "requester": state.get("submitter", "")})
+                "requester": state.get("submitter", ""),
+                "process": PROCESS})
             out = {"approval_id": asked["request_id"],
                    "review_app": asked.get("review_app", ""),
                    "investment_ref": state["investment_ref"],
@@ -146,13 +141,8 @@ def build_workflow(cfg):
 
 
 async def run_workflow(cfg, inputs: dict) -> dict:
-    await gateway.preflight(cfg["mcp_url"], cfg["headers"], REQUIRED_TOOLS)
-    workflow = build_workflow(cfg)
-    if cfg.get("run_id"):
-        from lab.workloads import workflowviz
-        runlog.update(cfg["run_id"], mermaid=workflowviz.mermaid(workflow))
-    result = await workflow.run(dict(inputs))
-    outputs = result.get_outputs()
-    if not outputs:
-        raise RuntimeError("the investment run produced no output")
-    return outputs[0]
+    """Preflight, then the graph. Both are `gateway.run_graph`'s — the preflight rule
+    in particular was paid for once by a cloud failure and should not exist per
+    workload, because the copy that will lack it is the next one."""
+    return await gateway.run_graph(cfg, build_workflow, inputs, what="investment",
+                                   required=REQUIRED_TOOLS)

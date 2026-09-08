@@ -3,7 +3,7 @@
 The composition root for this process and the only place here that reads configuration. Its OTel
 service name is its own, so this stage of the pipeline is traced and audited independently.
 
-NFR-03's sixty-minute budget spans this process and the screening one; measuring it\nmeans measuring both service names.
+NFR-03's sixty-minute budget spans this process and the screening one; measuring it means measuring both service names.
 """
 from __future__ import annotations
 

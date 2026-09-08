@@ -1142,7 +1142,7 @@ USE_CASE_DESIGN = ProcessSpec(
         InputField("conversation", InputKind.CONVERSATION,
                    "Carried from the submission, for announcing the outcome.", required=False),
     ),
-    outputs=("trace_id", "approval_id", "review_app", "verdict", "halted", "findings_ref",
+    outputs=("trace_id", "approval_id", "review_app", "verdict", "halted",
              "readiness", "governance_tier", "risk_ref", "obligations_ref", "architecture_ref",
              "cost_ref", "business_case_ref", "recommendation", "delivery_ref", "summary"),
     external=False,

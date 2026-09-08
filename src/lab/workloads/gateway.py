@@ -28,7 +28,8 @@ from fastmcp.client.transports import StreamableHttpTransport
 
 from lab.platform.contracts import ArtifactRef
 
-__all__ = ["preflight", "call_tools", "call_tools_raw", "ref_from", "resolve"]
+__all__ = ["auth_headers", "call", "call_tools", "call_tools_raw", "node_span",
+           "preflight", "ref_from", "resolve", "run_graph"]
 
 
 def resolve(exposed: Iterable[str], suffix: str) -> str:
@@ -79,3 +80,60 @@ def ref_from(res: Any, key: str = "spec_ref") -> str:
     strings) — validated as a well-formed reference, so a malformed one fails HERE rather than three
     tool calls later where the cause is no longer obvious."""
     return str(ArtifactRef.parse((res if isinstance(res, dict) else json.loads(res))[key]))
+
+
+# --------------------------------------------------------------- the shape every workflow shares
+#
+# `auth_headers`, `node_span`, `call` and `run_graph` were written seven times, once per workload,
+# and the duplication had stopped being cheaper than the coupling. The precedent in CLAUDE.md is
+# the decisive one: `lab.platform.streams` exists because three blocking-read rules were each
+# learned once and fixed in whichever copy happened to be in front of somebody. `run_graph` carries
+# a preflight rule that was paid for by a 320-second cloud failure; it should not exist seven
+# times, because the eighth copy is the one that will not have it.
+#
+# What is deliberately NOT here is `make_cfg`. Its SIGNATURE is each process's config contract —
+# `agents`, `authority_table`, `languages`, `schema` — and collapsing those into one would make
+# every workload's configuration the union of every other's.
+
+def auth_headers(credential: str, traceparent: str = "") -> dict[str, str]:
+    """The headers a workload calls the gateway with: its own credential, and the trace it belongs
+    to. The traceparent is what joins the gateway's and every MCP server's spans to THIS run."""
+    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
+    if traceparent:
+        headers["traceparent"] = traceparent
+    return headers
+
+
+def node_span(cfg: Mapping[str, Any], node: str):
+    """A run-log span for one node, or nothing when the run is not on the board (a CLI or test
+    run). A null context rather than a branch at every call site."""
+    import contextlib
+
+    from lab.platform import runlog
+    rid = cfg.get("run_id")
+    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
+
+
+async def call(cfg: Mapping[str, Any], suffix: str, args: Mapping[str, Any]) -> Any:
+    """ONE governed tool call, by suffix. Suffix rather than full name because the gateway prefixes
+    a server's alias and a workload must stay alias-agnostic."""
+    return (await call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
+
+
+async def run_graph(cfg: Mapping[str, Any], build, inputs: Mapping[str, Any], *, what: str,
+                    required: Iterable[str]) -> dict:
+    """Preflight, publish the graph to the run board, run it, and return the one output.
+
+    The preflight is the part that must not be forgotten: it lists the gateway's tools and refuses
+    a run whose contract is not exposed, for zero tokens, rather than dying twenty minutes in on a
+    tool a version-skewed gateway no longer has."""
+    await preflight(cfg["mcp_url"], cfg["headers"], required)
+    workflow = build(cfg)
+    if cfg.get("run_id"):
+        from lab.platform import runlog
+        from lab.workloads import workflowviz
+        runlog.update(cfg["run_id"], mermaid=workflowviz.mermaid(workflow))
+    outputs = (await workflow.run(dict(inputs))).get_outputs()
+    if not outputs:
+        raise RuntimeError(f"the {what} run produced no output")
+    return outputs[0]

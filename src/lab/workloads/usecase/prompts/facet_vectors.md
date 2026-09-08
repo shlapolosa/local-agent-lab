@@ -10,6 +10,17 @@ often enough, the default is wrong.
 Do not derive exposure or influence. Those follow from these facets by a published derivation and
 belong to a deterministic service — deciding them here would make the derivation an opinion.
 
+## The conditions
+
+Each step also answers the prose conditions the published guardrail predicates ask — "step invokes
+any registered tool", "step reads any grounding source", "the step can conclude that nothing is
+wrong". Answer **every one** for every step, `true` or `false`.
+
+These describe the step you are already describing; they are not a judgement about controls and you
+are not shown which guardrails they turn on. Leaving one out does not make it false — the
+derivation REFUSES, because a guardrail that silently fails to fire is invisible, and a control set
+that is quietly one short looks exactly like a complete one.
+
 ## How to answer
 
 Return ONE JSON object and nothing else. No prose before it, no markdown fence, no explanation

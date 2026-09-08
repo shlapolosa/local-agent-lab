@@ -21,7 +21,6 @@ correction would run blind.
 """
 from __future__ import annotations
 
-import contextlib
 import json
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
@@ -46,21 +45,9 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", 
              agent=None, tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment."""
     from lab.platform import config
-    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-    if traceparent:
-        headers["traceparent"] = traceparent
-    return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL, "credential": credential,
+    return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL, "credential": credential,
             "schema": schema or {}, "agent": agent, "tracer": tracer, "root_ctx": root_ctx,
             "run_id": run_id}
-
-
-def _span(cfg, node: str):
-    rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
-
-
-async def _call(cfg, suffix: str, args: dict):
-    return (await gateway.call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
 
 
 def _schema_errors(validator, obj) -> list[str]:
@@ -187,7 +174,7 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     the audit trail — publishing it would put a list of who-is-who into a folder whose permissions
     are the recording's, which is a wider audience than the audit needs.
     """
-    item = await _call(cfg, CollabTools.item, {"handle": handle})
+    item = await gateway.call(cfg, CollabTools.item, {"handle": handle})
     folder = item.get("parent_handle")
     if not folder:
         return {"delivery": f'{item.get("name") or handle} names no folder to write beside'}
@@ -197,7 +184,7 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     written = []
     for ref, name in ((prose_ref, f"{stem}.transcript.md"),
                       (state["minutes_ref"], f"{stem}.minutes.json")):
-        out = await _call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
+        out = await gateway.call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
         written.append({"name": out.get("name", name), "handle": out.get("handle", ""),
                         # the address a person opens — without it the meeting gets a notice it
                         # cannot act on, which is the same as no notice
@@ -209,7 +196,7 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
 async def _store(cfg, name: str, data: bytes) -> str:
     """The prose transcript as an artifact, so the upload reads it the way everything else does —
     by reference through the governed store, never as bytes on a tool argument."""
-    return gateway.ref_from(await _call(cfg, SemanticTools.store_spec,
+    return gateway.ref_from(await gateway.call(cfg, SemanticTools.store_spec,
                                        {"spec": {"text": data.decode()}, "name": name}))
 
 def build_workflow(cfg):
@@ -224,8 +211,8 @@ def build_workflow(cfg):
         display names only. The gateway pseudonymises addresses, so a transcript full of them
         reaches the model as placeholders and degrades the moment it paraphrases one.
         """
-        with _span(cfg, "attribute"):
-            doc = await _call(cfg, StorageTools.read_artifact, {"ref": state["transcript"]})
+        with gateway.node_span(cfg, "attribute"):
+            doc = await gateway.call(cfg, StorageTools.read_artifact, {"ref": state["transcript"]})
             segments = _segments(doc)
             # translate the APPROVAL's answer into the domain's own idea of a speaker:
             # the mapper should not care that it arrived through a human gate
@@ -252,7 +239,7 @@ def build_workflow(cfg):
     @executor(id="minutes")
     async def minutes(state: dict, ctx: WorkflowContext[dict]) -> None:
         """OUR model, through OUR gateway. One corrective retry, re-sending the same content."""
-        with _span(cfg, "minutes"):
+        with gateway.node_span(cfg, "minutes"):
             agent, prose = cfg["agent"], state["prose"]
             reply = await agent.run(prose)
             got = _json(reply)
@@ -273,9 +260,9 @@ def build_workflow(cfg):
     async def to_spec(state: dict, ctx: WorkflowContext[dict]) -> None:
         """The pure mapper, then the vocabulary's own validation. Two independent gates: shape, then
         semantics — an illegal edge fails here rather than inside the store."""
-        with _span(cfg, "to_spec"):
+        with gateway.node_span(cfg, "to_spec"):
             spec = minutes_to_spec(state["minutes"], state["meeting"], state["map"])
-            check = await _call(cfg, SemanticTools.validate_model, {"spec": spec, "vocab": VOCAB})
+            check = await gateway.call(cfg, SemanticTools.validate_model, {"spec": spec, "vocab": VOCAB})
             if check.get("illegal"):
                 raise RuntimeError(f"the mapped model is illegal against {VOCAB}: {check['illegal'][:3]}")
             state = state | {"spec": spec}
@@ -289,15 +276,15 @@ def build_workflow(cfg):
         in-memory today, so what is loaded here answers questions for the life of that server and is
         rebuilt from the artifact when it is needed again.
         """
-        with _span(cfg, "load_semantic"):
+        with gateway.node_span(cfg, "load_semantic"):
             model_id = f'meeting-{state["meeting"]["id"]}'
-            stored = await _call(cfg, SemanticTools.store_spec,
+            stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": state["minutes"], "name": f"{model_id}.minutes.json"})
             minutes_ref = gateway.ref_from(stored)
-            spec_stored = await _call(cfg, SemanticTools.store_spec,
+            spec_stored = await gateway.call(cfg, SemanticTools.store_spec,
                                       {"spec": state["spec"], "name": f"{model_id}.spec.json"})
             spec_ref = gateway.ref_from(spec_stored)
-            loaded = await _call(cfg, SemanticTools.load_model,
+            loaded = await gateway.call(cfg, SemanticTools.load_model,
                                  {"spec_ref": spec_ref, "model_id": model_id, "vocab": VOCAB})
             state = state | {"minutes_ref": minutes_ref, "model_id": model_id, "loaded": loaded}
         await ctx.send_message(state)
@@ -316,7 +303,7 @@ def build_workflow(cfg):
         indexes them for search. Without a recording handle there is nowhere to put them, and that
         is the honest end of it rather than a guess at some default folder.
         """
-        with _span(cfg, "deliver"):
+        with gateway.node_span(cfg, "deliver"):
             state = state | {"delivered": [], "chat_id": "", "delivery": ""}
             handle = (state.get("meeting") or {}).get("recording") or ""
             if not handle:
@@ -331,7 +318,7 @@ def build_workflow(cfg):
 
     @executor(id="publish")
     async def publish(state: dict, ctx: WorkflowContext[dict]) -> None:
-        with _span(cfg, "publish"):
+        with gateway.node_span(cfg, "publish"):
             m = state["minutes"]
             keywords = sorted({c["label"] for c in m.get("concepts") or []}
                               | {k for k in (m.get("keywords") or []) if k})

@@ -14,6 +14,7 @@ import re
 import pytest
 
 from fixtures.workflow import Router, run_spine, spine
+from lab.core.usecase import seed as _seed
 from lab.platform.contracts import (
     PROCESSES,
     USE_CASE_DESIGN,
@@ -167,7 +168,13 @@ def test_the_span_records_that_a_submitter_was_supplied_never_who():
 #: A screening record that evidences every M0 gate — what the design run needs before it can rule
 #: on anything. Each key is the artifact a gate ASKS FOR, so a test that removes one is removing
 #: the evidence rather than flipping a flag.
-READY = {"coverage_map": {"matched": True, "heat_map": {}},
+#: Every prose condition the published guardrails ask, answered. A facet vector that left one out
+#: is refused by the gate, so a fixture that omitted them would not be a real step-17 answer.
+ANSWERED = {c: False for c in _seed.NAMED_CONDITIONS}
+
+READY = {"coverage_map": {"matched": True,
+                          "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                                       "source": "healthcare-provider-v2.0"}},
          "workflow_graph": {"nodes": 4},
          "ontology_delta": {"concepts": []},
          "source_contracts": {"sources": 2},
@@ -529,6 +536,8 @@ ANSWERS = {
                  "passive": [{"name": "referral"}]},
     "coverage_map": {"matched": [{"function": "assess referral", "capability_id": "c1",
                                   "confidence": "lookup"}],
+                     "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                                  "source": "healthcare-provider-v2.0, capability c1"},
                      "functions_without_capability": [], "capabilities_without_function": []},
     "criticality_band": {"band": "business-critical", "provisional": True,
                          "dominant_failure_mode": "a referral is missed and a patient deteriorates"},
@@ -628,9 +637,9 @@ DESIGN_ANSWERS = {
     "determinism": {"steps": [{"id": "n1", "tier": "D1", "necessity": "by necessity"}],
                     "governance_tier": "D1", "graph_is_explicit": True},
     "facet_vectors": {"steps": [{"id": "n1", "activity": "interpret", "determinism": "D2",
-                                 "effect": "none"},
+                                 "effect": "none", "conditions": ANSWERED},
                                 {"id": "n2", "activity": "commit", "determinism": "D0",
-                                 "effect": "record write"}]},
+                                 "effect": "record write", "conditions": ANSWERED}]},
     "build_surface": {"incumbent_considered": True, "surface": "Foundry hosted agent",
                       "topology": "T2", "unenforceable_obligations": []},
     "cost_inputs": {"resources": ["Container Apps"],
@@ -729,8 +738,10 @@ def test_a_facet_vector_with_no_step_id_is_dropped_rather_than_becoming_a_phanto
     from lab.workloads.use_case_design import workflow as W
     with spine(W, _design_chain_router()) as h:
         _with_design_agents(h, facet_vectors={"steps": [
-            {"id": "n1", "activity": "commit", "determinism": "D0", "effect": "record write"},
-            {"id": "", "activity": "commit", "determinism": "D0", "effect": "record write"}]})
+            {"id": "n1", "activity": "commit", "determinism": "D0", "effect": "record write",
+             "conditions": ANSWERED},
+            {"id": "", "activity": "commit", "determinism": "D0", "effect": "record write",
+             "conditions": ANSWERED}]})
         run_spine(W, h, _design_inputs())
     sent = [c[1] for c in h.router.calls if c[0] == DecisionTools.exposure][0]
     assert [s["id"] for s in sent["workflow"]["steps"]] == ["n1"]
@@ -875,3 +886,48 @@ def test_the_value_analyst_is_never_shown_the_cost_it_has_to_clear():
     from lab.workloads.usecase import agents as A
     assert "cost" not in A.CONTEXT_FOR["benefit_inputs"]
     assert "cost_inputs" not in A.CONTEXT_FOR["benefit_inputs"]
+
+
+# ------------------------------------------------- the derivation, run for real rather than stubbed
+
+def test_the_facet_vectors_the_agents_produce_actually_derive_a_control_set():
+    """The spine's routers stub the governed services with canned dicts, which is right for testing
+    the WIRING and blind to whether the payload the wiring sends is derivable at all.
+
+    This ran the real domain against the real step-17 answer and found the defect that mattered
+    most in this batch: nine published guardrail conditions, none of them answered, and
+    `predicates.Named` refuses an unanswered condition rather than reading it false — so the first
+    real design run would have raised through the whole workflow after paying for steps 13 to 17.
+    """
+    from lab.core.usecase import obligations
+    from lab.workloads.use_case_design.workflow import _workflow_payload
+    from lab.core.usecase.model import Step as DomainStep, Workflow as DomainWorkflow
+
+    payload = _workflow_payload({"criticality": {"criticality_class": "business-critical"}},
+                                {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
+    workflow = DomainWorkflow(steps=tuple(DomainStep(**s) for s in payload["steps"]),
+                              criticality=payload["criticality"])
+    out = obligations.derive(workflow, conditions={})
+    assert out.guardrails(), "a control set that is empty is not a derivation"
+
+
+def test_a_step_whose_conditions_are_unanswered_refuses_rather_than_deriving_a_short_set():
+    """The refusal this whole layer exists for, asserted from the workload's own side."""
+    from lab.core.usecase import obligations
+    from lab.core.usecase.model import Step as DomainStep, Workflow as DomainWorkflow
+
+    workflow = DomainWorkflow(
+        steps=(DomainStep(id="n1", activity="interpret", determinism="D2", effect="none"),),
+        criticality="business-critical")
+    with pytest.raises(Exception) as e:
+        obligations.derive(workflow, conditions={})
+    assert "answered" in str(e.value)
+
+
+def test_the_conditions_ride_on_the_step_and_reach_the_derivation():
+    """They cannot be workflow-wide: the predicates ask about a STEP, so one answer for all of them
+    is the same as not answering."""
+    from lab.workloads.use_case_design.workflow import _workflow_payload
+    payload = _workflow_payload({"criticality": {"criticality_class": "routine"}},
+                                {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
+    assert all(set(s["conditions"]) == set(_seed.NAMED_CONDITIONS) for s in payload["steps"])

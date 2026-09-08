@@ -22,13 +22,12 @@ that does not exist would report success it could not have had.
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
-from lab.platform import config, runlog
+from lab.platform import config
 from lab.platform.contracts import ImportArtifact, SemanticTools, StorageTools
 from lab.workloads import gateway
 
@@ -40,27 +39,17 @@ CATALOG_NOTE = ("Import as the portal catalog entry. It is keyed on the investme
                 "this twice updates one entry rather than creating a second.")
 
 
-def make_cfg(*, credential="", mcp_url="", traceparent="", agent=None, tracer=None,
+def make_cfg(*, credential="", mcp_url="", traceparent="", tracer=None,
              root_ctx=None, run_id=""):
-    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-    if traceparent:
-        headers["traceparent"] = traceparent
-    return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
-            "credential": credential, "agent": agent, "tracer": tracer, "root_ctx": root_ctx,
+    return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
+            "credential": credential, "tracer": tracer, "root_ctx": root_ctx,
             "run_id": run_id}
 
 
-def _span(cfg, node):
-    rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
-
-
-async def _call(cfg, suffix, args):
-    return (await gateway.call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
 
 
 async def _read(cfg, ref: str) -> dict:
-    raw = await _call(cfg, StorageTools.read_artifact, {"ref": ref})
+    raw = await gateway.call(cfg, StorageTools.read_artifact, {"ref": ref})
     return raw if isinstance(raw, dict) else json.loads(raw or "{}")
 
 
@@ -83,7 +72,7 @@ def build_workflow(cfg):
         drafted here. A provisioning run that wrote its own work items would be creating work
         nobody approved, which is precisely what CR-20 exists to stop, one process too late for the
         grant to help."""
-        with _span(cfg, "provision"):
+        with gateway.node_span(cfg, "provision"):
             investment = await _read(cfg, state["investment_ref"])
             design_ref = investment.get("design_ref", "")
             design = await _read(cfg, design_ref) if design_ref else {}
@@ -98,7 +87,7 @@ def build_workflow(cfg):
             staged["idempotency"] = staging_key(state["investment_ref"],
                                                 {"work_items": work_items, "catalog": catalog})
 
-            stored = await _call(cfg, SemanticTools.store_spec,
+            stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": staged, "name": "provisioning.staged.json"})
             ref = gateway.ref_from(stored)
 
@@ -135,13 +124,8 @@ def build_workflow(cfg):
 
 
 async def run_workflow(cfg, inputs: dict) -> dict:
-    await gateway.preflight(cfg["mcp_url"], cfg["headers"], REQUIRED_TOOLS)
-    workflow = build_workflow(cfg)
-    if cfg.get("run_id"):
-        from lab.workloads import workflowviz
-        runlog.update(cfg["run_id"], mermaid=workflowviz.mermaid(workflow))
-    result = await workflow.run(dict(inputs))
-    outputs = result.get_outputs()
-    if not outputs:
-        raise RuntimeError("the provisioning run produced no output")
-    return outputs[0]
+    """Preflight, then the graph. Both are `gateway.run_graph`'s — the preflight rule
+    in particular was paid for once by a cloud failure and should not exist per
+    workload, because the copy that will lack it is the next one."""
+    return await gateway.run_graph(cfg, build_workflow, inputs, what="provisioning",
+                                   required=REQUIRED_TOOLS)

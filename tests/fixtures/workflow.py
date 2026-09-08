@@ -14,6 +14,7 @@ from unittest.mock import patch
 from agent_framework import Content, Message
 from opentelemetry import trace
 
+from lab.platform import runlog
 from lab.workloads import gateway
 from lab.workloads.visio_to_archimate import workflow as W
 from lab.workloads import ids
@@ -300,8 +301,8 @@ def harness(agents: Agents, tools: dict | None = None, *, env: dict | None = Non
         st.enter_context(patch.object(W.A, "make_agent", agents.make_agent))
         st.enter_context(patch.object(W.A, "ba_tools", lambda headers: FakeMcpTool("storage", headers)))
         st.enter_context(patch.object(W.A, "architect_tools", lambda headers: FakeMcpTool("ea-tools", headers)))
-        st.enter_context(patch.object(W.runlog, "span_node", rl.span_node))
-        st.enter_context(patch.object(W.runlog, "update", rl.update))
+        st.enter_context(patch.object(runlog, "span_node", rl.span_node))
+        st.enter_context(patch.object(runlog, "update", rl.update))
         st.enter_context(patch.dict(os.environ, {"BA_MODE": "json", "ARCHITECT_MODE": "json", **(env or {})}))
         os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)      # no-op tracer
         yield SimpleNamespace(router=router, agents=agents, runlog=rl, spans=tracer.spans,
@@ -341,8 +342,11 @@ def spine(module, router: "Router", *, run_id="run-test"):
     rl, tracer = RunLog(), RecordingTracer()
     with ExitStack() as st:
         st.enter_context(patch.object(gateway, "Client", router.client_class()))
-        st.enter_context(patch.object(module.runlog, "span_node", rl.span_node))
-        st.enter_context(patch.object(module.runlog, "update", rl.update))
+        # The run log is patched on the PLATFORM module, not on each workflow's import of it:
+        # `gateway.node_span`/`run_graph` reach it by name, so patching a workload's own alias
+        # would leave the shared helpers talking to the real one.
+        st.enter_context(patch.object(runlog, "span_node", rl.span_node))
+        st.enter_context(patch.object(runlog, "update", rl.update))
         st.enter_context(patch.dict(os.environ, {}))
         os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)      # no-op tracer
         yield SimpleNamespace(router=router, runlog=rl, spans=tracer.spans,

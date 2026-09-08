@@ -35,6 +35,13 @@ from lab.substrate.mcpserver import LabServer, span
 SERVICE = "valuation-mcp"
 server = LabServer(SERVICE, config.VALUATION_MCP_PORT)
 
+#: The reference registries, read HERE rather than passed in by a caller — for the same reason the
+#: price sheet is: they are finance's artifacts, at finance's release cadence, and a caller
+#: supplying its own rate card would make two submissions incomparable while both looked priced.
+#: A caller may still override for a what-if; the default is the tenant's published values.
+def _registry(supplied, default: dict) -> dict:
+    return dict(supplied) if supplied else dict(default)
+
 
 def _three_point(point: cost.ThreePoint) -> dict:
     """A range, carried rather than collapsed (FR-31). The spread IS the estimate's only honest
@@ -116,11 +123,13 @@ def valuation_benefit(effort: list[dict] | None = None, role_rates: dict | None 
     way to the verdict: `proceed` is unavailable while one is open (FR-37d, OA-9), and the case is
     NOT deferred on it either, because the missing figure can only raise the benefit.
     """
+    rates = _registry(role_rates, config.ROLE_RATES)
+    costs = _registry(error_costs, config.ERROR_COSTS)
     try:
         drivers = [
-            benefit.operational_efficiency(effort or [], role_rates or {},
+            benefit.operational_efficiency(effort or [], rates,
                                            data_fully_digital=data_fully_digital),
-            benefit.quality_improvement(quality_baseline or {}, error_costs or {}),
+            benefit.quality_improvement(quality_baseline or {}, costs),
             benefit.compliance_reduction(sensitivity_flags=sensitivity_flags or [],
                                          cited_avoided_cost=cited_avoided_cost,
                                          citation=citation),
@@ -132,6 +141,7 @@ def valuation_benefit(effort: list[dict] | None = None, role_rates: dict | None 
         raise ToolError(str(exc)) from exc
 
     span().set_attributes({"valuation.benefit.drivers": len(drivers),
+                           "valuation.benefit.rates_configured": bool(rates),
                            "valuation.benefit.open": len(summary.requires_input),
                            "valuation.benefit.repays": summary.payback_months is not None})
     return {"drivers": [_driver(d) for d in drivers],
@@ -141,7 +151,11 @@ def valuation_benefit(effort: list[dict] | None = None, role_rates: dict | None 
                         "three_year_roi": summary.three_year_roi,
                         "requires_input": list(summary.requires_input)},
             "recommendation": {"verdict": str(outcome.verdict), "rationale": outcome.rationale,
-                               "gate_conditions": list(outcome.gate_conditions)}}
+                               "gate_conditions": list(outcome.gate_conditions)},
+            # Said out loud for the same reason `decision_mcp` names its rules source: a driver
+            # that is `requires_input` because nobody configured a registry is a DEPLOYMENT gap,
+            # and a reader told only "no rate for 'nurse'" would go looking for the nurse.
+            "registries": {"role_rates": bool(rates), "error_costs": bool(costs)}}
 
 
 if __name__ == "__main__":

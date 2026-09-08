@@ -9,6 +9,16 @@ from pathlib import Path
 _e = os.environ.get
 
 
+def _mapping(name: str) -> dict:
+    """A JSON object from the environment, or EMPTY. Same contract as `_rows`: empty is a real
+    answer, and the code that reads it must say so rather than substitute a number."""
+    try:
+        value = json.loads(_e(name) or "{}")
+        return dict(value) if isinstance(value, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
 def _rows(name: str) -> tuple[dict, ...]:
     """A JSON array of objects from the environment, or EMPTY when it is unset or malformed.
 
@@ -83,6 +93,14 @@ VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
 #: with "limit": null. UNSET by default and that is correct — `lab.core.usecase.authority` escalates
 #: rather than routing a real funding decision by a threshold this lab invented.
 DELEGATION_AUTHORITY = _rows("DELEGATION_AUTHORITY")
+
+#: Finance's reference VALUES, which `seed/benefit_drivers.json` says are held in their own
+#: registries and are not published with the framework. They live beside the price sheet — on
+#: valuation-mcp, the server finance owns — rather than being passed in by every caller. Unset
+#: means the driver that needs them is `requires_input`, and the refusal says the registry is not
+#: configured rather than naming a role as though one had been consulted.
+ROLE_RATES = _mapping("ROLE_RATES")           # {"nurse": 120.0, "clinician": 300.0}
+ERROR_COSTS = _mapping("ERROR_COSTS")         # {"missed referral": 4200.0}
 
 # --- the governed reference corpus (signed, versioned artifacts read under a pin) ---
 # The server runs as a READER role: DR-03 says no instance writes to a shared store under any

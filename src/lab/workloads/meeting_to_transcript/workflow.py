@@ -21,7 +21,6 @@ something to consume the decision. Two processes need only that one thing.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from datetime import datetime
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
@@ -51,24 +50,10 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "",
     the composition root that built the container, not rediscovered in a node.
     """
     from lab.platform import config
-    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-    if traceparent:
-        headers["traceparent"] = traceparent
-    return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
+    return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "languages": tuple(languages), "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
 
 
-def _span(cfg, node: str):
-    """One context manager per node: the OTel span joined to the run's root, and the run-log entry
-    the Runs board draws. No run id means telemetry only."""
-    rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
-
-
-async def _call(cfg, suffix: str, args: dict):
-    """One gateway-MCP tool call. The shared transport resolves by name suffix, so this workload
-    stays alias-agnostic."""
-    return (await gateway.call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
 
 
 # How many of the organiser's recent meetings to check before giving up. Each costs one extra tool
@@ -117,7 +102,7 @@ async def _match(cfg, recording: str, candidates: list, answers: list) -> dict |
             return None                                  # a recording handle: the exact match applies
     except ValueError:
         return None
-    item = await _call(cfg, CollabTools.item, {"handle": recording})
+    item = await gateway.call(cfg, CollabTools.item, {"handle": recording})
     when = _instant((item or {}).get("created"))
     if when is None:
         return None
@@ -148,7 +133,7 @@ async def _owning_meeting(cfg, state: dict) -> dict:
     outputs belong afterwards), and both come from the same single lookup.
     """
     try:
-        meetings = await _call(cfg, CollabTools.meetings, {"organizer": state.get("owner", ""),
+        meetings = await gateway.call(cfg, CollabTools.meetings, {"organizer": state.get("owner", ""),
                                                            "limit": CANDIDATE_MEETINGS})
         candidates = (meetings or {}).get("items", [])[:CANDIDATE_MEETINGS]
         # CONCURRENT, because the questions are independent: "does meeting N own this handle" does
@@ -156,7 +141,7 @@ async def _owning_meeting(cfg, state: dict) -> dict:
         # in a row — on a 22 s run, most of it. `return_exceptions` keeps the best-effort contract
         # exact: one meeting the provider will not answer for costs that meeting, not the picker.
         answers = await asyncio.gather(
-            *(_call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")}) for m in candidates),
+            *(gateway.call(cfg, CollabTools.recordings, {"meeting_id": m.get("id", "")}) for m in candidates),
             return_exceptions=True)
         matched = await _match(cfg, state["recording"], candidates, answers)
         if matched is not None:
@@ -195,14 +180,14 @@ def build_workflow(cfg):
         The bytes never enter this process: a recording is gigabytes and a workload holds no store
         credentials, so `collab_fetch` writes it and hands back an `art://` reference.
         """
-        with _span(cfg, "fetch_recording"):
+        with gateway.node_span(cfg, "fetch_recording"):
             # Off the critical path. Resolving the meeting needs only `recording` and `owner`, both
             # present in the run's INITIAL input, so it has no reason to wait for a transcription
             # that takes minutes. Started here and awaited in `resolve_candidates`, which therefore
             # costs ~nothing while the node, its span and its Runs-board row stay exactly where they
             # were. `_owning_meeting` never raises, so this task can never go unretrieved.
             started["meeting"] = asyncio.ensure_future(_owning_meeting(cfg, dict(state)))
-            got = await _call(cfg, CollabTools.fetch, {"handle": state["recording"]})
+            got = await gateway.call(cfg, CollabTools.fetch, {"handle": state["recording"]})
             state = state | {"recording_ref": got["ref"], "recording_name": got.get("name", ""),
                              "recording_bytes": got.get("bytes", 0)}
         await ctx.send_message(state)
@@ -219,8 +204,8 @@ def build_workflow(cfg):
         audio was transcribed but never separated, and asking an organiser to identify a single
         SPEAKER_00 for an entire meeting is worse than failing, because they would answer it.
         """
-        with _span(cfg, "transcribe"):
-            got = await _call(cfg, SpeechTools.transcribe,
+        with gateway.node_span(cfg, "transcribe"):
+            got = await gateway.call(cfg, SpeechTools.transcribe,
                               {"audio_ref": state["recording_ref"],
                                "languages": list(cfg["languages"]), "diarize": True})
             if not got.get("speakers"):
@@ -240,7 +225,7 @@ def build_workflow(cfg):
         speaker with none is still asked about — an unlabelled voice is exactly the one a human most
         needs to resolve.
         """
-        with _span(cfg, "speaker_digest"):
+        with gateway.node_span(cfg, "speaker_digest"):
             items = [{"label": s["label"], "seconds": round(float(s.get("seconds") or 0.0), 1),
                       "turns": int(s.get("turns") or 0), "samples": list(s.get("samples") or ())}
                      for s in state["speech"]["speakers"]]
@@ -265,7 +250,7 @@ def build_workflow(cfg):
         is a vendor detail this side of the collaboration port must not know, and a wrong match here
         would put the wrong people in front of the human — worse than offering nobody.
         """
-        with _span(cfg, "resolve_candidates"):
+        with gateway.node_span(cfg, "resolve_candidates"):
             task = started.pop("meeting", None)
             # The lookup has been running since the recording was fetched; this is where it is
             # collected. Falling back to a direct call keeps the node correct on its own, so a host
@@ -281,7 +266,7 @@ def build_workflow(cfg):
         Terminal by design. What approving releases is carried on the approval itself, so the next
         run starts without this one waiting.
         """
-        with _span(cfg, "ask_mapping"):
+        with gateway.node_span(cfg, "ask_mapping"):
             speech = state["speech"]
             reported = bool(speech.get("languages"))
             summary = {
@@ -313,7 +298,7 @@ def build_workflow(cfg):
                                         "recording": state["recording"],
                                         "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
                                 answer_input="speaker_map", requester=state["owner"])
-            asked = await _call(cfg, ApprovalTools.ask, {
+            asked = await gateway.call(cfg, ApprovalTools.ask, {
                 "subject": f'{state.get("recording_name") or "meeting"} — who is speaking?',
                 "prompt": PROMPT,
                 "items": state["items"],

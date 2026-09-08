@@ -111,6 +111,18 @@ def _coverage_map(out: dict) -> list[str]:
                        f'looked up, never invented to justify the use case')
     if "capabilities_without_function" not in out:
         bad.append("coverage must be reported BOTH ways, even where the second direction is empty")
+    # The heat-map position is what step 16's reject rule reads. Required whenever anything
+    # matched, and required WITH its source: a capability that is commodity, mature and already
+    # meeting target is a reason not to build, and that verdict must rest on a lookup rather than
+    # on an agent's impression of how common the capability feels.
+    heat = out.get("heat_map")
+    if out.get("matched") and not heat:
+        bad.append("a capability matched but its heat-map position is missing — the "
+                   "commodity/mature/meets-target reject rule cannot fire without it, and a rule "
+                   "that never fires is one nobody can tell is broken")
+    elif heat and not str(heat.get("source", "")).strip():
+        bad.append("the heat-map position names no source — it is a LOOKUP against the published "
+                   "capability map, not a judgement made here")
     return bad
 
 
@@ -230,6 +242,15 @@ def _determinism(out: dict) -> list[str]:
     return bad[:5]
 
 
+#: What the published guardrail predicates ask that a facet vector cannot answer. Read from the
+#: corpus rather than restated, so a new guardrail's condition becomes required the moment it is
+#: published rather than the next time somebody remembers this list.
+try:
+    from lab.core.usecase.seed import NAMED_CONDITIONS
+except ImportError:                                        # pragma: no cover - the seed is packaged
+    NAMED_CONDITIONS: frozenset[str] = frozenset()
+
+
 def _facet_vectors(out: dict) -> list[str]:
     """Q2.4 and FR-22: every override carries a written justification, and exposure and influence
     are NOT decided here — they follow by a published derivation, and deciding them in an agent
@@ -247,6 +268,16 @@ def _facet_vectors(out: dict) -> list[str]:
             if forbidden in step:
                 bad.append(f"step {step.get('id')!r} sets {forbidden!r} — that is derived from "
                            f"these facets by a deterministic service, not decided here")
+        # The prose conditions the guardrail predicates ask about. Every one, or the derivation
+        # REFUSES — `predicates.Named` will not read an unanswered condition as false, because a
+        # guardrail that silently fails to fire is the failure nobody can see. Answering them here
+        # is not the same as choosing controls: these describe the step this agent is already
+        # describing, and it never sees which guardrails they turn on.
+        unanswered = sorted(set(NAMED_CONDITIONS) - set(step.get("conditions") or {}))
+        if unanswered:
+            bad.append(f'step {step.get("id")!r} leaves {unanswered[:3]} unanswered '
+                       f'({len(unanswered)} in total) — a guardrail whose condition nobody '
+                       f'answered does not fire, and nothing downstream can tell it was skipped')
     return bad[:5]
 
 

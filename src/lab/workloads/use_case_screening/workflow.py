@@ -13,12 +13,11 @@ Nothing here reads the environment: `make_cfg` is the one config contract, and t
 """
 from __future__ import annotations
 
-import contextlib
 import json
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
-from lab.platform import config, runlog
+from lab.platform import config
 from lab.platform.contracts import (
     USE_CASE_DESIGN,
     USE_CASE_SCREENING,
@@ -29,8 +28,7 @@ from lab.platform.contracts import (
     StorageTools,
 )
 from lab.workloads import gateway
-from lab.workloads.usecase import agents as A
-from lab.workloads.usecase.gates import run_gated
+from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import SCREENING_STEPS
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
@@ -82,21 +80,11 @@ def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=N
     `agents` maps a step key to its agent. A step with no entry is SKIPPED and stays in
     `pending_steps` — which is how this workload ran before any agent existed and how a deployment
     missing one model still produces a partial, honest record instead of failing."""
-    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-    if traceparent:
-        headers["traceparent"] = traceparent
-    return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
+    return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "credential": credential, "agents": dict(agents or {}), "tracer": tracer,
             "root_ctx": root_ctx, "run_id": run_id}
 
 
-def _span(cfg, node):
-    rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
-
-
-async def _call(cfg, suffix, args):
-    return (await gateway.call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
 
 
 def build_workflow(cfg):
@@ -109,7 +97,7 @@ def build_workflow(cfg):
         Exactly one of `submission` and `submission_handle` is required. `ProcessSpec.validate`
         cannot express an xor, so it is checked here — stated plainly rather than hidden, because
         it is the one input rule the contract does not carry."""
-        with _span(cfg, "receive"):
+        with gateway.node_span(cfg, "receive"):
             ref, handle = state.get("submission", ""), state.get("submission_handle", "")
             if bool(ref) == bool(handle):
                 raise ValueError(
@@ -117,7 +105,7 @@ def build_workflow(cfg):
                     f"document) or `submission_handle` (a collab:// handle to fetch); got "
                     f"{'both' if ref else 'neither'}")
             if handle:
-                fetched = await _call(cfg, CollabTools.fetch, {"handle": handle})
+                fetched = await gateway.call(cfg, CollabTools.fetch, {"handle": handle})
                 ref = fetched["ref"] if isinstance(fetched, dict) else str(fetched)
             state = state | {"submission": ref}
         await ctx.send_message(state)
@@ -129,8 +117,8 @@ def build_workflow(cfg):
         FR-04: every later step reads the datastore, never the channel. The workload holds no store
         credential, so it reads through the governed store and persists through `semantic_store_spec`
         — the same move the Visio architect makes with its spec."""
-        with _span(cfg, "validate_and_persist"):
-            text = await _call(cfg, StorageTools.read_document, {"ref": state["submission"]})
+        with gateway.node_span(cfg, "validate_and_persist"):
+            text = await gateway.call(cfg, StorageTools.read_document, {"ref": state["submission"]})
             prose = text if isinstance(text, str) else json.dumps(text)
             if not prose.strip():
                 raise ValueError(f'{state["submission"]} holds no readable text — a submission '
@@ -143,7 +131,7 @@ def build_workflow(cfg):
                 "conversation": state.get("conversation", ""),
                 "prose": prose,
             }
-            stored = await _call(cfg, SemanticTools.store_spec,
+            stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": record, "name": "submission.record.json"})
             state = state | {"submission_record": record,
                              "submission_record_ref": gateway.ref_from(stored)}
@@ -157,12 +145,12 @@ def build_workflow(cfg):
         an absent capability map answers confidently from nothing, and the answer is
         indistinguishable from one grounded in a real map. What could not be read is named, and the
         steps that needed it stay pending."""
-        with _span(cfg, "corpora"):
+        with gateway.node_span(cfg, "corpora"):
             fetched: dict = {}
             missing: dict = dict(UNAVAILABLE)
             for name, (tool, args) in CORPORA.items():
                 try:
-                    got = await _call(cfg, tool, dict(args))
+                    got = await gateway.call(cfg, tool, dict(args))
                 except Exception as exc:                     # noqa: BLE001 — a corpus is optional
                     missing[name] = f"{type(exc).__name__}: {exc}"[:200]
                     continue
@@ -187,35 +175,20 @@ def build_workflow(cfg):
         field omitted — an absent coverage map and one an agent produced empty are different
         findings, and only one of them is a gap flag.
         """
-        with _span(cfg, "derive"):
-            available = {"submission": state["submission_record"]["prose"],
-                         **(state.get("corpora") or {})}
-            derived: dict = {}
-            pending = dict(PENDING_STEPS)
+        with gateway.node_span(cfg, "derive"):
+            d = Derivation(available={"submission": state["submission_record"]["prose"],
+                                      **(state.get("corpora") or {})},
+                           pending=dict(PENDING_STEPS))
             for step in SCREENING_STEPS:
-                agent = (cfg.get("agents") or {}).get(step.key)
-                if agent is None:
-                    continue                       # not wired yet; it stays in pending_steps
-                needs = set(A.CONTEXT_FOR.get(step.key, ())) - set(available)
-                if needs:
-                    # An exercise whose corpus is absent is NOT run. Asked anyway, it would answer
-                    # from nothing and the answer would look exactly like a grounded one.
-                    pending[step.number] = (f"{pending.get(step.number, step.key)} — needs "
-                                            f"{sorted(needs)}")
-                    continue
-                with _span(cfg, f"step_{step.number}"):
-                    out = await run_gated(
-                        agent, A.message(step, A.context_for(step.key, available)),
-                        step=step.number, validator=step.validator(),
-                        normalise=step.normalise, complete=step.complete)
-                derived[step.key] = out
-                available[step.key] = out
-                pending.pop(step.number, None)
+                # The label is what this process calls the step ("match capabilities"), so a
+                # deferred one reads as the exercise a person recognises rather than as its key.
+                await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
+            derived, pending = d.derived, d.pending
 
             screening = {"pending_steps": pending,
                          "corpora_unavailable": dict(state.get("corpora_unavailable") or {}),
                          "submission_ref": state["submission_record_ref"], **derived}
-            stored = await _call(cfg, SemanticTools.store_spec,
+            stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": screening, "name": "screening.json"})
             state = state | {"screening": screening,
                              "criticality_band": (derived.get("criticality_band") or {}).get("band", ""),
@@ -225,7 +198,7 @@ def build_workflow(cfg):
     @executor(id="ask_criticality")
     async def ask_criticality(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Step 12 — derive the class, then ask an architect to confirm it. Terminal."""
-        with _span(cfg, "ask_criticality"):
+        with gateway.node_span(cfg, "ask_criticality"):
             # Derived by step 7 when its agent ran. Absent, the question still goes to an
             # architect — with nothing proposed, which is honest: an unasked question is
             # worse than one whose default is blank.
@@ -246,7 +219,7 @@ def build_workflow(cfg):
                         "submitter": state.get("submitter", ""),
                         "conversation": state.get("conversation", "")},
                 answer_input="criticality", requester=state.get("submitter", ""))
-            asked = await _call(cfg, ApprovalTools.ask, {
+            asked = await gateway.call(cfg, ApprovalTools.ask, {
                 "subject": "Confirm the criticality class of a submitted use case",
                 "prompt": PROMPT,
                 "items": [{"label": "criticality_class",
@@ -270,14 +243,8 @@ def build_workflow(cfg):
 
 
 async def run_workflow(cfg, inputs: dict) -> dict:
-    """Refuse before spending anything if the gateway does not expose what this run needs."""
-    await gateway.preflight(cfg["mcp_url"], cfg["headers"], REQUIRED_TOOLS)
-    workflow = build_workflow(cfg)
-    if cfg.get("run_id"):
-        from lab.workloads import workflowviz
-        runlog.update(cfg["run_id"], mermaid=workflowviz.mermaid(workflow))
-    result = await workflow.run(dict(inputs))
-    outputs = result.get_outputs()
-    if not outputs:
-        raise RuntimeError("the screening run produced no output")
-    return outputs[0]
+    """Preflight, then the graph. Both are `gateway.run_graph`'s — the preflight rule
+    in particular was paid for once by a cloud failure and should not exist per
+    workload, because the copy that will lack it is the next one."""
+    return await gateway.run_graph(cfg, build_workflow, inputs, what="screening",
+                                   required=REQUIRED_TOOLS)
