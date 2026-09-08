@@ -21,6 +21,7 @@ from agent_framework import WorkflowBuilder, WorkflowContext, executor
 from lab.platform import config, runlog
 from lab.platform.contracts import (
     USE_CASE_DESIGN,
+    USE_CASE_SCREENING,
     ApprovalTools,
     CollabTools,
     Continuation,
@@ -32,6 +33,10 @@ from lab.workloads import gateway
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
 #: to "upload it first" rather than be refused outright.
+#: The process this workload runs, declared on every approval it raises so a channel
+#: serving one pipeline can leave the others alone without guessing from a subject line.
+PROCESS = USE_CASE_SCREENING.name
+
 REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec, ApprovalTools.ask)
 
 #: The steps this spine does not yet derive. Named rather than silently skipped: a screening record
@@ -165,7 +170,8 @@ def build_workflow(cfg):
                 "continuation": cont.to_dict(),
                 "artifacts": {"submission": state["submission_record_ref"],
                               "screening": state["screening_ref"]},
-                "requester": state.get("submitter", "")})
+                "requester": state.get("submitter", ""),
+                "process": PROCESS})
             out = {"approval_id": asked["request_id"],
                    "review_app": asked.get("review_app", ""),
                    "submission_ref": state["submission_record_ref"],

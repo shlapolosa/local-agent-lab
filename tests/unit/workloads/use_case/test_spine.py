@@ -21,6 +21,7 @@ from lab.platform.contracts import (
     USE_CASE_SCREENING,
     ApprovalTools,
     CollabTools,
+    DecisionTools,
     Continuation,
     SemanticTools,
     StorageTools,
@@ -159,10 +160,25 @@ def test_the_span_records_that_a_submitter_was_supplied_never_who():
     assert "counts and shapes" in attrs.lower() or "collector" in attrs.lower()
 
 
-# ---------------------------------------------------------------- design: the FR-11 halt
+# ---------------------------------------------------------------- design: the two gates and the halt
 
-def _design_router():
+#: A screening record that evidences every M0 gate — what the design run needs before it can rule
+#: on anything. Each key is the artifact a gate ASKS FOR, so a test that removes one is removing
+#: the evidence rather than flipping a flag.
+READY = {"coverage_map": {"matched": True, "heat_map": {}},
+         "workflow_graph": {"nodes": 4},
+         "ontology_delta": {"concepts": []},
+         "source_contracts": {"sources": 2},
+         "realisation_match": {"existing": False}}
+
+
+def _design_router(readiness="pass", verdict="proceed", failed=()):
     return Router({SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
+                   StorageTools.read_artifact: dict(READY),
+                   DecisionTools.readiness: {"verdict": readiness, "failed": list(failed),
+                                             "conditions": {}},
+                   DecisionTools.feasibility: {"verdict": verdict, "rule": "a rule fired",
+                                               "halts": verdict != "proceed"},
                    ApprovalTools.ask: {"request_id": "apr-2", "status": "pending",
                                        "review_app": "http://review/apr-2"}}, full=True)
 
@@ -171,6 +187,62 @@ def _design_inputs(**kw):
     return {"submission_ref": "art://s/sub.json", "screening_ref": "art://s/scr.json",
             "criticality": {"criticality_class": "business-critical"}, "submitter": "ba@x.ae",
             **kw}
+
+
+def test_both_verdicts_are_ruled_by_the_governed_service_not_by_the_workload():
+    """The rules change under governance approval and conformance review runs the same ones — a
+    copy here would be a second implementation of one rule set, drifting quietly."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_router()) as h:
+        run_spine(W, h, _design_inputs())
+    called = [c[0] for c in h.router.calls]
+    assert DecisionTools.readiness in called and DecisionTools.feasibility in called
+
+
+def test_gate_evidence_is_presence_not_intent():
+    """A gate whose artifact is absent is unevidenced whatever the record says about the step that
+    should have produced it — reading `pending_steps` as "will be fine" is how a gate stops meaning
+    anything."""
+    from lab.workloads.use_case_design import workflow as W
+    evidenced = W.gate_evidence(READY, {"criticality_class": "routine"})
+    assert all(evidenced.values())
+    without = W.gate_evidence({k: v for k, v in READY.items() if k != "ontology_delta"},
+                              {"criticality_class": "routine"})
+    assert without["B"] is False and without["A"] is True
+
+
+def test_a_pending_step_does_not_evidence_the_gate_it_would_have_filled():
+    from lab.workloads.use_case_design import workflow as W
+    pending = {"pending_steps": {"9": "check ontology"}}
+    assert not any(W.gate_evidence(pending, {}).values())
+
+
+def test_a_readiness_fail_returns_the_use_case_naming_the_gates():
+    """FR-19, and the honest state of the spine today: with steps 3-11 pending, the record
+    evidences nothing and readiness correctly fails."""
+    from lab.workloads.use_case_design import workflow as W
+    router = _design_router(readiness="fail", failed=("A", "B", "C"))
+    with spine(W, router) as h:
+        out = run_spine(W, h, _design_inputs())
+    assert out["verdict"] == "not ready"
+    assert out["halted"] is True
+    assert set(out["readiness_failed"]) == {"A", "B", "C"}
+
+
+def test_a_readiness_fail_raises_no_approval_because_nothing_was_rejected_on_merit():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_router(readiness="fail", failed=("B",))) as h:
+        run_spine(W, h, _design_inputs())
+    assert not [c for c in h.router.calls if c[0] == ApprovalTools.ask]
+
+
+def test_a_readiness_fail_never_reaches_the_feasibility_verdict():
+    """Ruling on feasibility without the evidence the readiness gate just said was missing is the
+    coarse estimate the framework removed."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_router(readiness="fail", failed=("A",))) as h:
+        run_spine(W, h, _design_inputs())
+    assert not [c for c in h.router.calls if c[0] == DecisionTools.feasibility]
 
 
 def test_a_proceeding_run_composes_a_design_and_asks_for_conformance():
@@ -187,18 +259,19 @@ def test_a_proceeding_run_composes_a_design_and_asks_for_conformance():
 def test_a_halting_verdict_produces_no_part_of_a_design_package(verdict):
     """FR-11, asserted against the NAMED outputs a package has — a guess would pass on a typo."""
     from lab.workloads.use_case_design import workflow as W
-    with spine(W, _design_router()) as h:
-        out = run_spine(W, h, _design_inputs(verdict=verdict))
+    with spine(W, _design_router(verdict=verdict)) as h:
+        out = run_spine(W, h, _design_inputs())
     assert out["halted"] is True
-    assert not (set(out) & set(W.DESIGN_OUTPUTS)), f"a halted run leaked {set(out) & set(W.DESIGN_OUTPUTS)}"
+    assert not (set(out) & set(W.DESIGN_OUTPUTS)), \
+        f"a halted run leaked {set(out) & set(W.DESIGN_OUTPUTS)}"
 
 
 @pytest.mark.parametrize("verdict", ["reject", "integration"])
 def test_a_halting_verdict_never_stores_a_design(verdict):
     """"Not attempted" means the work does not run, not that its output is discarded."""
     from lab.workloads.use_case_design import workflow as W
-    with spine(W, _design_router()) as h:
-        run_spine(W, h, _design_inputs(verdict=verdict))
+    with spine(W, _design_router(verdict=verdict)) as h:
+        run_spine(W, h, _design_inputs())
     assert not [c for c in h.router.calls if c[0] == SemanticTools.store_spec]
 
 
@@ -206,12 +279,22 @@ def test_a_rejection_goes_to_an_architect_and_releases_nothing():
     """FR-12: an architect sees it before the submitter. Approving a FINDING must not start the
     next process, so the approval carries no continuation at all."""
     from lab.workloads.use_case_design import workflow as W
-    with spine(W, _design_router()) as h:
-        out = run_spine(W, h, _design_inputs(verdict="reject"))
+    with spine(W, _design_router(verdict="reject")) as h:
+        out = run_spine(W, h, _design_inputs())
     asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
     assert "continuation" not in asked
     assert continuation_of(asked) is None
     assert out["approval_id"] == "apr-2"
+
+
+def test_every_approval_declares_the_process_that_raised_it():
+    """So a channel serving one pipeline leaves the others alone without guessing from a subject
+    line — a guess that gets quietly wrong."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_router(verdict="reject")) as h:
+        run_spine(W, h, _design_inputs())
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    assert asked["process"] == USE_CASE_DESIGN.name
 
 
 def test_a_proceeding_run_releases_the_investment_decision():

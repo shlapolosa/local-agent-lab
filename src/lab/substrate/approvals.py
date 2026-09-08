@@ -39,7 +39,10 @@ CHANNELS = ("review-app", "telegram", "teams")
 # something ACTS on what a human said, and until now nothing consumed it at all. It is the only
 # place where "a person answered, from whichever channel they happened to use" is a single fact,
 # because every channel funnels through `human_decision` into this append.
-DEC_GROUPS = ("continuations",)
+# One group per consumer of DECISIONS. `continuations` starts the run an approval
+# releases; `usecase-notifier` tells a submitter what became of their submission, and
+# is a separate group so neither can consume the other's entries.
+DEC_GROUPS = ("continuations", "usecase-notifier")
 DECISIONS = tuple(d.value for d in Decision)         # the contract (lab.platform.contracts) as wire strings
 
 

@@ -138,6 +138,9 @@ SUBSTRATE = {
     # Pure derivation over facet vectors: no store, no bucket, no database of its own. It
     # reads the governed rules through the GATEWAY like any other caller.
     "decision-mcp": {"cmd": "python -m lab.substrate.mcp.decision.server", "port": None},
+    # What makes FR-12 structural: the architect's decision is the EVENT that releases the
+    # submitter's message, so there is no code path where the submitter hears first.
+    "usecase-notifier": {"cmd": "python -m lab.substrate.usecase_notifier", "port": None},
     # what turns "a human approved" into "the next run started". Redis ONLY: it reads the decisions
     # stream and publishes a workflow request, holds no credential of any kind, and has no ingress.
     "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
@@ -275,6 +278,12 @@ ROLE_ENV = {
                                                    # only the one key — this role never reaches the registry database.
         _OTLP,                                     # NO Redis either: it publishes no event and holds no approval
     ],                                             # + S3_KEYS via the "s3" flag (collab_fetch streams INTO the upload store)
+    "usecase-notifier": [                          # src/lab/substrate/usecase_notifier.py — Redis + one webhook
+        "REDIS_*",                                 # the decisions stream it consumes
+        "USECASE_WEBHOOK_URL",                     # where a submitter is told; unset = it logs instead
+        "JAEGER_UI_URL",                           # the link it puts in the message
+        _OTLP,
+    ],
     "decision-mcp": [                              # src/lab/substrate/mcp/decision/*.py + lab.core.usecase — pure derivation
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "DECISION_MCP_PORT",                       # which port it serves

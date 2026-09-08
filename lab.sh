@@ -86,6 +86,7 @@ channel_status() {  # name, module, required vars — "stopped" alone would read
 for_each_daemon() {   # calls "$1 <name> <module> <ready line> <what it does>"
   "$1" continuations    lab.substrate.continuations   "continuation runner ready" "approved approvals start their next run"
   "$1" meeting-notifier lab.substrate.meeting_notifier "meeting notifier ready"    "a finished minutes run tells its meeting"
+  "$1" usecase-notifier lab.substrate.usecase_notifier "usecase-notifier ready"    "a decided use case tells its submitter"
 }
 
 start_daemon() {   # name, module, ready line, description

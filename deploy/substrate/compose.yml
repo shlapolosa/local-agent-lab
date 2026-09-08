@@ -109,6 +109,13 @@ services:
       <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
       REFERENCE_MCP_URL: ${REFERENCE_MCP_URL:-http://reference-mcp:9700/mcp}
 
+  usecase-notifier:           # tells a submitter what became of their use case — but only after an
+    <<: *sub                  # architect has decided. Redis + one webhook: it announces an outcome
+    command: ["python", "-m", "lab.substrate.usecase_notifier"]   # and a link, never the reasoning.
+    environment:
+      <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
+      USECASE_WEBHOOK_URL: ${USECASE_WEBHOOK_URL:-}   # unset = it logs what it would post
+
   continuations:              # approving an approval starts the run it releases. Redis only:
     <<: *sub                  # no store, no bucket, no model, no provider credential, no ingress.
     command: ["python", "-m", "lab.substrate.continuations"]
