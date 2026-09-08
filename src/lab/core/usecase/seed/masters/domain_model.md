@@ -1,0 +1,15 @@
+# Domain model
+
+**Artifact:** domain_model
+**Source:** CAFE_Artifacts_Visualisation_v0_25.html
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Concept | Definition |
+|---|---|
+| Workflow | The explicit graph of steps realising a use case. Deterministic by construction: no agent decides which steps exist or their order |
+| Step | A node in the graph, and the unit at which determinism, type, exposure and influence are assigned. Tool invocation is an attribute of a step, not a separate unit |
+| Data flow | A directed edge carrying a data class. Exposure and influence aggregate along edges, not by counting steps |
+| Exposure | How bad it is when the step works — effect class × reversibility × blast radius. Excludes likelihood |
+| Influence | How bad it is when the step is wrong — derived along data flow to the effects it determines, attenuated only at D0-evaluable gates |
+| Outcome assertion | A required outcome of the workflow, monitored independently of the steps that produce it. The only control that reaches suppression |
+| Guardrail | Trigger predicate · obligation · enforcement point · evidence artifact · failure mode |

@@ -32,6 +32,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from lab.core.reference.master import render as render_master  # noqa: E402
+
 # ---------------------------------------------------------------- JS literals
 
 _WS = " \t\r\n"
@@ -352,6 +355,81 @@ KNOWN_DIVERGENCE: dict[str, str] = {
 }
 
 
+
+# ---------------------------------------------------------------- the human-readable master
+
+#: Which key of a payload holds the rows a reader wants to see, and what to call the artifact.
+#: Everything else in the payload is metadata or a second table, rendered after it.
+TITLES: dict[str, str] = {
+    "guardrails": "Guardrail set", "ai_capability_map": "AI capability map",
+    "source_register": "Source register", "archetypes": "Agent archetypes",
+    "capability_domains": "Capability domains", "readiness_gates": "Readiness gates",
+    "criticality_taxonomy": "Criticality taxonomy",
+    "determinism_criteria": "Determinism criteria register", "facet_schema": "Step facet schema",
+    "risk_derivation": "Risk classes and derivation",
+    "guardrail_mapping": "Risk class to guardrail mapping",
+    "reference_architecture": "Reference architecture model",
+    "tradeoff_catalogue": "Tradeoff catalogue", "price_sheet": "Reference price sheet",
+    "component_families": "Component families", "surface_enforceability": "Surface enforceability",
+    "quality_attributes": "Quality attribute patterns", "process_steps": "Process steps",
+    "input_artifacts": "Input artifacts", "output_artifacts": "Output artifacts",
+    "domain_model": "Domain model", "build_surface": "Build surface decisions",
+    "composition_moves": "Composition moves", "retired_guardrails": "Retired identifiers",
+    "opportunity_obligations": "Opportunity obligations",
+    "building_block_schema": "EA building block schema",
+    "service_contract_schema": "Service contract schema",
+    "decision_record_schema": "Decision record schema",
+    "capability_map_rules": "Business capability map rules", "intake_fields": "Intake fields",
+    "cost_formulas": "Cost formulas", "benefit_drivers": "Benefit drivers",
+    "financial_formulas": "Financial summary formulas",
+    "business_case_sections": "Business case structure", "family_triggers": "Family triggers",
+}
+
+
+def _tabular(payload: dict) -> list[tuple[str, list[str], list[list]]]:
+    """(section, headers, rows) for every part of a payload that is a table.
+
+    Two shapes reach here: an extracted HTML table (`{headers, rows}`) and a list of dicts from the
+    JS data. Both render as a table; a reader should not have to know which one they are looking at.
+    """
+    out = []
+    for key, value in payload.items():
+        if key.startswith("_"):
+            continue
+        if isinstance(value, dict) and "headers" in value:
+            out.append((key, list(value["headers"]), [list(r) for r in value["rows"]]))
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
+            headers = list(value[0])
+            out.append((key, headers, [[row.get(h, "") for h in headers] for row in value]))
+    return out
+
+
+def master_for(name: str, payload: dict) -> str:
+    """The document a citation opens.
+
+    Rendered rather than authored, and the metadata says so — "human-readable" here means "rendered
+    for a person to read", not "typed by one". Claiming otherwise would be the kind of quiet
+    overstatement the signature is supposed to make impossible.
+    """
+    title = TITLES.get(name, name.replace("_", " ").capitalize())
+    meta = {"Artifact": name, "Source": payload.get("_source", ""),
+            "Rendered": "generated from the source above by scripts/extract_cafe_seed.py"}
+    if payload.get("_caveat"):
+        meta["Caveat"] = payload["_caveat"]
+
+    tables = _tabular(payload)
+    if not tables:
+        return render_master(title=title, headers=[], rows=[], meta=meta,
+                             prose=json.dumps({k: v for k, v in payload.items()
+                                               if not k.startswith("_")}, indent=2,
+                                              ensure_ascii=False))
+    section, headers, rows = tables[0]
+    body = render_master(title=title, headers=headers, rows=rows, meta=meta)
+    for section, headers, rows in tables[1:]:
+        body += "\n" + render_master(title=f"{title} — {section}", headers=headers, rows=rows)
+    return body
+
+
 def build_spec(docx_path: Path) -> dict[str, dict]:
     """The Annexure F artifacts, which exist only in the spec — cost and the business case are this
     solution's own additions to the framework."""
@@ -426,7 +504,10 @@ def main(argv=None) -> int:
     if args.spec:
         files |= build_spec(args.spec)
     args.out.mkdir(parents=True, exist_ok=True)
+    masters_dir = args.out / "masters"
+    masters_dir.mkdir(parents=True, exist_ok=True)
     for name, payload in sorted(files.items()):
+        (masters_dir / f"{name}.md").write_text(master_for(name, payload), encoding="utf-8")
         path = args.out / f"{name}.json"
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
                         encoding="utf-8")

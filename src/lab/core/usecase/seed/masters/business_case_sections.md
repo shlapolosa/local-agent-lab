@@ -1,0 +1,16 @@
+# Business case structure
+
+**Artifact:** business_case_sections
+**Source:** Intake_Agent_Requirements_v2_7.docx
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| # | Section | Content |
+|---|---|---|
+| 1 | Executive summary | Problem, proposal, headline value, the ask |
+| 2 | Current state | Process, baseline cost, gaps |
+| 3 | Proposed solution | Pointer to the composed architecture and the capabilities used |
+| 4 | Value drivers | The three drivers only, with any excluded value stated as excluded |
+| 5 | Financial summary | Annual benefit, itemised cost table, Year-1 total, payback, three-year ROI |
+| 6 | Roadmap | Phased timeline anchored on the urgency captured at intake |
+| 7 | Risks and mitigations | From the risk register links and the open readiness conditions |
+| 8 | Approvals and recommendation | Proceed, proceed with conditions, or defer — with every gate condition listed |

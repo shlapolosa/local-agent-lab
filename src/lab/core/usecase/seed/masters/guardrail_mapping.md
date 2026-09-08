@@ -1,0 +1,15 @@
+# Risk class to guardrail mapping
+
+**Artifact:** guardrail_mapping
+**Source:** CAFE_Artifacts_Visualisation_v0_25.html
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Class | Mandatory, in addition to the baseline |
+|---|---|
+| Baseline every step, every class | G01 prompt and registry integrity · G03 first-class agent identity · G04 component admission · G10 registration, named owner and evaluation gate · G14 inventory completeness · G15 ontology conformance · G06 wherever the step retrieves |
+| E1 — contained | G02 tool scoping to a minimal action set · G08 step, tool-call and per-source budgets |
+| E2 — significant | All of E1 · G09 human confirmation, or a policy-bounded gate whose policy is D0-evaluable · G17 where the step consumes grounding that can go stale |
+| E3 — severe | All of E2 · G09 as per-action human authorisation — a policy-bounded gate is not sufficient at this class · G16 criticality-proportionate rigor · corroborated grounding across independent sources |
+| I1 — contained | An evaluation harness with a stated accuracy target on the step |
+| I2 — significant | All of I1 · G18 recall target on the branch the step can suppress, and a confidence threshold below which it escalates to a human |
+| I3 — severe | All of I2 · G19 at least one outcome assertion for the workflow, monitored independently of the steps producing the outcome · corroboration where the step reconciles across sources |

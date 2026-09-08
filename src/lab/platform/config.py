@@ -72,6 +72,14 @@ REFERENCE_TRUST_KEYS = _e("REFERENCE_TRUST_KEYS", "")
 REFERENCE_EMBED_MODEL = _e("REFERENCE_EMBED_MODEL", "")   # empty = semantic search is unavailable
 REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "1024"))
 REFERENCE_EMBED_KEY = _e("REFERENCE_EMBED_KEY", "")       # a VIRTUAL key; the upstream one is the gateway's
+# The PUBLISHER's three. They are read here because config is the one env reader, but no service is
+# granted them: `ROLE_ENV["reference-mcp"]` lists neither, so in a deployed service all three are
+# empty and the CLI refuses to run. REFERENCE_SIGNING_KEY is the private seed and belongs on the
+# publishing workstation ALONE — in LAB_ENV it would prove nothing beyond repo admin, which is
+# everyone who could have edited the row it is meant to protect.
+REFERENCE_SIGNING_KEY = _e("REFERENCE_SIGNING_KEY", "")
+REFERENCE_KEY_ID = _e("REFERENCE_KEY_ID", "k1")
+REFERENCE_PUBLISH_DB_URL = _e("REFERENCE_PUBLISH_DB_URL") or _e("DATABASE_URL", "")
 
 
 # --- host tooling ---
