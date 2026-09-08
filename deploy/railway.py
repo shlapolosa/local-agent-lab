@@ -254,6 +254,10 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET", "BIND_HOST", "WORKFLOW_MCP_PORT",
         "REDIS_URL",                               # workflows.request/status + approvals streams — the ONLY backend it holds
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # approval_tools.py: the two LINKS a reviewer follows
+        "SPEECH_LANES",                            # which lanes a submission fans out into. The fan-out
+                                                   # happens HERE (rest.py + server.py, via
+                                                   # workflows.lanes_for); unset means one run, which
+                                                   # looks exactly like a working single-provider lab
         _OTLP,                                     # (addresses, not credentials). Deliberately NO
     ],                                             # ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*: refs are never dereferenced here
     "graph-mcp": [                                 # src/lab/substrate/mcp/graph/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.collab — the COLLABORATION adapter
@@ -271,7 +275,11 @@ ROLE_ENV = {
     "speech-mcp": [                                # src/lab/substrate/mcp/speech/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.speech — the SPEECH adapter
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "SPEECH_MCP_PORT", "SPEECH_PROVIDER",      # which port it serves; which adapter the container wires
-        "MUNSIT_*",                                # the provider's own credential + base url (repository.build)
+        # EVERY provider's credential, because this service can be asked for ANY registered one —
+        # that is what a lane is. A key stripped here does not error: the adapter reports
+        # SpeechNotConfigured, the lane is skipped by name, and a four-provider comparison quietly
+        # returns one provider's answer while every service reports healthy.
+        "MUNSIT_*", "ELEVENLABS_*", "ASSEMBLYAI_*", "SONIOX_*",
         "AUDIO_EXTRACT_BIN",                       # the host tool that pulls audio out of a video recording;
                                                    # unset = video refused with a sentence, audio still works
         "ARTIFACTS_URL",                           # config.UPLOADS_URL falls back to it when no bucket is set.

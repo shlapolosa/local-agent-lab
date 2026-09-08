@@ -42,6 +42,7 @@ from fastmcp.exceptions import ToolError
 
 from lab.core.speech import AudioClip, SpeechError, Transcript
 from lab.platform import config
+from lab.substrate import container
 from lab.platform.contracts import SpeechTools
 from lab.substrate.mcp.speech import audio as audio_tools
 from lab.substrate.mcp.speech import munsit_map
@@ -91,7 +92,7 @@ def _digest(t: Transcript) -> list[dict]:
 
 
 @governed
-def speech_capabilities(deep: bool = False) -> dict:
+def speech_capabilities(deep: bool = False, provider: str = "") -> dict:
     """What this deployment's speech provider will actually serve, and why not where it will not.
 
     One entry per capability — transcription, diarization, code_switching, timestamps, vocabulary,
@@ -99,14 +100,22 @@ def speech_capabilities(deep: bool = False) -> dict:
     Read this before designing around a feature: providers differ sharply on whether they transcribe
     speech that switches language mid-sentence, and on whether they accept a speaker-count hint,
     which is the single most useful lever for a meeting recorded on one microphone in a room.
-    `deep=true` asks for a live check where one is cheap; where every call costs credits and an
+    `provider` asks about ONE named provider instead of the configured one, and `providers` in the
+    answer lists every one this lab can be asked for — which is what makes choosing a lane possible
+    without running it first. `deep=true` asks for a live check where one is cheap; where every call costs credits and an
     upload, the provider says so rather than pretending a shallow answer was verified."""
-    caps = server.speech().capabilities(deep=deep)
+    # Symmetric with `speech_transcribe`: a caller choosing between LANES must be able to ask what
+    # each one serves. Without this, capabilities could only ever describe the configured provider,
+    # and every other lane's abilities would be discoverable only by running it.
+    box = server.speech_named(provider=provider) if provider else server.speech()
+    caps = box.capabilities(deep=deep)
     available = sorted(k for k, v in caps.items() if v is None)
     span().set_attributes({"speech.available": len(available), "speech.total": len(caps)})
     return {"provider_configured": "configuration" not in {getattr(v, "capability", "") for v in caps.values()},
             "available": available,
             "unavailable": {k: v.to_dict() for k, v in caps.items() if v is not None},
+            "provider": provider or config.SPEECH_PROVIDER,
+            "providers": sorted(container.SPEECH_PROVIDERS),   # what a lane may name
             "extraction_tool": bool(config.AUDIO_EXTRACT_BIN),
             "accepted_media": list(munsit_map.ACCEPTED_MEDIA)}
 
