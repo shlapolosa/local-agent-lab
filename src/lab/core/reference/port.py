@@ -53,6 +53,16 @@ class ReferenceLibrary(Protocol):
         """
         ...
 
+    def pin_by_id(self, pin_id: str) -> Pin:
+        """Rehydrate a pin the caller already took, by its id.
+
+        A remote surface is stateless: only the pin_id crosses the wire, and the VERSIONS stay the
+        server's record. That is not a convenience — if a caller sent the version set back, it
+        could claim a pin it was never given, and the whole point of pinning is that the server
+        decided which versions this run reads. Raises `PinExpired` for a pin that has aged out.
+        """
+        ...
+
     def lookup(self, pin: Pin, *, record_type: str, key: Mapping[str, Any],
                run: RunRef, limit: int = 20) -> RecordResult:
         """EXACT retrieval. `key` is matched by equality on the published natural key, never

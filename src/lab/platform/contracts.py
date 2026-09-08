@@ -74,6 +74,33 @@ class StorageTools(ToolCatalogue):
     extract_figures = "storage_extract_figures"
 
 
+
+class ReferenceTools(ToolCatalogue):
+    """reference-mcp — the GOVERNED CORPUS: signed, versioned artifacts, read only under a pin.
+
+    Two verbs because there are two problems. `lookup` is exact over records — a nearly-right
+    predicate or price line is worse than a failed lookup, so a miss is a legitimate answer and a
+    near miss is reported separately from the records. `search` is semantic over prose and refuses
+    on a stale or differently-embedded index rather than ranking what it has (CR-12).
+
+    There is deliberately NO WRITE tuple. Publication is an operator CLI holding the signing key and
+    the publisher DSN; the server runs as a reader role that the database itself refuses writes
+    from (DR-03). There is no tool a workload could be granted that mutates the corpus.
+    """
+    SERVER = "reference_mcp"
+    catalogue = "reference_catalogue"
+    pin = "reference_pin"
+    lookup = "reference_lookup"
+    search = "reference_search"
+    record = "reference_record"
+    consumers = "reference_consumers"
+
+    READ = (catalogue, pin, lookup, search, record)
+    #: The reverse index spans RUNS, so it answers "what else consumed this version" — an audit
+    #: question, not a derivation one. Granted separately, and never to a workload's own agents.
+    AUDIT = (consumers,)
+
+
 class SemanticTools(ToolCatalogue):
     """semantic-mcp — vocabularies as data, legality, SPARQL, reference models; `store_spec` persists any JSON by ref."""
     SERVER = "semantic_mcp"
@@ -992,12 +1019,13 @@ PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEE
 # Last, because WorkflowTools' tool names are derived from PROCESSES above.
 SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
                                                                  WorkflowTools, CollabTools,
-                                                                 SpeechTools)}
+                                                                 SpeechTools, ReferenceTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "SERVERS", "ALL_TOOLS",
+           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools",
+           "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "check_answer",

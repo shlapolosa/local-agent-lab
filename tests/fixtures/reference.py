@@ -69,6 +69,7 @@ class FakeReferenceLibrary:
         self.query_model = query_model
         self.pin_ttl = pin_ttl
         self.consumption: list[Consumption] = []
+        self._pins: dict[str, Pin] = {}
 
     # ---------------------------------------------------------------- catalogue and pin
 
@@ -104,8 +105,19 @@ class FakeReferenceLibrary:
                                          "the signature does not verify")
             versions.append(self._version(artifact))
         started = _now()
-        return Pin(pin_id="pin-fake", ring=self.ring, pinned_at=started.isoformat(),
-                   expires_at=(started + self.pin_ttl).isoformat(), versions=tuple(versions))
+        pin = Pin(pin_id=f"pin-{len(self._pins)}", ring=self.ring,
+                  pinned_at=started.isoformat(),
+                  expires_at=(started + self.pin_ttl).isoformat(), versions=tuple(versions))
+        self._pins[pin.pin_id] = pin
+        return pin
+
+    def pin_by_id(self, pin_id: str) -> Pin:
+        """The double remembers the pins it minted, as the server's own record."""
+        pin = self._pins.get(pin_id)
+        if pin is None:
+            raise PinExpired(pin_id)
+        self._check_pin(pin)
+        return pin
 
     def _check_pin(self, pin: Pin) -> None:
         if datetime.fromisoformat(pin.expires_at) <= _now():

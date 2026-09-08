@@ -86,8 +86,14 @@ def _map_content(content, fn: TextFn):
 def walk_request_texts(data: dict, fn: TextFn) -> None:
     """Apply `fn` to every prompt text in a request body, writing results back in place.
     Slots: `messages[*].content` (chat completions / Anthropic messages); `instructions`,
-    `input` as a string, or as a list of items whose `content` is a string or parts, or whose
-    `output` is a tool result (Responses API)."""
+    `input` as a string, as a list of PLAIN STRINGS (embeddings), or as a list of items whose
+    `content` is a string or parts, or whose `output` is a tool result (Responses API).
+
+    The bare-string entries matter: `/v1/embeddings` sends `{"input": ["a", "b"]}`, and walking
+    only dicts here sent an indexer's whole batch upstream unredacted while the single-string form
+    was masked by accident. Entries are replaced IN PLACE — an embedding batch is positional and
+    the caller zips vectors back onto its own rows, so dropping or reordering one would
+    mis-attribute every vector after it."""
     for msg in data.get("messages") or []:
         if isinstance(msg, dict) and "content" in msg:
             msg["content"] = _map_content(msg["content"], fn)
@@ -97,7 +103,10 @@ def walk_request_texts(data: dict, fn: TextFn) -> None:
     if isinstance(items, str):
         data["input"] = fn(items)
     elif isinstance(items, list):
-        for item in items:
+        for i, item in enumerate(items):
+            if isinstance(item, str):                   # an embeddings batch entry
+                items[i] = fn(item)
+                continue
             if not isinstance(item, dict):
                 continue
             if "content" in item:

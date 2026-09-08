@@ -133,6 +133,14 @@ mcp_servers:                          # addresses + trust come from the environm
     description: Speech — transcribe a recording already in the lab's upload store into timed, speaker-labelled segments, returned by art:// reference with an anonymous speaker digest inline; pass every language the meeting uses (e.g. Arabic and English together) so speech that switches language mid-sentence is transcribed rather than translated; video is accepted and its audio extracted; it does NOT summarise — minutes and keywords come from the lab's own governed model
     extra_headers: ["traceparent", "tracestate"]
 
+  reference_mcp:                      # the governed CORPUS — signed, versioned artifacts under a pin.
+    url: os.environ/REFERENCE_MCP_URL # READ-ONLY at three levels that each hold alone: no write tool
+    transport: http                   # in the catalogue, none in the adapter, and the database
+    auth_type: bearer_token           # refuses writes from the role the service runs as. Publishing
+    authentication_token: os.environ/MCP_SHARED_SECRET   # is an operator CLI, never a tool.
+    description: Reference corpus — the organisation's governed rules as data — guardrail predicates, criticality and determinism registers, facet schema, risk-class mapping, reference architecture, price sheet and rate cards. Call reference_pin FIRST and pass its pin_id to every read, so one run cannot read two artifacts at different versions. reference_lookup is EXACT over records by their published natural key and a miss is a real answer; reference_search is semantic over explanatory prose and refuses outright on a stale or differently-embedded index rather than returning less. Every answer carries citations naming the artifact version and the human-readable master a person can open
+    extra_headers: ["traceparent", "tracestate"]
+
 router_settings:                      # Redis: shared state for rate limits, budgets, router
   redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)
   redis_port: os.environ/REDIS_PORT

@@ -132,6 +132,9 @@ SUBSTRATE = {
     # back as an art:// ref — an hour of speech is never a tool result. It holds the speech
     # credential and nothing else; it publishes no event, so it gets no Redis.
     "speech-mcp":   {"cmd": "python -m lab.substrate.mcp.speech.server", "port": None, "s3": True},
+    # No "s3": the reference server never opens an artifact — publication explodes the agent-
+    # readable form into rows — so it holds no bucket credential and no ARTIFACTS_URL.
+    "reference-mcp": {"cmd": "python -m lab.substrate.mcp.reference.server", "port": None},
     # what turns "a human approved" into "the next run started". Redis ONLY: it reads the decisions
     # stream and publishes a workflow request, holds no credential of any kind, and has no ingress.
     "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
@@ -216,6 +219,7 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
         "GRAPH_MCP_URL", "SPEECH_MCP_URL",         # ... incl. the collab_mcp and speech_mcp aliases' services
+        "REFERENCE_MCP_URL",                       # ... and the governed corpus
         "WORKFLOW_API_URL",                        # the front door's REST ingress, which the gateway
                                                    # pass-through forwards to. Authorised HERE, not there:
                                                    # the pass-through replaces the caller's Authorization,
@@ -268,6 +272,16 @@ ROLE_ENV = {
                                                    # only the one key — this role never reaches the registry database.
         _OTLP,                                     # NO Redis either: it publishes no event and holds no approval
     ],                                             # + S3_KEYS via the "s3" flag (collab_fetch streams INTO the upload store)
+    "reference-mcp": [                             # src/lab/substrate/{reference,mcp/reference}/*.py + lab.core.reference — the governed CORPUS
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "REFERENCE_MCP_PORT", "REFERENCE_PROVIDER",  # which port it serves; which adapter the container wires
+        "REFERENCE_DB_URL",                        # the READER dsn — never DATABASE_URL, which can write
+        "REFERENCE_RING", "REFERENCE_PIN_TTL_S",   # which audience it resolves for; how long a pin lives
+        "REFERENCE_TRUST_KEYS",                    # PUBLIC key material only; the signing seed stays with the operator
+        "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",  # embed via the GATEWAY, virtual key
+        "GATEWAY_URL",                             # ... which is where the embedder posts
+        _OTLP,
+    ],
     "speech-mcp": [                                # src/lab/substrate/mcp/speech/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.speech — the SPEECH adapter
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "SPEECH_MCP_PORT", "SPEECH_PROVIDER",      # which port it serves; which adapter the container wires
@@ -600,6 +614,7 @@ def substrate_env(name, spec, base_env) -> dict:
     env["WORKFLOW_MCP_URL"] = "http://workflow-frontdoor.railway.internal:9400/mcp"
     env["GRAPH_MCP_URL"] = "http://graph-mcp.railway.internal:9500/mcp"
     env["SPEECH_MCP_URL"] = "http://speech-mcp.railway.internal:9600/mcp"
+    env["REFERENCE_MCP_URL"] = "http://reference-mcp.railway.internal:9700/mcp"
     env["WORKFLOW_API_URL"] = "http://workflow-frontdoor.railway.internal:9400/api"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"

@@ -89,6 +89,19 @@ services:
       <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
       AUDIO_EXTRACT_BIN: ${AUDIO_EXTRACT_BIN:-ffmpeg}    # a meeting recording is VIDEO; providers take audio
 
+  reference-mcp:              # the governed CORPUS (gateway alias reference_mcp) — internal only.
+    <<: *sub                  # READ-ONLY: it runs as the reader role, holds no bucket keys and no
+    command: ["python", "-m", "lab.substrate.mcp.reference.server"]   # ARTIFACTS_URL, and never
+    environment:              # opens an artifact — publication explodes the agent form into rows.
+      <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
+      REFERENCE_DB_URL: ${REFERENCE_DB_URL:-}       # the READER dsn, never the one that can write
+      REFERENCE_PROVIDER: ${REFERENCE_PROVIDER:-postgres}
+      REFERENCE_RING: ${REFERENCE_RING:-2}
+      REFERENCE_TRUST_KEYS: ${REFERENCE_TRUST_KEYS:-}   # PUBLIC keys; the signing seed stays with the operator
+      REFERENCE_EMBED_MODEL: ${REFERENCE_EMBED_MODEL:-}   # empty = semantic search refuses, exact lookup works
+      REFERENCE_EMBED_DIM: ${REFERENCE_EMBED_DIM:-1024}
+      REFERENCE_EMBED_KEY: ${REFERENCE_EMBED_KEY:-}       # a VIRTUAL key — the upstream one is the gateway's
+
   continuations:              # approving an approval starts the run it releases. Redis only:
     <<: *sub                  # no store, no bucket, no model, no provider credential, no ingress.
     command: ["python", "-m", "lab.substrate.continuations"]

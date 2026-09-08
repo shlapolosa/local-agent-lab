@@ -21,6 +21,7 @@ WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # the fr
 WORKFLOW_API_URL = _e("WORKFLOW_API_URL", "http://127.0.0.1:9400/api")  # ... and its REST one, for clients that are not agents
 GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the COLLABORATION port (alias collab_mcp)
 SPEECH_MCP_URL   = _e("SPEECH_MCP_URL", "http://127.0.0.1:9600/mcp")    # the SPEECH port (alias speech_mcp)
+REFERENCE_MCP_URL = _e("REFERENCE_MCP_URL", "http://127.0.0.1:9700/mcp")  # the governed CORPUS (alias reference_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
@@ -54,6 +55,24 @@ STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
+REFERENCE_MCP_PORT = int(_e("REFERENCE_MCP_PORT", "9700"))
+
+# --- the governed reference corpus (signed, versioned artifacts read under a pin) ---
+# The server runs as a READER role: DR-03 says no instance writes to a shared store under any
+# condition, and a Postgres GRANT is the only form of that rule the server cannot talk its way out
+# of. The publisher's DSN and the signing key live with the operator CLI and never reach a service.
+REFERENCE_PROVIDER = _e("REFERENCE_PROVIDER", "postgres")
+REFERENCE_DB_URL = _e("REFERENCE_DB_URL") or _e("DATABASE_URL", "")
+REFERENCE_RING = int(_e("REFERENCE_RING", "2"))          # 0 pilot · 1 · 2 general
+REFERENCE_PIN_TTL_S = int(_e("REFERENCE_PIN_TTL_S", "86400"))
+REFERENCE_RING_SOAK_S = int(_e("REFERENCE_RING_SOAK_S", "86400"))
+# Public key material only — `key_id:base64,...`. The PRIVATE seed must never appear here or in
+# LAB_ENV: a signature made with a key everyone with repo admin holds proves nothing.
+REFERENCE_TRUST_KEYS = _e("REFERENCE_TRUST_KEYS", "")
+REFERENCE_EMBED_MODEL = _e("REFERENCE_EMBED_MODEL", "")   # empty = semantic search is unavailable
+REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "1024"))
+REFERENCE_EMBED_KEY = _e("REFERENCE_EMBED_KEY", "")       # a VIRTUAL key; the upstream one is the gateway's
+
 
 # --- host tooling ---
 # Rendering a .vsdx page to a picture needs LibreOffice on the HOST running storage-mcp. It is an

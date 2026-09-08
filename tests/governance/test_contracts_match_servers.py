@@ -28,6 +28,7 @@ SERVER_MODULES = {                       # gateway alias -> the server module th
     "workflow_mcp": "lab.substrate.mcp.workflow.server",
     "collab_mcp": "lab.substrate.mcp.graph.server",   # the COLLABORATION port; today's adapter is Microsoft Graph
     "speech_mcp": "lab.substrate.mcp.speech.server",  # the SPEECH port; the adapter is named only by the service
+    "reference_mcp": "lab.substrate.mcp.reference.server",  # the governed CORPUS; read-only by construction
 }
 
 

@@ -107,6 +107,40 @@ def test_responses_input_items_parts_and_tool_results():
     assert EMAIL not in repr(body) and IBAN not in repr(body) and CARD not in repr(body)
 
 
+# ---------------------------------------------------------------- embeddings bodies
+# `/v1/embeddings` takes `{"input": "text"}` or `{"input": ["a", "b"]}` — a list of PLAIN STRINGS,
+# not of items. The single-string form already worked by accident, sharing the Responses-API slot;
+# the batched form is the one an indexer actually sends, and it walked straight past the guardrail.
+
+def test_embeddings_batched_input_is_masked():
+    body = {"model": "embed", "input": [f"contact {EMAIL}", f"card {CARD}"]}
+    mapping = mask_request(body, PATTERNS)
+    assert EMAIL not in repr(body) and CARD not in repr(body)
+    assert len(mapping) == 2
+
+
+def test_embeddings_single_string_input_is_masked():
+    body = {"model": "embed", "input": f"contact {EMAIL}"}
+    mask_request(body, PATTERNS)
+    assert EMAIL not in body["input"]
+
+
+def test_embeddings_batch_keeps_its_shape_and_order():
+    """An embedding batch is positional — the caller zips the vectors back onto its own rows, so
+    a walk that dropped, reordered or merged entries would silently mis-attribute every one."""
+    body = {"model": "embed", "input": [f"a {EMAIL}", "b", f"c {CARD}"]}
+    mask_request(body, PATTERNS)
+    assert len(body["input"]) == 3
+    assert body["input"][1] == "b"
+    assert body["input"][0].startswith("a ") and body["input"][2].startswith("c ")
+
+
+def test_a_mixed_list_masks_strings_and_still_walks_items():
+    body = {"input": [f"plain {EMAIL}", {"role": "user", "content": f"item {CARD}"}]}
+    mask_request(body, PATTERNS)
+    assert EMAIL not in repr(body) and CARD not in repr(body)
+
+
 def test_walk_ignores_non_text_shapes():
     body = {"messages": [{"role": "user"}, "junk", {"role": "user", "content": None}],
             "input": [42, {"type": "function_call_output", "output": {"nested": "dict"}}],
