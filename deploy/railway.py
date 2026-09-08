@@ -351,6 +351,20 @@ WORKLOAD_ENV: dict[str, list[str]] = {
                                                    # BA_MODE, BA_RUN_TIMEOUT, BA_MAX_* (docparse), ARCHITECT_MODE
         "VISIO_AGENT_MODEL", "VISIO_DIAGRAM", "VISIO_REQUIREMENTS",   # model; cloud-job inputs
     ],
+    "usecase-screening": [
+        "USECASE_AGENT_*",                         # identity.agent_headers(): CLIENT_ID/SECRET/KEY
+        "AGENT_*",                                 # responses-store toggle, timeouts, caps
+    ],
+    "usecase-design": [
+        "USECASE_AGENT_*",
+        "AGENT_*",
+    ],
+    "usecase-investment": [                        # a DIFFERENT identity: its grants carry the write
+        "USECASE_DELIVERY_*",                      # path, and one workload never holds another's
+    ],
+    "usecase-provisioning": [
+        "USECASE_DELIVERY_*",
+    ],
     "minutes": [
         "MINUTES_*",                               # identity.agent_headers(): MINUTES_AGENT_CLIENT_ID/
                                                    # SECRET/KEY, and MINUTES_AGENT_MODEL. This process
@@ -960,6 +974,34 @@ WORKLOADS = {
         "markers": ("consumer ready", "request "),
     },
     # Started by the continuation runner when an organiser answers, not normally by a person.
+    "usecase-screening": {
+        "service": "wf-usecase-screening",
+        "cmd": "python -m lab.workloads.use_case_screening.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "usecase-design": {
+        "service": "wf-usecase-design",
+        "cmd": "python -m lab.workloads.use_case_design.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "usecase-investment": {
+        "service": "wf-usecase-investment",
+        "cmd": "python -m lab.workloads.use_case_investment.consumer",
+        "restart": "ALWAYS",
+        "env": {"WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "usecase-provisioning": {
+        "service": "wf-usecase-provisioning",
+        "cmd": "python -m lab.workloads.use_case_provisioning.consumer",
+        "restart": "ALWAYS",
+        "env": {"WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
     "minutes": {
         "service": "wf-meeting-minutes",
         "cmd": "python -m lab.workloads.transcript_to_minutes.consumer",

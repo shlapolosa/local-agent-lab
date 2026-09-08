@@ -322,3 +322,33 @@ def raises(h, inputs, exc_type, fragment: str):
 
 
 EXECUTOR_IDS = ["ba", "resolve_existing", "architect_design", "store", "architect_finalize", "stage_import"]
+
+
+# ---------------------------------------------------------------- a harness for any workload
+
+@contextlib.contextmanager
+def spine(module, router: "Router", *, run_id="run-test"):
+    """Patch the seams for ANY workload's `run_workflow`, given its module and a router.
+
+    `harness` above is the visio workflow's — it patches that module's own `Client` and its agent
+    factories by name, which no other workload has. This one patches only what every workload
+    shares: the gateway-MCP transport (`lab.workloads.gateway`, used by both preflight and every
+    tool call) and the run-log seams. A workload with agents brings its own patches on top.
+
+    Yields `.router` and `.cfg`, so a test asserts on `router.calls` — the tool calls a run
+    actually made, in order.
+    """
+    rl, tracer = RunLog(), RecordingTracer()
+    with ExitStack() as st:
+        st.enter_context(patch.object(gateway, "Client", router.client_class()))
+        st.enter_context(patch.object(module.runlog, "span_node", rl.span_node))
+        st.enter_context(patch.object(module.runlog, "update", rl.update))
+        st.enter_context(patch.dict(os.environ, {}))
+        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)      # no-op tracer
+        yield SimpleNamespace(router=router, runlog=rl, spans=tracer.spans,
+                              cfg=module.make_cfg(run_id=run_id, tracer=tracer))
+
+
+def run_spine(module, h, inputs):
+    """Run `module.run_workflow` under a `spine` harness."""
+    return asyncio.run(module.run_workflow(h.cfg, inputs))

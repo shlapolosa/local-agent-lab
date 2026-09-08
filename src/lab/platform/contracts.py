@@ -1011,8 +1011,161 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
     external=False,
 )
 
+# ---------------------------------------------------------------- the use-case intake pipeline
+#
+# FOUR processes, split at exactly the human gates that ALWAYS fire — steps 12, 26a and 26b. Step
+# 16's gate is conditional (it routes a REJECTION to an architect; a proceed does not wait) and
+# step 24's fires only when a benefit figure is missing, so neither is a boundary: a conditional
+# boundary would need the ordinary path to self-submit the next process from inside a workload.
+#
+# Why not one 27-step run that blocks on its approvals. `lab.workloads.consumer` reads with count=1
+# and states that concurrency is REPLICAS, so a run blocked for a multi-day review pins its replica
+# and every other submission queues behind it. Worse, `close_stale_runs` marks any request the
+# consumer took and never acked as FAILED on restart — and CD redeploys every service on every push
+# to main, so a blocked three-day run would be destroyed by an unrelated commit. Continuations give
+# NFR-04's multi-day open run for free: the durable state is the request hash, the art:// refs and
+# the approval, none of which lives in a process's memory.
+
+USE_CASE_SCREENING = ProcessSpec(
+    name="use_case_screening",
+    group="wf-usecase-screening",
+    title="Screen a submitted AI use case and derive its criticality class",
+    description=(
+        "Take a business team's AI use case as prose and run the first half of the CAFÉ assessment "
+        "over it: frame the problem and name one accountable owner, decompose it into active, "
+        "behavioural and passive elements, match those to business capabilities and to what already "
+        "realises them, derive quality attributes from existing service commitments, check every "
+        "business object against the ontology, sequence the work into an explicit workflow graph, "
+        "contract its grounding sources, and derive the criticality class. "
+        "Ends by asking an architect to confirm that class — the class governs the rigour of a "
+        "system somebody else will build, and under-classification propagates. Approving it starts "
+        "the design run; nothing else can."),
+    inputs=(
+        InputField("submission", InputKind.REF,
+                   "ONE art://<id>/<name> reference to the submitted use case as prose — a .md, "
+                   ".docx or .pdf saying what the problem is, who has it, and what changes if it "
+                   "works. Upload it first; a workload reads it through the governed store and "
+                   "never from the channel it arrived on.", required=False),
+        InputField("submission_handle", InputKind.HANDLE,
+                   "Alternative to `submission` for a channel that has the document in the "
+                   "collaboration platform rather than in the upload store: the run fetches it "
+                   "into the store as its first step. Supply exactly one of the two.",
+                   required=False),
+        InputField("attachments", InputKind.REF_LIST,
+                   "Optional supporting documents — the current process description, a vendor "
+                   "quote, an existing analysis. Evidence, not new scope.", required=False),
+        InputField("submitter", InputKind.IDENTITY,
+                   "The business owner submitting it. Recorded as the accountable person on the "
+                   "record and told the outcome — and told only after an architect has seen a "
+                   "rejection, never before."),
+        InputField("intake", InputKind.MAPPING,
+                   "The structured intake fields the business case needs, which prose cannot carry "
+                   "reliably: the effort table (role, headcount, frequency per week, current and "
+                   "expected minutes), the quality baseline (volume, error rate, expected "
+                   "reduction, error class), the sensitivity flags, the budget bucket or vendor "
+                   "quote, and the urgency. Missing entries do not block the run — they become "
+                   "requires-input markers that the business case carries to the approver as gate "
+                   "conditions rather than estimating around.", required=False),
+        InputField("conversation", InputKind.CONVERSATION,
+                   "Optional id of the conversation the submission came from, so the outcome can "
+                   "be announced where it was asked for.", required=False),
+    ),
+    outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
+             "criticality_band", "summary"),
+)
+
+USE_CASE_DESIGN = ProcessSpec(
+    name="use_case_design",
+    group="wf-usecase-design",
+    title="Rule on feasibility, then derive the obligations, architecture, cost and business case",
+    description=(
+        "Continues a screened use case once an architect has confirmed its criticality class. "
+        "Declares the outcome assertions, computes the readiness verdict and the determinism "
+        "classification, and rules on feasibility. A rejection or an integration finding HALTS the "
+        "run here — steps 17 to 25 are not attempted and no partial design package is produced — "
+        "and goes to an architect before the submitter hears it. Otherwise it derives the facet "
+        "vectors, the exposure and influence classes, the control requirement set, the build "
+        "surface, the component selection and the composed architecture, then costs it and builds "
+        "the business case, ending at the architect's conformance decision. "
+        "Cannot be started directly: its criticality class is a human's answer, and a caller able "
+        "to start it would supply its own."),
+    inputs=(
+        InputField("submission_ref", InputKind.REF,
+                   "The validated submission record the screening run persisted."),
+        InputField("screening_ref", InputKind.REF,
+                   "The screening run's derived output — the elements, capability coverage, "
+                   "realisations, quality attributes, ontology findings, workflow graph and "
+                   "source contracts, as one artifact."),
+        InputField("criticality", InputKind.MAPPING,
+                   "The architect's answer at step 12: the confirmed criticality class, and a "
+                   "justification where it differs from the derived one. An override is a "
+                   "calibration signal for the framework, so it is recorded rather than replaced."),
+        InputField("submitter", InputKind.IDENTITY,
+                   "Carried from the submission so the outcome reaches the person who asked.",
+                   required=False),
+        InputField("conversation", InputKind.CONVERSATION,
+                   "Carried from the submission, for announcing the outcome.", required=False),
+    ),
+    outputs=("trace_id", "approval_id", "review_app", "verdict", "halted", "findings_ref",
+             "readiness", "governance_tier", "risk_ref", "obligations_ref", "architecture_ref",
+             "cost_ref", "business_case_ref", "recommendation", "delivery_ref", "summary"),
+    external=False,
+)
+
+USE_CASE_INVESTMENT = ProcessSpec(
+    name="use_case_investment",
+    group="wf-usecase-investment",
+    title="Route the conformance-approved design to the authority that can fund it",
+    description=(
+        "Continues a design an architect has approved on conformance. Assembles the investment "
+        "package — the financial summary, the recommendation and every open gate condition — and "
+        "routes it to the delegated authority the investment value calls for. "
+        "Conformance approval is not funding approval: a conformant design can be deferred on "
+        "value and a valuable one returned on conformance, so the two decisions are taken by "
+        "different people against different questions and recorded separately."),
+    inputs=(
+        InputField("design_ref", InputKind.REF,
+                   "The design package the conformance decision approved."),
+        InputField("conformance", InputKind.MAPPING,
+                   "The architect's answer at step 26a: the conformance decision and any conditions "
+                   "attached to it."),
+        InputField("submitter", InputKind.IDENTITY, "Carried through.", required=False),
+        InputField("conversation", InputKind.CONVERSATION, "Carried through.", required=False),
+    ),
+    outputs=("trace_id", "approval_id", "review_app", "investment_ref", "recommendation",
+             "authority", "summary"),
+    external=False,
+)
+
+USE_CASE_PROVISIONING = ProcessSpec(
+    name="use_case_provisioning",
+    group="wf-usecase-provisioning",
+    title="Create the work items and catalog entries an approved investment authorised",
+    description=(
+        "Continues an investment the delegated authority approved. Creates the work item tree and "
+        "the portal catalog entries in the target systems — idempotently and reversibly, so "
+        "re-running an approved package creates nothing new. "
+        "Nothing is created before that approval, and no earlier process is even granted a write "
+        "tool: the control is a grant, not a branch somebody could take the wrong way."),
+    inputs=(
+        InputField("investment_ref", InputKind.REF,
+                   "The investment package the funding decision approved."),
+        InputField("authorisation", InputKind.MAPPING,
+                   "The delegated authority's answer at step 26b: the funding decision, the "
+                   "authority that took it, and any conditions."),
+        InputField("submitter", InputKind.IDENTITY, "Carried through.", required=False),
+    ),
+    outputs=("trace_id", "provisioned", "work_items_ref", "catalog_ref", "import_artifacts",
+             "summary"),
+    external=False,
+)
+
+
 PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
-                                                         TRANSCRIPT_TO_MINUTES)}
+                                                         TRANSCRIPT_TO_MINUTES,
+                                                         USE_CASE_SCREENING, USE_CASE_DESIGN,
+                                                         USE_CASE_INVESTMENT,
+                                                         USE_CASE_PROVISIONING)}
 
 
 # ----------------------------------------------------------------------------- the registry of servers

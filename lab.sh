@@ -300,6 +300,10 @@ for_each_workload() {   # calls "$1 <service> <module>" for every workload host
   "$1" wf-visio             lab.workloads.visio_to_archimate.consumer
   "$1" wf-meeting-transcript lab.workloads.meeting_to_transcript.consumer
   "$1" wf-meeting-minutes    lab.workloads.transcript_to_minutes.consumer
+  "$1" wf-usecase-screening  lab.workloads.use_case_screening.consumer
+  "$1" wf-usecase-design     lab.workloads.use_case_design.consumer
+  "$1" wf-usecase-investment lab.workloads.use_case_investment.consumer
+  "$1" wf-usecase-provisioning lab.workloads.use_case_provisioning.consumer
 }
 
 start_workload() {   # service, module
