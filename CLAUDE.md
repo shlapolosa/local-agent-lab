@@ -850,6 +850,18 @@ Microsoft's own `.vtt` as a column — for a Teams meeting it is the honest yard
 nothing. **`--repeat` is earned, not cautious**: three runs on IDENTICAL bytes returned 38, 55 and 38
 words, so a single run cannot tell a provider's behaviour from one sample of it.
 
+**Lanes run in PARALLEL by replica, not by thread.** A consumer group hands each stream entry to
+exactly one consumer, so N replicas of a workload process N lanes at once with no locking and no
+change to the workflow — and that is the shape Container Apps scales, which is the point of the
+lab. `WORKLOADS["meeting"]["replicas"]` creates one service per replica, the FIRST keeping the plain
+name (renaming it would orphan its variables and logs), each with its own `WF_CONSUMER`: two
+consumers sharing a name share a pending list, and XAUTOCLAIM could no longer tell whose in-flight
+work is whose. `up`, `down` and `status` all iterate replicas — stopping only the first would leave
+the others consuming the stream, which looks like "I stopped the workload" and is not.
+Failure is isolated per lane at every stage (submit, run, continuation, delivery, notification), but
+a lane that HANGS rather than fails still blocks whatever is queued behind it for the provider
+timeout (900 s) — which is what replicas buy down, and why `meeting` runs two.
+
 **Data residency is a property of the DEPLOYMENT MODE, not the vendor** (UAE Federal Law No. 2/2019
 Art. 13 forbids processing UAE health data abroad; AED 500-700k). All four candidates can run inside
 the boundary, but only Munsit (CNTXT AI, Dubai) has a UAE/KSA **sovereign SaaS** — everyone else buys

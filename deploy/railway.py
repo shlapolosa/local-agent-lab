@@ -951,6 +951,12 @@ WORKLOADS = {
         "restart": "ALWAYS",
         "env": {"WF_CONSUMER": "1"},
         "markers": ("consumer ready", "request "),
+        # TWO, because this is the workload SPEECH_LANES fans out: three lanes submitted together
+        # would otherwise queue behind each other in one process, and a provider that HANGS rather
+        # than fails blocks the rest for its whole 900 s timeout. Two replicas halve that exposure
+        # and cost one more small container. Not one per lane: the point is to overlap the slow
+        # part — the provider call — not to hold three recordings in memory at once.
+        "replicas": 2,
     },
     # Started by the continuation runner when an organiser answers, not normally by a person.
     "minutes": {
@@ -982,7 +988,37 @@ def _public(ids, name):
     return f"https://{d}" if d else None
 
 
-def workload_env(name, spec, base_env, gw, review=None) -> dict:
+MAX_REPLICAS = 6      # a lab overlaps a handful of lanes; every replica is a metered container
+
+
+def replica_services(spec) -> list[tuple[str, str]]:
+    """`[(service_name, consumer_name)]` for one workload — one entry unless it declares `replicas`.
+
+    WHY REPLICAS RATHER THAN THREADS. A consumer group hands each stream entry to exactly ONE
+    consumer, so N replicas process N lanes in parallel with no locking and no change to the
+    workflow — and it is the shape Container Apps scales, which is the point of this lab. Running
+    the lanes concurrently INSIDE one process would instead put four audio extractions and four
+    recordings in the one container least able to hold them.
+
+    The FIRST replica keeps the plain service name. Turning replicas on must not rename the service
+    that is already deployed: that would orphan its variables and its logs, and `substrate images`
+    would then compare against a service nobody runs.
+
+    Each replica gets its own consumer name because two consumers SHARING one name share a pending
+    list, and XAUTOCLAIM can no longer tell whose in-flight work is whose — the reclaim that exists
+    to stop work being lost would start moving work that was never lost.
+    """
+    # ABSENT is one replica; ZERO is a mistake. `or 1` would quietly turn "replicas: 0" — a
+    # half-finished edit — into a normal single-replica deployment.
+    declared = spec.get("replicas")
+    n = 1 if declared is None else int(declared)
+    if not 1 <= n <= MAX_REPLICAS:
+        raise ValueError(f"replicas must be 1..{MAX_REPLICAS}, not {n}")
+    base = spec["service"]
+    return [(base if i == 1 else f"{base}-{i}", str(i)) for i in range(1, n + 1)]
+
+
+def workload_env(name, spec, base_env, gw, review=None, consumer=None) -> dict:
     """The exact variables ONE workload receives. The two-tier isolation invariant is the ALLOWLIST
     itself — the shared `ROLE_ENV["workload"]` plus this process's own `WORKLOAD_ENV[name]`: no MCP
     server addresses (it reaches tools only via the gateway), no store credentials (inputs are
@@ -993,15 +1029,24 @@ def workload_env(name, spec, base_env, gw, review=None) -> dict:
     env["REVIEW_APP_URL"] = review or env.get("REVIEW_APP_URL", "")
     env = env_for_role("workload", env, workload=name)
     env.update(spec.get("env", {}))
+    if consumer and "WF_CONSUMER" in spec.get("env", {}):
+        # AFTER spec env, deliberately: the spec carries WF_CONSUMER="1" as the single-replica
+        # default, and it would otherwise win for every replica — the shared-pending-list failure
+        # arrived at from the other direction.
+        #
+        # ...and ONLY for a workload that already declares one, which is what says "this is a stream
+        # consumer". The one-shot job is not: it runs once and exits, belongs to no group, and
+        # handing it a consumer name would state something untrue about how it takes its work.
+        env["WF_CONSUMER"] = str(consumer)
     return env
 
 
-def configure_workload(name, sid, spec, base_env, ids):
+def configure_workload(name, sid, spec, base_env, ids, service=None, consumer=None):
     gw = _public(ids, "gateway")
     if not gw:
         raise SystemExit("substrate gateway has no public domain — deploy the substrate first")
-    env = workload_env(name, spec, base_env, gw, _public(ids, "review"))
-    _print_env_keys(spec["service"], env)
+    env = workload_env(name, spec, base_env, gw, _public(ids, "review"), consumer=consumer)
+    _print_env_keys(service or spec["service"], env)
     gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
         {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
                 "variables": env, "replace": True, "skipDeploys": True}})
@@ -1017,13 +1062,18 @@ def workload_up(name):
     spec = WORKLOADS[name]
     ids = services()
     base = load_env_for_cloud()
-    sid, created = ensure_service(spec["service"])
-    print(f"deploying workload '{name}' as service {spec['service']} "
-          f"({'created' if created else 'exists '} {sid[:8]}) from "
-          f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
-    gw = configure_workload(name, sid, spec, base, ids)
-    deploy(sid)
-    print(f"  references substrate gateway {gw}; restart={spec.get('restart')}; no ingress (job)")
+    replicas = replica_services(spec)
+    for service, consumer in replicas:
+        sid, created = ensure_service(service)
+        print(f"deploying workload '{name}' as service {service} "
+              f"({'created' if created else 'exists '} {sid[:8]}) consumer={consumer} from "
+              f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
+        gw = configure_workload(name, sid, spec, base, ids, service=service, consumer=consumer)
+        deploy(sid)
+        print(f"  references substrate gateway {gw}; restart={spec.get('restart')}; no ingress (job)")
+    if len(replicas) > 1:
+        print(f"  {len(replicas)} replicas share the consumer GROUP, so each stream entry goes to "
+              f"exactly one of them — lanes run in parallel, nothing is processed twice")
     print(f"  image {IMAGE} — run `railway.py substrate images` to confirm every service agrees")
     print(f"  watch: python deploy/railway.py workload {name} status   (logs: Railway dashboard)")
 
@@ -1039,9 +1089,16 @@ def workload_env_report(name):
 
 def workload_status(name):
     spec = WORKLOADS[name]
-    sid = services().get(spec["service"])
+    for service, _consumer in replica_services(spec):
+        _workload_status_one(name, spec, service)
+    print()
+    workload_env_report(name)          # the ALLOWLIST is the workload's, identical for every replica
+
+
+def _workload_status_one(name, spec, service):
+    sid = services().get(service)
     if not sid:
-        print(f"  {spec['service']:13} (not created)")
+        print(f"  {service:13} (not created)")
         return
     d = latest(sid)
     # Railway reports a NEVER-restart job as SUCCESS whether it exited 0 or crashed (verified), so
@@ -1065,22 +1122,23 @@ def workload_status(name):
             verdict = "running / in progress"
     except (Exception, SystemExit):       # gql() aborts with SystemExit: a failed log fetch is not a failed run
         pass
-    print(f"  {spec['service']:13} {d['status'].lower():10} {verdict}")
-    print()
-    workload_env_report(name)
+    print(f"  {service:13} {d['status'].lower():10} {verdict}")
 
 
 def workload_down(name):
+    """Every replica. Stopping only the first would leave the others consuming the stream — which
+    looks like "I stopped the workload" and is not."""
     spec = WORKLOADS[name]
-    sid = services().get(spec["service"])
-    if not sid:
-        return
-    d = latest(sid)
-    if d["status"] in ("SUCCESS", "DEPLOYING", "BUILDING"):
-        gql('mutation($id:String!){ deploymentRemove(id:$id) }', {"id": d["id"]})
-        print(f"  {spec['service']:13} stopped (config/variables kept)")
-    else:
-        print(f"  {spec['service']:13} already {d['status'].lower()}")
+    for service, _consumer in replica_services(spec):
+        sid = services().get(service)
+        if not sid:
+            continue
+        d = latest(sid)
+        if d["status"] in ("SUCCESS", "DEPLOYING", "BUILDING"):
+            gql('mutation($id:String!){ deploymentRemove(id:$id) }', {"id": d["id"]})
+            print(f"  {service:13} stopped (config/variables kept)")
+        else:
+            print(f"  {service:13} already {d['status'].lower()}")
 
 
 if __name__ == "__main__":
