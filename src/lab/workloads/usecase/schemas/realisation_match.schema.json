@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "matched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "element": {
+            "type": "string"
+          },
+          "realised_by": {
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "lookup",
+              "assumption",
+              "survey"
+            ]
+          }
+        },
+        "required": [
+          "element",
+          "realised_by",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unrealised": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "existing": {
+      "type": "boolean"
+    },
+    "gap_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "owning_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "matched",
+    "unrealised",
+    "existing"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "realisation_match"
+}

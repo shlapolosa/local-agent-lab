@@ -1,0 +1,50 @@
+{
+  "obligations": {
+    "section": "Layer C — Opportunity obligations (O-series)",
+    "headers": [
+      "ID",
+      "Trigger",
+      "Obligation",
+      "Owner"
+    ],
+    "rows": [
+      [
+        "O01",
+        "A step models a concept absent from the ontology",
+        "Contribute the concept, relationships, rules and bindings back to the ontology rather than encoding it privately in a prompt",
+        "Ontology Council"
+      ],
+      [
+        "O02",
+        "A step is non-deterministic on criterion 6 (tacit rules)",
+        "Log the rule-articulation opportunity; candidate for re-tiering to D0 at the next review",
+        "Architecture Board"
+      ],
+      [
+        "O03",
+        "A step is non-deterministic on criterion 7 (undeclared mapping)",
+        "Log the ontology-extension opportunity; closing it moves the step D1 → D0",
+        "Ontology Council"
+      ],
+      [
+        "O04",
+        "A source is corroborated across independent sources in operation",
+        "Assess for promotion to a higher trust tier in the grounding registry",
+        "Knowledge Council"
+      ],
+      [
+        "O05",
+        "A classification override is recorded under default-and-challenge",
+        "Submit as a candidate entry to the criteria register",
+        "Architecture Board"
+      ],
+      [
+        "O06",
+        "A workflow's governance tier falls to D0 through accumulated determinisation",
+        "De-register the agent and transition it to Application-domain ALM governance",
+        "Agent Council"
+      ]
+    ]
+  },
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

@@ -1,0 +1,16 @@
+# Decision record schema
+
+**Artifact:** decision_record_schema
+**Source:** CAFE_Artifacts_Visualisation_v0_25.html
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Field | What it records |
+|---|---|
+| Context | The step or workflow, and the two or more constraints in conflict |
+| Decision drivers | Which quality attributes and which obligations are in play, named |
+| Options considered | At least two, each with what it costs |
+| Decision | What was chosen |
+| What was sacrificed | Which attribute or obligation lost, and to what degree. The field that makes the record worth keeping |
+| Compensating control | What reduces the exposure created by the sacrifice |
+| Review trigger | The condition under which this is revisited — a volume, a date, a platform change |
+| Approver | Named. Escalates to the Architecture Board where a guardrail obligation was weakened |

@@ -1,0 +1,659 @@
+{
+  "capabilities": [
+    {
+      "domain": "Cross-cutting",
+      "capability": "Independent outcome monitoring",
+      "primary": "Azure Monitor scheduled query rules over the system of record",
+      "rationale": "Enforces G19; reads the authoritative source, never an agent output",
+      "alternative": "Incumbent platform reporting / SLA engine, declared as a boundary interface with a named owner",
+      "sources": [
+        "S23"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Confidence-threshold escalation",
+      "primary": "Agent Framework middleware branch to a human queue",
+      "rationale": "Enforces G18 second clause; thresholds live in the orchestrator, not the inference service",
+      "alternative": "Power Automate approval branch; Copilot Studio human-in-the-loop step",
+      "sources": [
+        "S6",
+        "S8",
+        "S2"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Influence-sized evaluation",
+      "primary": "Foundry evaluation harness per influencing step with a declared recall gate",
+      "rationale": "Enforces G18 first clause; sized by influence, not by determinism tier",
+      "alternative": "Any harness supporting per-step recall targets and regression gating",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Ontology / alias-set stewardship",
+      "primary": "Fabric IQ ontology + Purview term governance with a named steward",
+      "rationale": "Enforces G15; closing criteria 6 and 7 moves steps D1 → D0",
+      "alternative": "Stardog or equivalent with an equivalent stewardship process",
+      "sources": [
+        "S10",
+        "S13"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Gate decision and approval evidence store",
+      "primary": "Dataverse approval log, or Azure Monitor logs at audit retention",
+      "rationale": "Evidence for G09, G19 and conformance review",
+      "alternative": "Incumbent platform audit log, declared as a boundary interface",
+      "sources": [
+        "S8",
+        "S23"
+      ]
+    },
+    {
+      "domain": "Business",
+      "capability": "Capability map / value streams",
+      "primary": "Power BI semantic models, Dataverse",
+      "rationale": "Already in M365 estate; integrates with Fabric IQ",
+      "alternative": "LeanIX, Ardoq",
+      "sources": [
+        "S10",
+        "S8"
+      ]
+    },
+    {
+      "domain": "Business",
+      "capability": "Business process automation",
+      "primary": "Power Automate",
+      "rationale": "Low-code; deep integration with Dataverse + Copilot Studio",
+      "alternative": "n8n, Camunda",
+      "sources": [
+        "S8"
+      ]
+    },
+    {
+      "domain": "Business",
+      "capability": "Business skills (process knowledge)",
+      "primary": "Dataverse business skills",
+      "rationale": "Discoverable by any MCP-compatible agent",
+      "alternative": "Custom MCP server",
+      "sources": [
+        "S8",
+        "S12"
+      ]
+    },
+    {
+      "domain": "Semantic",
+      "capability": "Ontology (entities, rules)",
+      "primary": "Fabric IQ Ontology item",
+      "rationale": "Native graph engine; binds to OneLake; multi-hop reasoning",
+      "alternative": "Stardog, GraphDB, Neo4j",
+      "sources": [
+        "S10"
+      ]
+    },
+    {
+      "domain": "Semantic",
+      "capability": "Business glossary",
+      "primary": "Microsoft Purview Unified Catalog",
+      "rationale": "Glossary terms carry policy (DLP, classification)",
+      "alternative": "Collibra, Alation",
+      "sources": [
+        "S13"
+      ]
+    },
+    {
+      "domain": "Semantic",
+      "capability": "Master / reference data",
+      "primary": "Dataverse",
+      "rationale": "Native to Power Platform; agent-addressable via MCP",
+      "alternative": "Profisee, Reltio",
+      "sources": [
+        "S8"
+      ]
+    },
+    {
+      "domain": "Semantic",
+      "capability": "Temporal / event-time modelling",
+      "primary": "Fabric IQ ontology temporal properties + Azure Data Explorer (time-series)",
+      "rationale": "Model time & event ordering so rules express temporal correlation; ADX/KQL for windowed analysis",
+      "alternative": "GraphDB time, custom",
+      "sources": [
+        "S10"
+      ]
+    },
+    {
+      "domain": "Semantic",
+      "capability": "Geospatial / location modelling",
+      "primary": "Fabric IQ ontology spatial properties + Azure Maps",
+      "rationale": "Model location & proximity so rules express geospatial correlation (area-of-interest, co-location)",
+      "alternative": "PostGIS, GeoSPARQL",
+      "sources": [
+        "S10"
+      ]
+    },
+    {
+      "domain": "Semantic",
+      "capability": "Tempo / rate-of-change",
+      "primary": "Semantic rules over time-series (Fabric IQ + ADX)",
+      "rationale": "Derive escalation tempo (rate-of-change) as a reasoned property, not raw feed rows",
+      "alternative": "Custom stream analytics",
+      "sources": [
+        "S10"
+      ]
+    },
+    {
+      "domain": "Knowledge",
+      "capability": "Agentic retrieval",
+      "primary": "Foundry IQ",
+      "rationale": "Federated subquery decomposition; semantic ranker normalises scores",
+      "alternative": "LlamaIndex, custom RAG",
+      "sources": [
+        "S9"
+      ]
+    },
+    {
+      "domain": "Knowledge",
+      "capability": "Enterprise context layer",
+      "primary": "Work IQ",
+      "rationale": "Permission-aware; understands collaboration patterns",
+      "alternative": "Glean, Coveo",
+      "sources": [
+        "S7"
+      ]
+    },
+    {
+      "domain": "Knowledge",
+      "capability": "Vector / hybrid search",
+      "primary": "Azure AI Search",
+      "rationale": "Underlies Foundry IQ; also standalone",
+      "alternative": "Pinecone, Weaviate, Qdrant",
+      "sources": [
+        "S9"
+      ]
+    },
+    {
+      "domain": "Knowledge",
+      "capability": "Document corpora (static)",
+      "primary": "SharePoint, OneLake, Azure Blob",
+      "rationale": "Static / data-at-rest; batch-indexed (scheduled re-index = dynamic). Foundry IQ indexed sources",
+      "alternative": "S3 + custom indexers",
+      "sources": [
+        "S9"
+      ]
+    },
+    {
+      "domain": "Knowledge",
+      "capability": "Real-time knowledge source (pull)",
+      "primary": "Foundry IQ federated / remote + MCP + web",
+      "rationale": "Real-time-pull: external APIs & DBs queried live at request time; MCP (private preview) + Bing web; merged & reranked with indexed content",
+      "alternative": "Custom API / MCP connector",
+      "sources": [
+        "S9",
+        "S12"
+      ]
+    },
+    {
+      "domain": "Knowledge",
+      "capability": "External tool / data",
+      "primary": "MCP servers (Foundry IQ private preview)",
+      "rationale": "Standard protocol; Dataverse, GitHub expose MCP",
+      "alternative": "Custom REST adapters",
+      "sources": [
+        "S12",
+        "S8"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Declarative agent (M365 surface)",
+      "primary": "M365 Copilot declarative agent",
+      "rationale": "Copilot orchestrator + foundation models; no separate hosting",
+      "alternative": "—",
+      "sources": [
+        "S1"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Custom-engine agent runtime",
+      "primary": "Foundry Agent Service (prompt / workflow / hosted)",
+      "rationale": "Hosted, scalable; Responses API; private networking; MCP auth",
+      "alternative": "LangGraph + own infra",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Agent SDK / framework",
+      "primary": "Microsoft Agent Framework 1.0 (.NET, Python)",
+      "rationale": "Successor of Semantic Kernel + AutoGen; Magentic-One",
+      "alternative": "LangGraph, CrewAI",
+      "sources": [
+        "S6"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Multi-channel conversational SDK",
+      "primary": "Microsoft 365 Agents SDK",
+      "rationale": "Channel-normalised Activity model; AI-agnostic",
+      "alternative": "Bot Framework v4",
+      "sources": [
+        "S2"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Agent identity",
+      "primary": "Microsoft Entra Agent ID + blueprints (governed via Microsoft Agent 365)",
+      "rationale": "Lifecycle, Conditional Access, governance for agent principals; Agent 365 issues + governs the identities end-to-end",
+      "alternative": "Workload identity federation",
+      "sources": [
+        "S5",
+        "S30"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Agent control plane (observe / govern / secure)",
+      "primary": "Microsoft Agent 365",
+      "rationale": "GA May 2026 — the agent-equivalent of M365 for users: inventory, identity, policy, audit and runtime for every agent (Microsoft, partner, custom, cross-cloud); enforcement plane for G01/G03/G04/G07/G10/G14",
+      "alternative": "Custom registry + bespoke policy fabric",
+      "sources": [
+        "S30",
+        "S31"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Agent supply chain / manifests",
+      "primary": "Source-controlled agent manifest + prompt/template library + Azure DevOps / GitHub Actions deploy pipeline",
+      "rationale": "G01 enforcement — manifests signed, version-controlled, reviewable; promotes immutability at runtime",
+      "alternative": "Custom GitOps",
+      "sources": [
+        "S6",
+        "S2"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Evaluation",
+      "primary": "Foundry Evaluations + project eval suite",
+      "rationale": "Required by G10; harness gates deploy",
+      "alternative": "Promptfoo, DeepEval",
+      "sources": [
+        "S3",
+        "S11"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Remote / non-Microsoft models",
+      "primary": "Anthropic, OpenAI direct, Google (mediated by APIM AI Gateway)",
+      "rationale": "Pluggable model providers; policy + token metering enforced at the gateway",
+      "alternative": "—",
+      "sources": [
+        "S25",
+        "S27"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Local / fine-tuned models",
+      "primary": "Foundry fine-tunes + PTU dedicated capacity; AKS-hosted SLM (opt)",
+      "rationale": "Performance / cost / residency control when remote models won't fit constraints",
+      "alternative": "HuggingFace TGI",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Application",
+      "capability": "Action invocation surface",
+      "primary": "Power Automate",
+      "rationale": "Approval, schedule, RPA, deep M365 connectors",
+      "alternative": "Logic Apps",
+      "sources": [
+        "S8"
+      ]
+    },
+    {
+      "domain": "Application",
+      "capability": "Business app fabric",
+      "primary": "Power Apps",
+      "rationale": "Hosts Dataverse-backed UIs that agents drive via skills",
+      "alternative": "—",
+      "sources": [
+        "S8"
+      ]
+    },
+    {
+      "domain": "Application",
+      "capability": "RPA",
+      "primary": "Power Automate Desktop",
+      "rationale": "UI automation for legacy systems an agent must drive but cannot API into",
+      "alternative": "UiPath, Blue Prism",
+      "sources": [
+        "S8"
+      ]
+    },
+    {
+      "domain": "Data",
+      "capability": "Operational data store",
+      "primary": "Dataverse",
+      "rationale": "Row-level security; first-class skills surface",
+      "alternative": "SQL Database",
+      "sources": [
+        "S8"
+      ]
+    },
+    {
+      "domain": "Data",
+      "capability": "Analytical lakehouse",
+      "primary": "OneLake",
+      "rationale": "Single copy across Fabric workloads",
+      "alternative": "Delta Lake on S3",
+      "sources": [
+        "S10"
+      ]
+    },
+    {
+      "domain": "Data",
+      "capability": "Catalog & lineage",
+      "primary": "Microsoft Purview",
+      "rationale": "DLP, classification, glossary, lineage in one plane",
+      "alternative": "DataHub, OpenMetadata",
+      "sources": [
+        "S13"
+      ]
+    },
+    {
+      "domain": "Data",
+      "capability": "Agent state / durable memory",
+      "primary": "Cosmos DB",
+      "rationale": "Multi-region; low-latency reads for A4 / A6 long-running agents",
+      "alternative": "DynamoDB",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Data",
+      "capability": "Session cache / counters",
+      "primary": "Azure Cache for Redis",
+      "rationale": "Per-turn state, rate-limit + budget counters used by G08 middleware",
+      "alternative": "Memcached",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Edge / DDoS / WAF",
+      "primary": "Azure Front Door + Application Gateway + WAF + DDoS Protection",
+      "rationale": "Mandatory for any externally-exposed agent or portal",
+      "alternative": "Cloudflare, Akamai",
+      "sources": [
+        "S17"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "API Management — AI Gateway",
+      "primary": "Azure API Management with GenAI policies",
+      "rationale": "Token-limit, semantic-cache, model-load-balance, prompt-shield / content-safety; runtime enforcement for G01/G02/G06/G08",
+      "alternative": "Kong AI Gateway, Apigee",
+      "sources": [
+        "S25",
+        "S27"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Eventing / messaging",
+      "primary": "Event Grid, Event Hubs, Service Bus",
+      "rationale": "Required for A6 event-triggered agents and any async path",
+      "alternative": "Kafka",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Networking isolation",
+      "primary": "Hub-and-spoke vNet, Private Endpoints, Private DNS, Azure Firewall",
+      "rationale": "Required by CAF landing zone for regulated workloads",
+      "alternative": "—",
+      "sources": [
+        "S19",
+        "S22"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "SecOps",
+      "primary": "Microsoft Defender for Cloud + Microsoft Sentinel",
+      "rationale": "SIEM / SOAR correlation of agent activity with identity events",
+      "alternative": "Splunk",
+      "sources": [
+        "—"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Multi-channel adapter",
+      "primary": "Azure Bot Service + M365 Agents SDK",
+      "rationale": "Channel normalisation for Teams / web / custom",
+      "alternative": "—",
+      "sources": [
+        "S2",
+        "S14"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Compute for hosted agents",
+      "primary": "Foundry hosted-agent runtime",
+      "rationale": "Sandboxed; managed scaling; OAuth passthrough for MCP",
+      "alternative": "AKS + own controllers",
+      "sources": [
+        "S3"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Sandboxed agent runtime VM",
+      "primary": "Windows 365 for Agents",
+      "rationale": "Managed, isolated cloud-PC for agents that need a desktop / browser / legacy-UI surface; provisioned + governed by Agent 365",
+      "alternative": "AKS-hosted sandbox, Browserbase",
+      "sources": [
+        "S32",
+        "S30"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Identity & access",
+      "primary": "Microsoft Entra ID",
+      "rationale": "Single plane for users, workloads and agents",
+      "alternative": "Okta + workload federation",
+      "sources": [
+        "S5"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Observability",
+      "primary": "Application Insights + Foundry traces",
+      "rationale": "Built-in agent traces; correlates with Entra sign-in",
+      "alternative": "OpenTelemetry stack",
+      "sources": [
+        "S3",
+        "S5"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Container/orchestration host",
+      "primary": "Azure Container Apps; AKS (per AAC Baseline Agentic AI Systems)",
+      "rationale": "Hosts non-Foundry frameworks (LangChain, etc.)",
+      "alternative": "Self-managed Kubernetes",
+      "sources": [
+        "S23"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Non-functional invariants (AI)",
+      "primary": "Azure Well-Architected Framework — AI workloads",
+      "rationale": "Mandatory for production; structures M3 evidence",
+      "alternative": "—",
+      "sources": [
+        "S16",
+        "S17"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Landing zone / perimeter",
+      "primary": "CAF AI Ready + Azure landing zones",
+      "rationale": "No separate AI LZ; deploy as application landing zones",
+      "alternative": "—",
+      "sources": [
+        "S18",
+        "S19"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Runtime governance hub",
+      "primary": "Foundry Citadel — Governance Hub (AI Gateway)",
+      "rationale": "Enforcement plane for G01/G02/G06/G08",
+      "alternative": "—",
+      "sources": [
+        "S24",
+        "S25",
+        "S27"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Spoke 'Agents Environment'",
+      "primary": "Foundry Citadel — spoke via Azure/AI-Landing-Zones",
+      "rationale": "One per BU / use case; built-in identity, observability, eval scaffold",
+      "alternative": "—",
+      "sources": [
+        "S24",
+        "S26"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Foundry control plane",
+      "primary": "Microsoft Foundry control plane",
+      "rationale": "Governs Foundry projects, models, agents",
+      "alternative": "—",
+      "sources": [
+        "S28"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Agent discovery / shadow-AI inventory",
+      "primary": "Microsoft Agent 365 (uses Defender + Intune; registry sync to AWS Bedrock & Google Cloud — public preview)",
+      "rationale": "Discovers local + cloud agents across the estate, including non-Microsoft platforms; turns shadow AI into a governed asset class; satisfies G14",
+      "alternative": "Bespoke CMDB + scanners",
+      "sources": [
+        "S30",
+        "S31"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Agent governance toolkit (open-source)",
+      "primary": "Microsoft Agent Governance Toolkit",
+      "rationale": "Agent-level governance primitives (policy, scoring, evaluation hooks) usable alongside Agent 365 in code",
+      "alternative": "Custom hooks + OPA",
+      "sources": [
+        "S29"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Baseline — basic chat",
+      "primary": "AAC: Basic Foundry Chat",
+      "rationale": "POC only",
+      "alternative": "—",
+      "sources": [
+        "S20"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Baseline — production chat",
+      "primary": "AAC: Baseline Foundry Chat",
+      "rationale": "Production baseline for RA-1",
+      "alternative": "—",
+      "sources": [
+        "S21"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Baseline — chat in landing zone",
+      "primary": "AAC: Baseline Foundry Chat in Landing Zone",
+      "rationale": "Regulatory / network isolation",
+      "alternative": "—",
+      "sources": [
+        "S22"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Baseline — agentic on containers",
+      "primary": "AAC: Baseline Agentic AI Systems",
+      "rationale": "RA-3/4/5 hosted-container path",
+      "alternative": "—",
+      "sources": [
+        "S23"
+      ]
+    },
+    {
+      "domain": "Boundary",
+      "capability": "Alerting / notification",
+      "primary": "Notification service · SMS gateway · push (traditional architecture)",
+      "rationale": "Boundary interface — owned by traditional architecture; referenced by M5, not an M4 AI component",
+      "alternative": "Twilio · FCM / APNs",
+      "sources": [
+        "—"
+      ]
+    },
+    {
+      "domain": "Boundary",
+      "capability": "Real-time-push / streaming ingestion",
+      "primary": "Event / stream pipeline (traditional architecture)",
+      "rationale": "Boundary interface — continuous event-feed ingestion (data-in-motion); the AI grounds on the resulting state via a real-time-pull source",
+      "alternative": "Kafka · Event Hubs (as infra)",
+      "sources": [
+        "—"
+      ]
+    },
+    {
+      "domain": "Boundary",
+      "capability": "Comms resilience / fallback",
+      "primary": "Network · satellite messaging (traditional architecture)",
+      "rationale": "Boundary interface — comms-denied operation; outside CAFÉ's AI scope",
+      "alternative": "Iridium · Starlink",
+      "sources": [
+        "—"
+      ]
+    }
+  ],
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

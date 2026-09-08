@@ -132,6 +132,18 @@ SUBSTRATE = {
     # back as an art:// ref — an hour of speech is never a tool result. It holds the speech
     # credential and nothing else; it publishes no event, so it gets no Redis.
     "speech-mcp":   {"cmd": "python -m lab.substrate.mcp.speech.server", "port": None, "s3": True},
+    # No "s3": the reference server never opens an artifact — publication explodes the agent-
+    # readable form into rows — so it holds no bucket credential and no ARTIFACTS_URL.
+    "reference-mcp": {"cmd": "python -m lab.substrate.mcp.reference.server", "port": None},
+    # Pure derivation over facet vectors: no store, no bucket, no database of its own. It
+    # reads the governed rules through the GATEWAY like any other caller.
+    "decision-mcp": {"cmd": "python -m lab.substrate.mcp.decision.server", "port": None},
+    # The FINANCIAL derivations, split from decision-mcp by artifact OWNER: finance releases the
+    # price sheet and the rate cards, and must not need architecture governance's redeploy.
+    "valuation-mcp": {"cmd": "python -m lab.substrate.mcp.valuation.server", "port": None},
+    # What makes FR-12 structural: the architect's decision is the EVENT that releases the
+    # submitter's message, so there is no code path where the submitter hears first.
+    "usecase-notifier": {"cmd": "python -m lab.substrate.usecase_notifier", "port": None},
     # what turns "a human approved" into "the next run started". Redis ONLY: it reads the decisions
     # stream and publishes a workflow request, holds no credential of any kind, and has no ingress.
     "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
@@ -216,6 +228,7 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
         "GRAPH_MCP_URL", "SPEECH_MCP_URL",         # ... incl. the collab_mcp and speech_mcp aliases' services
+        "REFERENCE_MCP_URL", "DECISION_MCP_URL", "VALUATION_MCP_URL",   # ... the governed corpus and the derivations
         "WORKFLOW_API_URL",                        # the front door's REST ingress, which the gateway
                                                    # pass-through forwards to. Authorised HERE, not there:
                                                    # the pass-through replaces the caller's Authorization,
@@ -272,6 +285,34 @@ ROLE_ENV = {
                                                    # only the one key — this role never reaches the registry database.
         _OTLP,                                     # NO Redis either: it publishes no event and holds no approval
     ],                                             # + S3_KEYS via the "s3" flag (collab_fetch streams INTO the upload store)
+    "usecase-notifier": [                          # src/lab/substrate/usecase_notifier.py — Redis + one webhook
+        "REDIS_*",                                 # the decisions stream it consumes
+        "USECASE_WEBHOOK_URL",                     # where a submitter is told; unset = it logs instead
+        "JAEGER_UI_URL",                           # the link it puts in the message
+        _OTLP,
+    ],
+    "valuation-mcp": [                             # src/lab/substrate/mcp/valuation/*.py + lab.core.usecase — pure arithmetic
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "VALUATION_MCP_PORT",                      # which port it serves
+        _OTLP,                                     # NO store, NO database, NO model credential: it
+    ],                                             # prices a list of names against a packaged sheet
+    "decision-mcp": [                              # src/lab/substrate/mcp/decision/*.py + lab.core.usecase — pure derivation
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "DECISION_MCP_PORT",                       # which port it serves
+        "REFERENCE_*",                             # to read the governed rules under a pin
+        "GATEWAY_URL",                             # ... which it reaches like any other caller
+        _OTLP,
+    ],
+    "reference-mcp": [                             # src/lab/substrate/{reference,mcp/reference}/*.py + lab.core.reference — the governed CORPUS
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "REFERENCE_MCP_PORT", "REFERENCE_PROVIDER",  # which port it serves; which adapter the container wires
+        "REFERENCE_DB_URL",                        # the READER dsn — never DATABASE_URL, which can write
+        "REFERENCE_RING", "REFERENCE_PIN_TTL_S",   # which audience it resolves for; how long a pin lives
+        "REFERENCE_TRUST_KEYS",                    # PUBLIC key material only; the signing seed stays with the operator
+        "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",  # embed via the GATEWAY, virtual key
+        "GATEWAY_URL",                             # ... which is where the embedder posts
+        _OTLP,
+    ],
     "speech-mcp": [                                # src/lab/substrate/mcp/speech/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.speech — the SPEECH adapter
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "SPEECH_MCP_PORT", "SPEECH_PROVIDER",      # which port it serves; which adapter the container wires
@@ -344,6 +385,20 @@ WORKLOAD_ENV: dict[str, list[str]] = {
         "BA_*", "ARCHITECT_*",                     # identity.agent_headers(): <PREFIX>_CLIENT_ID/SECRET/KEY;
                                                    # BA_MODE, BA_RUN_TIMEOUT, BA_MAX_* (docparse), ARCHITECT_MODE
         "VISIO_AGENT_MODEL", "VISIO_DIAGRAM", "VISIO_REQUIREMENTS",   # model; cloud-job inputs
+    ],
+    "usecase-screening": [
+        "USECASE_AGENT_*",                         # identity.agent_headers(): CLIENT_ID/SECRET/KEY
+        "AGENT_*",                                 # responses-store toggle, timeouts, caps
+    ],
+    "usecase-design": [
+        "USECASE_AGENT_*",
+        "AGENT_*",
+    ],
+    "usecase-investment": [                        # a DIFFERENT identity: its grants carry the write
+        "USECASE_DELIVERY_*",                      # path, and one workload never holds another's
+    ],
+    "usecase-provisioning": [
+        "USECASE_DELIVERY_*",
     ],
     "minutes": [
         "MINUTES_*",                               # identity.agent_headers(): MINUTES_AGENT_CLIENT_ID/
@@ -608,6 +663,9 @@ def substrate_env(name, spec, base_env) -> dict:
     env["WORKFLOW_MCP_URL"] = "http://workflow-frontdoor.railway.internal:9400/mcp"
     env["GRAPH_MCP_URL"] = "http://graph-mcp.railway.internal:9500/mcp"
     env["SPEECH_MCP_URL"] = "http://speech-mcp.railway.internal:9600/mcp"
+    env["REFERENCE_MCP_URL"] = "http://reference-mcp.railway.internal:9700/mcp"
+    env["DECISION_MCP_URL"] = "http://decision-mcp.railway.internal:9800/mcp"
+    env["VALUATION_MCP_URL"] = "http://valuation-mcp.railway.internal:9900/mcp"
     env["WORKFLOW_API_URL"] = "http://workflow-frontdoor.railway.internal:9400/api"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
@@ -959,6 +1017,34 @@ WORKLOADS = {
         "replicas": 2,
     },
     # Started by the continuation runner when an organiser answers, not normally by a person.
+    "usecase-screening": {
+        "service": "wf-usecase-screening",
+        "cmd": "python -m lab.workloads.use_case_screening.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "usecase-design": {
+        "service": "wf-usecase-design",
+        "cmd": "python -m lab.workloads.use_case_design.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "usecase-investment": {
+        "service": "wf-usecase-investment",
+        "cmd": "python -m lab.workloads.use_case_investment.consumer",
+        "restart": "ALWAYS",
+        "env": {"WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "usecase-provisioning": {
+        "service": "wf-usecase-provisioning",
+        "cmd": "python -m lab.workloads.use_case_provisioning.consumer",
+        "restart": "ALWAYS",
+        "env": {"WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
     "minutes": {
         "service": "wf-meeting-minutes",
         "cmd": "python -m lab.workloads.transcript_to_minutes.consumer",

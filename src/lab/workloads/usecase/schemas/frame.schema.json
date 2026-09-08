@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "problem": {
+      "type": "string",
+      "minLength": 20
+    },
+    "for_whom": {
+      "type": "string",
+      "minLength": 3
+    },
+    "expected_change": {
+      "type": "string",
+      "minLength": 10
+    },
+    "accountable_owner": {
+      "type": "string",
+      "minLength": 3
+    },
+    "source_channel": {
+      "type": "string"
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "problem",
+    "for_whom",
+    "expected_change",
+    "accountable_owner"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "frame"
+}

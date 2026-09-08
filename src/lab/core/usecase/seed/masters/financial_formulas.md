@@ -1,0 +1,12 @@
+# Financial summary formulas
+
+**Artifact:** financial_formulas
+**Source:** Intake_Agent_Requirements_v2_7.docx
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Quantity | Formula |
+|---|---|
+| Total annual benefit | Driver 1 plus Driver 2 plus Driver 3 |
+| Year-1 investment | Build cost plus twelve times monthly run cost |
+| Payback period in months | Investment divided by monthly net benefit |
+| Three-year ROI multiple | (3 × annual benefit − investment) ÷ investment |

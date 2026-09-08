@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "properties": {
+    "matched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "function": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "capability_label": {
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "lookup",
+              "assumption",
+              "survey"
+            ]
+          }
+        },
+        "required": [
+          "function",
+          "capability_id",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "functions_without_capability": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilities_without_function": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "gap_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "owning_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "heat_map": {
+      "type": "object",
+      "properties": {
+        "commodity": {
+          "type": "boolean"
+        },
+        "mature": {
+          "type": "boolean"
+        },
+        "meets_target": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the position was read from. A heat-map position is a LOOKUP against the published capability map, not a judgement."
+        }
+      },
+      "required": [
+        "commodity",
+        "mature",
+        "meets_target",
+        "source"
+      ],
+      "additionalProperties": false,
+      "description": "Where the matched capability sits on the capability heat map. Step 16's reject rule reads it: a capability that is commodity, mature and already meeting target is a reason NOT to build."
+    }
+  },
+  "required": [
+    "capabilities_without_function",
+    "functions_without_capability",
+    "matched"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "coverage_map"
+}

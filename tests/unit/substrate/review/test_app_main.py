@@ -34,13 +34,13 @@ def test_main_without_password_dispatches_the_chosen_mode():
     st = FakeSt(Mode="Submit", Reviewer="ann", **{"▶️ Run visio_to_archimate": True})
     install(st, workflows=wf)
     APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=None)
-    st.session_state["submit_refs"] = {"diagram": "art://d/s.vsdx", "requirements": []}
+    st.session_state["submit_refs_visio_to_archimate"] = {"diagram": "art://d/s.vsdx"}
     try:
         APP.main()
         raise AssertionError("Run must rerun")
     except Rerun:
         pass
-    assert wf.requests == [("visio_to_archimate", {"diagram": "art://d/s.vsdx", "requirements": []}, "ann")]
+    assert wf.requests == [("visio_to_archimate", {"diagram": "art://d/s.vsdx"}, "ann")]
 
 
 def test_password_gate_blocks_wrong_or_empty_password():

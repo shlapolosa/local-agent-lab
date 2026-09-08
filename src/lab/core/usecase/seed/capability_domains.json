@@ -1,0 +1,41 @@
+{
+  "domains": [
+    {
+      "domain": "Business",
+      "covers": "capabilities, value streams, processes, policies, business skills"
+    },
+    {
+      "domain": "Semantic",
+      "covers": "ontology, glossary, master & reference data — meaning"
+    },
+    {
+      "domain": "Knowledge",
+      "covers": "grounding sources, agentic retrieval, citations"
+    },
+    {
+      "domain": "Cognitive",
+      "covers": "agents, orchestration, models, identity, evaluation"
+    },
+    {
+      "domain": "Application",
+      "covers": "action invocation, app fabric, RPA"
+    },
+    {
+      "domain": "Data",
+      "covers": "operational, analytical, content, agent state stores"
+    },
+    {
+      "domain": "Technology",
+      "covers": "gateway, identity, networking, compute, observability"
+    },
+    {
+      "domain": "Cross-cutting",
+      "covers": "WAF · CAF · AAC baselines · Citadel governance"
+    },
+    {
+      "domain": "Boundary",
+      "covers": "traditional-architecture interfaces — referenced, not catalogued (§9.3)"
+    }
+  ],
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

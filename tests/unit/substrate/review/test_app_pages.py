@@ -172,52 +172,117 @@ def test_an_approval_staged_before_the_neutral_payload_still_offers_every_file()
     assert st.count("caption") == 0 and st.count("expander") == 0        # no notes, no instructions
 
 
+def test_submit_page_offers_every_process_an_outside_caller_may_start_and_no_others():
+    """Rendered from the CONTRACT, so a continuation cannot be started here for exactly the reason
+    it cannot be started through the gateway — one rule, not two that could disagree."""
+    from lab.platform import contracts
+    st = install(FakeSt(), workflows=FakeWorkflows())
+    APP._submit_page("ann")
+    offered = [a[1] for p, a, _ in st.calls if p.rsplit(".", 1)[-1] == "selectbox"][0]
+    assert set(offered) == {s.name for s in contracts.PROCESSES.values() if s.external}
+    assert "use_case_screening" in offered
+    for spec in contracts.PROCESSES.values():
+        if not spec.external:
+            assert spec.name not in offered
+
+
 def test_submit_page_idle_lists_recent_submissions():
-    wf = FakeWorkflows(recent=[{"request_id": "wfr-1", "status": "done", "requester": "ann", "created_at": "t",
-                                "inputs": {"diagram": "art://1/sys.vsdx", "requirements": ["art://2/a.md"]},
+    wf = FakeWorkflows(recent=[{"request_id": "wfr-1", "status": "done", "requester": "ann",
+                                "created_at": "t", "process": "visio_to_archimate",
+                                "inputs": {"diagram": "art://1/sys.vsdx"},
                                 "approval_id": "apr-1"},
-                               {"request_id": "wfr-2", "status": "pending", "requester": "bob", "created_at": "t"}])
+                               {"request_id": "wfr-2", "status": "pending", "requester": "bob",
+                                "created_at": "t", "process": "use_case_screening"}])
     st = install(FakeSt(), workflows=wf)
     APP._submit_page("ann")
-    assert st.session_state["submit_refs"] == {"diagram": None, "requirements": []}
-    assert st.said("write", "`wfr-1` **done** — sys.vsdx + 1 doc(s) (ann, t) → approval `apr-1`")
-    assert st.said("write", "`wfr-2` **pending** —  + 0 doc(s) (bob, t)")
-    assert wf.requests == [] and st.count("subheader") == 1      # no run status block
+    assert st.said("write", "`wfr-1` **done** — visio_to_archimate sys.vsdx")
+    assert st.said("write", "approval `apr-1`")
+    assert st.said("write", "`wfr-2` **pending** — use_case_screening")
+    assert wf.requests == []
 
 
-def test_submit_page_upload_stores_diagram_and_n_requirements_by_reference():
+def test_submit_page_uploads_every_reference_field_the_chosen_process_declares():
     ups = FakeStore()
-    st = install(FakeSt(**{"⬆️ Upload": True, "up_diagram": Upload("sys.vsdx", b"V"),
-                           "up_reqs": [Upload("a.docx", b"A"), Upload("b.md", b"B")]}), uploads=ups)
-    st.session_state["submit_rid"] = "wfr-old"
+    st = install(FakeSt(**{"⬆️ Upload": True,
+                           "up_visio_to_archimate_diagram": Upload("sys.vsdx", b"V"),
+                           "up_visio_to_archimate_requirements": [Upload("a.docx", b"A"),
+                                                                  Upload("b.md", b"B")]}),
+                 uploads=ups)
     APP._submit_page("ann")
-    assert [(n, d) for n, d, _ in ups.puts] == [("sys.vsdx", b"V"), ("a.docx", b"A"), ("b.md", b"B")]
+    assert [(n, d) for n, d, _ in ups.puts] == [("sys.vsdx", b"V"), ("a.docx", b"A"),
+                                                ("b.md", b"B")]
     assert ups.puts[0][2] == real_artifacts.content_type_for("sys.vsdx")
-    refs = st.session_state["submit_refs"]
-    assert refs == {"diagram": "art://u1/sys.vsdx", "requirements": ["art://u2/a.docx", "art://u3/b.md"]}
-    assert st.session_state["submit_rid"] is None
-    assert st.said("success", "Stored.") and st.said("write", "**Diagram** `art://u1/sys.vsdx`")
-    assert st.texts("write").count("**Requirements** `art://u2/a.docx`") == 1
+    refs = st.session_state["submit_refs_visio_to_archimate"]
+    assert refs == {"diagram": "art://u1/sys.vsdx",
+                    "requirements": ["art://u2/a.docx", "art://u3/b.md"]}
+    assert st.said("success", "Stored.")
 
 
-def test_submit_page_upload_with_no_requirements():
+def test_an_optional_reference_list_nobody_filled_uploads_nothing():
     ups = FakeStore()
-    st = install(FakeSt(**{"⬆️ Upload": True, "up_diagram": Upload("sys.png", b"P"), "up_reqs": None}), uploads=ups)
+    st = install(FakeSt(**{"⬆️ Upload": True,
+                           "up_visio_to_archimate_diagram": Upload("sys.png", b"P")}), uploads=ups)
     APP._submit_page("ann")
-    assert st.session_state["submit_refs"] == {"diagram": "art://u1/sys.png", "requirements": []}
+    assert st.session_state["submit_refs_visio_to_archimate"] == {"diagram": "art://u1/sys.png",
+                                                                  "requirements": []}
 
 
 def test_submit_page_run_publishes_one_request_with_the_refs():
     wf = FakeWorkflows()
     st = install(FakeSt(**{"▶️ Run visio_to_archimate": True}), workflows=wf)
-    st.session_state["submit_refs"] = {"diagram": "art://d/sys.vsdx", "requirements": ["art://r/a.md"]}
+    st.session_state["submit_refs_visio_to_archimate"] = {"diagram": "art://d/sys.vsdx",
+                                                          "requirements": ["art://r/a.md"]}
     try:
         APP._submit_page("ann")
         raise AssertionError("Run must st.rerun()")
     except Rerun:
         pass
-    assert wf.requests == [("visio_to_archimate", {"diagram": "art://d/sys.vsdx", "requirements": ["art://r/a.md"]}, "ann")]
-    assert st.session_state["submit_rid"] == "wfr-1"
+    process, inputs, requester = wf.requests[0]
+    assert process == "visio_to_archimate" and requester == "ann"
+    assert inputs["diagram"] == "art://d/sys.vsdx" and inputs["requirements"] == ["art://r/a.md"]
+    assert st.session_state["submit_rid_visio_to_archimate"] == "wfr-1"
+
+
+def test_a_use_case_submission_carries_its_intake_mapping_and_its_document():
+    """FR-01's portal channel. The intake fields ride as a MAPPING beside the narrative, which is
+    what makes the same record reachable from Teams and from REST with no third shape."""
+    wf = FakeWorkflows()
+    st = install(FakeSt(**{"▶️ Run use_case_screening": True,
+                           "Process": "use_case_screening",
+                           "submitter": "ba@x.ae",
+                           "map_use_case_screening_intake_ed": [
+                               {"label": "Urgency", "value": "Q3"},
+                               {"label": "Investment", "value": "budget bucket, 250k"},
+                               {"label": "", "value": "ignored"}]}), workflows=wf)
+    st.session_state["submit_refs_use_case_screening"] = {"submission": "art://s/case.docx"}
+    try:
+        APP._submit_page("ann")
+        raise AssertionError("Run must st.rerun()")
+    except Rerun:
+        pass
+    process, inputs, _ = wf.requests[0]
+    assert process == "use_case_screening"
+    assert inputs["submission"] == "art://s/case.docx"
+    assert inputs["intake"] == {"Urgency": "Q3", "Investment": "budget bucket, 250k"}
+    assert inputs["submitter"] == "ba@x.ae"
+
+
+def test_the_intake_form_suggests_the_field_groups_the_governed_artifact_publishes():
+    """Suggestions only — every row stays editable, because a submission that does not fit the
+    suggested shape must still be possible to make."""
+    st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
+    APP._submit_page("ann")
+    rows = st.session_state["map_use_case_screening_intake"]
+    labels = {r["label"] for r in rows}
+    assert {"Effort table", "Quality baseline", "Sensitivity flags"} <= labels
+    assert all(r["value"] == "" for r in rows)
+
+
+def test_a_missing_suggestion_artifact_leaves_the_form_free_rather_than_refusing(monkeypatch):
+    monkeypatch.setitem(APP.MAPPING_ROWS, ("use_case_screening", "intake"), "no-such-artifact")
+    st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
+    APP._submit_page("ann")
+    assert st.session_state["map_use_case_screening_intake"] == [{"label": "", "value": ""}]
 
 
 def test_submit_page_shows_run_status_for_every_state():
@@ -235,24 +300,24 @@ def test_submit_page_shows_run_status_for_every_state():
                         ("f", ("error", "ValueError: bad diagram")), ("z", None),
                         ("d2", ("success", "Model staged for approval `apr-2`"))):
         st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses))
-        st.session_state["submit_rid"] = rid
+        st.session_state["submit_rid_visio_to_archimate"] = rid
         APP._submit_page("ann")
         if expect:
             assert st.said(*expect), (rid, st.calls)
         assert st.said("subheader", f"Run `{rid}` — {statuses[rid]['status']}")
     # details of the done + running renders
-    st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses)); st.session_state["submit_rid"] = "d"
+    st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses)); st.session_state["submit_rid_visio_to_archimate"] = "d"
     APP._submit_page("ann")
     assert st.said("write", "Artifact `art://x/m.xml`")
     assert [a for p, a, _ in st.calls if p.endswith("metric")] == [("elements", 5), ("relations", 4), ("views", 1), ("semantic_warnings", 0)]
-    st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses)); st.session_state["submit_rid"] = "d2"
+    st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses)); st.session_state["submit_rid_visio_to_archimate"] = "d2"
     APP._submit_page("ann")
     assert not st.said("write", "Artifact `") and st.said("metric", "elements —")
-    st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses)); st.session_state["submit_rid"] = "r"
+    st = install(FakeSt(), workflows=FakeWorkflows(statuses=statuses)); st.session_state["submit_rid_visio_to_archimate"] = "r"
     APP._submit_page("ann")
     assert st.said("write", "**Consumer** wf-visio-1") and st.said("write", f"{APP.JAEGER}{'ab' * 16}")
     # unknown request id
-    st = install(FakeSt(), workflows=FakeWorkflows()); st.session_state["submit_rid"] = "nope"
+    st = install(FakeSt(), workflows=FakeWorkflows()); st.session_state["submit_rid_visio_to_archimate"] = "nope"
     APP._submit_page("ann")
     assert st.said("warning", "unknown request nope")
 

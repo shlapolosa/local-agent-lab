@@ -1,0 +1,306 @@
+{
+  "guardrails": [
+    {
+      "id": "G01",
+      "asi": "ASI01",
+      "pred": "always — every step executed by an agent",
+      "cap": "Cognitive · Agent runtime; Cross-cutting · Gate decision and approval evidence store",
+      "rule": "Agent goals are immutable at runtime: system prompt and tool registry come from a signed, version-controlled artifact.",
+      "ctrl": "Copilot Studio environment governance + Microsoft Agent Framework manifest",
+      "src": [
+        "S2",
+        "S6"
+      ]
+    },
+    {
+      "id": "G02",
+      "asi": "ASI02",
+      "pred": "step.activity ∈ {commit, orchestrate} ∨ step invokes any registered tool",
+      "cap": "Cognitive · Tool surface / MCP registry",
+      "rule": "Every tool exposed to an agent is registered, scoped to a minimal action set, and access-reviewed.",
+      "ctrl": "Dataverse skill governance + MCP server allowlist",
+      "src": [
+        "S8",
+        "S12"
+      ]
+    },
+    {
+      "id": "G03",
+      "asi": "ASI03",
+      "pred": "step.authorisation ≠ per-action human ∨ the step runs without an interactive user at trigger time",
+      "cap": "Cross-cutting · Agent identity (Entra Agent ID)",
+      "rule": "Agents whose authorisation is not per-action human, or which run with no interactive user at trigger time, authenticate using a dedicated Entra Agent ID with a Managed Identity; user-delegated tokens never persist.",
+      "ctrl": "Microsoft Entra Agent ID + Conditional Access at blueprint level, lifecycle-governed by Microsoft Agent 365",
+      "src": [
+        "S5",
+        "S30"
+      ]
+    },
+    {
+      "id": "G04",
+      "asi": "ASI04",
+      "pred": "always — evaluated at the Stage 5 exit gate for every selected component",
+      "cap": "the capability map itself",
+      "rule": "Third-party tools, plugins and MCP servers are admitted via the M4 capability map only; projects cannot introduce components unilaterally.",
+      "ctrl": "Purview catalog of approved AI assets + Entra blueprint review + Agent 365 inventory (incl. cross-cloud registry sync)",
+      "src": [
+        "S13",
+        "S5",
+        "S30"
+      ]
+    },
+    {
+      "id": "G05",
+      "asi": "ASI05",
+      "pred": "step executes generated or supplied code",
+      "cap": "Technology · Sandboxed agent runtime VM",
+      "rule": "Code execution by agents is sandboxed; no agent has shell or arbitrary exec rights against production.",
+      "ctrl": "Foundry hosted-agent sandbox + container isolation",
+      "src": [
+        "S3"
+      ]
+    },
+    {
+      "id": "G06",
+      "asi": "ASI06",
+      "pred": "step.activity = retrieve ∨ step reads any grounding source",
+      "cap": "Knowledge · Federated retrieval; Knowledge · Grounding source registry",
+      "rule": "All retrieval performed through a declared Knowledge contract; sources permission-trimmed and citations surfaced.",
+      "ctrl": "Foundry IQ federated retrieval + semantic ranker + permission-aware grounding",
+      "src": [
+        "S9"
+      ]
+    },
+    {
+      "id": "G07",
+      "asi": "ASI07",
+      "pred": "step.activity = orchestrate ∧ the step delegates to another agent",
+      "cap": "Cognitive · Agent-to-agent protocol",
+      "rule": "Inter-agent communication uses authenticated channels with explicit policy checks; A2A handoffs logged with intent + payload.",
+      "ctrl": "Microsoft Agent Framework handoff/group-chat orchestration with telemetry",
+      "src": [
+        "S6"
+      ]
+    },
+    {
+      "id": "G08",
+      "asi": "ASI08",
+      "pred": "step.determinism ≥ D2 ∨ step invokes a downstream service",
+      "cap": "Cognitive · Agent runtime middleware",
+      "rule": "Cascading failure containment: every agent has step + tool-call budgets and a circuit breaker per downstream.",
+      "ctrl": "Agent Framework middleware hooks + Foundry runtime limits",
+      "src": [
+        "S6",
+        "S3"
+      ]
+    },
+    {
+      "id": "G09",
+      "asi": "ASI09",
+      "pred": "step.effect ∈ {external communication, financial or contractual commitment, physical or clinical action} ∧ step.authorisation ≠ per-action human",
+      "cap": "Cross-cutting · Confidence-threshold escalation; Application · Approval action",
+      "rule": "Trust-sensitive outputs (approvals, financial, customer comms) require explicit human confirmation; \"do you want me to do X?\" not \"doing X\".",
+      "ctrl": "Copilot Studio HITL step + Power Automate approval action",
+      "src": [
+        "S2",
+        "S8"
+      ]
+    },
+    {
+      "id": "G10",
+      "asi": "ASI10",
+      "pred": "always — every production agent",
+      "cap": "Cognitive · Agent control plane; Cross-cutting · Influence-sized evaluation",
+      "rule": "Every production agent registered in the Agent Registry, has a named owner, access-reviewed quarterly, and an evaluation harness gating deploys.",
+      "ctrl": "Microsoft Entra ID Governance access reviews + Microsoft Agent 365 registry + project eval suite",
+      "src": [
+        "S5",
+        "S30"
+      ]
+    },
+    {
+      "id": "G11",
+      "asi": "CAFÉ-AI",
+      "pred": "step consumes a signal whose absence is meaningful — monitoring, sensor, feed",
+      "cap": "Cross-cutting · Independent outcome monitoring",
+      "rule": "RETIRED v0.25 — duplicate of G17, carried by the set for eight versions. Obligations merged into G17. Identifier not reused. — No false comfort: absence or staleness of signal is communicated as \"no indication yet\", never as \"all-clear\". The agent surfaces informative silence and calibrated uncertainty rather than implying safety.",
+      "ctrl": "Confidence calibration + liveness / absence-as-state in the agent contract; Operate-phase eval gate",
+      "src": [
+        "S11"
+      ]
+    },
+    {
+      "id": "G12",
+      "asi": "CAFÉ-AI",
+      "pred": "step.input.trust ∈ {single-source unverified, external untrusted} ∧ the source is spoofable",
+      "cap": "Knowledge · Grounding source registry; Data · Signal validation",
+      "rule": "RETIRED v0.25 — written too narrowly against one class of spoofable positional signal to fire generally. Obligation generalised into G13. Identifier not reused. — Inbound data integrity: signals that can be spoofed (ADS-B / AIS / GPS and similar) are plausibility-checked and cross-validated; implausible or spoofed inputs are flagged, not trusted.",
+      "ctrl": "Cross-source plausibility rules in the Semantic layer + source-credibility scoring",
+      "src": [
+        "S11"
+      ]
+    },
+    {
+      "id": "G13",
+      "asi": "CAFÉ-AI",
+      "pred": "exposure ≥ 3 ∨ influence ≥ 3 ∨ criticality = safety-of-life",
+      "cap": "Knowledge · Federated retrieval (multi-source corroboration)",
+      "rule": "Corroboration before high-confidence output: a high-severity assessment requires agreement of ≥2 independent sources, at least one official or physical-sensor; single-source (especially social) signals may only open a low-confidence watch.",
+      "ctrl": "Corroboration rule over trust-tiered Knowledge sources",
+      "src": [
+        "S11"
+      ]
+    },
+    {
+      "id": "G14",
+      "asi": "CAFÉ-AI",
+      "pred": "always — every agent operating against enterprise data",
+      "cap": "Cross-cutting · Agent discovery / shadow-AI inventory",
+      "rule": "Agent inventory completeness: every agent operating against enterprise data — Microsoft, partner, custom, cross-cloud (AWS Bedrock / GCP), or shadow — is discoverable, owned, and lifecycle-governed; no agent runs unregistered.",
+      "ctrl": "Microsoft Agent 365 control plane (Defender + Intune discovery, Entra identity, cross-cloud registry sync); breaks G04 if unsatisfied",
+      "src": [
+        "S30",
+        "S31"
+      ]
+    },
+    {
+      "id": "G15",
+      "asi": "CAFÉ-AI",
+      "pred": "step.activity ∈ {interpret, decide, transform} ∧ the step reasons over or emits a named concept",
+      "cap": "Semantic · Ontology; Cross-cutting · Ontology and alias-set stewardship",
+      "rule": "Ontology conformance: an agent may not reason over, or emit, a concept not defined in the ontology with relationships, rules and data bindings. Coverage is evidenced by the M0 Gate B record.",
+      "ctrl": "Fabric IQ ontology binding + Purview Unified Catalog term governance; breaks G06 if unsatisfied",
+      "src": [
+        "S10",
+        "S13"
+      ]
+    },
+    {
+      "id": "G16",
+      "asi": "CAFÉ-AI",
+      "pred": "criticality ∈ {business-critical, safety-of-life}",
+      "cap": "the readiness record carried on the routing record",
+      "rule": "Criticality-proportionate rigor: evaluation, corroboration and approval depth are set by the M0 Gate D criticality class, not by cost or delivery timeline. A gate routing only on spend does not satisfy this.",
+      "ctrl": "M0 readiness record carried on the routing record; Architecture Board conformance review",
+      "src": [
+        "S13"
+      ]
+    },
+    {
+      "id": "G17",
+      "asi": "CAFÉ-AI",
+      "pred": "step.input.freshness ∈ {dynamic, time-critical} ∧ the step can conclude that nothing is wrong",
+      "cap": "Cross-cutting · Independent outcome monitoring",
+      "rule": "Liveness and absence-as-state: an agent may not infer an all-clear from missing, stale or unavailable grounding. Feed liveness and staleness are surfaced and evaluated as mission-assurance measures.",
+      "ctrl": "Foundry IQ source-health signals + Azure Monitor liveness alerting across a declared boundary interface",
+      "src": [
+        "S9",
+        "S23"
+      ]
+    },
+    {
+      "id": "G18",
+      "asi": "CAFÉ-AI",
+      "pred": "influence ≥ 2",
+      "cap": "Cross-cutting · Influence-sized evaluation; Cross-cutting · Confidence-threshold escalation",
+      "rule": "Influence-proportionate evaluation: a step above the lowest influence class carries a harness with a stated recall target on the branch it can suppress, and a confidence threshold below which it escalates to a human. Precision alone does not satisfy this.",
+      "ctrl": "Foundry evaluation harness per influencing step with a declared recall gate; confidence-threshold branch in the orchestrator routing sub-threshold outputs to a human queue",
+      "src": [
+        "S3",
+        "S6"
+      ]
+    },
+    {
+      "id": "G19",
+      "asi": "CAFÉ-AI",
+      "pred": "∃ step in workflow with influence ≥ 3",
+      "cap": "Cross-cutting · Independent outcome monitoring",
+      "rule": "Outcome assertion monitoring: a workflow containing a step above the lowest influence class declares at least one outcome assertion and monitors it independently of the steps producing the outcome. Monitoring inside the step whose failure it detects does not satisfy this.",
+      "ctrl": "Outcome monitor evaluating each assertion against the system of record, reading inputs from the authoritative source rather than any agent output; may resolve to a declared boundary interface with a named owner",
+      "src": [
+        "S23"
+      ]
+    },
+    {
+      "id": "G20",
+      "asi": "CAFÉ-AI",
+      "pred": "step reads any grounding source, tool output or agent response — any content the enterprise did not author",
+      "cap": "Cross-cutting · Retrieval-boundary content inspection",
+      "rule": "Retrieved content is data, never instruction. Content returned from any grounding source, tool or agent is treated as untrusted input and may not alter the agent's goals, tool selection or output policy. Instruction-bearing content is neutralised or refused, not obeyed.",
+      "ctrl": "Prompt-shield inspection at the retrieval boundary; system prompt held outside the retrieval path",
+      "src": [
+        "S9",
+        "S23"
+      ]
+    },
+    {
+      "id": "G21",
+      "asi": "CAFÉ-AI",
+      "pred": "input.sensitivity ∈ {confidential, restricted} ∧ audience ∈ {partner, customer, public, regulator}",
+      "cap": "Cross-cutting · Sensitivity labelling and outbound inspection",
+      "rule": "Output classification does not exceed audience clearance. A step reading confidential or restricted data may not emit to an audience cleared below that classification, nor emit an aggregate that reconstructs it.",
+      "ctrl": "Sensitivity-label propagation with outbound DLP inspection at the emission point",
+      "src": [
+        "S13"
+      ]
+    },
+    {
+      "id": "G22",
+      "asi": "CAFÉ-AI",
+      "pred": "step.determinism = D1",
+      "cap": "Cognitive · Structured-output enforcement",
+      "rule": "Bounded output is validated, not asserted. Where a step is classified D1 on the basis of a constrained output schema or verb space, that constraint is enforced at runtime and a non-conforming output is rejected rather than passed on.",
+      "ctrl": "Structured-output enforcement in the runtime plus schema validation in the orchestrator",
+      "src": [
+        "S3",
+        "S6"
+      ]
+    },
+    {
+      "id": "G23",
+      "asi": "CAFÉ-AI",
+      "pred": "step.reversibility = irreversible ∧ step.effect ≠ none",
+      "cap": "Application · Compensating action; Application · Approval action",
+      "rule": "Irreversible effects carry a reversal path or a pre-commit confirmation. Where an effect cannot be undone, either a tested compensating action exists, or the effect is preceded by a confirmation step that renders the decision reviewable before it is taken.",
+      "ctrl": "Compensating transaction in the deterministic layer, or an approval action immediately preceding the commit",
+      "src": [
+        "S8"
+      ]
+    },
+    {
+      "id": "G24",
+      "asi": "CAFÉ-AI",
+      "pred": "step.blast_radius ∈ {cohort, population} on either the instance or systematic reading",
+      "cap": "Technology · Progressive delivery and rate limiting",
+      "rule": "Population-scale change is staged and rate-limited. Where blast radius reaches a cohort or the whole population — including the systematic reading, where shared logic serves every instance — the effect is released progressively and bounded per interval, so a systematic error is detected before it completes.",
+      "ctrl": "Deployment rings or progressive rollout, plus a rate limit at the action boundary",
+      "src": [
+        "S23"
+      ]
+    },
+    {
+      "id": "G25",
+      "asi": "CAFÉ-AI",
+      "pred": "step.determinism ≥ D1 ∧ step.effect = external communication ∧ audience ∈ {customer, public, regulator}",
+      "cap": "Application · Output templating and provenance",
+      "rule": "Machine-generated output leaving the organisation is disclosed as such. Where a non-deterministic step produces content directed at a customer, the public or a regulator, the recipient is told it was machine-generated.",
+      "ctrl": "Output template or footer applied at the emission point; provenance metadata where the channel supports it",
+      "src": [
+        "S8"
+      ]
+    },
+    {
+      "id": "G26",
+      "asi": "CAFÉ-AI",
+      "pred": "step.domain ∈ {clinical, financial, HR}",
+      "cap": "Cross-cutting · Gate decision and approval evidence store",
+      "rule": "Regulated-domain decisions are retained and explainable. Where the domain carries a statutory regime, the decision, its grounding citations and the agent version that produced it are retained for the statutory period and retrievable against an individual subject.",
+      "ctrl": "Retention labels and audit retention on the evidence store; citation capture through the retrieval contract",
+      "src": [
+        "S13",
+        "S23"
+      ]
+    }
+  ],
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

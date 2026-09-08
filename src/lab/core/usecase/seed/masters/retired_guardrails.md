@@ -1,0 +1,16 @@
+# Retired identifiers
+
+**Artifact:** retired_guardrails
+**Source:** CAFE_Artifacts_Visualisation_v0_25.html
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Retired | Resolves to |
+|---|---|
+| RA-1 | T1 or T2 · F1 single-corpus, F2 · interactive · in-loop |
+| RA-2 | T2 · F1, F2, F4, F5 · interactive · in-loop |
+| RA-3 | T2 · F1 federated, F2, F3 · interactive · in-loop |
+| RA-4 | T4 · F14 plus the families its sub-agents require |
+| RA-5 | Identical to RA-3. The distinction was a family variant, not an architecture |
+| RA-6 | T2 or T3 · event or scheduled trigger · out-of-loop or on-loop |
+| RA-7 | T1 · interactive · embedded surface. A hosting choice , not a composition |
+| RA-8 | T3 · families as derived · commonly event-triggered, on-loop |

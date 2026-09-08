@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "activity": {
+            "type": "string"
+          },
+          "performed_by": {
+            "type": "string"
+          },
+          "function": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "activity",
+          "performed_by"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "data_class": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "data_class"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "workflow_graph"
+}

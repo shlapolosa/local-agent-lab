@@ -2,6 +2,7 @@
 from unittest.mock import patch
 
 from lab.platform.contracts import CollabTools
+from lab.workloads import gateway
 from lab.workloads.transcript_to_minutes import workflow as W
 
 
@@ -34,7 +35,9 @@ def test_each_lane_delivers_files_named_after_its_own_provider():
         calls.clear()
         state = {"prose": "hello", "minutes_ref": "art://m/m.json", "meeting": {},
                  "provider": provider}
-        with patch.object(W, "_call", fake_call):
+        # `gateway.call`, not a per-workload `_call`: theseven workloads shared four
+        # identical helpers and they now live in one place, so the seam moved with them.
+        with patch.object(gateway, "call", fake_call):
             asyncio.run(W._deliver({}, state, "collab://recording/m/r"))
         return [a["name"] for t, a in calls if t == CollabTools.put]
 

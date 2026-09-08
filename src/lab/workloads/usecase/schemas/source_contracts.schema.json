@@ -1,0 +1,76 @@
+{
+  "type": "object",
+  "properties": {
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "sensitivity": {
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ]
+          },
+          "permission_scope": {
+            "type": "string"
+          },
+          "propagation": {
+            "type": "string"
+          },
+          "freshness": {
+            "enum": [
+              "static",
+              "slow-moving",
+              "dynamic",
+              "time-critical"
+            ]
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "citation_policy": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "required": [
+          "source",
+          "sensitivity",
+          "freshness",
+          "citation_policy"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gap_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "owning_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "sources"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "source_contracts"
+}

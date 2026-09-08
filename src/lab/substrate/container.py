@@ -19,7 +19,11 @@ from lab.substrate import artifacts as _artifacts
 # the platform allowlist + the store settings that exist ONLY here
 SUBSTRATE_KEYS = CONFIG_KEYS + ("ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "S3_REGION",
                                 "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE",
-                                "COLLAB_PROVIDER", "SPEECH_PROVIDER")
+                                "COLLAB_PROVIDER", "SPEECH_PROVIDER",
+                                "REFERENCE_PROVIDER", "REFERENCE_DB_URL", "REFERENCE_RING",
+                                "REFERENCE_PIN_TTL_S", "REFERENCE_TRUST_KEYS",
+                                "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM",
+                                "REFERENCE_EMBED_KEY")
 
 # The COLLABORATION port's adapters, by name: the ONE place a provider module is named. The
 # container binds a KEY (`COLLAB_PROVIDER`), so a second collaboration platform — a different
@@ -43,6 +47,35 @@ SPEECH_PROVIDERS: dict[str, str] = {
 }
 # The overrides a named provider is built with, when the module alone does not say which it is.
 SPEECH_PROVIDER_OPTIONS: dict[str, dict] = {"soniox-en": {"want": "translation"}}
+
+# The governed CORPUS port's adapters. Postgres is the only one today and it is the one that does
+# not change on the Azure move — Azure Database for PostgreSQL runs pgvector — but the entry exists
+# so a managed retrieval service (AI Search) is an adapter plus a line, not a rewrite of every
+# caller. Same contract: the module exposes `build(**overrides)`.
+REFERENCE_PROVIDERS: dict[str, str] = {"postgres": "lab.substrate.reference.pg_library"}
+
+
+def reference_library(provider: str, **overrides):
+    """The `lab.core.reference.ReferenceLibrary` this deployment runs, by registry key.
+
+    An embedder is attached only when one is CONFIGURED. Semantic search then refuses with
+    `IndexUnavailable` rather than returning nothing, which is the honest state while the embedding
+    upstream is undecided: exact lookup over the record artifacts — twenty of the twenty-five —
+    works throughout, and the five prose ones say plainly that they cannot be searched yet."""
+    name = str(provider or "").strip().lower()
+    if name not in REFERENCE_PROVIDERS:
+        raise ValueError(f"unknown reference provider {name!r} — REFERENCE_PROVIDER must be one of "
+                         f"{sorted(REFERENCE_PROVIDERS)}")
+    return importlib.import_module(REFERENCE_PROVIDERS[name]).build(**overrides)
+
+
+def gateway_embedder(base_url: str, credential: str, model: str, dim: int, **overrides):
+    """The embedder, or None when no model is configured — see `reference_library`."""
+    if not str(model or "").strip():
+        return None
+    from lab.platform.embed import GatewayEmbedder
+    return GatewayEmbedder(base_url=base_url, credential=credential, model=model, dim=int(dim),
+                           **overrides)
 
 
 def collab_repository(provider: str, **overrides):
@@ -86,6 +119,14 @@ class SubstrateContainer(Container):
     collab = providers.Singleton(collab_repository, provider=Container.config.collab_provider)
     # the speech provider (recorded talk -> attributable words) — the speech-mcp role's adapter
     speech = providers.Singleton(speech_transcriber, provider=Container.config.speech_provider)
+    # the embedder, through the GATEWAY — the reference layer holds a virtual key, never an upstream one
+    embedder = providers.Singleton(gateway_embedder, base_url=Container.config.gateway_url,
+                                   credential=Container.config.reference_embed_key,
+                                   model=Container.config.reference_embed_model,
+                                   dim=Container.config.reference_embed_dim)
+    # the governed corpus (signed, versioned artifacts read under a pin) — the reference-mcp role's adapter
+    reference = providers.Singleton(reference_library, provider=Container.config.reference_provider,
+                                    embedder=embedder)
     # The same port, built for a NAMED provider instead of the configured one. A Factory rather than
     # a Singleton because the name is the argument: running four providers in their own lanes means
     # four adapters, and a Singleton would hand every lane the first one built.

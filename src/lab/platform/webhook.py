@@ -1,4 +1,4 @@
-"""The substrate's one outbound JSON POST.
+"""The lab's one outbound JSON POST.
 
 CLAUDE.md states an exception to gateway-only egress: a channel — and now the meeting notifier —
 posts DIRECTLY to a fixed configured URL, carrying counts, ids and links and no model content. An
@@ -21,13 +21,18 @@ import urllib.request
 TIMEOUT_S = 30
 
 
-def post_json(url: str, payload: dict, *, timeout: int = TIMEOUT_S) -> str:
+def post_json(url: str, payload: dict, *, headers: dict | None = None,
+              timeout: int = TIMEOUT_S) -> str:
     """POST `payload` as JSON and return the response body as text. Raises on a transport or HTTP
-    error, so the caller decides what a failed send means."""
+    error, so the caller decides what a failed send means.
+
+    `headers` are merged over the defaults, for callers that must authenticate — the gateway
+    embeddings call carries a virtual key. A channel passes none: its URL IS its credential, which
+    is exactly why a webhook URL is treated as a secret."""
     # `application/json` bare, not with `; charset=utf-8`: JSON is UTF-8 by definition (RFC 8259)
     # and this is the header the live Teams Workflows webhook has been verified against. The body is
     # still UTF-8 encoded — `json.dumps` escapes non-ASCII by default, so Arabic survives either way.
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode()

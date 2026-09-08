@@ -2,10 +2,34 @@
 "the other service is on this machine". Defaults are the local single-machine layout; a cloud
 deployment sets the env vars (see deploy/ and .env.example).
 """
+import json
 import os
 from pathlib import Path
 
 _e = os.environ.get
+
+
+def _mapping(name: str) -> dict:
+    """A JSON object from the environment, or EMPTY. Same contract as `_rows`: empty is a real
+    answer, and the code that reads it must say so rather than substitute a number."""
+    try:
+        value = json.loads(_e(name) or "{}")
+        return dict(value) if isinstance(value, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _rows(name: str) -> tuple[dict, ...]:
+    """A JSON array of objects from the environment, or EMPTY when it is unset or malformed.
+
+    Empty is a real answer here and the callers are built for it: a policy table nobody has
+    configured must make the code that reads it escalate, never fall back to a default that looks
+    like a decision somebody took."""
+    try:
+        value = json.loads(_e(name) or "[]")
+        return tuple(r for r in value if isinstance(r, dict))
+    except (TypeError, ValueError):
+        return ()
 
 # --- where the tree is (paths, not URLs): the repo root and the git-ignored runtime dir ---
 REPO_ROOT = Path(__file__).resolve().parents[3]            # src/lab/platform/config.py -> repo (editable install)
@@ -21,6 +45,9 @@ WORKFLOW_MCP_URL = _e("WORKFLOW_MCP_URL", "http://127.0.0.1:9400/mcp")  # the fr
 WORKFLOW_API_URL = _e("WORKFLOW_API_URL", "http://127.0.0.1:9400/api")  # ... and its REST one, for clients that are not agents
 GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the COLLABORATION port (alias collab_mcp)
 SPEECH_MCP_URL   = _e("SPEECH_MCP_URL", "http://127.0.0.1:9600/mcp")    # the SPEECH port (alias speech_mcp)
+REFERENCE_MCP_URL = _e("REFERENCE_MCP_URL", "http://127.0.0.1:9700/mcp")  # the governed CORPUS (alias reference_mcp)
+DECISION_MCP_URL = _e("DECISION_MCP_URL", "http://127.0.0.1:9800/mcp")    # the CAFÉ derivations (alias decision_mcp)
+VALUATION_MCP_URL = _e("VALUATION_MCP_URL", "http://127.0.0.1:9900/mcp")  # cost and benefit (alias valuation_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
@@ -31,6 +58,9 @@ TEAMS_WEBHOOK_URL  = _e("TEAMS_WEBHOOK_URL")                              # Team
 # something holding a person's connection must. Unset = the notifier logs what it would say,
 # which is what makes the whole path testable without a tenant.
 MEETING_WEBHOOK_URL = _e("MEETING_WEBHOOK_URL", "")
+# Where a submitter is told what became of their use case. Unset = the notifier logs
+# what it WOULD post, which is how to watch it before wiring a destination.
+USECASE_WEBHOOK_URL = _e("USECASE_WEBHOOK_URL")
 # WHICH COMMIT this container is, baked into the image by CI (deploy/Dockerfile ARG LAB_BUILD_SHA).
 # The image TAG says what a service was ASKED to run; this says what it actually IS, and the two
 # disagree the moment anything pulls a mutable tag — which is how a workload came to call a tool the
@@ -54,6 +84,48 @@ STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
+REFERENCE_MCP_PORT = int(_e("REFERENCE_MCP_PORT", "9700"))
+DECISION_MCP_PORT = int(_e("DECISION_MCP_PORT", "9800"))
+VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
+
+# --- local policy the published framework deliberately leaves to the tenant ---
+#: The delegation-of-authority bands: [{"limit": 50000, "authority": "delivery lead"}, …, the last
+#: with "limit": null. UNSET by default and that is correct — `lab.core.usecase.authority` escalates
+#: rather than routing a real funding decision by a threshold this lab invented.
+DELEGATION_AUTHORITY = _rows("DELEGATION_AUTHORITY")
+
+#: Finance's reference VALUES, which `seed/benefit_drivers.json` says are held in their own
+#: registries and are not published with the framework. They live beside the price sheet — on
+#: valuation-mcp, the server finance owns — rather than being passed in by every caller. Unset
+#: means the driver that needs them is `requires_input`, and the refusal says the registry is not
+#: configured rather than naming a role as though one had been consulted.
+ROLE_RATES = _mapping("ROLE_RATES")           # {"nurse": 120.0, "clinician": 300.0}
+ERROR_COSTS = _mapping("ERROR_COSTS")         # {"missed referral": 4200.0}
+
+# --- the governed reference corpus (signed, versioned artifacts read under a pin) ---
+# The server runs as a READER role: DR-03 says no instance writes to a shared store under any
+# condition, and a Postgres GRANT is the only form of that rule the server cannot talk its way out
+# of. The publisher's DSN and the signing key live with the operator CLI and never reach a service.
+REFERENCE_PROVIDER = _e("REFERENCE_PROVIDER", "postgres")
+REFERENCE_DB_URL = _e("REFERENCE_DB_URL") or _e("DATABASE_URL", "")
+REFERENCE_RING = int(_e("REFERENCE_RING", "2"))          # 0 pilot · 1 · 2 general
+REFERENCE_PIN_TTL_S = int(_e("REFERENCE_PIN_TTL_S", "86400"))
+REFERENCE_RING_SOAK_S = int(_e("REFERENCE_RING_SOAK_S", "86400"))
+# Public key material only — `key_id:base64,...`. The PRIVATE seed must never appear here or in
+# LAB_ENV: a signature made with a key everyone with repo admin holds proves nothing.
+REFERENCE_TRUST_KEYS = _e("REFERENCE_TRUST_KEYS", "")
+REFERENCE_EMBED_MODEL = _e("REFERENCE_EMBED_MODEL", "")   # empty = semantic search is unavailable
+REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "1024"))
+REFERENCE_EMBED_KEY = _e("REFERENCE_EMBED_KEY", "")       # a VIRTUAL key; the upstream one is the gateway's
+# The PUBLISHER's three. They are read here because config is the one env reader, but no service is
+# granted them: `ROLE_ENV["reference-mcp"]` lists neither, so in a deployed service all three are
+# empty and the CLI refuses to run. REFERENCE_SIGNING_KEY is the private seed and belongs on the
+# publishing workstation ALONE — in LAB_ENV it would prove nothing beyond repo admin, which is
+# everyone who could have edited the row it is meant to protect.
+REFERENCE_SIGNING_KEY = _e("REFERENCE_SIGNING_KEY", "")
+REFERENCE_KEY_ID = _e("REFERENCE_KEY_ID", "k1")
+REFERENCE_PUBLISH_DB_URL = _e("REFERENCE_PUBLISH_DB_URL") or _e("DATABASE_URL", "")
+
 
 # --- host tooling ---
 # Rendering a .vsdx page to a picture needs LibreOffice on the HOST running storage-mcp. It is an
@@ -187,6 +259,10 @@ WF_CONSUMER = _e("WF_CONSUMER", "1")
 
 # The model that writes the minutes — OURS, through the gateway, never the transcription vendor's.
 MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "kimi-k3")
+# The screening agents. kimi-k3 for the same reason the visio workload uses it: measured reliable
+# at small-argument structured output, which is all these do — every one returns one JSON object
+# against a schema and calls no tools itself.
+USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "kimi-k3")
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

@@ -133,6 +133,30 @@ mcp_servers:                          # addresses + trust come from the environm
     description: Speech — transcribe a recording already in the lab's upload store into timed, speaker-labelled segments, returned by art:// reference with an anonymous speaker digest inline; pass every language the meeting uses (e.g. Arabic and English together) so speech that switches language mid-sentence is transcribed rather than translated; video is accepted and its audio extracted; it does NOT summarise — minutes and keywords come from the lab's own governed model
     extra_headers: ["traceparent", "tracestate"]
 
+  reference_mcp:                      # the governed CORPUS — signed, versioned artifacts under a pin.
+    url: os.environ/REFERENCE_MCP_URL # READ-ONLY at three levels that each hold alone: no write tool
+    transport: http                   # in the catalogue, none in the adapter, and the database
+    auth_type: bearer_token           # refuses writes from the role the service runs as. Publishing
+    authentication_token: os.environ/MCP_SHARED_SECRET   # is an operator CLI, never a tool.
+    description: Reference corpus — the organisation's governed rules as data — guardrail predicates, criticality and determinism registers, facet schema, risk-class mapping, reference architecture, price sheet and rate cards. Call reference_pin FIRST and pass its pin_id to every read, so one run cannot read two artifacts at different versions. reference_lookup is EXACT over records by their published natural key and a miss is a real answer; reference_search is semantic over explanatory prose and refuses outright on a stale or differently-embedded index rather than returning less. Every answer carries citations naming the artifact version and the human-readable master a person can open
+    extra_headers: ["traceparent", "tracestate"]
+
+  decision_mcp:                       # the CAFÉ derivations that are DETERMINISTIC.
+    url: os.environ/DECISION_MCP_URL  # Deployed, not run inside a workload, because they read
+    transport: http                   # governed artifacts that change under approval — a taxonomy
+    auth_type: bearer_token           # edit must not need an application release. Conformance
+    authentication_token: os.environ/MCP_SHARED_SECRET   # review runs the same rules.
+    description: CAFÉ derivations — the deterministic assessments of an AI use case, over step facet vectors rather than judgement. decision_readiness rules on the four M0 gates; decision_feasibility applies the published verdict rule and says whether the run must halt; decision_exposure derives how bad a step is when it works and when it is WRONG (an advisory step can carry the highest influence in the workflow); decision_obligations evaluates every guardrail predicate and the commit invariant into a control requirement set; decision_composition derives the component families the steps call for, and names any obligation that resolves to no enforcement point. Pass a pin_id from reference_pin to derive against the governed corpus — every answer says which rules it used
+    extra_headers: ["traceparent", "tracestate"]
+
+  valuation_mcp:                      # the CAFÉ derivations that are FINANCIAL. A SEPARATE server
+    url: os.environ/VALUATION_MCP_URL # from decision_mcp because the artifacts behind it have a
+    transport: http                   # different owner and cadence: finance releases the price
+    auth_type: bearer_token           # sheet and the rate cards, architecture governance releases
+    authentication_token: os.environ/MCP_SHARED_SECRET   # the guardrails. Neither release may
+    description: CAFÉ valuation — the financial derivations for an AI use case. valuation_cost prices the reference-topology tiles a composed design switched on against the reference price sheet, carrying a low/expected/high range rather than collapsing it, raising a GAP FLAG for any resource with no price line rather than substituting a proxy, and naming the sheet version it costed against. valuation_benefit computes exactly the three admitted drivers (operational efficiency, quality and accuracy, compliance and risk reduction), the Year-1 investment, payback and three-year ROI, and the proceed / proceed-with-conditions / defer recommendation. A driver whose inputs nobody supplied comes back requires_input, which is not zero — and while one is open, proceed is unavailable and the case is not deferred on it either
+    extra_headers: ["traceparent", "tracestate"]   # require the other's redeploy.
+
 router_settings:                      # Redis: shared state for rate limits, budgets, router
   redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)
   redis_port: os.environ/REDIS_PORT

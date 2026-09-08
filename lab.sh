@@ -27,6 +27,9 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
          WORKFLOW_MCP_URL="${WORKFLOW_MCP_URL:-http://127.0.0.1:9400/mcp}" \
          GRAPH_MCP_URL="${GRAPH_MCP_URL:-http://127.0.0.1:9500/mcp}" \
          SPEECH_MCP_URL="${SPEECH_MCP_URL:-http://127.0.0.1:9600/mcp}" \
+         REFERENCE_MCP_URL="${REFERENCE_MCP_URL:-http://127.0.0.1:9700/mcp}" \
+         DECISION_MCP_URL="${DECISION_MCP_URL:-http://127.0.0.1:9800/mcp}" \
+         VALUATION_MCP_URL="${VALUATION_MCP_URL:-http://127.0.0.1:9900/mcp}" \
          WORKFLOW_API_URL="${WORKFLOW_API_URL:-http://127.0.0.1:9400/api}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
@@ -84,6 +87,7 @@ channel_status() {  # name, module, required vars — "stopped" alone would read
 for_each_daemon() {   # calls "$1 <name> <module> <ready line> <what it does>"
   "$1" continuations    lab.substrate.continuations   "continuation runner ready" "approved approvals start their next run"
   "$1" meeting-notifier lab.substrate.meeting_notifier "meeting notifier ready"    "a finished minutes run tells its meeting"
+  "$1" usecase-notifier lab.substrate.usecase_notifier "usecase-notifier ready"    "a decided use case tells its submitter"
 }
 
 start_daemon() {   # name, module, ready line, description
@@ -178,6 +182,16 @@ up() {
   # speech_capabilities with the settings that are missing, and with AUDIO_EXTRACT_BIN unset it says
   # so rather than failing a video mysteriously. Silence would look like a grant problem instead.
   start_mcp speech-mcp   lab.substrate.mcp.speech.server   9600   # speech (alias speech_mcp): a recording ->
+  start_mcp reference-mcp lab.substrate.mcp.reference.server 9700   # the governed CORPUS
+  start_mcp valuation-mcp lab.substrate.mcp.valuation.server 9900   # cost and benefit
+                                                                    # (alias valuation_mcp): finance
+                                                                    # owns these artifacts, so it
+                                                                    # releases without a redeploy here
+  start_mcp decision-mcp  lab.substrate.mcp.decision.server  9800   # the CAFÉ derivations
+                                                                    # (alias decision_mcp): rules
+                                                                    # read at call time, never compiled in
+                                                                    # (alias reference_mcp): signed,
+                                                                    # versioned rules, read under a pin
                                                                   # timed, speaker-labelled words, returned by ref
   # the continuation runner: approving an approval starts the run it releases. Started ALWAYS —
   # it holds no credential, and without it an approved question is answered and nothing happens,
@@ -296,6 +310,10 @@ for_each_workload() {   # calls "$1 <service> <module>" for every workload host
   "$1" wf-visio             lab.workloads.visio_to_archimate.consumer
   "$1" wf-meeting-transcript lab.workloads.meeting_to_transcript.consumer
   "$1" wf-meeting-minutes    lab.workloads.transcript_to_minutes.consumer
+  "$1" wf-usecase-screening  lab.workloads.use_case_screening.consumer
+  "$1" wf-usecase-design     lab.workloads.use_case_design.consumer
+  "$1" wf-usecase-investment lab.workloads.use_case_investment.consumer
+  "$1" wf-usecase-provisioning lab.workloads.use_case_provisioning.consumer
 }
 
 start_workload() {   # service, module

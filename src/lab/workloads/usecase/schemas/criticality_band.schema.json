@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "band": {
+      "enum": [
+        "routine",
+        "business-critical",
+        "safety-of-life"
+      ]
+    },
+    "dominant_failure_mode": {
+      "type": "string",
+      "minLength": 15
+    },
+    "provisional": {
+      "const": true
+    }
+  },
+  "required": [
+    "band",
+    "dominant_failure_mode",
+    "provisional"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "criticality_band"
+}

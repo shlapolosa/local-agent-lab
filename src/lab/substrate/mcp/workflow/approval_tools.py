@@ -186,7 +186,15 @@ def register(server: LabServer) -> None:
                                                                "releases nothing.")] = None,
         artifacts: Annotated[dict | None, Field(description="`art://` references a reviewer may open "
                                                             "while deciding, as {name: ref}.")] = None,
-        requester: Annotated[str, Field(description="Which process is asking.")] = "",
+        requester: Annotated[str, Field(description="Who the answer is on behalf of — the person "
+                                                    "whose work this approval concerns, so a "
+                                                    "channel knows who to tell.")] = "",
+        process: Annotated[str, Field(description="Which business process raised this, as its "
+                                                  "registered name. A channel that serves one "
+                                                  "pipeline uses it to leave the others alone; "
+                                                  "without it a channel has to guess from the "
+                                                  "subject line, which is a guess that gets "
+                                                  "quietly wrong.")] = "",
     ) -> dict:
         """Ask a HUMAN a question this run cannot answer itself, and finish.
 
@@ -220,6 +228,8 @@ def register(server: LabServer) -> None:
                    # the completeness contract the gate will enforce, DECLARED by the asker — which
                    # is what keeps `check_answer` generic and the approval kind free of dispatch
                    "answer_labels": labels, "answer_required": True}
+        if process:
+            payload["process"] = process
         if continuation:
             payload["continuation"] = Continuation.from_dict(continuation).to_dict()   # validated NOW
         # Refs a reviewer may open; no store is reached. The merge is guarded because `|=` resolves

@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "properties": {
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "activity": {
+            "type": "string"
+          },
+          "determinism": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "reversibility": {
+            "type": "string"
+          },
+          "blast_radius": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "authorisation": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "overrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "facet": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "justification": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "facet",
+                "to",
+                "justification"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "conditions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "The prose conditions the published guardrail predicates ask about THIS step \u2014 'step invokes any registered tool', 'the source is spoofable'. Answer every one: an unanswered condition is refused, never read as false, because a guardrail that silently fails to fire is invisible."
+          }
+        },
+        "required": [
+          "id",
+          "activity",
+          "determinism",
+          "effect",
+          "conditions"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "steps"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "facet_vectors"
+}

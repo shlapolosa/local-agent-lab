@@ -1,0 +1,66 @@
+{
+  "type": "object",
+  "properties": {
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "function": {
+            "type": "string"
+          },
+          "stimulus": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          },
+          "response_measure": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "percentile": {
+            "type": "number"
+          },
+          "taken_from": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "required": [
+          "function",
+          "response_measure",
+          "unit",
+          "taken_from"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gap_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "owning_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "scenarios"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "quality_attributes"
+}

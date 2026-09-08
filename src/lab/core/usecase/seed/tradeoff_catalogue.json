@@ -1,0 +1,44 @@
+{
+  "conflicts": {
+    "section": "Known conflicts and their usual resolutions",
+    "headers": [
+      "Conflict",
+      "Usual resolution"
+    ],
+    "rows": [
+      [
+        "G23 reversal path vs at-least-once delivery",
+        "Idempotency key plus a compensating action. Where the effect is an irreversible external communication it can have neither — the only resolution is a pre-commit confirmation"
+      ],
+      [
+        "G18 recall target vs an open-ended interpretive step where no golden dataset is constructible",
+        "Human sampling at a declared rate, plus an outcome assertion under G19. Record explicitly that the recall target is unobtainable rather than inventing a number"
+      ],
+      [
+        "G19 independent monitoring vs a single-surface design",
+        "Always a boundary interface. No agent surface can monitor itself independently — this is structural, not a gap in the surfaces"
+      ],
+      [
+        "Interactive latency vs G13 multi-source corroboration",
+        "Precompute the corroboration, or move the step to background and change the trigger modifier. Do not weaken corroboration to meet a latency target"
+      ],
+      [
+        "G21 egress control vs business-owned change",
+        "Control at the template level rather than the prompt level. The business edits content within a structure engineering owns"
+      ],
+      [
+        "G24 staged release vs an event-driven workload with no cohort",
+        "Rate limiting alone, with the partial coverage recorded. Staging requires a population to stage across"
+      ],
+      [
+        "Model substitutability vs fine-tuned placement",
+        "Permitted, gated on evaluation, with a review trigger. Lock-in accepted knowingly is different from lock-in arrived at"
+      ],
+      [
+        "T3 platform orchestration vs G08 budgets",
+        "The obligation resolves to the EA block, since the platform owns control flow. Requires a named operator or it is unowned"
+      ]
+    ]
+  },
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

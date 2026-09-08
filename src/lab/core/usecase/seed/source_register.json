@@ -1,0 +1,165 @@
+{
+  "sources": [
+    {
+      "id": "S1",
+      "title": "Declarative agents for Microsoft 365 Copilot (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/microsoft-365-copilot/extensibility/overview-declarative-agent"
+    },
+    {
+      "id": "S2",
+      "title": "Custom engine agents for Microsoft 365 (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/overview-custom-engine-agent"
+    },
+    {
+      "id": "S3",
+      "title": "What is Microsoft Foundry Agent Service? (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/agents/overview"
+    },
+    {
+      "id": "S4",
+      "title": "Agents for Microsoft 365 Copilot — overview (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/agents-overview"
+    },
+    {
+      "id": "S5",
+      "title": "What is Microsoft Entra Agent ID? (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/entra/agent-id/identity-professional/microsoft-entra-agent-identities-for-ai-agents"
+    },
+    {
+      "id": "S6",
+      "title": "Microsoft Agent Framework overview (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/agent-framework/overview/"
+    },
+    {
+      "id": "S7",
+      "title": "Work IQ overview (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq"
+    },
+    {
+      "id": "S8",
+      "title": "Dataverse business skills (Microsoft Learn) + Power Platform blog",
+      "url": "https://learn.microsoft.com/en-us/power-apps/maker/data-platform/data-platform-business-skill-overview"
+    },
+    {
+      "id": "S9",
+      "title": "What is Foundry IQ? (Microsoft Learn) + federated retrieval",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/what-is-foundry-iq"
+    },
+    {
+      "id": "S10",
+      "title": "What is Fabric IQ (preview)? (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/fabric/iq/overview"
+    },
+    {
+      "id": "S11",
+      "title": "OWASP Top 10 for Agentic Applications for 2026 (OWASP Gen AI)",
+      "url": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+    },
+    {
+      "id": "S12",
+      "title": "Model Context Protocol specification",
+      "url": "https://modelcontextprotocol.io/specification/2025-11-25"
+    },
+    {
+      "id": "S13",
+      "title": "Microsoft Purview Unified Catalog (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/purview/unified-catalog"
+    },
+    {
+      "id": "S14",
+      "title": "Microsoft 365 Agents SDK overview (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/microsoft-365/agents-sdk/agents-sdk-overview"
+    },
+    {
+      "id": "S15",
+      "title": "Connect agents to Foundry IQ knowledge bases (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/foundry-iq-connect"
+    },
+    {
+      "id": "S16",
+      "title": "Azure Well-Architected Framework — AI workload documentation",
+      "url": "https://learn.microsoft.com/en-us/azure/well-architected/ai/"
+    },
+    {
+      "id": "S17",
+      "title": "WAF — Architecture pattern for AI workloads",
+      "url": "https://learn.microsoft.com/en-us/azure/well-architected/ai/architecture-pattern"
+    },
+    {
+      "id": "S18",
+      "title": "Cloud Adoption Framework — AI Ready",
+      "url": "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/ai/ready"
+    },
+    {
+      "id": "S19",
+      "title": "CAF — What is an Azure landing zone?",
+      "url": "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/ready/landing-zone/"
+    },
+    {
+      "id": "S20",
+      "title": "AAC: Basic Microsoft Foundry Chat Reference Architecture",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/architecture/basic-microsoft-foundry-chat"
+    },
+    {
+      "id": "S21",
+      "title": "AAC: Baseline Microsoft Foundry Chat Reference Architecture",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/architecture/baseline-microsoft-foundry-chat"
+    },
+    {
+      "id": "S22",
+      "title": "AAC: Baseline Foundry Chat in an Azure Landing Zone",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/architecture/baseline-microsoft-foundry-landing-zone"
+    },
+    {
+      "id": "S23",
+      "title": "AAC: Baseline Agentic AI Systems Architecture (Microsoft Community Hub)",
+      "url": "https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/baseline-agentic-ai-systems-architecture/4207137"
+    },
+    {
+      "id": "S24",
+      "title": "Foundry Citadel Platform (Azure-Samples / GitHub)",
+      "url": "https://github.com/Azure-Samples/foundry-citadel-platform"
+    },
+    {
+      "id": "S25",
+      "title": "Citadel Governance Hub / AI Hub Gateway guidance",
+      "url": "https://aka.ms/ai-hub-gateway"
+    },
+    {
+      "id": "S26",
+      "title": "Azure AI-Landing-Zones repo (Citadel spoke deployments)",
+      "url": "https://github.com/Azure/AI-Landing-Zones"
+    },
+    {
+      "id": "S27",
+      "title": "AI Gateway capabilities in Azure API Management",
+      "url": "https://learn.microsoft.com/en-us/azure/api-management/genai-gateway-capabilities"
+    },
+    {
+      "id": "S28",
+      "title": "Microsoft Foundry control plane overview",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-foundry/control-plane/overview"
+    },
+    {
+      "id": "S29",
+      "title": "Microsoft Agent Governance Toolkit (open-source)",
+      "url": "https://github.com/microsoft/agent-governance-toolkit"
+    },
+    {
+      "id": "S30",
+      "title": "Microsoft Agent 365 — control plane for agents (Microsoft)",
+      "url": "https://www.microsoft.com/en-us/microsoft-agent-365"
+    },
+    {
+      "id": "S31",
+      "title": "Microsoft Agent 365 GA — expands capabilities and integrations (Microsoft Security Blog, May 2026)",
+      "url": "https://www.microsoft.com/en-us/security/blog/2026/05/01/microsoft-agent-365-now-generally-available-expands-capabilities-and-integrations/"
+    },
+    {
+      "id": "S32",
+      "title": "Windows 365 for Agents — managed runtime (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/windows-365/agents/whats-new"
+    }
+  ],
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

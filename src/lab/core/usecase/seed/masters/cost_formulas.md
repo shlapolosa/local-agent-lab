@@ -1,0 +1,11 @@
+# Cost formulas
+
+**Artifact:** cost_formulas
+**Source:** Intake_Agent_Requirements_v2_7.docx
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Quantity | Formula |
+|---|---|
+| Monthly run cost | Sum of the reference monthly estimate of every switched-on line, at its banded position |
+| Year-1 investment | Build cost plus twelve times the monthly run cost |
+| Build cost | Vendor quote, or the budget bucket captured at intake, or an estimate from component count and novelty against historical actuals — with the provenance stated |
