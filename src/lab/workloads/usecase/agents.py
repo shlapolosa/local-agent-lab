@@ -25,7 +25,8 @@ from openai import AsyncOpenAI
 
 from lab.workloads.usecase.steps import Step, schema
 
-__all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "context_for", "instructions", "make_agent"]
+__all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "build_all", "context_for", "instructions",
+           "make_agent", "message"]
 
 #: What each step is given. A step reads what its exercise needs and nothing else — a context that
 #: carried everything would make every prompt a search problem and every wrong answer unattributable.
@@ -97,3 +98,22 @@ def message(step: Step, context: Mapping[str, Any]) -> str:
              for name, value in context.items()]
     return (f"# Step {step.number} — {step.service}\n\n" + "\n\n".join(parts)
             + "\n\nAnswer for THIS use case only, as one JSON object.")
+
+
+def build_all(steps: Sequence[Step], *, credential_for, gateway_url: str, model: str,
+              headers: Mapping[str, str] | None = None, **options) -> dict[str, Agent]:
+    """One agent per STEP, each authenticated as the SERVICE that owns it.
+
+    Nine steps, six services: steps 3 and 10 are both the Business Analyst, 4 and 5 both the
+    Business Architect, 9 and 11 both the Data Architect. They are separate agents because each has
+    its own prompt and its own schema — a single agent asked to do two exercises is asked to hold
+    two vocabularies — but they authenticate as ONE identity, because the bounded context is what
+    owns a corpus and answers for an answer.
+
+    `credential_for(service)` is the seam that makes ten identities a configuration change: today
+    it returns the same workload credential for every service, and when the per-agent Entra
+    registrations land it returns theirs. Nothing here changes.
+    """
+    return {step.key: make_agent(step, credential=credential_for(step.service),
+                                 gateway_url=gateway_url, model=model, headers=headers, **options)
+            for step in steps}

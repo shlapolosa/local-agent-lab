@@ -8,6 +8,7 @@ Two behaviours carry the weight, and neither is about the derivations (there are
   and no partial design package is produced — asserted against the named outputs a package HAS, so
   a typo in one of them cannot make the test pass.
 """
+import json
 import re
 
 import pytest
@@ -358,3 +359,114 @@ def test_a_gateway_missing_a_required_tool_refuses_before_spending_anything(modu
     with spine(W, Router({}, hidden=(missing,), full=True)) as h:
         with pytest.raises(Exception, match=re.escape(missing)):
             run_spine(W, h, {})
+
+
+# ---------------------------------------------------------------- screening with agents wired
+
+class ScriptedAgent:
+    """Answers with one canned object, whatever it is asked."""
+
+    def __init__(self, reply): self.reply, self.asked = json.dumps(reply), []
+
+    async def run(self, message):
+        self.asked.append(message)
+        return self.reply
+
+
+ANSWERS = {
+    "frame": {"problem": "Referrals wait eleven days before a clinician reads them",
+              "for_whom": "referring GPs", "expected_change": "median below two days",
+              "accountable_owner": "Dr Aisha Khan"},
+    "elements": {"active": [{"name": "triage nurse"}],
+                 "behavioural": [{"name": "assess referral"}],
+                 "passive": [{"name": "referral"}]},
+    "coverage_map": {"matched": [{"function": "assess referral", "capability_id": "c1",
+                                  "confidence": "lookup"}],
+                     "functions_without_capability": [], "capabilities_without_function": []},
+    "criticality_band": {"band": "business-critical", "provisional": True,
+                         "dominant_failure_mode": "a referral is missed and a patient deteriorates"},
+    "ontology_delta": {"concepts": [{"object": "referral", "status": "defined"}], "conflicts": []},
+    "workflow_graph": {"nodes": [{"id": "n1", "activity": "assess", "performed_by": "nurse"}],
+                       "edges": []},
+    # Scripted too, so what stops steps 6, 8 and 11 is the MISSING CORPUS rather than a missing
+    # agent — otherwise the test would pass for the wrong reason.
+    "realisation_match": {"matched": [], "unrealised": ["triage system"], "existing": False},
+    "quality_attributes": {"scenarios": [], "gap_flags": [{"what": "no service level published"}]},
+    "source_contracts": {"sources": [], "gap_flags": [{"what": "no classification published"}]},
+}
+
+
+def _screening_with_agents(**extra):
+    router = Router({StorageTools.read_document: "Referrals wait eleven days.",
+                     SemanticTools.store_spec: {"spec_ref": "art://s1/spec.json"},
+                     SemanticTools.concepts: {"concepts": [{"id": "c1", "label": "Referral"}]},
+                     SemanticTools.ontologies: {"vocabularies": ["archimate-3.1"]},
+                     ApprovalTools.ask: {"request_id": "apr-1", "review_app": "r"},
+                     **extra}, full=True)
+    return router, {k: ScriptedAgent(v) for k, v in ANSWERS.items()}
+
+
+def test_a_wired_step_runs_and_lands_in_the_screening_record():
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    screening = [c[1]["spec"] for c in h.router.calls
+                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    assert screening["frame"]["accountable_owner"] == "Dr Aisha Khan"
+    assert screening["elements"]["behavioural"][0]["name"] == "assess referral"
+    assert "3" not in screening["pending_steps"], "a step that ran is no longer pending"
+
+
+def test_the_derived_band_becomes_what_the_architect_is_asked_to_confirm():
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        out = run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    assert out["criticality_band"] == "business-critical"
+
+
+def test_a_step_whose_corpus_is_missing_is_not_run_at_all():
+    """Asked anyway, it would answer from nothing — and that answer is indistinguishable from a
+    grounded one. Steps 6, 8 and 11 read corpora this instance does not publish."""
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    screening = [c[1]["spec"] for c in h.router.calls
+                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    for number, key in (("6", "realisation_match"), ("8", "quality_attributes"),
+                        ("11", "source_contracts")):
+        assert key not in screening, f"step {number} ran without its corpus"
+        assert "needs" in screening["pending_steps"][number]
+
+
+def test_an_unavailable_corpus_is_named_in_the_record_rather_than_being_silently_absent():
+    """A reader must be able to tell "nobody has published this" from "the step found nothing"."""
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    screening = [c[1]["spec"] for c in h.router.calls
+                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    assert set(screening["corpora_unavailable"]) >= {"landscape", "service_levels",
+                                                     "source_classification"}
+
+
+def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
+    """Best effort: a deployment missing the semantic grant gets a partial record and a named
+    reason, not nothing at all."""
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents(**{SemanticTools.concepts: None})
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        out = run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    assert out["approval_id"] == "apr-1"
+    screening = [c[1]["spec"] for c in h.router.calls
+                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    assert "capabilities" in screening["corpora_unavailable"]
+    assert "coverage_map" not in screening, "step 5 must not run without its capability map"

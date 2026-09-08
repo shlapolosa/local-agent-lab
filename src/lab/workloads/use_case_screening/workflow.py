@@ -42,6 +42,24 @@ PROCESS = USE_CASE_SCREENING.name
 
 REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec, ApprovalTools.ask)
 
+#: The reference corpora the exercises read, and the tool that serves each. NOT preflighted: a
+#: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a
+#: named gap — refusing the whole run would give a deployment missing one grant nothing at all.
+CORPORA = {
+    "capabilities": (SemanticTools.concepts, {"scheme": "healthcare-provider-v2.0", "depth": 3}),
+    "ontology": (SemanticTools.ontologies, {}),
+}
+
+#: Corpora the assessment needs and this instance does not have. NAMED, because a step that reads
+#: an absent corpus answers confidently from nothing and the answer is indistinguishable from a
+#: grounded one. Section 6's own readiness phasing marks these red, so their absence is the
+#: documented state rather than a defect — but it is stated, not assumed.
+UNAVAILABLE = {
+    "landscape": "no as-is application landscape is published for this business area",
+    "service_levels": "no business service levels are published; step 8 must raise gap flags",
+    "source_classification": "no grounding source classification is published",
+}
+
 #: The steps this spine does not yet derive. Named rather than silently skipped: a screening record
 #: that simply lacked these fields would be indistinguishable from one whose agents found nothing.
 PENDING_STEPS = {
@@ -131,6 +149,34 @@ def build_workflow(cfg):
                              "submission_record_ref": gateway.ref_from(stored)}
         await ctx.send_message(state)
 
+    @executor(id="corpora")
+    async def corpora(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Fetch the reference corpora the exercises read. Best effort, and honest about the rest.
+
+        A corpus that fails to fetch is RECORDED as unavailable rather than dropped: a step given
+        an absent capability map answers confidently from nothing, and the answer is
+        indistinguishable from one grounded in a real map. What could not be read is named, and the
+        steps that needed it stay pending."""
+        with _span(cfg, "corpora"):
+            fetched: dict = {}
+            missing: dict = dict(UNAVAILABLE)
+            for name, (tool, args) in CORPORA.items():
+                try:
+                    got = await _call(cfg, tool, dict(args))
+                except Exception as exc:                     # noqa: BLE001 — a corpus is optional
+                    missing[name] = f"{type(exc).__name__}: {exc}"[:200]
+                    continue
+                # An EMPTY corpus is unavailable, not present. A step handed `None` or `{}` reads
+                # an absent capability map and answers from nothing, which is the exact failure
+                # fetching it was meant to prevent — and the tool having answered at all makes it
+                # look grounded.
+                if got:
+                    fetched[name] = got
+                else:
+                    missing[name] = "the corpus was served but is empty"
+            state = state | {"corpora": fetched, "corpora_unavailable": missing}
+        await ctx.send_message(state)
+
     @executor(id="derive")
     async def derive(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Steps 3-11 — the pre-work exercises, in order, each gated before the next sees it.
@@ -143,13 +189,20 @@ def build_workflow(cfg):
         """
         with _span(cfg, "derive"):
             available = {"submission": state["submission_record"]["prose"],
-                         **{k: v for k, v in (state.get("corpora") or {}).items()}}
+                         **(state.get("corpora") or {})}
             derived: dict = {}
             pending = dict(PENDING_STEPS)
             for step in STEPS:
                 agent = (cfg.get("agents") or {}).get(step.key)
                 if agent is None:
                     continue                       # not wired yet; it stays in pending_steps
+                needs = set(A.CONTEXT_FOR.get(step.key, ())) - set(available)
+                if needs:
+                    # An exercise whose corpus is absent is NOT run. Asked anyway, it would answer
+                    # from nothing and the answer would look exactly like a grounded one.
+                    pending[step.number] = (f"{pending.get(step.number, step.key)} — needs "
+                                            f"{sorted(needs)}")
+                    continue
                 with _span(cfg, f"step_{step.number}"):
                     out = await run_gated(
                         agent, A.message(step, A.context_for(step.key, available)),
@@ -160,6 +213,7 @@ def build_workflow(cfg):
                 pending.pop(step.number, None)
 
             screening = {"pending_steps": pending,
+                         "corpora_unavailable": dict(state.get("corpora_unavailable") or {}),
                          "submission_ref": state["submission_record_ref"], **derived}
             stored = await _call(cfg, SemanticTools.store_spec,
                                  {"spec": screening, "name": "screening.json"})
@@ -212,7 +266,7 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=receive)
-            .add_chain([receive, validate_and_persist, derive, ask_criticality]).build())
+            .add_chain([receive, validate_and_persist, corpora, derive, ask_criticality]).build())
 
 
 async def run_workflow(cfg, inputs: dict) -> dict:

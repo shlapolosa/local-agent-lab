@@ -376,3 +376,43 @@ def test_a_string_context_is_passed_through_unquoted():
     body = A.message(step_for("3"), {"submission": "Referrals wait eleven days."})
     assert "Referrals wait eleven days." in body
     assert "```json" not in body
+
+
+# ---------------------------------------------------------------- building them
+
+class _Recorded:
+    def __init__(self): self.built = []
+
+
+def test_one_agent_per_step_authenticating_as_the_service_that_owns_it(monkeypatch):
+    """Nine steps, six services. Separate agents because each holds its own prompt and schema —
+    one agent asked to do two exercises is asked to hold two vocabularies — but one identity per
+    bounded context, because that is what owns a corpus and answers for an answer."""
+    seen = []
+    monkeypatch.setattr(A, "make_agent",
+                        lambda step, **kw: seen.append((step.key, step.service, kw)) or object())
+    A.build_all(STEPS, credential_for=lambda service: f"key-for-{service}",
+                gateway_url="http://gw:4000", model="kimi-k3")
+    assert len(seen) == len(STEPS)
+    assert {s for _, s, _ in seen} == {"Business Analyst", "Business Architect",
+                                       "Application Architect", "Product Owner",
+                                       "Data Architect", "Risk Officer"}
+    by_service = {service: kw["credential"] for _, service, kw in seen}
+    assert by_service["Business Analyst"] == "key-for-Business Analyst"
+
+
+def test_the_credential_seam_is_what_makes_per_agent_identity_a_config_change(monkeypatch):
+    """`credential_for(service)` is already the parameter, so ten Entra registrations change what
+    it returns and nothing above it."""
+    seen = []
+    monkeypatch.setattr(A, "make_agent", lambda step, **kw: seen.append(kw["credential"]))
+    A.build_all(STEPS, credential_for=lambda service: "one-key-for-now",
+                gateway_url="http://gw:4000", model="kimi-k3")
+    assert set(seen) == {"one-key-for-now"}
+
+
+def test_every_agent_is_built_against_the_same_model_and_gateway():
+    built = A.build_all(STEPS, credential_for=lambda s: "k", gateway_url="http://gw:4000",
+                        model="kimi-k3")
+    assert set(built) == {s.key for s in STEPS}
+    assert all(a.name.startswith("usecase-") for a in built.values())

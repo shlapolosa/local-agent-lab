@@ -16,10 +16,12 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from lab.platform import container
+from lab.platform import config, container
 from lab.platform.contracts import USE_CASE_SCREENING
 from lab.workloads.identity import agent_headers
 from lab.workloads.run import governed_run
+from lab.workloads.usecase import agents as A
+from lab.workloads.usecase.steps import STEPS
 from lab.workloads.use_case_screening.workflow import make_cfg, run_workflow
 
 SERVICE = "process-usecase-screening"   # one distinct service name per business process
@@ -30,6 +32,16 @@ AGENT_PREFIX = "USECASE_AGENT"          # this workload's own identity at the ga
 def _cred() -> str:
     """This workload's bearer credential — an Entra JWT via MSAL, or its durable virtual key."""
     return agent_headers(AGENT_PREFIX)["Authorization"].removeprefix("Bearer ").strip()
+
+
+def _credential_for(service: str) -> str:
+    """Which identity each bounded context authenticates as.
+
+    One credential today, and this function is the reason that is a configuration fact rather than
+    a structural one: when the six services get their own Entra registrations, only this returns
+    something different. `service` is already the parameter, so nothing above it changes.
+    """
+    return _cred()
 
 
 def run_fields(out: dict) -> dict:
@@ -58,9 +70,16 @@ async def run_once(root, submission: str = "", submitter: str = "", *, handle: s
                "usecase.attachments": len(attachments or ()),
                "usecase.intake_groups": len(intake or {}),
                "usecase.from_handle": bool(handle)},
-        cfg=lambda c: make_cfg(credential=_cred(), traceparent=c.traceparent_header,
-                               tracer=c.tracer, root_ctx=c.root_ctx, mcp_url=c.mcp_url,
-                               run_id=c.run_id),
+        cfg=lambda c: make_cfg(
+            credential=_cred(), traceparent=c.traceparent_header, tracer=c.tracer,
+            root_ctx=c.root_ctx, mcp_url=c.mcp_url, run_id=c.run_id,
+            # The agents are built HERE, in the composition root, because building one reads
+            # configuration — the model, the gateway address, the credential — and the graph below
+            # is deliberately unable to.
+            agents=A.build_all(STEPS, credential_for=_credential_for,
+                               gateway_url=config.GATEWAY_URL,
+                               model=config.USECASE_AGENT_MODEL,
+                               headers=c.traceparent)),
         run=run_workflow,
         inputs={"submission": submission, "submission_handle": handle, "submitter": submitter,
                 "attachments": list(attachments or ()), "intake": dict(intake or {}),
