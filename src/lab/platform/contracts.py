@@ -121,6 +121,22 @@ class DecisionTools(ToolCatalogue):
     composition = "decision_composition"      # step 22 — topology, families, enforcement points
 
 
+class ValuationTools(ToolCatalogue):
+    """valuation-mcp — the two CAFÉ derivations that are FINANCIAL, as governed tools.
+
+    A separate server from `decision_mcp` for the reason the framework splits them: the artifacts
+    behind them have a different OWNER and a different release cadence. The price sheet, the role
+    rate registry and the delegation-of-authority thresholds are finance's, and re-releasing them
+    must not mean redeploying the service that holds architecture governance's guardrail set.
+
+    Read-only, like the derivations next door — nothing here writes, so there is no READ/WRITE
+    split to make.
+    """
+    SERVER = "valuation_mcp"
+    cost = "valuation_cost"                   # step 23 — the cost model over the reference sheet
+    benefit = "valuation_benefit"             # step 24 — the drivers, the summary, the verdict
+
+
 class SemanticTools(ToolCatalogue):
     """semantic-mcp — vocabularies as data, legality, SPARQL, reference models; `store_spec` persists any JSON by ref."""
     SERVER = "semantic_mcp"
@@ -1193,12 +1209,13 @@ PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEE
 SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
                                                                  WorkflowTools, CollabTools,
                                                                  SpeechTools, ReferenceTools,
-                                                                 DecisionTools)}
+                                                                 DecisionTools,
+                                                                 ValuationTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools", "DecisionTools",
+           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools", "DecisionTools", "ValuationTools",
            "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",

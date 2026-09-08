@@ -109,6 +109,11 @@ services:
       <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
       REFERENCE_MCP_URL: ${REFERENCE_MCP_URL:-http://reference-mcp:9700/mcp}
 
+  valuation-mcp:              # cost and benefit (gateway alias valuation_mcp) — internal only.
+    <<: *sub                  # Split from decision-mcp by artifact OWNER, not by size: finance
+    command: ["python", "-m", "lab.substrate.mcp.valuation.server"]   # releases the price sheet and
+                              # the rate cards, and must not need architecture governance's redeploy.
+
   usecase-notifier:           # tells a submitter what became of their use case — but only after an
     <<: *sub                  # architect has decided. Redis + one webhook: it announces an outcome
     command: ["python", "-m", "lab.substrate.usecase_notifier"]   # and a link, never the reasoning.

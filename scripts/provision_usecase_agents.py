@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lab.platform.contracts import (ApprovalTools, DecisionTools, ReferenceTools,  # noqa: E402
                                     SemanticTools, StorageTools, USE_CASE_SCREENING,
-                                    WorkflowTools)
+                                    ValuationTools, WorkflowTools)
 
 
 def _helpers():
@@ -56,6 +56,10 @@ INTAKE_TOOLS = {
     # The deterministic derivations. Read-only, and the whole catalogue: a run that could compute
     # its exposure but not its obligations would produce a design package with a hole in it.
     DecisionTools.SERVER: sorted(DecisionTools.names()),
+    # Steps 23 and 24 run in the design half, so the intake identity holds the financial
+    # derivations too — whole, for the same reason: a run that could cost a design but not value it
+    # would produce a business case with only one side of the comparison in it.
+    ValuationTools.SERVER: sorted(ValuationTools.names()),
     # The governed corpus, READ side only. `consumers` is the reverse index and spans runs — an
     # audit question, not a derivation one, so it is deliberately absent here.
     ReferenceTools.SERVER: list(ReferenceTools.READ),

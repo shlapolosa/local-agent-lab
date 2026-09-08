@@ -23,6 +23,7 @@ GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the CO
 SPEECH_MCP_URL   = _e("SPEECH_MCP_URL", "http://127.0.0.1:9600/mcp")    # the SPEECH port (alias speech_mcp)
 REFERENCE_MCP_URL = _e("REFERENCE_MCP_URL", "http://127.0.0.1:9700/mcp")  # the governed CORPUS (alias reference_mcp)
 DECISION_MCP_URL = _e("DECISION_MCP_URL", "http://127.0.0.1:9800/mcp")    # the CAFÉ derivations (alias decision_mcp)
+VALUATION_MCP_URL = _e("VALUATION_MCP_URL", "http://127.0.0.1:9900/mcp")  # cost and benefit (alias valuation_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
 TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Telegram approval channel (plumbing;
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
@@ -61,6 +62,7 @@ GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
 REFERENCE_MCP_PORT = int(_e("REFERENCE_MCP_PORT", "9700"))
 DECISION_MCP_PORT = int(_e("DECISION_MCP_PORT", "9800"))
+VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
 
 # --- the governed reference corpus (signed, versioned artifacts read under a pin) ---
 # The server runs as a READER role: DR-03 says no instance writes to a shared store under any

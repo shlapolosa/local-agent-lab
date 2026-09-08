@@ -24,6 +24,7 @@ from lab.platform.contracts import (
     CollabTools,
     DecisionTools,
     Continuation,
+    ValuationTools,
     SemanticTools,
     StorageTools,
     WorkflowTools,
@@ -486,6 +487,14 @@ DESIGN_ANSWERS = {
                                  "effect": "record write"}]},
     "build_surface": {"incumbent_considered": True, "surface": "Foundry hosted agent",
                       "topology": "T2", "unenforceable_obligations": []},
+    "cost_inputs": {"resources": ["Container Apps"],
+                    "switched_on_by": {"Container Apps": "F2"},
+                    "envelope": "expected", "unpriceable": []},
+    "benefit_inputs": {"effort": [{"role": "nurse", "headcount": 4, "frequency_per_week": 20,
+                                   "current_minutes": 30, "expected_minutes": 10,
+                                   "source": "the submission, paragraph 2"}],
+                       "sensitivity_flags": [], "data_fully_digital": True,
+                       "excluded_value": [], "unsupplied": []},
     "component_selection": {"selected": [{"capability": "inference", "component": "Foundry",
                                           "rejected_alternatives": ["self-hosted"]}],
                             "tradeoffs": [], "unresolved": []},
@@ -497,7 +506,8 @@ def _design_chain_router(**extra):
     # the gate needs would leave it pending and make the chain test quieter than it looks.
     return Router({SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
                    StorageTools.read_artifact: dict(READY) | {
-                       "quality_attributes": {"attributes": [{"name": "latency"}]}},
+                       "quality_attributes": {"attributes": [{"name": "latency"}]},
+                       "frame": {"problem": "referral triage takes too long"}},
                    DecisionTools.readiness: {"verdict": "pass", "failed": [], "conditions": {}},
                    DecisionTools.feasibility: {"verdict": "proceed", "rule": "r", "halts": False},
                    DecisionTools.exposure: {"steps": {"n1": {"exposure": 0, "influence": 1}},
@@ -509,6 +519,20 @@ def _design_chain_router(**extra):
                                                "enforcement": {}, "unbound": [], "variants": {},
                                                "modifiers": {}, "connectors": [],
                                                "rules_source": {"kind": "local seed"}},
+                   ValuationTools.cost: {"lines": [{"service": "Container Apps"}],
+                                         "monthly": {"low": 100, "expected": 250, "high": 400},
+                                         "year_one": {"low": 1200, "expected": 3000, "high": 4800},
+                                         "gap_flags": [], "build": None,
+                                         "requires_input": ["build cost: none captured"],
+                                         "sheet_version": "v0.25", "caveat": "illustrative"},
+                   ValuationTools.benefit: {
+                       "drivers": [], "summary": {"annual_benefit": 90000.0,
+                                                  "year_one_investment": 3000.0,
+                                                  "payback_months": 0.4, "three_year_roi": 89.0,
+                                                  "requires_input": []},
+                       "recommendation": {"verdict": "proceed with conditions",
+                                          "rationale": "figures are still open",
+                                          "gate_conditions": ["build cost: none captured"]}},
                    ApprovalTools.ask: {"request_id": "apr-2", "review_app": "r"},
                    **extra}, full=True)
 
@@ -637,3 +661,71 @@ def test_a_readiness_return_still_carries_the_assertions_it_declared():
     assert out["verdict"] == "not ready"
     assert [c for c in h.router.calls if c[0].startswith("decision_")][0][0] == \
         DecisionTools.readiness
+
+
+# ---------------------------------------------------------------- the valuation half, 23 and 24
+
+def test_the_cost_is_priced_from_what_step_23_selected_and_not_from_the_composition():
+    """The composition names families; only the cost engineer maps them to lines of a price sheet,
+    spelled as the sheet spells them. Costing the families directly would be a second mapping
+    living in the orchestrator."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.cost][0]
+    assert sent["resources"] == ["Container Apps"]
+
+
+def test_the_benefit_is_computed_against_the_cost_it_has_to_repay():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.benefit][0]
+    assert sent["monthly_run_cost"] == 250
+    assert sent["build_cost"] == 0.0
+
+
+def test_the_recommendation_is_step_24s_verdict_and_never_a_default():
+    """An unearned "proceed with conditions" is still a proceed to whoever reads the summary."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        out = run_spine(W, h, _design_inputs())
+    assert out["recommendation"] == "proceed with conditions"
+    assert out["business_case_ref"] and out["cost_ref"]
+
+
+def test_without_a_cost_the_benefit_is_not_computed_and_the_case_says_so():
+    """A benefit judged against no investment repays trivially. That is not a business case."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h, cost_inputs=None)
+        out = run_spine(W, h, _design_inputs())
+    called = [c[0] for c in h.router.calls]
+    assert ValuationTools.cost not in called and ValuationTools.benefit not in called
+    assert out["recommendation"] == "" and out["business_case_ref"] == "" and out["cost_ref"] == ""
+    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    assert "23" in package["pending_steps"] and "24" in package["pending_steps"]
+
+
+def test_everything_still_open_on_either_side_reaches_the_verdict_as_a_condition():
+    """A recommendation that did not carry them would read as settled."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h, benefit_inputs={
+            "effort": [], "sensitivity_flags": [], "data_fully_digital": True,
+            "excluded_value": [], "unsupplied": ["nobody gave a headcount for the nursing team"]})
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.benefit][0]
+    assert "build cost: none captured" in sent["open_conditions"]
+    assert "nobody gave a headcount for the nursing team" in sent["open_conditions"]
+
+
+def test_the_value_analyst_is_never_shown_the_cost_it_has_to_clear():
+    """A benefit sized to clear a known investment is not evidence. The dependency runs one way,
+    and it runs after step 24's figures are already fixed."""
+    from lab.workloads.usecase import agents as A
+    assert "cost" not in A.CONTEXT_FOR["benefit_inputs"]
+    assert "cost_inputs" not in A.CONTEXT_FOR["benefit_inputs"]

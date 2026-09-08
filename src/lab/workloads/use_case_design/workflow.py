@@ -33,6 +33,7 @@ from lab.platform.contracts import (
     DecisionTools,
     SemanticTools,
     StorageTools,
+    ValuationTools,
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import agents as A
@@ -45,7 +46,8 @@ PROCESS = USE_CASE_DESIGN.name
 REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, ApprovalTools.ask,
                   DecisionTools.readiness, DecisionTools.feasibility,
                   DecisionTools.exposure, DecisionTools.obligations,
-                  DecisionTools.composition)
+                  DecisionTools.composition,
+                  ValuationTools.cost, ValuationTools.benefit)
 
 #: The reference corpora the design exercises read. Same contract as the screening side:
 #: best effort, and a step whose corpus is absent is not run.
@@ -54,6 +56,7 @@ CORPORA = {
     "facet_schema": ("facet_schema", "facets"),
     "surface_enforceability": ("surface_enforceability", "matrix"),
     "ai_capability_map": ("ai_capability_map", "capabilities"),
+    "price_sheet": ("price_sheet", "lines"),
 }
 
 #: Everything steps 17-25 would produce. Named here because "no partial design package" is only
@@ -70,9 +73,7 @@ GATE_EVIDENCE = {
     "D": ("criticality",),                        # criticality class: the human's confirmed answer
 }
 
-PENDING_STEPS = {
-    "23": "estimate cost", "24": "build business case", "25": "generate delivery artifacts",
-}
+PENDING_STEPS = {"25": "generate delivery artifacts"}
 
 CONFORMANCE_PROMPT = (
     "Approve or return this design on CONFORMANCE: is the architecture sound, and is every "
@@ -181,6 +182,51 @@ def _workflow_payload(state: dict, derived: dict) -> dict:
              if str(v.get("id", "")).strip()]
     return {"steps": steps,
             "criticality": (state.get("criticality") or {}).get("criticality_class", "routine")}
+
+
+async def _valuation(cfg, derived: dict, pending: dict, state: dict) -> None:
+    """Steps 23 and 24 through the governed service.
+
+    Each half runs only if its agent produced inputs, and a missing half is left PENDING rather
+    than costed at zero — a Year-1 investment with no build line and a benefit with no drivers are
+    both perfectly plausible numbers and both completely wrong. The benefit call is given the cost
+    it must repay, which is the one direction the dependency may run: the figures were already
+    fixed by the step that could not see them.
+    """
+    inputs = derived.get("cost_inputs")
+    if inputs:
+        derived["cost"] = await _call(cfg, ValuationTools.cost, {
+            "resources": list(inputs.get("resources") or ()),
+            "envelope": inputs.get("envelope") or "expected",
+            "build_amount": float(inputs.get("build_amount") or 0.0),
+            "build_provenance": inputs.get("build_provenance") or "",
+            "design_version": state.get("design_ref", "")})
+        pending.pop("23", None)
+    else:
+        pending["23"] = "estimate cost — needs the resources the design switched on, from step 23"
+
+    evidence = derived.get("benefit_inputs")
+    if evidence is None or "cost" not in derived:
+        pending["24"] = ("build the business case — needs the benefit evidence from step 24 and "
+                         "the cost it has to repay from step 23")
+        return
+    cost_model = derived["cost"]
+    derived["benefit"] = await _call(cfg, ValuationTools.benefit, {
+        "effort": list(evidence.get("effort") or ()),
+        "role_rates": dict(state.get("role_rates") or {}),
+        "quality_baseline": dict(evidence.get("quality_baseline") or {}),
+        "error_costs": dict(state.get("error_costs") or {}),
+        "sensitivity_flags": list(evidence.get("sensitivity_flags") or ()),
+        "cited_avoided_cost": evidence.get("cited_avoided_cost"),
+        "citation": evidence.get("citation") or "",
+        "data_fully_digital": bool(evidence.get("data_fully_digital", True)),
+        "build_cost": float((cost_model.get("build") or {}).get("amount") or 0.0),
+        "monthly_run_cost": float((cost_model.get("monthly") or {}).get("expected") or 0.0),
+        # Everything still open on either side reaches the verdict as a gate condition. A
+        # recommendation that did not carry them would read as settled.
+        "open_conditions": (list(cost_model.get("requires_input") or ())
+                            + list(evidence.get("unsupplied") or ()))})
+    pending.pop("24", None)
 
 
 def build_workflow(cfg):
@@ -294,9 +340,18 @@ def build_workflow(cfg):
                     "conditions": dict(state.get("conditions") or {}),
                     "obligations_required": list((derived.get("obligations") or {})
                                                  .get("guardrails") or ())})
+                available["composition"] = derived["composition"]
                 pending.pop("22", None)
             else:
                 pending["22"] = "compose architecture — needs a topology from step 20"
+
+            # 23 and 24 — cost, then value. The agents choose WHAT is costed and WHAT evidences
+            # the benefit; the arithmetic is `valuation-mcp`'s, against a versioned price sheet.
+            # The order is not cosmetic: a benefit sized after seeing the investment it has to
+            # clear is not evidence, so step 24 reads the submission and never the cost.
+            await _agent_step(cfg, "23", available, derived, pending)
+            await _agent_step(cfg, "24", available, derived, pending)
+            await _valuation(cfg, derived, pending, state)
 
             package = {"pending_steps": pending,
                        "submission_ref": state["submission_ref"],
@@ -305,8 +360,13 @@ def build_workflow(cfg):
                        **derived}
             stored = await _call(cfg, SemanticTools.store_spec,
                                  {"spec": package, "name": "design.package.json"})
+            # The recommendation is step 24's verdict where there is one. While the valuation is
+            # pending it says so, rather than defaulting to the answer that sounds safest — an
+            # unearned "proceed with conditions" is still a proceed to whoever reads the summary.
+            recommendation = ((derived.get("benefit") or {}).get("recommendation") or {})
             state = state | {"design": package, "design_ref": gateway.ref_from(stored),
-                             "recommendation": "proceed with conditions"}
+                             "recommendation": recommendation.get("verdict", ""),
+                             "recommendation_rationale": recommendation.get("rationale", "")}
         await ctx.send_message(state)
 
     @executor(id="route")
@@ -373,15 +433,21 @@ async def _conformance(cfg, state: dict) -> dict:
     return {"approval_id": asked["request_id"], "review_app": asked.get("review_app", ""),
             "verdict": "proceed", "halted": False,
             "architecture_ref": state["design_ref"],
-            "business_case_ref": state["design_ref"],
             "risk_ref": state["design_ref"] if (state.get("design") or {}).get("risk") else "",
             "obligations_ref": (state["design_ref"]
                                 if (state.get("design") or {}).get("obligations") else ""),
             "recommendation": state.get("recommendation", ""),
+            "cost_ref": state["design_ref"] if (state.get("design") or {}).get("cost") else "",
+            # Both refs point at the one package, but they are named separately and each is empty
+            # until its own step ran. A business_case_ref that is always set means the investment
+            # board is handed a link to a case that has no benefit side in it.
+            "business_case_ref": (state["design_ref"]
+                                  if (state.get("design") or {}).get("benefit") else ""),
             "governance_tier": state.get("governance_tier", ""),
             "readiness": state.get("readiness", ""),
             "summary": {"verdict": "proceed", "design_attempted": True,
-                        "pending_steps": len(PENDING_STEPS)}}
+                        "pending_steps": len((state.get("design") or {}).get("pending_steps")
+                                             or ())}}
 
 
 async def run_workflow(cfg, inputs: dict) -> dict:

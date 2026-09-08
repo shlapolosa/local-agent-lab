@@ -290,6 +290,53 @@ def _component_selection(out: dict) -> list[str]:
 # ---------------------------------------------------------------- the registry
 
 #: Steps 3-11 — the pre-work exercises, run by the SCREENING process before the criticality gate.
+def _cost_inputs(out: dict) -> list[str]:
+    """Sub-steps 23.1-23.2 and 23.5. The arithmetic is the service's; what is checked here is that
+    the selection is auditable and that a build cost never arrives without its provenance."""
+    bad = []
+    resources = out.get("resources") or []
+    switched = out.get("switched_on_by") or {}
+    if not resources and not (out.get("unpriceable") or []):
+        bad.append("no resource was selected and none was flagged unpriceable — a composed design "
+                   "switches something on, and a cost of nothing is not an answer")
+    unexplained = [r for r in resources if not str(switched.get(r, "")).strip()]
+    if unexplained:
+        bad.append(f"{unexplained} name no family or component that switched them on — a bill "
+                   f"nobody can audit is a bill nobody should approve")
+    if out.get("build_amount") and not out.get("build_provenance"):
+        bad.append("a build cost was given with no provenance — an approver reads a vendor quote "
+                   "as a number somebody will be held to, and an estimate is not one")
+    if out.get("build_provenance") and not out.get("build_amount"):
+        bad.append("a build provenance was given with no amount — the provenance describes a "
+                   "figure, and there is none")
+    return bad[:5]
+
+
+def _benefit_inputs(out: dict) -> list[str]:
+    """Sub-steps 24.1-24.4. The one rule worth the gate: an absent driver is DECLARED, never
+    silently omitted and never filled with a default that looks like evidence."""
+    bad = []
+    for row in out.get("effort") or []:
+        if not str(row.get("source", "")).strip():
+            bad.append(f'the effort figures for {row.get("role")!r} carry no source — a headcount '
+                       f'somebody will act on and nobody can check')
+        if _number(row.get("expected_minutes")) > _number(row.get("current_minutes")):
+            bad.append(f'{row.get("role")!r} is expected to take LONGER after the change, which is '
+                       f'a cost and not a benefit; state it as such or correct the figures')
+    baseline = out.get("quality_baseline") or {}
+    if baseline and not str(baseline.get("source", "")).strip():
+        bad.append("the quality baseline carries no source")
+    if not (out.get("effort") or []) and not baseline and not (out.get("unsupplied") or []):
+        bad.append("no driver has inputs and nothing is declared unsupplied — a case with no "
+                   "evidence either way is not the same as a case worth nothing, and only one of "
+                   "them should reach a funding decision")
+    return bad[:5]
+
+
+def _number(value) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
 SCREENING_STEPS: tuple[Step, ...] = (
     Step("3", "frame", "Business Analyst", _frame),
     Step("4", "elements", "Business Architect", _elements),
@@ -311,6 +358,8 @@ DESIGN_STEPS: tuple[Step, ...] = (
     Step("17", "facet_vectors", "Risk Officer", _facet_vectors),
     Step("20", "build_surface", "Technology Architect", _build_surface),
     Step("21", "component_selection", "Solution Architect", _component_selection),
+    Step("23", "cost_inputs", "Cost Engineer", _cost_inputs),
+    Step("24", "benefit_inputs", "Value Analyst", _benefit_inputs),
 )
 
 STEPS: tuple[Step, ...] = SCREENING_STEPS + DESIGN_STEPS

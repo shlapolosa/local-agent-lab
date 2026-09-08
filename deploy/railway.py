@@ -138,6 +138,9 @@ SUBSTRATE = {
     # Pure derivation over facet vectors: no store, no bucket, no database of its own. It
     # reads the governed rules through the GATEWAY like any other caller.
     "decision-mcp": {"cmd": "python -m lab.substrate.mcp.decision.server", "port": None},
+    # The FINANCIAL derivations, split from decision-mcp by artifact OWNER: finance releases the
+    # price sheet and the rate cards, and must not need architecture governance's redeploy.
+    "valuation-mcp": {"cmd": "python -m lab.substrate.mcp.valuation.server", "port": None},
     # What makes FR-12 structural: the architect's decision is the EVENT that releases the
     # submitter's message, so there is no code path where the submitter hears first.
     "usecase-notifier": {"cmd": "python -m lab.substrate.usecase_notifier", "port": None},
@@ -225,7 +228,7 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
         "GRAPH_MCP_URL", "SPEECH_MCP_URL",         # ... incl. the collab_mcp and speech_mcp aliases' services
-        "REFERENCE_MCP_URL", "DECISION_MCP_URL",   # ... the governed corpus and the derivations
+        "REFERENCE_MCP_URL", "DECISION_MCP_URL", "VALUATION_MCP_URL",   # ... the governed corpus and the derivations
         "WORKFLOW_API_URL",                        # the front door's REST ingress, which the gateway
                                                    # pass-through forwards to. Authorised HERE, not there:
                                                    # the pass-through replaces the caller's Authorization,
@@ -284,6 +287,11 @@ ROLE_ENV = {
         "JAEGER_UI_URL",                           # the link it puts in the message
         _OTLP,
     ],
+    "valuation-mcp": [                             # src/lab/substrate/mcp/valuation/*.py + lab.core.usecase — pure arithmetic
+        "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "VALUATION_MCP_PORT",                      # which port it serves
+        _OTLP,                                     # NO store, NO database, NO model credential: it
+    ],                                             # prices a list of names against a packaged sheet
     "decision-mcp": [                              # src/lab/substrate/mcp/decision/*.py + lab.core.usecase — pure derivation
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "DECISION_MCP_PORT",                       # which port it serves
@@ -649,6 +657,7 @@ def substrate_env(name, spec, base_env) -> dict:
     env["SPEECH_MCP_URL"] = "http://speech-mcp.railway.internal:9600/mcp"
     env["REFERENCE_MCP_URL"] = "http://reference-mcp.railway.internal:9700/mcp"
     env["DECISION_MCP_URL"] = "http://decision-mcp.railway.internal:9800/mcp"
+    env["VALUATION_MCP_URL"] = "http://valuation-mcp.railway.internal:9900/mcp"
     env["WORKFLOW_API_URL"] = "http://workflow-frontdoor.railway.internal:9400/api"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"

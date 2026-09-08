@@ -149,6 +149,14 @@ mcp_servers:                          # addresses + trust come from the environm
     description: CAFÉ derivations — the deterministic assessments of an AI use case, over step facet vectors rather than judgement. decision_readiness rules on the four M0 gates; decision_feasibility applies the published verdict rule and says whether the run must halt; decision_exposure derives how bad a step is when it works and when it is WRONG (an advisory step can carry the highest influence in the workflow); decision_obligations evaluates every guardrail predicate and the commit invariant into a control requirement set; decision_composition derives the component families the steps call for, and names any obligation that resolves to no enforcement point. Pass a pin_id from reference_pin to derive against the governed corpus — every answer says which rules it used
     extra_headers: ["traceparent", "tracestate"]
 
+  valuation_mcp:                      # the CAFÉ derivations that are FINANCIAL. A SEPARATE server
+    url: os.environ/VALUATION_MCP_URL # from decision_mcp because the artifacts behind it have a
+    transport: http                   # different owner and cadence: finance releases the price
+    auth_type: bearer_token           # sheet and the rate cards, architecture governance releases
+    authentication_token: os.environ/MCP_SHARED_SECRET   # the guardrails. Neither release may
+    description: CAFÉ valuation — the financial derivations for an AI use case. valuation_cost prices the reference-topology tiles a composed design switched on against the reference price sheet, carrying a low/expected/high range rather than collapsing it, raising a GAP FLAG for any resource with no price line rather than substituting a proxy, and naming the sheet version it costed against. valuation_benefit computes exactly the three admitted drivers (operational efficiency, quality and accuracy, compliance and risk reduction), the Year-1 investment, payback and three-year ROI, and the proceed / proceed-with-conditions / defer recommendation. A driver whose inputs nobody supplied comes back requires_input, which is not zero — and while one is open, proceed is unavailable and the case is not deferred on it either
+    extra_headers: ["traceparent", "tracestate"]   # require the other's redeploy.
+
 router_settings:                      # Redis: shared state for rate limits, budgets, router
   redis_host: os.environ/REDIS_HOST   # Redis Cloud (or local brew redis — see .env)
   redis_port: os.environ/REDIS_PORT

@@ -49,6 +49,11 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     "build_surface": ("obligations", "realisation_match", "surface_enforceability"),
     "component_selection": ("obligations", "quality_attributes", "realisation_match",
                             "ai_capability_map", "build_surface"),
+    # The valuation half. The cost engineer reads the COMPOSED design and the sheet it must spell
+    # its services from; the value analyst reads the submission the figures have to come from and
+    # never the cost, because a benefit sized to clear a known investment is not evidence.
+    "cost_inputs": ("composition", "build_surface", "component_selection", "price_sheet"),
+    "benefit_inputs": ("frame", "workflow_graph", "quality_attributes", "criticality"),
 }
 
 #: CR-19, as data rather than a convention. Step 12 confirms the criticality class and must never
