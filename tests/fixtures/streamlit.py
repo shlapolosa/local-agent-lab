@@ -73,6 +73,12 @@ class FakeSt:
             return self.answers.get(label, opts[k.get("index", 0)] if opts else None)
         if leaf == "file_uploader":
             return self.answers.get(k.get("key", label))
+        if leaf == "data_editor":
+            # The editor RETURNS what it was handed unless a test supplies edited rows, which is
+            # what the real one does when nobody types anything.
+            return self.answers.get(k.get("key", label), a[0] if a else [])
+        if leaf == "column_config":
+            return _Rec(self, path)
         if leaf == "columns":
             n = len(a[0]) if isinstance(a[0], (list, tuple)) else a[0]
             return [_Rec(self, f"{path}[{i}]") for i in range(n)]

@@ -13,6 +13,7 @@ import sys
 from lab.platform import config, container
 from lab.platform.contracts import USE_CASE_DESIGN
 from lab.workloads.identity import agent_headers
+from lab.workloads.usecase import identity as ids
 from lab.workloads.run import governed_run
 from lab.workloads.usecase import agents as A
 from lab.workloads.usecase.steps import DESIGN_STEPS
@@ -29,9 +30,12 @@ def _cred() -> str:
 
 
 def _credential_for(service: str) -> str:
-    """Which identity each bounded context authenticates as — one today, and this is the seam that
-    makes per-service registrations a configuration change. See the screening host."""
-    return _cred()
+    """Which identity each bounded context authenticates as.
+
+    Its own Entra registration where one has been provisioned, and the workload's shared credential
+    where one has not — so ten registrations are an operator action rather than a prerequisite, and
+    a run never fails because an identity somebody intended to create does not exist yet."""
+    return ids.credential_for(service, fallback=_cred())
 
 
 def run_fields(out: dict) -> dict:

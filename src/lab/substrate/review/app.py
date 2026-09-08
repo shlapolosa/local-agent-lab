@@ -45,54 +45,150 @@ NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
 DIAGRAM_TYPES = ["vsdx", "png", "jpg", "jpeg", "gif", "webp"]
 REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
 
+#: Which file types each REF field accepts, by (process, field). A hint only — the CONTRACT is
+#: `ProcessSpec.validate`, and a field with no entry accepts anything the store will hold. It lives
+#: here rather than in the contract because "what a file picker offers" is a presentation choice,
+#: and putting it in the contract would make an upload surface able to narrow what a process means.
+UPLOAD_TYPES = {
+    ("visio_to_archimate", "diagram"): DIAGRAM_TYPES,
+    ("visio_to_archimate", "requirements"): REQUIREMENT_TYPES,
+    ("use_case_screening", "submission"): REQUIREMENT_TYPES,
+    ("use_case_screening", "attachments"): REQUIREMENT_TYPES + DIAGRAM_TYPES,
+}
+
+#: Suggested rows for a MAPPING field, so a person filling one in is not staring at an empty
+#: key/value grid. Suggestions ONLY: every row is editable and rows can be added, because a
+#: submission that does not fit the suggested shape must still be possible to make.
+MAPPING_ROWS = {
+    ("use_case_screening", "intake"): "intake_fields",
+}
+
+
+def _mapping_labels(process: str, field: str) -> list[str]:
+    """The field groups a governed artifact publishes for this mapping, or none.
+
+    Read from the seed rather than retyped: these are the same field groups the valuation steps
+    consume, and two copies would drift the moment one of them was corrected."""
+    artifact = MAPPING_ROWS.get((process, field))
+    if not artifact:
+        return []
+    try:
+        from lab.core.usecase import seed
+        groups = seed.artifact(artifact)["field_groups"]
+        return [row[0] for row in groups["rows"] if row and row[0]]
+    except Exception:                      # a missing or renamed artifact is a suggestion missing,
+        return []                          # never a submission refused
+
+
+def _mapping_editor(process: str, field, key: str) -> dict:
+    """A small label -> value grid. `MAPPING` is a human's answer, not a payload — the contract
+    bounds it, and this offers the shape rather than enforcing it."""
+    rows = st.session_state.setdefault(key, [{"label": name, "value": ""}
+                                             for name in _mapping_labels(process, field.name)]
+                                            or [{"label": "", "value": ""}])
+    edited = st.data_editor(rows, key=f"{key}_ed", num_rows="dynamic", use_container_width=True,
+                            column_config={"label": st.column_config.TextColumn("Field"),
+                                           "value": st.column_config.TextColumn("Value")})
+    return {r["label"].strip(): r["value"].strip() for r in edited
+            if str(r.get("label", "")).strip() and str(r.get("value", "")).strip()}
+
+
+def _field_widget(spec, field, refs: dict) -> object:
+    """One input field, rendered from its KIND. Adding a process adds no code here.
+
+    REF and REF_LIST are the exception and deliberately so: content reaches a workload only as a
+    reference, so the widget uploads first and the run is given what the store returned."""
+    kinds = contracts.InputKind
+    types = UPLOAD_TYPES.get((spec.name, field.name))
+    label = f'{field.name}{"" if field.required else " (optional)"}'
+    if field.kind is kinds.REF:
+        return st.file_uploader(label, type=types, key=f"up_{spec.name}_{field.name}",
+                                help=field.description)
+    if field.kind is kinds.REF_LIST:
+        return st.file_uploader(label, type=types, accept_multiple_files=True,
+                                key=f"up_{spec.name}_{field.name}", help=field.description)
+    if field.kind is kinds.MAPPING:
+        st.caption(f"**{label}** — {field.description}")
+        return _mapping_editor(spec.name, field, f"map_{spec.name}_{field.name}")
+    return st.text_input(label, key=f"in_{spec.name}_{field.name}", help=field.description)
+
 
 # ============================================================================ Submit mode
 def _submit_page(reviewer):
-    st.title("Submit a diagram for conversion")
-    st.caption("Upload a system diagram and its requirements. Files are stored by reference; the "
-               "workflow reads them through the governed gateway. Nothing runs until you press Run.")
-    refs = st.session_state.setdefault("submit_refs", {"diagram": None, "requirements": []})
+    """Start a run of any process an outside caller may start.
 
-    c1, c2 = st.columns(2)
-    diagram = c1.file_uploader("System diagram (.vsdx or image)", type=DIAGRAM_TYPES, key="up_diagram")
-    reqs = c2.file_uploader("Requirements documents", type=REQUIREMENT_TYPES,
-                            accept_multiple_files=True, key="up_reqs")
-    if st.button("⬆️ Upload", disabled=not diagram) and diagram is not None:
+    Rendered from `ProcessSpec` rather than written per process: `verbs_for` already decides which
+    processes have an entry point at all, so a continuation cannot be started from here for the
+    same reason it cannot be started through the gateway — the surface is generated from the same
+    contract, not guarded by a second rule that could disagree with the first."""
+    startable = [s for s in contracts.PROCESSES.values() if s.external]
+    st.title("Submit work to a business process")
+    st.caption("Files are stored by reference; the workflow reads them through the governed "
+               "gateway. Nothing runs until you press Run.")
+
+    names = [s.name for s in startable]
+    chosen = st.selectbox("Process", names, format_func=lambda n: contracts.PROCESSES[n].title)
+    spec = contracts.PROCESSES[chosen]
+    st.caption(spec.description)
+
+    refs = st.session_state.setdefault(f"submit_refs_{spec.name}", {})
+    widgets = {f.name: _field_widget(spec, f, refs) for f in spec.inputs}
+
+    file_fields = [f for f in spec.inputs
+                   if f.kind in (contracts.InputKind.REF, contracts.InputKind.REF_LIST)]
+    required_files = [f.name for f in file_fields if f.required]
+    have_required = all(widgets.get(n) is not None and widgets.get(n) != [] for n in required_files)
+
+    if file_fields and st.button("⬆️ Upload", disabled=not have_required):
         store = container.uploads()
-        # keep the original filename: the workflow decides vsdx/image/document from its suffix
-        refs["diagram"] = store.put(diagram.name, diagram.getvalue(), content_type_for(diagram.name))
-        refs["requirements"] = [store.put(f.name, f.getvalue(), content_type_for(f.name))
-                                for f in (reqs or [])]
-        st.session_state["submit_rid"] = None
+        for field in file_fields:
+            value = widgets.get(field.name)
+            # The original filename is KEPT: several workloads decide how to read an input from
+            # its suffix, and a store-assigned name would take that decision away from them.
+            if field.kind is contracts.InputKind.REF and value is not None:
+                refs[field.name] = store.put(value.name, value.getvalue(),
+                                             content_type_for(value.name))
+            elif field.kind is contracts.InputKind.REF_LIST:
+                refs[field.name] = [store.put(f.name, f.getvalue(), content_type_for(f.name))
+                                    for f in (value or [])]
+        st.session_state[f"submit_rid_{spec.name}"] = None
         st.success("Stored. Review the references below, then press Run.")
 
-    if refs["diagram"]:
-        st.write("**Diagram**", f'`{refs["diagram"]}`')
-        for r in refs["requirements"]:
-            st.write("**Requirements**", f"`{r}`")
-        if st.button("▶️ Run visio_to_archimate", type="primary"):
-            try:    # the process's OWN contract validates every producer (lab.platform.contracts)
-                rid = workflows.request("visio_to_archimate",
-                                        {"diagram": refs["diagram"], "requirements": refs["requirements"]},
-                                        requester=reviewer)
-            except ValueError as e:
-                st.error(f"rejected: {e}")
-            else:
-                st.session_state["submit_rid"] = rid
-                st.rerun()
+    for name, value in refs.items():
+        if value:
+            st.write(f"**{name}**", " ".join(f"`{v}`" for v in
+                                             (value if isinstance(value, list) else [value])))
 
-    rid = st.session_state.get("submit_rid")
+    ready = all(refs.get(n) for n in required_files)
+    if st.button(f"▶️ Run {spec.name}", type="primary", disabled=not ready):
+        inputs = dict(refs)
+        for field in spec.inputs:
+            if field not in file_fields:
+                inputs[field.name] = widgets.get(field.name)
+        try:    # the process's OWN contract validates every producer (lab.platform.contracts)
+            rid = workflows.request(spec.name, {k: v for k, v in inputs.items() if v},
+                                    requester=reviewer)
+        except ValueError as e:
+            st.error(f"rejected: {e}")
+        else:
+            st.session_state[f"submit_rid_{spec.name}"] = rid
+            st.rerun()
+
+    rid = st.session_state.get(f"submit_rid_{spec.name}")
     if rid:
         _run_status(rid)
 
     st.divider()
     st.subheader("Recent submissions")
-    for s in workflows.recent(10):
-        inp = s.get("inputs") or {}
-        line = (f'`{s.get("request_id")}` **{s.get("status", "?")}** — {os.path.basename(inp.get("diagram", "") or "")} '
-                f'+ {len(inp.get("requirements") or [])} doc(s) ({s.get("requester")}, {s.get("created_at")})')
-        if s.get("approval_id"):
-            line += f' → approval `{s["approval_id"]}`'
+    for sub in workflows.recent(10):
+        inp = sub.get("inputs") or {}
+        files = [os.path.basename(str(v)) for v in inp.values() if isinstance(v, str)
+                 and str(v).startswith("art://")]
+        line = (f'`{sub.get("request_id")}` **{sub.get("status", "?")}** — '
+                f'{sub.get("process", "")} {", ".join(files[:2])} '
+                f'({sub.get("requester")}, {sub.get("created_at")})')
+        if sub.get("approval_id"):
+            line += f' → approval `{sub["approval_id"]}`'
         st.write(line)
 
 

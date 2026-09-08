@@ -19,6 +19,7 @@ import sys
 from lab.platform import config, container
 from lab.platform.contracts import USE_CASE_SCREENING
 from lab.workloads.identity import agent_headers
+from lab.workloads.usecase import identity as ids
 from lab.workloads.run import governed_run
 from lab.workloads.usecase import agents as A
 from lab.workloads.usecase.steps import STEPS
@@ -37,11 +38,10 @@ def _cred() -> str:
 def _credential_for(service: str) -> str:
     """Which identity each bounded context authenticates as.
 
-    One credential today, and this function is the reason that is a configuration fact rather than
-    a structural one: when the six services get their own Entra registrations, only this returns
-    something different. `service` is already the parameter, so nothing above it changes.
-    """
-    return _cred()
+    Its own Entra registration where one has been provisioned, and the workload's shared credential
+    where one has not — so ten registrations are an operator action rather than a prerequisite, and
+    a run never fails because an identity somebody intended to create does not exist yet."""
+    return ids.credential_for(service, fallback=_cred())
 
 
 def run_fields(out: dict) -> dict:

@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lab.platform.contracts import (ApprovalTools, DecisionTools, ReferenceTools,  # noqa: E402
                                     SemanticTools, StorageTools, USE_CASE_SCREENING,
                                     ValuationTools, WorkflowTools)
+from lab.workloads.usecase.identity import PREFIX_FOR  # noqa: E402
 
 
 def _helpers():
@@ -116,6 +117,35 @@ def _key(litellm, alias, team_id, role, models=("kimi-k3",)):
     })["key"]
 
 
+#: The TEN bounded contexts, each with its own app registration and virtual key. They all sit in
+#: the intake team, so the grant profile is one decision and the identity is ten — which is the
+#: split that matters: spend and attribution are per context, authorisation is per profile.
+#:
+#: Read from the workload's own table rather than restated here, so a new CAFÉ service is
+#: provisioned by declaring it once. `PREFIX_FOR` is also what the hosts resolve against, so a
+#: registration created here is one a run will actually use.
+SERVICE_PREFIXES = dict(PREFIX_FOR)
+
+
+def _provision_services(ensure_agent, gw_sp, litellm, team_id, existing_env) -> dict:
+    """One Entra app and one key per bounded context. Idempotent in both halves: an app is found by
+    display name, and a key already named in `.env` is KEPT — reissuing would orphan the old one
+    while every running host still holds it."""
+    patch, mapping = {}, {}
+    for service, prefix in sorted(SERVICE_PREFIXES.items()):
+        alias = f'usecase-{service.lower().replace(" ", "-")}'
+        app_id, secret = ensure_agent(alias, [], gw_sp)
+        patch[f"{prefix}_CLIENT_ID"] = app_id
+        patch[f"{prefix}_CLIENT_SECRET"] = secret
+        if existing_env.get(f"{prefix}_KEY"):
+            print(f"{prefix}_KEY already set — keeping it")
+            continue
+        key = _key(litellm, alias, team_id, service)
+        patch[f"{prefix}_KEY"] = key
+        mapping[app_id] = key
+    return {"patch": patch, "mapping": mapping}
+
+
 def main() -> int:
     ensure_agent, ensure_sp, find_app, litellm, _patch_env = _helpers()
     gw_app = find_app("lab-gateway")
@@ -123,9 +153,6 @@ def main() -> int:
         raise SystemExit("lab-gateway app not found — run scripts/entra_provision.py first")
     gw_sp = ensure_sp(gw_app["appId"])
 
-    # One app registration per grant profile. The nine screening agents share the intake identity
-    # today; `host._credential_for(service)` is the seam that gives each bounded context its own
-    # when the six registrations land, and nothing above it changes when they do.
     intake_id, intake_secret = ensure_agent("usecase-agent", [], gw_sp)
     delivery_id, delivery_secret = ensure_agent("usecase-delivery-agent", [], gw_sp)
 
@@ -158,7 +185,12 @@ def main() -> int:
 
     # appId -> virtual key, so the gateway's custom auth maps an Entra JWT back to the same key and
     # a run authenticates either way with identical budgets, ACLs and spend.
+    # The ten bounded contexts, all inside the intake team: one grant profile, ten identities.
+    services = _provision_services(ensure_agent, gw_sp, litellm, intake_team, os.environ)
+    patch.update(services["patch"])
+
     mapping = json.loads(os.environ.get("ENTRA_CLIENT_TO_KEY") or "{}")
+    mapping.update(services["mapping"])
     for app_id, alias in ((intake_id, "usecase-agent"), (delivery_id, "usecase-delivery-agent")):
         if alias in keys:
             mapping[app_id] = keys[alias]
@@ -172,6 +204,9 @@ def main() -> int:
         print(f"  {alias}")
         for server, granted in sorted(tools.items()):
             print(f"    {server}: {', '.join(sorted(granted))}")
+    print(f"\n{len(SERVICE_PREFIXES)} bounded contexts provisioned in {intake_team}:")
+    for service, prefix in sorted(SERVICE_PREFIXES.items()):
+        print(f"  {service:24} {prefix}_CLIENT_ID / {prefix}_KEY")
     print("\nRestart the gateway so custom_auth reloads ENTRA_CLIENT_TO_KEY.")
     return 0
 
