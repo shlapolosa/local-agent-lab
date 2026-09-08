@@ -117,9 +117,36 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-The response is **202** with `{"request_id", "process", "status", "accepted", "duplicate", "poll"}`.
+The response is **202** with `{"request_id", "process", "status", "accepted", "duplicate", "lanes", "poll"}`.
 It is not a finished run and never will be: transcription takes minutes, so the process is
 asynchronous by contract and the submit call only acknowledges.
+
+**One submit can be several RUNS.** When the deployment sets `SPEECH_LANES`, the lab starts one run
+per speech provider — the same recording transcribed by each, so their transcripts can be compared —
+and `lanes` lists them as `[{provider, request_id, duplicate}]`. `request_id` is the FIRST lane, kept
+so a flow written before lanes existed still works; a lane that could not be submitted has an empty
+`request_id` and carries its own `error` instead.
+
+The flow therefore loops over `lanes` and does steps 3 to 5 once per lane, which is what asks about
+all of them. Polling `request_id` alone asks about the first lane and silently ignores the rest — and
+if that first lane fails, asks nothing at all. Measured live on 8 Sep 2026: three lanes, the first
+two failed on a provider error, and the third finished with a perfectly answerable question that
+nobody was ever shown, because the flow had already terminated on the first.
+
+Three properties of that loop are not obvious and each is silently wrong rather than loudly broken:
+
+- **Sequential, not concurrent.** Power Automate refuses `SetVariable` inside a concurrent
+  Apply-to-each, and `runState` is set on every pass. The template sets concurrency to 1.
+- **`runState` is RESET at the top of each lane.** Otherwise the Do-Until's condition is already
+  satisfied by the previous lane's `done`, the loop exits before the new run has started, and the
+  card asks the previous lane's question again — a wrong answer that looks entirely normal.
+- **No `Terminate` inside the loop.** A lane that fails, an ambiguous answer, a refused decision:
+  each records itself in a `problems` array and the loop carries on. Terminating would abort the
+  flow and take the healthy lanes with it, which is the fault the loop exists to remove. After the
+  loop, the flow fails only when EVERY lane failed, with all the reasons in the message.
+
+Inside the loop use `items('For_each_lane')` for the lane and `item()` for a Select's own element —
+a Select rebinds `item()`, so the two are not interchangeable.
 
 **`owner`** is the meeting organiser's user principal name — the person who will be asked to identify
 the speakers. The flow takes it from the Office 365 Users action **"Get my profile (V2)"**, which
@@ -167,8 +194,12 @@ what the process actually wanted rather than a bare status code.
 ## 3. Poll until the question exists
 
 ```
-GET ${GATEWAY_URL}/api/processes/meeting_to_transcript/runs/{request_id}
+GET ${GATEWAY_URL}/api/processes/meeting_to_transcript/runs/{lane request_id}
 ```
+
+Once per lane, inside the loop from step 2 — `items('For_each_lane')?['request_id']`, never
+`body('Start_run')?['request_id']`, which is the first lane's and would make every pass poll the
+same run.
 
 A Do-Until loop: wait one minute, GET, store the body in a variable, repeat until `status` is `done`
 or `failed`. The template caps it at 90 iterations and `PT1H30M`, which is generous for an hour of

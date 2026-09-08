@@ -50,3 +50,34 @@ def test_each_lane_delivers_files_named_after_its_own_provider():
     # a deployment with one provider is untouched
     assert deliver("") == ["2 test-20260907-Meeting Recording.transcript.md",
                            "2 test-20260907-Meeting Recording.minutes.json"]
+
+
+# ------------------------------------------------- a label that never spoke needs no attribution
+def test_a_silent_label_does_not_have_to_be_identified():
+    """The gate must use the SAME rule the question used, or it demands an answer nobody was asked.
+
+    Measured live 8 Sep 2026 on `wfr-4e17b417dd38`. A diarizer emitted two SPEAKER_01 segments with
+    EMPTY text — one of them 0.02 seconds long. `Transcript.spoken` correctly kept that label out of
+    the digest, so the card asked about SPEAKER_00 only and the organiser answered for SPEAKER_00.
+    The minutes run then read the raw transcript, found SPEAKER_01 among its labels, and refused:
+    "the transcript uses [\'SPEAKER_01\'], which nobody identified". A human answered every question
+    they were asked and the pipeline stopped anyway.
+
+    Fixing the digest without fixing the gate is what left two ends of one rule disagreeing. The
+    gate now reads the labels that actually SPEAK; a silent one is neither required nor rejected.
+    """
+    assert W._speaking_labels([
+        {"speaker": "SPEAKER_00", "text": "hello everybody"},
+        {"speaker": "SPEAKER_00", "text": ""},
+        {"speaker": "SPEAKER_01", "text": ""},
+        {"speaker": "SPEAKER_01", "text": "   "},
+    ]) == {"SPEAKER_00"}
+
+
+def test_a_label_that_speaks_is_still_required():
+    """The gate\'s purpose survives: a voice that said something must be identified, or the minutes
+    would name an anonymous label as a person."""
+    assert W._speaking_labels([
+        {"speaker": "SPEAKER_00", "text": "hello"},
+        {"speaker": "SPEAKER_01", "text": "Alhamdulillah."},
+    ]) == {"SPEAKER_00", "SPEAKER_01"}
