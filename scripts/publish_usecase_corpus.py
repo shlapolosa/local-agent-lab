@@ -1,0 +1,170 @@
+"""Publish the packaged CAFÉ seed into the governed corpus — an OPERATOR script, run once per
+release of the framework.
+
+One-off and TDD-exempt (CLAUDE.md's scripts exemption), but it carries one decision worth stating:
+the artifact IDS and RECORD TYPES here are a CONTRACT, not a convention. `decision-mcp`'s `RULES`
+map looks artifacts up by these exact ids, and a lookup asks for records by their record type — so
+a rename here silently returns nothing, which reads downstream as "the corpus has no guardrails"
+rather than as a typo. The parity check at the bottom fails loudly instead.
+
+    set -a && source .env && set +a
+    source var/run/reference_signing_key          # the private seed, operator-only
+    .venv/bin/python scripts/publish_usecase_corpus.py [--release]
+"""
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
+VERSION = "v0.25"
+
+#: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
+#: and differs from the file stem where a consumer already spells it differently.
+#: artifact_id -> (record_type, natural key, owner).
+#:
+#: The KEY is the master's own first column in almost every case, and that is the point: the
+#: natural key is what a person looking at the published table would use to name a row, so a
+#: lookup by it is a lookup somebody can check by eye. Where a table's first column repeats
+#: (`ai-capability-map` names a domain many times) the key is the pair that is actually unique.
+#: These were read off the masters rather than guessed — the first attempt assumed `id` throughout
+#: and failed on the seventh artifact, which is the right place for it to fail.
+ARTIFACTS = {
+    "guardrails": ("guardrail", "id", "architecture governance"),
+    "retired-guardrails": ("retired-guardrail", "Retired", "architecture governance"),
+    "guardrail-mapping": ("risk-class", "Class", "architecture governance"),
+    "family-triggers": ("family", "id", "architecture governance"),
+    "component-families": ("family", "Family", "architecture governance"),
+    "criticality-taxonomy": ("criticality-class", "Class", "architecture governance"),
+    "determinism-criteria": ("criterion", "#", "architecture governance"),
+    "facet-schema": ("facet", "Facet", "architecture governance"),
+    "readiness-gates": ("gate", "Gate", "architecture governance"),
+    "risk-derivation": ("risk-rule", "Exposure,Influence", "architecture governance"),
+    # PROSE, not records: the reference architecture is a nested model (zones containing
+    # components containing variants), not a table, and forcing it into rows would invent a key
+    # that has no meaning in the source. Prose is searched semantically and cited by heading —
+    # which is how a person reads this one anyway.
+    "reference-architecture": ("", "", "architecture governance"),
+    "surface-enforceability": ("obligation", "Obligation", "architecture governance"),
+    "ai-capability-map": ("capability", "domain,capability", "architecture governance"),
+    "capability-domains": ("domain", "domain", "architecture governance"),
+    "capability-map-rules": ("capability-rule", "A capability is", "architecture governance"),
+    "composition-moves": ("move", "Move", "architecture governance"),
+    "tradeoff-catalogue": ("tradeoff", "Conflict", "architecture governance"),
+    "archetypes": ("archetype", "code", "architecture governance"),
+    "quality-attributes": ("quality-attribute", "Part", "architecture governance"),
+    "building-block-schema": ("building-block-field", "Field", "architecture governance"),
+    "service-contract-schema": ("service-contract-field", "Field", "architecture governance"),
+    "decision-record-schema": ("decision-record-field", "Field", "architecture governance"),
+    "domain-model": ("term", "Concept", "architecture governance"),
+    "process-steps": ("process-step", "Step", "architecture governance"),
+    "input-artifacts": ("input-artifact", "Artifact", "architecture governance"),
+    "output-artifacts": ("output-artifact", "Artifact", "architecture governance"),
+    "opportunity-obligations": ("opportunity-obligation", "ID", "architecture governance"),
+    "source-register": ("source", "id", "architecture governance"),
+    "build-surface": ("build-surface-question", "Q", "architecture governance"),
+    # Finance's half of the corpus — a different owner and a different release cadence, which is
+    # the whole reason valuation-mcp is a separate server from decision-mcp.
+    "intake-fields": ("field-group", "Field group", "finance"),
+    "business-case-sections": ("section", "#", "finance"),
+    "benefit-drivers": ("driver", "Driver", "finance"),
+    "cost-formulas": ("cost-formula", "Quantity", "finance"),
+    "financial-formulas": ("financial-formula", "Quantity", "finance"),
+    "price-sheet": ("price-line", "Service", "finance"),
+    # SECTIONS of a multi-table artifact, published separately because the corpus is one record
+    # type per artifact — see `masters_for` in the extractor. Concatenating them produced a record
+    # set whose natural key collided, which the publisher refused rather than resolving silently.
+    "facet-schema-defaults": ("facet-default", "Activity", "architecture governance"),
+    "facet-schema-readers": ("facet-reader", "Facet", "architecture governance"),
+    "capability-map-rules-heatmap": ("heatmap-dimension", "Dimension",
+                                     "architecture governance"),
+    "capability-map-rules-levels": ("capability-level", "Level", "architecture governance"),
+    "component-families-modifiers": ("family-modifier", "Modifier", "architecture governance"),
+    "quality-attributes-envelope-patterns": ("envelope-pattern", "Pattern",
+                                             "architecture governance"),
+    "readiness-gates-verdicts": ("readiness-verdict", "Verdict", "architecture governance"),
+    "risk-derivation-classes": ("risk-class-scale", "Class", "architecture governance"),
+    "risk-derivation-moves": ("risk-move", "Move", "architecture governance"),
+}
+
+
+def master_for(artifact_id: str) -> Path:
+    return MASTERS / f"{artifact_id.replace('-', '_')}.md"
+
+
+def already_published() -> set[str]:
+    """What this version already holds. Publishing is idempotent from the OPERATOR's side — a
+    re-run after fixing one artifact must not need the other thirty-four undone first."""
+    code, out = run("list")
+    return {line.split()[0] for line in out.splitlines()
+            if len(line.split()) > 1 and line.split()[1] == VERSION} if not code else set()
+
+
+def run(*args: str) -> tuple[int, str]:
+    out = subprocess.run([sys.executable, "-m", "lab.substrate.reference.publish", *args],
+                         capture_output=True, text=True, cwd=ROOT)
+    return out.returncode, (out.stdout or "") + (out.stderr or "")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--release", action="store_true",
+                    help="also release each version to the general ring")
+    ap.add_argument("--ring", type=int, default=0,
+                    help="0 (pilot) is where a first release belongs — CR-18's soak means a "
+                         "version cannot skip a ring, and skipping is not a faster rollout")
+    ap.add_argument("--actor", default="operator")
+    args = ap.parse_args()
+
+    missing = sorted(a for a in ARTIFACTS if not master_for(a).exists())
+    extra = sorted(p.stem.replace("_", "-") for p in MASTERS.glob("*.md")
+                   if p.stem.replace("_", "-") not in ARTIFACTS)
+    if missing or extra:
+        # Loud, because the failure mode is silent: an unpublished artifact makes every lookup
+        # against it return nothing, which downstream reads as "the corpus says there are none".
+        print(f"masters missing for {missing}; masters with no entry here: {extra}")
+        return 1
+
+    have = already_published()
+    deferred: list[str] = []
+    published = released = skipped = 0
+    for artifact_id, (record_type, key, owner) in sorted(ARTIFACTS.items()):
+        if artifact_id in have:
+            skipped += 1
+        else:
+            kind = "record" if record_type else "prose"
+            code, out = run("publish", artifact_id, "--master", str(master_for(artifact_id)),
+                            "--version", VERSION, "--kind", kind,
+                            "--record-type", record_type, "--key-fields", key, "--owner", owner)
+            if code and "no embedder is configured" in out:
+                # Not a failure of this run. A prose artifact published without an index would be a
+                # version `reference_search` must refuse, and the publisher is right to refuse it
+                # first. It becomes publishable the day REFERENCE_EMBED_MODEL is set, and until
+                # then it is DEFERRED and named — an artifact silently absent from the corpus is
+                # read downstream as "the corpus says there is none".
+                deferred.append(artifact_id)
+                print(f"  {artifact_id:38} deferred — prose, and no embedder is configured")
+                continue
+            if code:
+                print(f"FAILED {artifact_id}: {out.strip().splitlines()[-1]}")
+                return 1
+            published += 1
+        if args.release:
+            code, out = run("release", artifact_id, VERSION, "--ring", str(args.ring),
+                            "--actor", args.actor)
+            if code:
+                print(f"published but NOT released {artifact_id}: "
+                      f"{out.strip().splitlines()[-1]}")
+            else:
+                released += 1
+        print(f"  {artifact_id:38} {record_type or 'prose'}")
+    print(f"\n{published} published, {skipped} already at {VERSION}, "
+          f"{released} released to ring {args.ring}")
+    if deferred:
+        print(f"deferred until an embedder is configured: {deferred}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

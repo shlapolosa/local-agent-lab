@@ -386,6 +386,21 @@ TITLES: dict[str, str] = {
 }
 
 
+def _cell(value: object) -> str:
+    """One cell of a rendered table.
+
+    A list becomes `a; b` and a nested object becomes its JSON — both so the value SURVIVES into
+    the master rather than being rendered as a Python repr a parser cannot read back. Where a
+    consumer needs the structure, its adapter parses this back; where a person reads it, it is
+    still legible. `;` because the values here (topology ids, guardrail ids) never contain one.
+    """
+    if isinstance(value, (list, tuple)):
+        return "; ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return "" if value is None else str(value)
+
+
 def _tabular(payload: dict) -> list[tuple[str, list[str], list[list]]]:
     """(section, headers, rows) for every part of a payload that is a table.
 
@@ -399,8 +414,15 @@ def _tabular(payload: dict) -> list[tuple[str, list[str], list[list]]]:
         if isinstance(value, dict) and "headers" in value:
             out.append((key, list(value["headers"]), [list(r) for r in value["rows"]]))
         elif isinstance(value, list) and value and isinstance(value[0], dict):
-            headers = list(value[0])
-            out.append((key, headers, [[row.get(h, "") for h in headers] for row in value]))
+            # The UNION of every row's keys, in first-seen order — not the first row's keys. One
+            # family in fourteen carries a `topology` the others do not, and taking the first row's
+            # keys dropped it from the master silently. The master is what `derived_from` asserts
+            # the agent form came from, so a column missing here is a fact missing from the corpus
+            # with a signature over it saying nothing is wrong.
+            headers: list[str] = []
+            for row in value:
+                headers += [h for h in row if h not in headers]
+            out.append((key, headers, [[_cell(row.get(h, "")) for h in headers] for row in value]))
     return out
 
 
@@ -428,6 +450,36 @@ def master_for(name: str, payload: dict) -> str:
     for section, headers, rows in tables[1:]:
         body += "\n" + render_master(title=f"{title} — {section}", headers=headers, rows=rows)
     return body
+
+
+def masters_for(name: str, payload: dict) -> dict[str, str]:
+    """One master per SECTION, because that is what the corpus can publish.
+
+    A seed file often carries several tables — `facet_schema` holds the nine facets, the per-
+    activity defaults, and which step reads which facet. They are three different things with three
+    different shapes, and concatenating them into one document produced a record set whose natural
+    key collided ("Activity" is a facet AND a defaults row), which the publisher correctly refused.
+
+    So a multi-table artifact publishes as several: `facet-schema`, `facet-schema-defaults`,
+    `facet-schema-readers`. A person still gets one document per table, each with its own heading
+    and its own metadata, and a citation opens the table it actually came from rather than a
+    three-table document with the relevant rows somewhere inside it.
+    """
+    tables = _tabular(payload)
+    if len(tables) <= 1:
+        return {name: master_for(name, payload)}
+    title = TITLES.get(name, name.replace("_", " ").capitalize())
+    meta = {"Artifact": name, "Source": payload.get("_source", ""),
+            "Rendered": "generated from the source above by scripts/extract_cafe_seed.py"}
+    if payload.get("_caveat"):
+        meta["Caveat"] = payload["_caveat"]
+    out = {}
+    for index, (section, headers, rows) in enumerate(tables):
+        key = name if index == 0 else f"{name}_{section}"
+        out[key] = render_master(
+            title=title if index == 0 else f"{title} — {section}",
+            headers=headers, rows=rows, meta=dict(meta, Section=section))
+    return out
 
 
 def build_spec(docx_path: Path) -> dict[str, dict]:

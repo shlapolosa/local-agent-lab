@@ -149,3 +149,32 @@ def test_the_translated_families_are_exactly_the_published_ones():
     published = {r[0] for r in seed.artifact("component_families")["families"]["rows"]}
     translated = {f["id"] for f in seed.artifact("family_triggers")["families"]}
     assert translated == published
+
+
+def test_a_family_predicate_reads_the_step_s_own_answers():
+    """A family predicate asks a question ABOUT A STEP ("step reads any grounding source"), so
+    answering it workflow-wide answers it for every step at once.
+
+    Found live: a run whose facet vectors carried their own conditions derived its whole control
+    set at step 19 and then refused at step 22, because composition passed only the workflow-wide
+    answers through. The tests could not see it because they stub the derivation."""
+    from lab.core.usecase import seed
+    from lab.core.usecase.composition import families_for
+    from lab.core.usecase.model import Step, Workflow
+
+    # Every published condition answered — anything less is refused, by design, so a fixture that
+    # answered only the one under test would be testing the refusal instead.
+    no = {c: False for c in seed.NAMED_CONDITIONS}
+    grounding = Step(id="n1", activity="retrieve", determinism="D1", effect="none",
+                     conditions={**no, "step reads any grounding source": True})
+    plain = Step(id="n2", activity="commit", determinism="D0", effect="record write",
+                 conditions=no)
+
+    families = families_for(Workflow(steps=(grounding, plain), criticality="routine"),
+                            topology="T2", conditions={})
+    assert "F1" in families, "the step that answered TRUE must switch its family on"
+
+    # ... and a workflow where nobody reads a source does not get it.
+    quiet = families_for(Workflow(steps=(plain,), criticality="routine"),
+                         topology="T2", conditions={})
+    assert "F1" not in quiet

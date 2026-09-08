@@ -21,11 +21,14 @@ signing is a pure function over a canonical string and holds no key material of 
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import base64
 import binascii
 import json
 from typing import Any, Mapping
 
+from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -50,8 +53,25 @@ def canonical(value: Mapping[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _canonical_timestamp(value: Any) -> Any:
+    """One spelling of an instant, whichever side of the database it came from.
+
+    The signature covers a STRING, and the same instant has two spellings in Python: a `datetime`
+    renders as `2026-09-08T16:47:08+00:00` through `isoformat()` and as `2026-09-08 16:47:08+00:00`
+    through `str()` — a space where the ISO separator should be. Publishing signed the first;
+    verifying rebuilt the manifest from the driver's `datetime` and got the second, so every
+    artifact in a freshly published corpus failed verification and reported itself as TAMPERED.
+
+    That is the worst possible presentation of a formatting bug: `ArtifactUnverified` sends whoever
+    is on call to re-publish an artifact that was never wrong. Normalising here rather than at the
+    two call sites means a third caller cannot reintroduce it.
+    """
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
 def manifest(**fields: Any) -> str:
     """The canonical manifest string, or a refusal naming what is missing or inconsistent."""
+    fields = {k: _canonical_timestamp(v) for k, v in fields.items()}
     missing = [f for f in MANIFEST_FIELDS if not str(fields.get(f, "")).strip()]
     if missing:
         raise ManifestError(f"a manifest must carry {list(MANIFEST_FIELDS)}; missing {missing}")
@@ -94,6 +114,23 @@ def sign(body: str, private_key: str) -> str:
     except ValueError as exc:
         raise ManifestError(f"the private key is not an Ed25519 seed: {exc}") from exc
     return base64.b64encode(key.sign(body.encode("utf-8"))).decode()
+
+
+def public_key_of(private_key: str) -> str:
+    """The base64 public half of a base64 Ed25519 seed.
+
+    Exists so the trust store can be seeded from the key that will actually SIGN, rather than from
+    a public key an operator pasted separately. A mismatched pair is otherwise undetectable until
+    a reader fails to verify a published artifact — at which point the artifact looks tampered with
+    and the configuration looks fine, which is the wrong way round.
+    """
+    try:
+        key = Ed25519PrivateKey.from_private_bytes(_decode(private_key, "private key"))
+    except ValueError as exc:
+        raise ManifestError(f"the private key is not an Ed25519 seed: {exc}") from exc
+    return base64.b64encode(key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw)).decode()
 
 
 def verify(body: str, signature: str, public_key: str) -> bool:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+from typing import Any, Iterable, Mapping
 from pathlib import Path
 
 __all__ = ["SEED_DIR", "NAMED_CONDITIONS", "artifact", "guardrails", "live_guardrails", "names"]
@@ -57,8 +58,21 @@ def guardrails() -> list[dict]:
     return list(artifact("guardrails")["guardrails"])
 
 
+def live_only(rows: Iterable[Mapping[str, Any]]) -> list[dict]:
+    """The guardrails in these rows that still fire, whatever supplied them.
+
+    A DOMAIN rule, applied at the point of use rather than at one source. It used to be folded into
+    `live_guardrails()` and so protected only the packaged seed — the governed corpus publishes all
+    26 guardrails (a retired identifier is never reused, and the retired ones must stay resolvable
+    for old citations), so a run deriving from the corpus evaluated G11 and G12 and refused on a
+    condition no live guardrail asks. The seeded path was unaffected, which is exactly why no test
+    saw it.
+    """
+    return [dict(g) for g in rows if not str(g.get("rule", "")).startswith("RETIRED")]
+
+
 def live_guardrails() -> list[dict]:
     """The guardrails that still fire. A retired identifier is never reused, so the retired ones
     stay in the corpus to keep old citations resolvable — but they must never enter a control set.
     """
-    return [g for g in guardrails() if not g.get("rule", "").startswith("RETIRED")]
+    return live_only(guardrails())

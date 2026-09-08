@@ -18,7 +18,8 @@ supersede and roll-back are the same one-row UPDATE.
 """
 from __future__ import annotations
 
-__all__ = ["MIGRATIONS", "READER_GRANTS", "PUBLISHER_GRANTS", "apply_migrations"]
+__all__ = ["MIGRATIONS", "READER_GRANTS", "PUBLISHER_GRANTS", "ROLES",
+           "apply_migrations"]
 
 MIGRATIONS: tuple[str, ...] = (
     "CREATE EXTENSION IF NOT EXISTS vector",
@@ -112,8 +113,24 @@ MIGRATIONS: tuple[str, ...] = (
          PRIMARY KEY (artifact_id, version, passage_id),
          FOREIGN KEY (artifact_id, version)
            REFERENCES ref_artifact_version ON DELETE CASCADE)""",
-    "CREATE INDEX IF NOT EXISTS ref_passage_ann ON ref_passage "
-    "USING hnsw (embedding vector_cosine_ops)",
+    # NO approximate index, and this is a decision rather than an omission.
+    #
+    # It began as an HNSW index and failed on the live database: pgvector cannot index a column
+    # with no declared width, and the width is deliberately undeclared so re-embedding at another
+    # model's dimension needs no migration. The obvious repairs are both worse. Pinning
+    # `vector(N)` puts one model's width into a migration and makes a model change a schema
+    # change. Keeping HNSW makes the search APPROXIMATE — and an approximate result set is exactly
+    # what this corpus refuses everywhere else: `IndexUnavailable` exists because a truncated
+    # answer is indistinguishable from a thorough search that found little, and HNSW recall below
+    # 1 reintroduces that through the back door, where "no guardrail matched" could be an index
+    # artifact nobody can see.
+    #
+    # So: exact cosine, sequentially. The corpus is dozens of artifacts and hundreds of passages —
+    # a scan is milliseconds, and the ordering is the true one. `ref_passage_scope` keeps the scan
+    # to the pinned version rather than the whole table, which is where the real saving is. When a
+    # corpus arrives that genuinely needs ANN, the answer is a dimensioned column per embedding
+    # model, not an approximate index over an undimensioned one.
+    "CREATE INDEX IF NOT EXISTS ref_passage_scope ON ref_passage (artifact_id, version)",
 
     """CREATE TABLE IF NOT EXISTS ref_pin (
          pin_id TEXT PRIMARY KEY,
@@ -154,6 +171,24 @@ _READ_TABLES = ("ref_signing_key", "ref_artifact", "ref_artifact_version", "ref_
                 "ref_release", "ref_record", "ref_passage")
 _WRITE_TABLES = _READ_TABLES + ("ref_pin", "ref_pin_entry", "ref_consumption")
 
+#: The two roles the grants below name. Created HERE, idempotently, because a GRANT to a role that
+#: does not exist is an error and `--grants` was therefore unrunnable on a fresh database — which
+#: is the only database anybody runs it on. DR-03 ("no instance writes to a shared store") rests
+#: entirely on these two roles existing and differing, so creating them is part of the schema, not
+#: a prerequisite an operator is expected to have guessed.
+#:
+#: NOLOGIN and no password: they are privilege SETS, granted to whatever login role a deployment
+#: already has. That keeps the credential story unchanged — no new secret to distribute — and
+#: leaves "which role does reference-mcp connect as" a deployment decision rather than one this
+#: migration takes on the tenant's behalf.
+ROLES: tuple[str, ...] = tuple(
+    f"""DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
+            CREATE ROLE {role} NOLOGIN;
+          END IF;
+        END $$"""
+    for role in ("lab_reference_reader", "lab_reference_publisher"))
+
 READER_GRANTS: tuple[str, ...] = tuple(
     [f"GRANT SELECT ON {t} TO lab_reference_reader" for t in _READ_TABLES]
     + [f"GRANT SELECT, INSERT ON {t} TO lab_reference_reader"
@@ -167,7 +202,7 @@ PUBLISHER_GRANTS: tuple[str, ...] = tuple(
 
 def apply_migrations(connection, *, grants: bool = False) -> int:
     """Run every migration in order. Idempotent — each statement is `IF NOT EXISTS` or a GRANT."""
-    statements = MIGRATIONS + (READER_GRANTS + PUBLISHER_GRANTS if grants else ())
+    statements = MIGRATIONS + (ROLES + READER_GRANTS + PUBLISHER_GRANTS if grants else ())
     with connection.cursor() as cur:
         for statement in statements:
             cur.execute(statement)

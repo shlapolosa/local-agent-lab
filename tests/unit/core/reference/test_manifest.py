@@ -94,3 +94,38 @@ def test_a_malformed_public_key_is_refused_loudly():
 def test_the_manifest_names_the_key_that_signed_it():
     body = manifest(**FIELDS)
     assert '"key_id":"k1"' in body
+
+
+# ------------------------------------------------- what a live publish/verify round trip found
+
+def test_an_instant_signs_and_verifies_the_same_however_it_reaches_the_manifest():
+    """The defect that made a freshly published corpus report itself TAMPERED.
+
+    Publishing signed `datetime.isoformat()`; verifying rebuilt the manifest from the database
+    driver's `datetime`, whose `str()` puts a SPACE where the ISO separator belongs. Same instant,
+    two spellings, one signature — so every artifact failed verification and `ArtifactUnverified`
+    sent whoever was on call to re-publish something that was never wrong.
+    """
+    from datetime import datetime, timezone
+    from lab.core.reference.manifest import manifest, public_key_of, sign, verify
+
+    when = datetime(2026, 9, 8, 16, 47, 8, 648478, tzinfo=timezone.utc)
+    fields = dict(artifact_id="guardrails", version="v0.25", kind="record",
+                  master_sha256="a" * 64, agent_sha256="b" * 64, derived_from="a" * 64,
+                  content_digest="c" * 64, key_id="k1")
+    private, public = generate_key()
+
+    signed = sign(manifest(published_at=when.isoformat(), **fields), private)
+    # ... and the verifier gets the driver's datetime, not the string that was signed.
+    assert verify(manifest(published_at=when, **fields), signed, public)
+    assert public_key_of(private) == public
+
+
+def test_the_public_key_is_derivable_from_the_seed_that_signs():
+    """So a trust store can be seeded from the signing key rather than from a public key somebody
+    pasted separately — a mismatched pair is otherwise invisible until a reader cannot verify, at
+    which point the artifact looks tampered with and the configuration looks fine."""
+    from lab.core.reference.manifest import public_key_of, sign, verify
+    private, public = generate_key()
+    assert public_key_of(private) == public
+    assert verify("body", sign("body", private), public_key_of(private))

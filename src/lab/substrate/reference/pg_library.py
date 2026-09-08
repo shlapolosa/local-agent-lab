@@ -168,7 +168,12 @@ class PostgresReferenceLibrary:
         try:
             body = manifest(artifact_id=row[0], version=row[1], kind=row[2],
                             master_sha256=row[5], agent_sha256=row[6], derived_from=row[7],
-                            content_digest=row[8], published_at=str(row[12]), key_id=row[10])
+                            # The RAW value, not `str()` of it: the driver returns a datetime and
+                            # `str()` spells the ISO separator as a space, so the manifest rebuilt
+                            # here did not match the one signed at publish and every artifact in a
+                            # freshly published corpus reported itself TAMPERED. `manifest`
+                            # canonicalises an instant; handing it a string takes that away.
+                            content_digest=row[8], published_at=row[12], key_id=row[10])
             ok = verify(body, row[9], public_key)
         except ManifestError as exc:
             raise ArtifactUnverified(row[0], row[1], str(exc)) from exc

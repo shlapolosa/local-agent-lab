@@ -62,6 +62,13 @@ def families_for(workflow: Workflow, *, topology: str,
         raise CompositionError(f"{topology!r} is not a published topology; expected one of "
                                f"{list(TOPOLOGIES)}")
     vectors = _vectors(workflow)
+    # Each step's OWN answers, merged over the workflow-wide ones — the same rule `obligations`
+    # applies, and for the same reason: a family predicate asks a question ABOUT A STEP ("step
+    # reads any grounding source"), so answering it workflow-wide answers it for every step at
+    # once. Without this, a run whose facet vectors carry their conditions still refused at step
+    # 22, having derived its whole control set successfully at step 19 — found live, because the
+    # tests stub the derivation.
+    answers = [{**(conditions or {}), **dict(step.conditions)} for step in workflow]
     present: set[str] = set()
     for family in _catalogue(families):
         allowed = family.get("topology")
@@ -71,8 +78,8 @@ def families_for(workflow: Workflow, *, topology: str,
             continue
         predicate = parse(family["predicate"])
         try:
-            if any(predicate.evaluate(v, workflow=vectors, conditions=conditions or {})
-                   for v in vectors):
+            if any(predicate.evaluate(v, workflow=vectors, conditions=a)
+                   for v, a in zip(vectors, answers)):
                 present.add(family["id"])
         except PredicateError as exc:
             raise CompositionError(

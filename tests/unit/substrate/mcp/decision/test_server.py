@@ -246,3 +246,49 @@ def test_no_span_attribute_carries_a_rule_or_a_step_s_words(monkeypatch):
     assert recorded, "the tools record nothing, so this would pass vacuously"
     for key, value in recorded.items():
         assert isinstance(value, (int, float, bool)), f"{key} is not a count/shape: {value!r}"
+
+
+# ------------------------------------------------- the mapper, and what a live corpus read found
+
+class _Rec:
+    def __init__(self, body): self.body = body
+
+
+def test_the_mapper_gives_the_domain_the_shape_it_reads():
+    """A master is a table, so everything in it is text. The domain reads lists. This is the
+    adapter's mapper, and every one of these three conversions was a live failure first."""
+    rows = S.from_corpus([_Rec({"record_id": "r1", "id": "F14", "name": "Delegation",
+                                "predicate": "", "topology": "T4; T3",
+                                "guardrails": "G07"})])
+    assert rows == [{"id": "F14", "name": "Delegation",
+                     "topology": ["T4", "T3"], "guardrails": ["G07"]}]
+
+
+def test_an_empty_cell_is_dropped_rather_than_kept_as_an_empty_string():
+    """The subtle one. Every family gets a `topology` column because ONE family has a topology, and
+    `families_for` asks whether that key is None. Kept as "", the other thirteen would look
+    topology-restricted and vanish from every composition — silently, and only under a pin."""
+    rows = S.from_corpus([_Rec({"record_id": "r1", "id": "F2", "topology": "",
+                                "predicate": "step.determinism ≥ D1"})])
+    assert "topology" not in rows[0]
+    assert rows[0]["predicate"] == "step.determinism ≥ D1"
+
+
+def test_the_store_s_own_id_is_not_part_of_the_row():
+    assert "record_id" not in S.from_corpus([_Rec({"record_id": "r1", "id": "G01"})])[0]
+
+
+def test_a_retired_guardrail_from_the_corpus_never_enters_a_control_set():
+    """The corpus publishes all 26 guardrails, because a retired identifier must stay resolvable
+    for citations already written down. The seed path filtered them and the corpus path did not, so
+    a governed run evaluated G11 and refused on a condition no live guardrail asks."""
+    from lab.core.usecase import obligations, seed
+    from lab.core.usecase.model import Step, Workflow
+    published = seed.artifact("guardrails")["guardrails"]
+    assert {"G11", "G12"} <= {g["id"] for g in published}
+
+    workflow = Workflow(steps=(Step(**INTERPRET), Step(**COMMIT)), criticality="routine")
+    with_corpus = obligations.derive(workflow, conditions=ANSWERS, guardrails=published)
+    with_seed = obligations.derive(workflow, conditions=ANSWERS)
+    assert not ({"G11", "G12"} & with_corpus.guardrails())
+    assert with_corpus.guardrails() == with_seed.guardrails()

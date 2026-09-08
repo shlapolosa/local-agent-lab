@@ -44,6 +44,35 @@ RULES = {
 }
 
 
+#: Corpus columns whose published cell is a LIST, joined with "; " by the master renderer.
+LIST_COLUMNS = ("topology", "guardrails")
+
+
+def from_corpus(records) -> list[dict]:
+    """Corpus records as the DOMAIN's rows — the mapper, and where correctness lives.
+
+    A master is a table, so everything in it is text; the domain reads lists and nested objects.
+    Three conversions, each of which was a live failure before it was a line of code:
+
+    * the bookkeeping `record_id` is dropped — it is the store's name for the row, not the row;
+    * a `; `-joined cell becomes a list again, so `family["topology"]` is `["T4"]` and not `"T4"`;
+    * an EMPTY cell is dropped entirely rather than kept as `""`. This is the subtle one. Every
+      family gets a `topology` column because one family has a topology, and `families_for` asks
+      `family.get("topology") is not None` — so an empty string would make all thirteen others look
+      topology-restricted and silently vanish from every composition.
+    """
+    out = []
+    for record in records:
+        row = {}
+        for key, value in record.body.items():
+            if key == "record_id" or value in ("", None):
+                continue
+            row[key] = ([v.strip() for v in str(value).split(";") if v.strip()]
+                        if key in LIST_COLUMNS else value)
+        out.append(row)
+    return out
+
+
 def _workflow(payload: dict) -> Workflow:
     """The step facet vectors as typed objects. A malformed vector fails HERE, naming the step and
     the facet, rather than silently failing to match a predicate two derivations later."""
@@ -72,12 +101,7 @@ def _rules(pin_id: str, run_id: str, process: str, field: str) -> tuple[dict, di
             if artifact_id not in {v.artifact_id for v in pin.versions}:
                 continue
             result = library.lookup(pin, record_type=record_type, key={}, run=run, limit=500)
-            # A corpus record is a dict keyed by the MASTER's own headers, plus the bookkeeping
-            # id the store addresses it by. The domain reads the master's rows, so the id is
-            # dropped and the rest flattened back into the row it came from — the corpus's shape is
-            # this server's problem, not the derivation's.
-            found[key] = [[v for k, v in r.body.items() if k != "record_id"]
-                          for r in result.records]
+            found[key] = from_corpus(result.records)
         return found, {"kind": "governed corpus", "pin_id": pin.pin_id,
                        "versions": [{"artifact_id": v.artifact_id, "version": v.version}
                                     for v in pin.versions]}

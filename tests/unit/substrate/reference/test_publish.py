@@ -341,3 +341,25 @@ def test_verify_exits_zero_on_a_healthy_corpus(tmp_path, monkeypatch, capsys):
     P = _cli(monkeypatch, publisher(tmp_path, plan={"FROM ref_artifact_version v": []}))
     assert P.main(["verify"]) == 0
     assert "ok" in capsys.readouterr().out
+
+
+def test_init_registers_the_public_half_of_the_key_that_will_sign():
+    """Without it the very next command fails on a foreign key nobody would connect to a trust
+    store — measured on the live database, on the first real publish. The key is DERIVED from the
+    seed rather than read from configuration, so a mismatched pair cannot survive to the point
+    where a reader reports a perfectly good artifact as tampered with."""
+    from lab.core.reference.manifest import generate_key, public_key_of
+
+    private, public = generate_key()
+    log: list = []
+    p = Publisher(dsn="postgres://x", connect=lambda dsn: FakeConn(log, {}),
+                  signing_key=private, key_id="k7")
+    p.init()
+
+    # INSERT, not every statement naming the table — the CREATE TABLE in the migrations mentions
+    # it too, and matching that would assert the schema exists rather than the key was recorded.
+    written = [(sql, params) for sql, params in log
+               if "INSERT INTO ref_signing_key" in sql]
+    assert written, "init must seed the trust store"
+    assert written[0][1][0] == "k7" and written[0][1][2] == public
+    assert public_key_of(private) == public

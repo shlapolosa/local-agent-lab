@@ -171,7 +171,8 @@ def triggered_for(workflow: Workflow, step_id: str, *,
                         criticality=workflow.criticality) for s in workflow]
     answers = {**(conditions or {}), **dict(step.conditions)}
     fired: set[str] = set()
-    for guardrail in (guardrails if guardrails is not None else seed.live_guardrails()):
+    for guardrail in (seed.live_only(guardrails) if guardrails is not None
+                      else seed.live_guardrails()):
         try:
             if parse(guardrail["pred"]).evaluate(facts, workflow=vectors, conditions=answers):
                 fired.add(guardrail["id"])
@@ -236,7 +237,9 @@ def derive(workflow: Workflow, *,
 
     `guardrails` and `mapping_rows` are the GOVERNED copies when a caller has pinned them; omitted,
     the local seed answers. The rules are read at call time either way — never compiled in."""
-    live = guardrails if guardrails is not None else seed.live_guardrails()
+    # `live_only` on the INJECTED rows too: a governed corpus serves the retired guardrails as
+    # well, because their identifiers must stay resolvable for citations already written down.
+    live = seed.live_only(guardrails) if guardrails is not None else seed.live_guardrails()
     by_step: dict[str, list[Obligation]] = {}
     for step in workflow:
         exposure, influence = exposure_of(step), influence_of(workflow, step.id)

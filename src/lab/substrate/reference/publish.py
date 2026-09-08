@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from lab.core.reference.derive import content_digest, passages, records
-from lab.core.reference.manifest import manifest, sign, verify
+from lab.core.reference.manifest import manifest, public_key_of, sign, verify
 from lab.core.reference.master import parse as parse_master
 from lab.core.reference.rings import RINGS, can_release
 from lab.platform import config
@@ -83,8 +83,18 @@ class Publisher:
     # ---------------------------------------------------------------- init
 
     def init(self, *, grants: bool = False) -> int:
+        """The tables, the roles, and this publisher's own public key.
+
+        Registering the key is part of `init` because without it the very next command fails on a
+        foreign key nobody would connect to a trust store — measured on the live database, on the
+        first real publish. The key is DERIVED from the seed that will sign, not read from
+        configuration: a mismatched pair is otherwise invisible until a reader cannot verify a
+        published artifact, which looks like tampering and is actually a typo.
+        """
         with self._connect(self.dsn) as conn:
-            return apply_migrations(conn, grants=grants)
+            applied = apply_migrations(conn, grants=grants)
+        self.trust(public_key_of(self.signing_key))
+        return applied
 
     def trust(self, public_key: str) -> None:
         """Record the PUBLIC half of the signing key so readers can verify. The private seed never
