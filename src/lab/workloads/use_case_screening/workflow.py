@@ -38,7 +38,11 @@ from lab.workloads.usecase.steps import SCREENING_STEPS
 #: serving one pipeline can leave the others alone without guessing from a subject line.
 PROCESS = USE_CASE_SCREENING.name
 
-REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec, ApprovalTools.ask)
+#: `approvals_ask` carries its ARGUMENTS, not just its name. A tool present under the right name
+#: can still reject the call when the deployed server is older than the workload — measured, at the
+#: cost of a whole run.
+REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec,
+                  (ApprovalTools.ask, ("subject", "prompt", "items", "process")))
 
 #: The reference corpora the exercises read, and the tool that serves each. NOT preflighted: a
 #: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a

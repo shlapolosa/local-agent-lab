@@ -55,6 +55,31 @@ def _isolated_env():
 
 
 @pytest.fixture(autouse=True)
+def _isolated_gateway_redis():
+    """Reset the auth hook's memoised Redis client between tests.
+
+    `custom_auth._redis()` builds its client ONCE, from `REDIS_URL` as it stood at the first call,
+    and caches it in a module global. `_isolated_env` restores the environment around every test —
+    but not this, so the first test to touch the developer-key path pinned a client built under an
+    environment that no longer exists, for every test after it in the process.
+
+    That is the seam behind an intermittent failure in
+    `test_non_api_routes_are_completely_unaffected_by_the_policy`: whether a roleless user
+    authenticates depended on which client the hook happened to be holding, and therefore on what
+    ran before it and on the state of whatever Redis that client reached. It reproduced once and
+    then would not, which is what a leaked global looks like from the outside.
+
+    The module is imported lazily: it pulls in litellm, and importing it for every test in the
+    suite would cost more than the leak does.
+    """
+    import sys
+    yield
+    module = sys.modules.get("lab.substrate.gateway.custom_auth")
+    if module is not None:
+        module._REDIS = None
+
+
+@pytest.fixture(autouse=True)
 def _isolated_otel():
     """Restore the process-global tracer provider (OTel's `set_tracer_provider` is once-only) and
     `lab.platform.otel`'s install-once state, so a test that installs a provider cannot decide what

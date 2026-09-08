@@ -41,22 +41,57 @@ def resolve(exposed: Iterable[str], suffix: str) -> str:
     return match[0]
 
 
-async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable[str]) -> None:
-    """Refuse the run if the gateway does not expose every tool this workload needs.
+async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable[Any]) -> None:
+    """Refuse the run if the gateway cannot serve what this workload will ask of it.
 
-    Resolution is by suffix, identically to `call_tools_raw`, so renaming a gateway alias does not
-    fail preflight — what DOES fail it is a renamed or withdrawn TOOL, which is the actual defect
-    this catches.
+    Two checks, and the second exists because the first was not enough. A required entry is either
+    a tool NAME, or a `(name, arguments)` pair naming the arguments this workload sends.
+
+    **Names.** Resolution is by suffix, identically to `call_tools_raw`, so renaming a gateway alias
+    does not fail preflight — what DOES fail it is a renamed or withdrawn tool.
+
+    **Arguments.** A tool can be present under the right name and still reject the call, because the
+    deployed server is older than the workload and its schema has no such property. Measured: a
+    screening run passed preflight, spent fifty-five minutes and six model calls deriving a
+    complete record, and died at the approval on `'process' was unexpected` — a workflow-mcp four
+    days older than the workload. Name-only preflight cannot see that, and it is the same version
+    skew the name check was built for, one level down. The whole point of preflight is to cost
+    ZERO tokens; a check that stops one class of skew and waves the next one through is half an
+    instrument.
+
+    Argument checking is best-effort by design: a server that publishes no `inputSchema`, or one
+    that accepts extra properties, is not second-guessed. Only a schema that explicitly closes
+    itself (`additionalProperties: false`) and omits a property we will send is a refusal — which
+    is exactly the case that fails at call time.
     """
+    wanted = {(r if isinstance(r, str) else r[0]): (() if isinstance(r, str) else tuple(r[1]))
+              for r in required}
     async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
-        exposed = [t.name for t in await c.list_tools()]
-    missing = [t for t in required if not any(n.endswith(t) for n in exposed)]
+        tools = await c.list_tools()
+    exposed = [t.name for t in tools]
+    missing = [t for t in wanted if not any(n.endswith(t) for n in exposed)]
     if missing:
         raise RuntimeError(
             f"gateway does not expose {missing} — this workload and the gateway are running different "
             f"versions, or this identity is not granted those servers. Redeploy both from the same "
             f"image (the deploy CLI's `substrate images` shows what each service runs) or fix "
             f"the team grant. Exposed: {sorted(exposed)}")
+
+    stale: list[str] = []
+    for tool in tools:
+        args = next((a for suffix, a in wanted.items() if tool.name.endswith(suffix)), ())
+        schema = getattr(tool, "inputSchema", None) or {}
+        if not args or schema.get("additionalProperties") is not False:
+            continue
+        unknown = [a for a in args if a not in (schema.get("properties") or {})]
+        if unknown:
+            stale.append(f"{tool.name} does not accept {unknown}")
+    if stale:
+        raise RuntimeError(
+            f"the gateway exposes every tool this workload needs, but not every ARGUMENT: {stale}. "
+            f"The deployed server is older than this workload — redeploy both from the same image "
+            f"(`substrate images`). Refusing now costs nothing; finding out at the call costs the "
+            f"whole run.")
 
 
 async def call_tools_raw(headers: Mapping[str, str], mcp_url: str, calls) -> list[Any]:

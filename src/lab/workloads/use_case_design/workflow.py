@@ -43,7 +43,9 @@ from lab.workloads.usecase.steps import step_for
 #: Declared on every approval this workload raises — see the screening workflow.
 PROCESS = USE_CASE_DESIGN.name
 
-REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, ApprovalTools.ask,
+REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec,
+                  # ...with the arguments, not just the name — see the screening workload.
+                  (ApprovalTools.ask, ("subject", "prompt", "items", "process")),
                   DecisionTools.readiness, DecisionTools.feasibility,
                   DecisionTools.exposure, DecisionTools.obligations,
                   DecisionTools.composition,
