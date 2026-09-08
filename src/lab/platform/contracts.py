@@ -101,6 +101,26 @@ class ReferenceTools(ToolCatalogue):
     AUDIT = (consumers,)
 
 
+
+class DecisionTools(ToolCatalogue):
+    """decision-mcp — the CAFÉ derivations that are DETERMINISTIC, as governed tools.
+
+    They are deployed rather than run inside the workload for the reason the framework gives: they
+    read governed artifacts that change under governance approval, so a change to the criticality
+    taxonomy or the guardrail set must not require an application release. Conformance review
+    evaluates the same predicates against the same facet vectors, so one service also stops two
+    implementations of one rule set drifting apart.
+
+    All read-only derivations. No READ/WRITE split, because there is nothing here to split.
+    """
+    SERVER = "decision_mcp"
+    readiness = "decision_readiness"          # step 14 — the four M0 gates
+    feasibility = "decision_feasibility"      # step 16 — proceed / reject / integration
+    exposure = "decision_exposure"            # step 18 — exposure and influence per step
+    obligations = "decision_obligations"      # step 19 — the control requirement set
+    composition = "decision_composition"      # step 22 — topology, families, enforcement points
+
+
 class SemanticTools(ToolCatalogue):
     """semantic-mcp — vocabularies as data, legality, SPARQL, reference models; `store_spec` persists any JSON by ref."""
     SERVER = "semantic_mcp"
@@ -1172,12 +1192,13 @@ PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEE
 # Last, because WorkflowTools' tool names are derived from PROCESSES above.
 SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
                                                                  WorkflowTools, CollabTools,
-                                                                 SpeechTools, ReferenceTools)}
+                                                                 SpeechTools, ReferenceTools,
+                                                                 DecisionTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
 
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
-           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools",
+           "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools", "DecisionTools",
            "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",

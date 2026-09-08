@@ -28,6 +28,7 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
          GRAPH_MCP_URL="${GRAPH_MCP_URL:-http://127.0.0.1:9500/mcp}" \
          SPEECH_MCP_URL="${SPEECH_MCP_URL:-http://127.0.0.1:9600/mcp}" \
          REFERENCE_MCP_URL="${REFERENCE_MCP_URL:-http://127.0.0.1:9700/mcp}" \
+         DECISION_MCP_URL="${DECISION_MCP_URL:-http://127.0.0.1:9800/mcp}" \
          WORKFLOW_API_URL="${WORKFLOW_API_URL:-http://127.0.0.1:9400/api}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
@@ -180,6 +181,9 @@ up() {
   # so rather than failing a video mysteriously. Silence would look like a grant problem instead.
   start_mcp speech-mcp   lab.substrate.mcp.speech.server   9600   # speech (alias speech_mcp): a recording ->
   start_mcp reference-mcp lab.substrate.mcp.reference.server 9700   # the governed CORPUS
+  start_mcp decision-mcp  lab.substrate.mcp.decision.server  9800   # the CAFÉ derivations
+                                                                    # (alias decision_mcp): rules
+                                                                    # read at call time, never compiled in
                                                                     # (alias reference_mcp): signed,
                                                                     # versioned rules, read under a pin
                                                                   # timed, speaker-labelled words, returned by ref

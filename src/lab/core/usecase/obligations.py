@@ -87,12 +87,26 @@ class ControlRequirementSet:
 
 # ---------------------------------------------------------------- the class mapping
 
-def _mapping_rows() -> dict[str, str]:
-    rows = seed.artifact("guardrail_mapping")["mandatory_by_class"]["rows"]
+def _mapping_rows(rows=None) -> dict[str, str]:
+    """The class mapping, as rows. `rows` lets a caller supply the GOVERNED copy — the decision
+    server passes what it read from the reference corpus under a pin, so the rule a run obeyed is
+    the released one rather than whatever this package shipped with (NFR-15). Omitted, the local
+    seed answers, which is what keeps the domain testable with no infrastructure at all."""
+    rows = rows if rows is not None else seed.artifact("guardrail_mapping")["mandatory_by_class"]["rows"]
     out: dict[str, str] = {}
-    for label, cell in rows:
-        match = _CLASS_ROW.match(label.strip())
-        out[match.group(1).upper() if match else "BASELINE"] = cell
+    for row in rows:
+        # Rows are the master's table: (class, what it mandates). A mapping is also accepted, with
+        # the store's bookkeeping id dropped — but a caller reading from the corpus should flatten
+        # there, so the derivation never has to know how a record was addressed.
+        if isinstance(row, dict):
+            values = [v for k, v in row.items() if not str(k).startswith("record_")]
+        else:
+            values = list(row)
+        if len(values) < 2:
+            raise ObligationError(f"a mapping row needs a class and what it mandates; got {row!r}")
+        label, cell = values[0], values[1]
+        match = _CLASS_ROW.match(str(label).strip())
+        out[match.group(1).upper() if match else "BASELINE"] = str(cell)
     return out
 
 
@@ -124,12 +138,12 @@ def _resolve(label: str, rows: dict[str, str], seen: set[str]) -> list[Obligatio
     return out + _obligations_from(cell, label, seen)
 
 
-def mandatory_for(exposure: int, influence: int) -> list[Obligation]:
+def mandatory_for(exposure: int, influence: int, *, mapping_rows=None) -> list[Obligation]:
     """What these two classes mandate, baseline included and inheritance resolved."""
     for name, value in (("exposure", exposure), ("influence", influence)):
         if not isinstance(value, int) or not 0 <= value <= 3:
             raise ObligationError(f"{name}: {value!r} is not a published class (0-3)")
-    rows = _mapping_rows()
+    rows = _mapping_rows(mapping_rows)
     seen: set[str] = set()
     out = _obligations_from(rows["BASELINE"], "baseline", seen)
     if exposure:
@@ -142,7 +156,8 @@ def mandatory_for(exposure: int, influence: int) -> list[Obligation]:
 # ---------------------------------------------------------------- the predicates
 
 def triggered_for(workflow: Workflow, step_id: str, *,
-                  conditions: dict[str, bool] | None = None) -> set[str]:
+                  conditions: dict[str, bool] | None = None,
+                  guardrails: list[dict] | None = None) -> set[str]:
     """The guardrails whose trigger predicate fires for this step.
 
     Refuses the whole step rather than skipping a predicate it cannot answer: a short control set
@@ -156,7 +171,7 @@ def triggered_for(workflow: Workflow, step_id: str, *,
                         criticality=workflow.criticality) for s in workflow]
     answers = {**(conditions or {}), **dict(step.conditions)}
     fired: set[str] = set()
-    for guardrail in seed.live_guardrails():
+    for guardrail in (guardrails if guardrails is not None else seed.live_guardrails()):
         try:
             if parse(guardrail["pred"]).evaluate(facts, workflow=vectors, conditions=answers):
                 fired.add(guardrail["id"])
@@ -214,15 +229,22 @@ def commit_invariant(workflow: Workflow) -> list[Violation]:
 # ---------------------------------------------------------------- the whole set
 
 def derive(workflow: Workflow, *,
-           conditions: dict[str, bool] | None = None) -> ControlRequirementSet:
-    """The control requirement set — what the `decision_obligations` tool returns."""
+           conditions: dict[str, bool] | None = None,
+           guardrails: list[dict] | None = None,
+           mapping_rows=None) -> ControlRequirementSet:
+    """The control requirement set — what the `decision_obligations` tool returns.
+
+    `guardrails` and `mapping_rows` are the GOVERNED copies when a caller has pinned them; omitted,
+    the local seed answers. The rules are read at call time either way — never compiled in."""
+    live = guardrails if guardrails is not None else seed.live_guardrails()
     by_step: dict[str, list[Obligation]] = {}
     for step in workflow:
         exposure, influence = exposure_of(step), influence_of(workflow, step.id)
-        obligations = mandatory_for(exposure, influence)
+        obligations = mandatory_for(exposure, influence, mapping_rows=mapping_rows)
         claimed = {o.guardrail for o in obligations if o.guardrail}
-        catalogue = {g["id"]: g for g in seed.live_guardrails()}
-        for gid in sorted(triggered_for(workflow, step.id, conditions=conditions) - claimed):
+        catalogue = {g["id"]: g for g in live}
+        for gid in sorted(triggered_for(workflow, step.id, conditions=conditions,
+                                        guardrails=live) - claimed):
             obligations.append(Obligation(text=catalogue[gid]["rule"],
                                           source=f"predicate {catalogue[gid]['pred']}",
                                           guardrail=gid))

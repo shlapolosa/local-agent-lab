@@ -44,8 +44,9 @@ class Composition:
     connectors: tuple[tuple[str, str], ...] = ()
 
 
-def _catalogue() -> list[dict]:
-    return list(seed.artifact("family_triggers")["families"])
+def _catalogue(families=None) -> list[dict]:
+    """The family triggers. `families` lets a caller supply the governed copy under a pin."""
+    return list(families if families is not None else seed.artifact("family_triggers")["families"])
 
 
 def _vectors(workflow: Workflow) -> list[dict]:
@@ -54,14 +55,15 @@ def _vectors(workflow: Workflow) -> list[dict]:
 
 
 def families_for(workflow: Workflow, *, topology: str,
-                 conditions: Mapping[str, bool] | None = None) -> frozenset[str]:
+                 conditions: Mapping[str, bool] | None = None,
+                 families: list[dict] | None = None) -> frozenset[str]:
     """Move 3 — the union of what every step calls for, plus what the topology itself requires."""
     if topology not in TOPOLOGIES:
         raise CompositionError(f"{topology!r} is not a published topology; expected one of "
                                f"{list(TOPOLOGIES)}")
     vectors = _vectors(workflow)
     present: set[str] = set()
-    for family in _catalogue():
+    for family in _catalogue(families):
         allowed = family.get("topology")
         if allowed is not None:
             if topology in allowed:
@@ -95,21 +97,23 @@ def _modifiers(workflow: Workflow) -> dict[str, str]:
 def compose(workflow: Workflow, *, topology: str,
             conditions: Mapping[str, bool] | None = None,
             grounding_sources: int = 0,
-            obligations: Iterable[str] = ()) -> Composition:
+            obligations: Iterable[str] = (),
+            families: list[dict] | None = None) -> Composition:
     """The composed design — what the `decision_composition` tool returns."""
     if not len(workflow):
         raise CompositionError("a composition needs a workflow; there is nothing to derive from")
-    families = families_for(workflow, topology=topology, conditions=conditions)
-    catalogue = {f["id"]: f for f in _catalogue()}
+    present = families_for(workflow, topology=topology, conditions=conditions,
+                           families=families)
+    catalogue = {f["id"]: f for f in _catalogue(families)}
 
     variants: dict[str, str] = {}
-    if "F1" in families and grounding_sources > 1:
+    if "F1" in present and grounding_sources > 1:
         variants["F1"] = catalogue["F1"]["variant"]["name"]
 
-    enforcement = {fid: tuple(catalogue[fid].get("guardrails", ())) for fid in sorted(families)}
+    enforcement = {fid: tuple(catalogue[fid].get("guardrails", ())) for fid in sorted(present)}
     bound = {g for guardrails in enforcement.values() for g in guardrails}
     connectors = tuple((s.id, nxt) for s in workflow for nxt in s.determines)
 
-    return Composition(topology=topology, families=families, variants=variants,
+    return Composition(topology=topology, families=present, variants=variants,
                        modifiers=_modifiers(workflow), enforcement=enforcement,
                        unbound=frozenset(set(obligations) - bound), connectors=connectors)

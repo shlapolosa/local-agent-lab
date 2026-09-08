@@ -102,6 +102,13 @@ services:
       REFERENCE_EMBED_DIM: ${REFERENCE_EMBED_DIM:-1024}
       REFERENCE_EMBED_KEY: ${REFERENCE_EMBED_KEY:-}       # a VIRTUAL key — the upstream one is the gateway's
 
+  decision-mcp:               # the CAFÉ derivations (gateway alias decision_mcp) — internal only.
+    <<: *sub                  # Pure derivation over facet vectors: no store, no bucket, no database.
+    command: ["python", "-m", "lab.substrate.mcp.decision.server"]   # It reads the governed rules
+    environment:              # through the gateway like any other caller.
+      <<: *env                # re-merged, because naming `environment` here replaces *sub's copy
+      REFERENCE_MCP_URL: ${REFERENCE_MCP_URL:-http://reference-mcp:9700/mcp}
+
   continuations:              # approving an approval starts the run it releases. Redis only:
     <<: *sub                  # no store, no bucket, no model, no provider credential, no ingress.
     command: ["python", "-m", "lab.substrate.continuations"]
