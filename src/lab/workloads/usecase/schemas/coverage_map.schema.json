@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "properties": {
+    "matched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "function": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "capability_label": {
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "lookup",
+              "assumption",
+              "survey"
+            ]
+          }
+        },
+        "required": [
+          "function",
+          "capability_id",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "functions_without_capability": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilities_without_function": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "gap_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "owning_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "matched",
+    "functions_without_capability",
+    "capabilities_without_function"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "coverage_map"
+}

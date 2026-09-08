@@ -29,6 +29,9 @@ from lab.platform.contracts import (
     StorageTools,
 )
 from lab.workloads import gateway
+from lab.workloads.usecase import agents as A
+from lab.workloads.usecase.gates import run_gated
+from lab.workloads.usecase.steps import STEPS
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
@@ -54,15 +57,19 @@ PROMPT = ("Confirm the criticality class derived for this use case. It sets the 
           "derivation found, and say why: an override is how the framework learns it is mis-tuned.")
 
 
-def make_cfg(*, credential="", mcp_url="", traceparent="", agent=None, tracer=None,
+def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=None,
              root_ctx=None, run_id=""):
-    """The ONE config contract. Nothing below reads the environment."""
+    """The ONE config contract. Nothing below reads the environment.
+
+    `agents` maps a step key to its agent. A step with no entry is SKIPPED and stays in
+    `pending_steps` — which is how this workload ran before any agent existed and how a deployment
+    missing one model still produces a partial, honest record instead of failing."""
     headers = {"Authorization": f"Bearer {credential}"} if credential else {}
     if traceparent:
         headers["traceparent"] = traceparent
     return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
-            "credential": credential, "agent": agent, "tracer": tracer, "root_ctx": root_ctx,
-            "run_id": run_id}
+            "credential": credential, "agents": dict(agents or {}), "tracer": tracer,
+            "root_ctx": root_ctx, "run_id": run_id}
 
 
 def _span(cfg, node):
@@ -126,17 +133,38 @@ def build_workflow(cfg):
 
     @executor(id="derive")
     async def derive(state: dict, ctx: WorkflowContext[dict]) -> None:
-        """Steps 3-11 — the pre-work exercises. Pass-through until their agents land.
+        """Steps 3-11 — the pre-work exercises, in order, each gated before the next sees it.
 
-        The screening record says which steps are PENDING rather than omitting their fields: an
-        absent capability coverage map and one an agent produced empty are different findings, and
-        only one of them is a gap flag."""
+        Agents never call each other: this node is the mediator, and every output passes a
+        deterministic gate with one corrective retry before it becomes context for anything after
+        it. A step whose agent is not wired yet stays in `pending_steps` rather than having its
+        field omitted — an absent coverage map and one an agent produced empty are different
+        findings, and only one of them is a gap flag.
+        """
         with _span(cfg, "derive"):
-            screening = {"pending_steps": dict(PENDING_STEPS),
-                         "submission_ref": state["submission_record_ref"]}
+            available = {"submission": state["submission_record"]["prose"],
+                         **{k: v for k, v in (state.get("corpora") or {}).items()}}
+            derived: dict = {}
+            pending = dict(PENDING_STEPS)
+            for step in STEPS:
+                agent = (cfg.get("agents") or {}).get(step.key)
+                if agent is None:
+                    continue                       # not wired yet; it stays in pending_steps
+                with _span(cfg, f"step_{step.number}"):
+                    out = await run_gated(
+                        agent, A.message(step, A.context_for(step.key, available)),
+                        step=step.number, validator=step.validator(),
+                        normalise=step.normalise, complete=step.complete)
+                derived[step.key] = out
+                available[step.key] = out
+                pending.pop(step.number, None)
+
+            screening = {"pending_steps": pending,
+                         "submission_ref": state["submission_record_ref"], **derived}
             stored = await _call(cfg, SemanticTools.store_spec,
                                  {"spec": screening, "name": "screening.json"})
             state = state | {"screening": screening,
+                             "criticality_band": (derived.get("criticality_band") or {}).get("band", ""),
                              "screening_ref": gateway.ref_from(stored)}
         await ctx.send_message(state)
 
@@ -144,7 +172,10 @@ def build_workflow(cfg):
     async def ask_criticality(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Step 12 — derive the class, then ask an architect to confirm it. Terminal."""
         with _span(cfg, "ask_criticality"):
-            band = state.get("criticality_band") or "business-critical"
+            # Derived by step 7 when its agent ran. Absent, the question still goes to an
+            # architect — with nothing proposed, which is honest: an unasked question is
+            # worse than one whose default is blank.
+            band = state.get("criticality_band") or ""
             summary = {
                 "attachments": len(state.get("attachments") or ()),
                 "intake_groups": len(state.get("intake") or {}),
