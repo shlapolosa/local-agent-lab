@@ -13,7 +13,7 @@ the two good lanes silently never announced because the failed one poisoned the 
 from lab.platform import contracts, workflows
 from lab.platform.contracts import WorkflowStatus
 from lab.substrate import meeting_notifier
-from tests.fixtures.fakes import FakeRedis
+from fixtures.fakes import FakeRedis
 
 PROC = contracts.MEETING_TO_TRANSCRIPT.name
 MINUTES = contracts.TRANSCRIPT_TO_MINUTES.name

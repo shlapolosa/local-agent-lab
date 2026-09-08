@@ -12,7 +12,7 @@ Two things here are easy to get wrong and expensive to discover live:
 import pytest
 
 from lab.platform import contracts, workflows
-from tests.fixtures.fakes import FakeRedis
+from fixtures.fakes import FakeRedis
 
 PROC = contracts.MEETING_TO_TRANSCRIPT.name
 GOOD = {"owner": "maria@contoso.com", "recording": "collab://recording/m1/r1"}
