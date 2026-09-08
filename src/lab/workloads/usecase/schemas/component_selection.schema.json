@@ -1,0 +1,90 @@
+{
+  "type": "object",
+  "properties": {
+    "selected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "string"
+          },
+          "component": {
+            "type": "string"
+          },
+          "rejected_alternatives": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "capability",
+          "component"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "building_blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "owner"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tradeoffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "conflict": {
+            "type": "string"
+          },
+          "sacrificed": {
+            "type": "string"
+          },
+          "compensating_control": {
+            "type": "string"
+          },
+          "review_trigger": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conflict",
+          "sacrificed",
+          "compensating_control",
+          "review_trigger"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "selected",
+    "tradeoffs",
+    "unresolved"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "component_selection"
+}

@@ -26,7 +26,7 @@ from typing import Callable
 
 from lab.workloads.usecase.gates import validator_for
 
-__all__ = ["STEPS", "Step", "schema", "step_for"]
+__all__ = ["DESIGN_STEPS", "SCREENING_STEPS", "STEPS", "Step", "schema", "step_for"]
 
 SCHEMAS = Path(__file__).parent / "schemas"
 PROMPTS = Path(__file__).parent / "prompts"
@@ -183,9 +183,114 @@ def _source_contracts(out: dict) -> list[str]:
     return bad
 
 
+
+# ---------------------------------------------------------------- the design-side rules
+
+def _assertions(out: dict) -> list[str]:
+    """E0.10 / FR-18: "evaluable against a system of record without reading anything the workflow
+    produced". The rule this enforces is the difference between monitoring and self-congratulation:
+    an assertion that reads the workflow's own output is true whenever the workflow says so, and
+    cannot detect the failure it was written for."""
+    bad = []
+    if not out.get("assertions"):
+        bad.append("no outcome assertion — a workflow with influence above the lowest class must "
+                   "declare at least one, monitored independently of the steps producing it")
+    for item in out.get("assertions") or []:
+        if item.get("reads_workflow_output"):
+            bad.append(f'{item.get("statement", "")[:60]!r} reads the workflow\'s own output — it '
+                       f'would be true whenever the workflow says it is, and cannot detect the '
+                       f'failure it was written for')
+        if not str(item.get("evaluated_against", "")).strip():
+            bad.append("an assertion names no system of record to evaluate it against")
+    return bad[:5]
+
+
+def _determinism(out: dict) -> list[str]:
+    """Q1.1-Q1.5. The necessity test is asked ONCE per non-D0 step, and a step reducible by
+    criteria 6-7 is re-tiered to D0 — the observed failure is over-classifying as
+    non-deterministic, which buys an agent where a lookup table would do."""
+    bad = []
+    if not out.get("graph_is_explicit", True):
+        bad.append("the graph is not explicit — that is D3 at orchestration level and a Board "
+                   "escalation, which must be said rather than scored around")
+    tiers = [s.get("tier") for s in out.get("steps") or []]
+    if not tiers:
+        bad.append("no step was classified")
+    for step in out.get("steps") or []:
+        if step.get("tier") != "D0" and not step.get("necessity"):
+            bad.append(f'step {step.get("id")!r} is above D0 with no necessity test — every '
+                       f'non-D0 step is asked once whether it is irreducible')
+        if step.get("necessity") == "by default" and step.get("reducible_to") != "D0":
+            bad.append(f'step {step.get("id")!r} is non-deterministic BY DEFAULT, which means a '
+                       f'rule exists and nobody wrote it down — it re-tiers to D0')
+    aggregate = out.get("governance_tier")
+    if tiers and aggregate and aggregate != max(tiers):
+        bad.append(f"the governance tier is the MAXIMUM of the step tiers: {max(tiers)}, not "
+                   f"{aggregate}")
+    return bad[:5]
+
+
+def _facet_vectors(out: dict) -> list[str]:
+    """Q2.4 and FR-22: every override carries a written justification, and exposure and influence
+    are NOT decided here — they follow by a published derivation, and deciding them in an agent
+    would make the derivation an opinion."""
+    bad = []
+    if not out.get("steps"):
+        bad.append("no step was given a facet vector")
+    for step in out.get("steps") or []:
+        for override in step.get("overrides") or []:
+            if len(str(override.get("justification", "")).strip()) < 10:
+                bad.append(f'the override of {override.get("facet")!r} on step {step.get("id")!r} '
+                           f'has no justification — an override without a reason is a default '
+                           f'nobody checked')
+        for forbidden in ("exposure", "influence"):
+            if forbidden in step:
+                bad.append(f"step {step.get('id')!r} sets {forbidden!r} — that is derived from "
+                           f"these facets by a deterministic service, not decided here")
+    return bad[:5]
+
+
+def _build_surface(out: dict) -> list[str]:
+    """FR-25 and FR-26. The incumbent question is asked FIRST and its failures recorded; an
+    obligation the selected surface cannot enforce sends the design back to step 17, because a
+    different runtime with the same gap is the same gap."""
+    bad = []
+    if not out.get("incumbent_considered"):
+        bad.append("the incumbent-platform question was not asked — it is asked first, and an "
+                   "incumbent that satisfies the obligations is usually the right answer")
+    if out.get("incumbent") and not out.get("incumbent_failed_obligations") \
+            and out.get("surface") != out.get("incumbent"):
+        bad.append(f'the incumbent {out.get("incumbent")!r} was rejected without recording which '
+                   f'obligations it failed — "we chose something else" is not a decision record')
+    return bad
+
+
+def _component_selection(out: dict) -> list[str]:
+    """FR-27 and FR-28. A tradeoff is RECORDED, never resolved by dropping a constraint — a
+    constraint quietly dropped reappears as an incident."""
+    bad = []
+    if not out.get("selected"):
+        bad.append("nothing was selected")
+    for choice in out.get("selected") or []:
+        if not choice.get("rejected_alternatives"):
+            bad.append(f'{choice.get("capability")!r} names no rejected alternative — a selection '
+                       f'with none is a preference written down, not a decision')
+    for tradeoff in out.get("tradeoffs") or []:
+        for field in ("compensating_control", "review_trigger"):
+            if not str(tradeoff.get(field, "")).strip():
+                bad.append(f'a tradeoff has no {field.replace("_", " ")} — that is a dropped '
+                           f'constraint wearing a decision record')
+    for block in out.get("building_blocks") or []:
+        if not str(block.get("owner", "")).strip():
+            bad.append(f'the building block {block.get("what")!r} has no named owner — an '
+                       f'out-of-scope component nobody owns is an obligation nobody carries')
+    return bad[:5]
+
+
 # ---------------------------------------------------------------- the registry
 
-STEPS: tuple[Step, ...] = (
+#: Steps 3-11 — the pre-work exercises, run by the SCREENING process before the criticality gate.
+SCREENING_STEPS: tuple[Step, ...] = (
     Step("3", "frame", "Business Analyst", _frame),
     Step("4", "elements", "Business Architect", _elements),
     Step("5", "coverage_map", "Business Architect", _coverage_map),
@@ -197,9 +302,22 @@ STEPS: tuple[Step, ...] = (
     Step("11", "source_contracts", "Data Architect", _source_contracts),
 )
 
+#: Steps 13-21 — the interpretive half of the DESIGN process. 14, 16, 18, 19 and 22 are absent
+#: because they are deterministic: they are `decision-mcp`'s, not an agent's, and putting one here
+#: would be a second implementation of a published rule.
+DESIGN_STEPS: tuple[Step, ...] = (
+    Step("13", "assertions", "Product Owner", _assertions),
+    Step("15", "determinism", "Solution Architect", _determinism),
+    Step("17", "facet_vectors", "Risk Officer", _facet_vectors),
+    Step("20", "build_surface", "Technology Architect", _build_surface),
+    Step("21", "component_selection", "Solution Architect", _component_selection),
+)
+
+STEPS: tuple[Step, ...] = SCREENING_STEPS + DESIGN_STEPS
+
 
 def step_for(number: str) -> Step:
     for step in STEPS:
         if step.number == number:
             return step
-    raise KeyError(f"no screening step {number!r}; have {[s.number for s in STEPS]}")
+    raise KeyError(f"no step {number!r}; have {[s.number for s in STEPS]}")

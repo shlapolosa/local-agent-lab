@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "properties": {
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "D0",
+              "D1",
+              "D2",
+              "D3"
+            ]
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "necessity": {
+            "enum": [
+              "by necessity",
+              "by default"
+            ]
+          },
+          "reducible_to": {
+            "enum": [
+              "D0",
+              "D1",
+              "D2",
+              "D3",
+              ""
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "necessity"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "governance_tier": {
+      "enum": [
+        "D0",
+        "D1",
+        "D2",
+        "D3"
+      ]
+    },
+    "graph_is_explicit": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "steps",
+    "governance_tier",
+    "graph_is_explicit"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "determinism"
+}

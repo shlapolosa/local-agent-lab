@@ -31,7 +31,7 @@ from lab.platform.contracts import (
 from lab.workloads import gateway
 from lab.workloads.usecase import agents as A
 from lab.workloads.usecase.gates import run_gated
-from lab.workloads.usecase.steps import STEPS
+from lab.workloads.usecase.steps import SCREENING_STEPS
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
@@ -192,7 +192,7 @@ def build_workflow(cfg):
                          **(state.get("corpora") or {})}
             derived: dict = {}
             pending = dict(PENDING_STEPS)
-            for step in STEPS:
+            for step in SCREENING_STEPS:
                 agent = (cfg.get("agents") or {}).get(step.key)
                 if agent is None:
                     continue                       # not wired yet; it stays in pending_steps

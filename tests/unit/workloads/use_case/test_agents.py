@@ -44,10 +44,28 @@ def test_every_step_has_a_schema_a_prompt_and_a_completeness_rule():
 
 def test_every_step_belongs_to_a_named_bounded_context():
     """Grouped by the domain they reason about, not the verb they perform — one vocabulary, one
-    corpus, one owning role."""
-    assert {s.service for s in STEPS} == {
-        "Business Analyst", "Business Architect", "Application Architect",
-        "Product Owner", "Data Architect", "Risk Officer"}
+    corpus, one owning role. Asserted as membership rather than an exact set: the specification's
+    ten services arrive as the phases land, and pinning the set would break on every addition
+    while catching nothing."""
+    services = {s.service for s in STEPS}
+    assert {"Business Analyst", "Business Architect", "Application Architect", "Product Owner",
+            "Data Architect", "Risk Officer", "Solution Architect",
+            "Technology Architect"} <= services
+    assert all(s.service for s in STEPS)
+
+
+def test_the_screening_and_design_halves_do_not_overlap():
+    """A step belongs to exactly one process. One appearing in both would run twice, against two
+    different contexts, and the second answer would silently win."""
+    from lab.workloads.usecase.steps import DESIGN_STEPS, SCREENING_STEPS
+    assert not ({s.number for s in SCREENING_STEPS} & {s.number for s in DESIGN_STEPS})
+    assert set(SCREENING_STEPS) | set(DESIGN_STEPS) == set(STEPS)
+
+
+def test_the_deterministic_steps_are_absent_from_the_agent_registry():
+    """14, 16, 18, 19 and 22 are `decision-mcp`'s. An agent for one would be a second
+    implementation of a published rule, drifting from the service conformance review runs."""
+    assert not ({s.number for s in STEPS} & {"14", "16", "18", "19", "22"})
 
 
 def test_the_schema_travels_in_the_prompt_the_gate_validates_against():
@@ -394,9 +412,7 @@ def test_one_agent_per_step_authenticating_as_the_service_that_owns_it(monkeypat
     A.build_all(STEPS, credential_for=lambda service: f"key-for-{service}",
                 gateway_url="http://gw:4000", model="kimi-k3")
     assert len(seen) == len(STEPS)
-    assert {s for _, s, _ in seen} == {"Business Analyst", "Business Architect",
-                                       "Application Architect", "Product Owner",
-                                       "Data Architect", "Risk Officer"}
+    assert {s for _, s, _ in seen} == {step.service for step in STEPS}
     by_service = {service: kw["credential"] for _, service, kw in seen}
     assert by_service["Business Analyst"] == "key-for-Business Analyst"
 

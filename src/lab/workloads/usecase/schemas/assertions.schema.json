@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "string",
+            "minLength": 15
+          },
+          "evaluated_against": {
+            "type": "string",
+            "minLength": 3
+          },
+          "reads_workflow_output": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "statement",
+          "evaluated_against",
+          "reads_workflow_output"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "assertions"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assertions"
+}

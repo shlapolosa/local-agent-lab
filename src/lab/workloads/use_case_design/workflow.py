@@ -35,12 +35,26 @@ from lab.platform.contracts import (
     StorageTools,
 )
 from lab.workloads import gateway
+from lab.workloads.usecase import agents as A
+from lab.workloads.usecase.gates import run_gated
+from lab.workloads.usecase.steps import DESIGN_STEPS, step_for
 
 #: Declared on every approval this workload raises — see the screening workflow.
 PROCESS = USE_CASE_DESIGN.name
 
 REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, ApprovalTools.ask,
-                  DecisionTools.readiness, DecisionTools.feasibility)
+                  DecisionTools.readiness, DecisionTools.feasibility,
+                  DecisionTools.exposure, DecisionTools.obligations,
+                  DecisionTools.composition)
+
+#: The reference corpora the design exercises read. Same contract as the screening side:
+#: best effort, and a step whose corpus is absent is not run.
+CORPORA = {
+    "determinism_criteria": ("determinism_criteria", "criteria"),
+    "facet_schema": ("facet_schema", "facets"),
+    "surface_enforceability": ("surface_enforceability", "matrix"),
+    "ai_capability_map": ("ai_capability_map", "capabilities"),
+}
 
 #: Everything steps 17-25 would produce. Named here because "no partial design package" is only
 #: checkable against a list of what a package HAS — a test that guessed would pass on a typo.
@@ -57,9 +71,6 @@ GATE_EVIDENCE = {
 }
 
 PENDING_STEPS = {
-    "13": "declare assertions", "17": "assign facet vectors",
-    "18": "derive exposure and influence", "19": "evaluate obligations",
-    "20": "select build surface", "21": "select components", "22": "compose architecture",
     "23": "estimate cost", "24": "build business case", "25": "generate delivery artifacts",
 }
 
@@ -74,14 +85,16 @@ FINDING_PROMPT = (
     "event afterwards, so this is the only place it can be caught.")
 
 
-def make_cfg(*, credential="", mcp_url="", traceparent="", agent=None, tracer=None,
+def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=None,
              root_ctx=None, run_id=""):
+    """The ONE config contract. `agents` maps a step key to its agent; a step with no entry stays
+    in `pending_steps` rather than failing the run."""
     headers = {"Authorization": f"Bearer {credential}"} if credential else {}
     if traceparent:
         headers["traceparent"] = traceparent
     return {"headers": headers, "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
-            "credential": credential, "agent": agent, "tracer": tracer, "root_ctx": root_ctx,
-            "run_id": run_id}
+            "credential": credential, "agents": dict(agents or {}), "tracer": tracer,
+            "root_ctx": root_ctx, "run_id": run_id}
 
 
 def _span(cfg, node):
@@ -121,10 +134,64 @@ def feasibility_evidence(screening: dict) -> dict:
             "capability_meets_target": bool(heat.get("meets_target"))}
 
 
+def _corpora() -> dict:
+    """The published rules these exercises read, from the packaged seed.
+
+    Read locally rather than through `reference_lookup` because they are the SAME artifacts a pin
+    would serve and the corpus is not yet published — the derivations already say which source they
+    used, and doing the same here would be a second, quieter claim. When the corpus is published
+    this becomes a pinned read and the provenance travels with it."""
+    from lab.core.usecase import seed
+    out = {}
+    for key, (artifact, section) in CORPORA.items():
+        try:
+            out[key] = seed.artifact(artifact)[section]
+        except (FileNotFoundError, KeyError):
+            continue
+    return out
+
+
+async def _agent_step(cfg, number: str, available: dict, derived: dict, pending: dict) -> None:
+    """Run one design exercise if its agent and its context are both there."""
+    step = step_for(number)
+    agent = (cfg.get("agents") or {}).get(step.key)
+    if agent is None:
+        return
+    needs = set(A.CONTEXT_FOR.get(step.key, ())) - set(available)
+    if needs:
+        pending[number] = f"{step.key} — needs {sorted(needs)}"
+        return
+    with _span(cfg, f"step_{number}"):
+        out = await run_gated(agent, A.message(step, A.context_for(step.key, available)),
+                              step=number, validator=step.validator(),
+                              normalise=step.normalise, complete=step.complete)
+    derived[step.key] = out
+    available[step.key] = out
+    pending.pop(number, None)
+
+
+def _workflow_payload(state: dict, derived: dict) -> dict:
+    """The facet vectors as `decision-mcp` takes them.
+
+    Step 17's output IS the payload — the vectors it assigned, not a re-derivation of them here.
+    An `id` is required and anything without one is dropped: a facet vector nobody can attach to a
+    step cannot be reasoned about, and passing it would put a phantom step in the control set.
+    """
+    steps = [dict(v) for v in (derived.get("facet_vectors") or {}).get("steps") or []
+             if str(v.get("id", "")).strip()]
+    return {"steps": steps,
+            "criticality": (state.get("criticality") or {}).get("criticality_class", "routine")}
+
+
 def build_workflow(cfg):
     @executor(id="readiness")
     async def readiness(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Steps 13-14 — declare the assertions, then rule on readiness.
+
+        Step 13 runs BEFORE the gate and its result does not feed it, which looks redundant until
+        you write the assertions: they are what the use case would have to make true, and a run
+        returned as not-ready is far more useful carrying them than carrying nothing. The gate
+        rules on evidence either way.
 
         A FAIL halts the run and returns the use case with the failed gates named (FR-19). It is
         not an exception: "return to CAM phase 2 or 3" is a correct outcome, and the record that
@@ -132,10 +199,17 @@ def build_workflow(cfg):
         with _span(cfg, "readiness"):
             raw = await _call(cfg, StorageTools.read_artifact, {"ref": state["screening_ref"]})
             screening = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+            derived: dict = {}
+            pending: dict = {}
+            await _agent_step(cfg, "13",
+                              {**{k: v for k, v in screening.items() if v},
+                               "criticality": dict(state.get("criticality") or {})},
+                              derived, pending)
             verdict = await _call(cfg, DecisionTools.readiness, {
                 "gates_evidenced": gate_evidence(screening, state.get("criticality") or {}),
                 "criticality": (state.get("criticality") or {}).get("criticality_class", "routine")})
             state = state | {"screening": screening, "readiness": verdict["verdict"],
+                             "derived": derived, "pending": pending,
                              "readiness_failed": list(verdict.get("failed") or ()),
                              "halted": verdict["verdict"] == "fail",
                              "verdict": "not ready" if verdict["verdict"] == "fail" else ""}
@@ -148,23 +222,87 @@ def build_workflow(cfg):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
+            derived = dict(state.get("derived") or {})
+            pending = dict(state.get("pending") or {})
+            await _agent_step(cfg, "15",
+                              {**_corpora(),
+                               **{k: v for k, v in state["screening"].items() if v}},
+                              derived, pending)
             ruled = await _call(cfg, DecisionTools.feasibility,
                                 feasibility_evidence(state["screening"]))
+            # The governance tier is step 15's answer, not a constant. It was one while step 15 was
+            # a pass-through, and a hardcoded D2 would have kept reporting D2 for a D0 use case
+            # long after the step that decides it started running.
             state = state | {"verdict": ruled["verdict"], "verdict_rule": ruled["rule"],
-                             "halted": bool(ruled["halts"]), "governance_tier": "D2"}
+                             "halted": bool(ruled["halts"]), "derived": derived,
+                             "pending": pending, "determinism": derived.get("determinism") or {},
+                             "governance_tier": (derived.get("determinism") or {})
+                                                .get("governance_tier", "")}
         await ctx.send_message(state)
 
     @executor(id="derive_design")
     async def derive_design(state: dict, ctx: WorkflowContext[dict]) -> None:
-        """Steps 17-25. Not attempted at all on a halt — that is the whole of FR-11."""
+        """Steps 17-22 — the risk and architecture chain. Not attempted at all on a halt.
+
+        The order is the derivation's own and cannot be rearranged: facets (17) are assigned before
+        exposure and influence are DERIVED from them (18); the obligations (19) follow from those
+        classes; the build surface (20) is tested against those obligations; components (21) are
+        selected against them; and the composition (22) is the union of what the facets call for.
+        Every deterministic link is a governed tool, so the rule a run obeyed is the released one
+        rather than a copy living here.
+        """
         with _span(cfg, "derive_design"):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
-            package = {"pending_steps": dict(PENDING_STEPS),
+
+            screening = state["screening"]
+            available = {**_corpora(), **{k: v for k, v in screening.items() if v},
+                         "criticality": dict(state.get("criticality") or {}),
+                         "determinism": state.get("determinism") or {}}
+            derived: dict = dict(state.get("derived") or {})
+            pending = dict(PENDING_STEPS) | dict(state.get("pending") or {})
+            available |= derived
+
+            # 17 — the facet vector per step
+            await _agent_step(cfg, "17", available, derived, pending)
+            steps_payload = _workflow_payload(state, derived)
+
+            if steps_payload["steps"]:
+                # 18 — exposure and influence, DERIVED from those facets by the governed service
+                risk = await _call(cfg, DecisionTools.exposure, {"workflow": steps_payload})
+                derived["risk"] = risk
+                # 19 — the control requirement set, and the commit invariant
+                obligations = await _call(cfg, DecisionTools.obligations, {
+                    "workflow": steps_payload, "conditions": dict(state.get("conditions") or {})})
+                derived["obligations"] = obligations
+                available["obligations"] = obligations
+            else:
+                pending["18"] = "derive exposure and influence — needs a facet vector per step"
+                pending["19"] = "evaluate obligations — needs a facet vector per step"
+
+            # 20 and 21 — the surface, then the components, both against those obligations
+            await _agent_step(cfg, "20", available, derived, pending)
+            await _agent_step(cfg, "21", available, derived, pending)
+
+            # 22 — the composition. Its topology comes from step 20 because that is where the
+            # question "who owns control flow at runtime" is actually answered.
+            topology = (derived.get("build_surface") or {}).get("topology", "")
+            if steps_payload["steps"] and topology:
+                derived["composition"] = await _call(cfg, DecisionTools.composition, {
+                    "workflow": steps_payload, "topology": topology,
+                    "conditions": dict(state.get("conditions") or {}),
+                    "obligations_required": list((derived.get("obligations") or {})
+                                                 .get("guardrails") or ())})
+                pending.pop("22", None)
+            else:
+                pending["22"] = "compose architecture — needs a topology from step 20"
+
+            package = {"pending_steps": pending,
                        "submission_ref": state["submission_ref"],
                        "screening_ref": state["screening_ref"],
-                       "criticality": dict(state.get("criticality") or {})}
+                       "criticality": dict(state.get("criticality") or {}),
+                       **derived}
             stored = await _call(cfg, SemanticTools.store_spec,
                                  {"spec": package, "name": "design.package.json"})
             state = state | {"design": package, "design_ref": gateway.ref_from(stored),
@@ -236,6 +374,9 @@ async def _conformance(cfg, state: dict) -> dict:
             "verdict": "proceed", "halted": False,
             "architecture_ref": state["design_ref"],
             "business_case_ref": state["design_ref"],
+            "risk_ref": state["design_ref"] if (state.get("design") or {}).get("risk") else "",
+            "obligations_ref": (state["design_ref"]
+                                if (state.get("design") or {}).get("obligations") else ""),
             "recommendation": state.get("recommendation", ""),
             "governance_tier": state.get("governance_tier", ""),
             "readiness": state.get("readiness", ""),

@@ -470,3 +470,170 @@ def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
                  if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
     assert "capabilities" in screening["corpora_unavailable"]
     assert "coverage_map" not in screening, "step 5 must not run without its capability map"
+
+
+# ---------------------------------------------------------------- the design chain, steps 17-22
+
+DESIGN_ANSWERS = {
+    "assertions": {"assertions": [{"statement": "every urgent referral was seen within 24 hours",
+                                   "evaluated_against": "patient administration system",
+                                   "reads_workflow_output": False}]},
+    "determinism": {"steps": [{"id": "n1", "tier": "D1", "necessity": "by necessity"}],
+                    "governance_tier": "D1", "graph_is_explicit": True},
+    "facet_vectors": {"steps": [{"id": "n1", "activity": "interpret", "determinism": "D2",
+                                 "effect": "none"},
+                                {"id": "n2", "activity": "commit", "determinism": "D0",
+                                 "effect": "record write"}]},
+    "build_surface": {"incumbent_considered": True, "surface": "Foundry hosted agent",
+                      "topology": "T2", "unenforceable_obligations": []},
+    "component_selection": {"selected": [{"capability": "inference", "component": "Foundry",
+                                          "rejected_alternatives": ["self-hosted"]}],
+                            "tradeoffs": [], "unresolved": []},
+}
+
+
+def _design_chain_router(**extra):
+    # The full evidence set: step 21 reads the quality attributes, so a router carrying only what
+    # the gate needs would leave it pending and make the chain test quieter than it looks.
+    return Router({SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
+                   StorageTools.read_artifact: dict(READY) | {
+                       "quality_attributes": {"attributes": [{"name": "latency"}]}},
+                   DecisionTools.readiness: {"verdict": "pass", "failed": [], "conditions": {}},
+                   DecisionTools.feasibility: {"verdict": "proceed", "rule": "r", "halts": False},
+                   DecisionTools.exposure: {"steps": {"n1": {"exposure": 0, "influence": 1}},
+                                            "max_exposure": 1, "max_influence": 1},
+                   DecisionTools.obligations: {"guardrails": ["G01", "G02"], "by_step": {},
+                                               "commit_invariant_holds": True, "violations": [],
+                                               "rules_source": {"kind": "local seed"}},
+                   DecisionTools.composition: {"topology": "T2", "families": ["F2", "F4"],
+                                               "enforcement": {}, "unbound": [], "variants": {},
+                                               "modifiers": {}, "connectors": [],
+                                               "rules_source": {"kind": "local seed"}},
+                   ApprovalTools.ask: {"request_id": "apr-2", "review_app": "r"},
+                   **extra}, full=True)
+
+
+def _with_design_agents(h, **overrides):
+    h.cfg["agents"] = {k: ScriptedAgent(overrides.get(k, v))
+                       for k, v in DESIGN_ANSWERS.items() if overrides.get(k, v) is not None}
+
+
+def test_the_derivation_runs_in_the_order_the_framework_publishes():
+    """Facets are assigned BEFORE exposure is derived from them; obligations follow those classes;
+    the surface is tested against those obligations; the composition is last. Rearranged, each step
+    would be reasoning about something not yet decided."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    order = [c[0] for c in h.router.calls if c[0].startswith("decision_")]
+    assert order == [DecisionTools.readiness, DecisionTools.feasibility, DecisionTools.exposure,
+                     DecisionTools.obligations, DecisionTools.composition]
+
+
+def test_the_facet_vectors_step_17_assigned_are_what_18_derives_from():
+    """Step 17's output IS the payload — not a re-derivation here, which would be a second opinion
+    about the same steps."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == DecisionTools.exposure][0]
+    assert [s["id"] for s in sent["workflow"]["steps"]] == ["n1", "n2"]
+
+
+def test_the_topology_the_composition_uses_comes_from_the_build_surface_step():
+    """Step 20 is where "who owns control flow at runtime" is actually answered."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == DecisionTools.composition][0]
+    assert sent["topology"] == "T2"
+    assert sent["obligations_required"] == ["G01", "G02"]
+
+
+def test_a_facet_vector_with_no_step_id_is_dropped_rather_than_becoming_a_phantom_step():
+    """A vector nobody can attach to a step would put a step in the control set that does not
+    exist — and every obligation derived for it would be real."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h, facet_vectors={"steps": [
+            {"id": "n1", "activity": "commit", "determinism": "D0", "effect": "record write"},
+            {"id": "", "activity": "commit", "determinism": "D0", "effect": "record write"}]})
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == DecisionTools.exposure][0]
+    assert [s["id"] for s in sent["workflow"]["steps"]] == ["n1"]
+
+
+def test_without_facet_vectors_the_derivations_are_not_attempted():
+    """18 and 19 read a facet vector per step. Called with none they would derive a control set for
+    an empty workflow — which is valid, empty, and completely wrong. Step 17 having no agent at all
+    is the honest way to reach that state: the gate refuses an EMPTY vector set outright."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h, facet_vectors=None)
+        run_spine(W, h, _design_inputs())
+    called = [c[0] for c in h.router.calls]
+    assert DecisionTools.exposure not in called
+    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    assert "18" in package["pending_steps"] and "19" in package["pending_steps"]
+
+
+def test_without_a_topology_the_composition_is_not_attempted():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h, build_surface=None)
+        run_spine(W, h, _design_inputs())
+    assert DecisionTools.composition not in [c[0] for c in h.router.calls]
+    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    assert "needs a topology" in package["pending_steps"]["22"]
+
+
+def test_the_design_package_carries_what_each_step_produced():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    assert set(package) >= {"assertions", "determinism", "facet_vectors", "risk", "obligations",
+                            "build_surface", "component_selection", "composition"}
+    assert package["obligations"]["guardrails"] == ["G01", "G02"]
+
+
+def test_a_halted_run_still_attempts_none_of_it():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router(**{
+            DecisionTools.feasibility: {"verdict": "reject", "rule": "r", "halts": True}})) as h:
+        _with_design_agents(h)
+        out = run_spine(W, h, _design_inputs())
+    assert out["halted"] is True
+    assert not [c for c in h.router.calls if c[0] in (DecisionTools.exposure,
+                                                      DecisionTools.obligations,
+                                                      DecisionTools.composition)]
+
+
+def test_the_governance_tier_is_step_15s_answer_and_not_a_constant():
+    """It was a constant D2 while step 15 was a pass-through. Now that the step decides it, a
+    hardcoded tier would keep reporting D2 for a D0 use case and nothing downstream could tell."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router()) as h:
+        _with_design_agents(h, determinism={"steps": [{"id": "n1", "tier": "D0",
+                                                       "necessity": "by default",
+                                                       "reducible_to": "D0"}],
+                                            "governance_tier": "D0", "graph_is_explicit": True})
+        out = run_spine(W, h, _design_inputs())
+    assert out["governance_tier"] == "D0"
+
+
+def test_a_readiness_return_still_carries_the_assertions_it_declared():
+    """Step 13 runs before the gate. A use case returned as not-ready is far more useful carrying
+    what it would have had to make true than carrying nothing."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_chain_router(**{
+            DecisionTools.readiness: {"verdict": "fail", "failed": ["B"], "conditions": {}}})) as h:
+        _with_design_agents(h)
+        out = run_spine(W, h, _design_inputs())
+    assert out["verdict"] == "not ready"
+    assert [c for c in h.router.calls if c[0].startswith("decision_")][0][0] == \
+        DecisionTools.readiness

@@ -1,0 +1,80 @@
+{
+  "type": "object",
+  "properties": {
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "activity": {
+            "type": "string"
+          },
+          "determinism": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "reversibility": {
+            "type": "string"
+          },
+          "blast_radius": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "authorisation": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "overrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "facet": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "justification": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "facet",
+                "to",
+                "justification"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "activity",
+          "determinism",
+          "effect"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "steps"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "facet_vectors"
+}

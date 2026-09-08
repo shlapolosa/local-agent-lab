@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "incumbent_considered": {
+      "type": "boolean"
+    },
+    "incumbent": {
+      "type": "string"
+    },
+    "incumbent_failed_obligations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "surface": {
+      "type": "string",
+      "minLength": 3
+    },
+    "topology": {
+      "enum": [
+        "T1",
+        "T2",
+        "T3",
+        "T4"
+      ]
+    },
+    "unenforceable_obligations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "incumbent_considered",
+    "surface",
+    "topology",
+    "unenforceable_obligations"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "build_surface"
+}

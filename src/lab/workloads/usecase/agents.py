@@ -40,6 +40,15 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     "ontology_delta": ("elements", "ontology"),
     "workflow_graph": ("elements", "coverage_map", "ontology_delta"),
     "source_contracts": ("workflow_graph", "source_classification"),
+    # The design half. Note what step 17 does NOT read: the control requirement set it will
+    # eventually shape. Facets are assigned from the step's own nature, and letting it see the
+    # obligations would let it assign the vector that produces the controls it prefers.
+    "assertions": ("workflow_graph", "criticality"),
+    "determinism": ("workflow_graph", "determinism_criteria"),
+    "facet_vectors": ("workflow_graph", "determinism", "facet_schema"),
+    "build_surface": ("obligations", "realisation_match", "surface_enforceability"),
+    "component_selection": ("obligations", "quality_attributes", "realisation_match",
+                            "ai_capability_map", "build_surface"),
 }
 
 #: CR-19, as data rather than a convention. Step 12 confirms the criticality class and must never

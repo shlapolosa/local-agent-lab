@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from lab.platform import container
+from lab.platform import config, container
 from lab.platform.contracts import USE_CASE_DESIGN
 from lab.workloads.identity import agent_headers
 from lab.workloads.run import governed_run
+from lab.workloads.usecase import agents as A
+from lab.workloads.usecase.steps import DESIGN_STEPS
 from lab.workloads.use_case_design.workflow import make_cfg, run_workflow
 
 SERVICE = "process-usecase-design"
@@ -24,6 +26,12 @@ AGENT_PREFIX = "USECASE_AGENT"
 def _cred() -> str:
     """This workload's bearer credential — an Entra JWT via MSAL, or its durable virtual key."""
     return agent_headers(AGENT_PREFIX)["Authorization"].removeprefix("Bearer ").strip()
+
+
+def _credential_for(service: str) -> str:
+    """Which identity each bounded context authenticates as — one today, and this is the seam that
+    makes per-service registrations a configuration change. See the screening host."""
+    return _cred()
 
 
 def run_fields(out: dict) -> dict:
@@ -43,9 +51,15 @@ async def run_once(root, submission_ref: str, screening_ref: str, criticality=No
         root, span_name="usecase-design-run", process=PROCESS,
         label=f"design {submission_ref}", on_trace=on_trace,
         attrs={"usecase.criticality.given": bool(criticality)},
-        cfg=lambda c: make_cfg(credential=_cred(), traceparent=c.traceparent_header,
-                               tracer=c.tracer, root_ctx=c.root_ctx, mcp_url=c.mcp_url,
-                               run_id=c.run_id),
+        cfg=lambda c: make_cfg(
+            credential=_cred(), traceparent=c.traceparent_header, tracer=c.tracer,
+            root_ctx=c.root_ctx, mcp_url=c.mcp_url, run_id=c.run_id,
+            # Built in the composition root, because building one reads configuration and the
+            # graph below is deliberately unable to.
+            agents=A.build_all(DESIGN_STEPS, credential_for=_credential_for,
+                               gateway_url=config.GATEWAY_URL,
+                               model=config.USECASE_AGENT_MODEL,
+                               headers=c.traceparent)),
         run=run_workflow, inputs=inputs, fields=run_fields)
 
 
