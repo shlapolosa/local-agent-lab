@@ -218,3 +218,31 @@ def test_the_port_names_no_provider_and_imports_nothing_outside_the_domain():
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+# --------------------------------------------- a speaker is someone who actually said something
+def test_a_segment_with_no_words_mints_no_speaker():
+    """A diarizer segments AUDIO, not speech, so it can attribute a breath, a cough or a keyboard
+    to a voice it thinks is new — and return that segment with empty text.
+
+    Measured live 7 Sep 2026: a one-person meeting came back with three empty SPEAKER_01 segments.
+    Every one of them flowed through to the approval card, so a human was asked to name a person
+    who never spoke, and the run reported `speakers: 2`. Asking someone to identify silence is
+    worse than asking nothing: it invites a confident wrong answer at the one gate that exists to
+    prevent confident wrong answers.
+
+    So a label must be minted BY WORDS. The empty segments stay in `segments` — a provider's
+    timeline is evidence and this lab does not quietly rewrite it — and a silent span belonging to
+    a speaker who DID talk still counts toward their share, because a pause inside a turn is their
+    time. What is excluded is only the label that never said anything at all.
+    """
+    t = S.Transcript(segments=(
+        S.Segment(start=0.0, end=1.0, text="", speaker="SPEAKER_01"),
+        S.Segment(start=1.0, end=3.0, text="hello there", speaker="SPEAKER_00"),
+        S.Segment(start=3.0, end=4.0, text="   ", speaker="SPEAKER_01"),
+        S.Segment(start=4.0, end=5.0, text="", speaker="SPEAKER_00"),
+    ))
+    assert t.labels == ("SPEAKER_00",)
+    assert [(s.label, s.turns) for s in t.speakers] == [("SPEAKER_00", 2)]
+    assert t.speakers[0].seconds == 3.0          # a pause INSIDE a real speaker's turn is their time
+    assert len(t.segments) == 4                  # the provider's own timeline is left intact

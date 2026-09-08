@@ -11,9 +11,41 @@ import asyncio
 import runpy
 from types import SimpleNamespace
 
-from lab.platform.contracts import PROCESSES
+from lab.platform.contracts import MEETING_TO_TRANSCRIPT, PROCESSES
 from lab.workloads import consumer as base
 from lab.workloads.meeting_to_transcript import consumer
+
+
+def test_every_input_the_contract_declares_reaches_the_run():
+    """The invariant, not a list: whatever `MEETING_TO_TRANSCRIPT` declares, this consumer forwards.
+
+    `provider` reached the contract and stopped HERE, and the failure was silent and total: a lane
+    submitted as `assemblyai` was transcribed by the configured default and written to
+    `...munsit.segments.json`. Every lane produced the same provider's transcript, so a comparison
+    across three providers compared one provider with itself — and every run reported success.
+    Measured live 8 Sep 2026 on `wfr-deae3ef2bb5d`: inputs said assemblyai, the answer said munsit.
+
+    The minutes consumer has had this test since `chat_id` did exactly the same thing. This one did
+    not, which is the whole reason it shipped.
+    """
+    inputs = {"recording": "collab://recording/m1/r1",
+              "owner": "maria@contoso.com",
+              "provider": "assemblyai"}
+    seen = {}
+
+    async def fake_run_once(root, recording, owner, provider="", on_trace=None):
+        seen.update(recording=recording, owner=owner, provider=provider)
+        return {"approval_id": "apr-1"}
+
+    saved, consumer.run_once = consumer.run_once, fake_run_once
+    try:
+        asyncio.run(consumer._run(object(), SimpleNamespace(inputs=inputs), on_trace=None))
+    finally:
+        consumer.run_once = saved
+
+    assert seen == inputs
+    assert set(seen) == {f.name for f in MEETING_TO_TRANSCRIPT.inputs}, \
+        "a new input on the contract that never reaches the run is a silently dead field"
 
 
 def test_it_is_registered_and_gets_its_own_consumer_group():
@@ -28,7 +60,7 @@ def test_it_unpacks_its_own_inputs_by_name():
     `inputs` and nothing process-shaped, which is what keeps two processes from coupling."""
     seen = {}
 
-    async def fake_run_once(root, recording, owner, on_trace=None):
+    async def fake_run_once(root, recording, owner, provider="", on_trace=None):
         seen.update(recording=recording, owner=owner, traced=on_trace)
         return {"request_id": "apr-1"}
 

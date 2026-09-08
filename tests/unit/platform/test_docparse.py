@@ -50,8 +50,13 @@ def test_tables_derive_from_artifacts():
     ft = artifacts.FILE_TYPES
     assert docparse.IMAGE_TYPES == {"." + e: ct for e, (ct, k) in ft.items() if k == "image"}
     assert docparse.DOC_TYPES == {"." + e for e, (ct, k) in ft.items() if k == "document"}
-    assert set(docparse.IMAGE_TYPES) == {".png", ".jpg", ".jpeg", ".gif", ".webp"}          # behaviour kept
-    assert docparse.DOC_TYPES == {".docx", ".pdf", ".md", ".markdown", ".txt", ".rst", ".csv"}
+    # MEMBERSHIP, not an exact set: pinning the whole set breaks on every additive change and
+    # catches nothing — adding `.vtt` so a tenant transcript could be read broke this line and
+    # nothing else, which is the argument. What must stay true is that each kind keeps its members
+    # and that the two views never overlap.
+    assert {".png", ".jpg", ".jpeg", ".gif", ".webp"} <= set(docparse.IMAGE_TYPES)
+    assert {".docx", ".pdf", ".md", ".markdown", ".txt", ".rst", ".csv"} <= docparse.DOC_TYPES
+    assert not set(docparse.IMAGE_TYPES) & docparse.DOC_TYPES        # a file is read ONE way
     for ext, ct in docparse.IMAGE_TYPES.items():
         assert artifacts.content_type_for("f" + ext) == ct
     assert artifacts.CONTENT_TYPES == {e: ct for e, (ct, _) in ft.items()}

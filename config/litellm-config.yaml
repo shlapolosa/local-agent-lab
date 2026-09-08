@@ -162,6 +162,27 @@ router_settings:                      # Redis: shared state for rate limits, bud
   redis_port: os.environ/REDIS_PORT
   redis_password: os.environ/REDIS_PASSWORD
 
+  # Prefixed ALIASES, so a developer can SEE the non-Claude models in Claude Code's `/model`.
+  # Claude Code's gateway model discovery keeps a model only when its id contains "claude" or
+  # "anthropic" (its gateway compatibility guide, "Model discovery"), so `kimi-k3` and friends were
+  # always callable BY NAME and never listed — and the picker is how a developer chooses one.
+  # Measured 8 Sep 2026 on a throwaway gateway: 12 models served, exactly the 7 matching ids cached.
+  #
+  # An ALIAS, not a rename, and that distinction is the whole design: `model_group_alias` resolves
+  # to the SAME model group, so there is one deployment, one spend identity, and every existing
+  # caller of `kimi-k3` — workload code, each agent key's `models` list, the allowlist below — keeps
+  # working untouched. Verified live on BOTH surfaces, Anthropic /v1/messages and OpenAI
+  # /v1/chat/completions, for the alias and the original.
+  #
+  # The cost, stated: /v1/models is ONE endpoint, so an OpenAI-spec client sees these names too and
+  # the catalogue reads as 12 entries for 7 models.
+  model_group_alias:
+    claude/kimi-k3: {model: kimi-k3, hidden: false}
+    claude/kimi-k2.7-code: {model: kimi-k2.7-code, hidden: false}
+    claude/gpt-oss-120b: {model: gpt-oss-120b, hidden: false}
+    claude/glm-flash: {model: glm-flash, hidden: false}
+    claude/auto: {model: auto, hidden: false}
+
 general_settings:
   # The REST ingress of workflow-frontdoor, reached THROUGH the gateway so it inherits the whole
   # governance plane: custom_auth validates an Entra token (issuer, audience, signature against the
@@ -206,7 +227,12 @@ litellm_settings:
     user_role: "internal_user"
     max_budget: 10.0
     budget_duration: "30d"
-    models: ["gpt-oss-120b", "glm-flash", "kimi-k3", "kimi-k2.7-code", "claude-sonnet-5", "claude-haiku-4-5", "auto"]
+    # The aliases are named HERE too, or a developer identity cannot see them however the
+    # catalogue is configured: this is a per-USER restriction, and it is what limited an Entra
+    # identity to 7 models while the master key saw 12. NOTE it applies at user CREATION, so an
+    # existing developer keeps the list they were provisioned with until their key is updated.
+    models: ["gpt-oss-120b", "glm-flash", "kimi-k3", "kimi-k2.7-code", "claude-sonnet-5", "claude-haiku-4-5", "auto",
+             "claude/kimi-k3", "claude/kimi-k2.7-code", "claude/gpt-oss-120b", "claude/glm-flash", "claude/auto"]
   callbacks: ["otel"]                 # every gateway call -> OTLP span (joins the caller's trace)
   cache: true                         # Redis backs limiter/budget/router state ...
   cache_params:

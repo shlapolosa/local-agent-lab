@@ -202,6 +202,27 @@ def test_run_notifies_and_acks_each_request(monkeypatch):
     assert acked == [("teams", "e1")] and len(ch.sent) == 1
 
 
+def test_a_delivered_card_says_so_in_the_log(monkeypatch):
+    """Printing only on FAILURE makes "sent every card" and "never saw an event" produce identical
+    logs — which is exactly where an hour went on 8 Sep 2026: three approvals raised, no card in
+    Teams, the service healthy, the webhook answering 202, and nothing anywhere able to say whether
+    this channel had run at all. An instrument that cannot report success is not an instrument.
+
+    Ids only. A subject is free text a person typed and does not belong in a log line.
+    """
+    ch = T.TeamsChannel("https://hook.test/x", post=lambda payload: None)
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events",
+                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
+    monkeypatch.setattr(approvals, "ack", lambda name, eid: None)
+    out = io.StringIO()
+    with redirect_stdout(out):
+        ch.run()
+    printed = out.getvalue()
+    assert "apr-1" in printed and "sent" in printed.lower()
+    assert REQ.get("subject", "\0") not in printed, "a subject is free text; keep it out of the log"
+
+
 def test_send_failure_does_not_kill_the_loop_and_leaves_the_entry_unacked(monkeypatch):
     def boom(payload):
         raise OSError("webhook 503")

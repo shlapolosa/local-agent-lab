@@ -49,7 +49,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from lab.platform import workflows
+from lab.platform import config, workflows
 from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, Decision, ProcessSpec,
                                     speaker_candidates, speaker_prompts)
 from lab.substrate import approvals
@@ -93,12 +93,19 @@ def _submit_route(server, spec: ProcessSpec):
         except ValueError as e:
             return _error(422, str(e), process=spec.name,
                           expected={f.name: f.description for f in spec.inputs})
-        rid, duplicate = workflows.submit(spec.name, inputs, requester or "api", spec=spec,
-                                          idempotency_key=idempotency_key,
-                                          client=server.container.redis())
+        # One submission may become several RUNS — one per configured lane — when this deployment
+        # runs more than one provider. The first is returned as `request_id` so a caller written
+        # before lanes existed keeps working unchanged; `lanes` carries all of them, and is a single
+        # row for a lab running one provider.
+        rows = workflows.submit_lanes(
+            spec.name, inputs, requester or "api", spec=spec,
+            lanes=workflows.lanes_for(spec, inputs, config.SPEECH_LANES),
+            idempotency_key=idempotency_key, client=server.container.redis())
+        rid, duplicate = rows[0]["request_id"], rows[0]["duplicate"]
         status = workflows.status(rid, client=server.container.redis()).get("status")
         return JSONResponse({"request_id": rid, "process": spec.name, "status": status,
                              "accepted": True, "duplicate": duplicate,
+                             "lanes": rows,
                              "poll": f"{API_PREFIX}/processes/{spec.name}/runs/{rid}"}, status_code=202)
     return submit
 
@@ -230,7 +237,10 @@ async def _index(request: Request) -> JSONResponse:
         # them to write the one integration this door refuses.
         "submit": f"{API_PREFIX}/processes/{spec.name}/runs" if spec.external else None,
         "startable": spec.external,
+        # `choices` is included for a CHOICE field and omitted otherwise: a closed set a flow author
+        # cannot see is discoverable only by submitting a wrong value and reading the refusal.
         "inputs": [{"name": f.name, "kind": f.kind.value, "required": f.required,
-                    "description": f.description} for f in spec.inputs],
+                    "description": f.description,
+                    **({"choices": list(f.choices)} if f.choices else {})} for f in spec.inputs],
         "outputs": list(spec.outputs),
     } for spec in PROCESSES.values()]})

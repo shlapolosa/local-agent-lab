@@ -15,6 +15,10 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
     "pdf": ("application/pdf", "document"), "md": ("text/markdown", "document"),
     "markdown": ("text/markdown", "document"), "txt": ("text/plain", "document"),
     "rst": ("text/x-rst", "document"), "csv": ("text/csv", "document"),
+    # Subtitle text, and the shape a meeting transcript arrives in: `collab_transcripts`
+    # mints a `.vtt` ref, so without an entry here the lab hands out a reference that its
+    # own readers refuse. Both decode as UTF-8 through the text branch of `docparse`.
+    "vtt": ("text/vtt", "document"), "srt": ("text/plain", "document"),
     "xml": ("application/xml", "artifact"), "svg": ("image/svg+xml", "artifact"),
     "json": ("application/json", "artifact"),
     "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "artifact"),

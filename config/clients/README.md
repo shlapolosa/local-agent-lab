@@ -27,7 +27,12 @@ Prereqs (once): `./lab.sh up` (gateway on :4000) and
 2. Copy the rendered `config/clients/claude-code/settings.json` to your project's `.claude/settings.json`
    (or `~/.claude/settings.json` for every project), then run `claude`.
 - `/status` shows base URL `127.0.0.1:4000` and auth via `apiKeyHelper` — that's the gateway.
-- `/model` lists all gateway models "From gateway" (needs `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, already in the template).
+- `/model` lists the gateway models (needs `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, already in
+  the template). Claude Code keeps a discovered model only when its id contains "claude" or
+  "anthropic", so the gateway serves prefixed ALIASES (`claude/kimi-k3`, …) via
+  `router_settings.model_group_alias`. Each resolves to the same model group as its unprefixed
+  name, so `kimi-k3` still works everywhere and there is no second deployment and no split spend.
+  An alias missing from `default_internal_user_params.models` is invisible to a developer.
 - Default model is `claude-sonnet-5` (first-class tool-use). Set `ANTHROPIC_MODEL` to `auto` to
   use the gateway's intent router, or any listed model. Non-Claude models (glm/kimi/gpt-oss) are
   best-effort for Claude Code's agentic tool-use — great for chat, pick `claude-sonnet-5` for

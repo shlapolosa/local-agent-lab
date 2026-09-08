@@ -577,3 +577,27 @@ def test_the_listing_hands_back_a_folder_a_write_can_be_addressed_to(server):
     files = [i for i in listed["items"] if not i["folder"]]
     assert files, "the fixture has a file"
     assert "parent" in files[0] and "parent_handle" in files[0]
+
+
+def test_every_TEXT_extension_this_server_mints_has_a_storage_reader():
+    """A tenant transcript is text, and the lab must be able to read one back.
+
+    `collab_fetch` names an unnamed stream from `FETCH_DEFAULTS`, and the only sanctioned way to
+    read the resulting ref is a storage_read_* tool, which dispatches on that extension. So a TEXT
+    extension this server hands out and no reader accepts is a broken contract — measured live on
+    7 Sep 2026, when a `.vtt` ref from `collab_transcripts` was refused by storage_read_document AND
+    storage_read_artifact, while the ref's own `read_with` hint named the reader that refused it.
+
+    Scoped to text deliberately. A RECORDING is minted as `.mp4` and is never read as a document:
+    it is streamed to the speech port as bytes, which is a different path with a different contract.
+    Asserting over every extension would demand a document reader for video and be wrong.
+    """
+    from lab.platform import filetypes
+    from lab.substrate.mcp.graph.server import FETCH_DEFAULTS
+    for kind, (ext, media) in FETCH_DEFAULTS.items():
+        if not media.startswith("text/"):
+            continue
+        assert filetypes.kind_for(f"x.{ext}") != "unknown", (
+            f"collab_fetch mints .{ext} for {kind} but no storage reader accepts it")
+        assert filetypes.content_type_for(f"x.{ext}") == media, (
+            f"the file-type table and this server disagree on what .{ext} is")

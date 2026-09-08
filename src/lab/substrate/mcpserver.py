@@ -70,6 +70,7 @@ class LabServer:
         self.collab = self.container.collab      # the collaboration provider (files + meetings)
         self.speech = self.container.speech      # the speech provider (talk -> attributable words)
         self.reference = self.container.reference    # the governed corpus (signed artifacts, read under a pin)
+        self.speech_named = self.container.speech_named   # ...or a NAMED one, for a per-provider lane
         self.mcp = FastMCP(service)
 
     def tool(self, *args, **kwargs):

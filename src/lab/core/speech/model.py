@@ -112,19 +112,38 @@ class Transcript:
             last = s.start
 
     @property
+    def spoken(self) -> tuple[Segment, ...]:
+        """The segments that carry WORDS — the basis of every speaker-facing derivation.
+
+        A diarizer segments AUDIO, not speech: a breath, a cough or a keyboard can be attributed to
+        a voice it believes is new, and returned with empty text. Measured live 7 Sep 2026, when a
+        one-person meeting produced three empty SPEAKER_01 segments, and a human was consequently
+        asked at the approval gate to name a person who had never spoken.
+
+        The empty segments STAY in `segments` — a provider's timeline is evidence, and the gap
+        between it and the speech is itself diagnostic. And once a label is minted BY WORDS, its
+        silent spans still count toward its share: a pause inside someone's turn is their time.
+        What this excludes is only the label that never said anything at all.
+        """
+        return tuple(s for s in self.segments if s.text.strip())
+
+    @property
     def labels(self) -> tuple[str, ...]:
         """Every speaker label, in the order they FIRST spoke — the order a human reads them in."""
         seen: dict[str, None] = {}
-        for s in self.segments:
+        for s in self.spoken:
             seen.setdefault(s.speaker, None)
         return tuple(seen)
 
     @property
     def speakers(self) -> tuple[SpeakerStat, ...]:
         """The per-speaker digest, derived. Same order as `labels`."""
+        real = set(self.labels)
         secs: dict[str, float] = {}
         turns: dict[str, int] = {}
         for s in self.segments:
+            if s.speaker not in real:            # a label minted by silence alone is not a speaker
+                continue
             secs[s.speaker] = secs.get(s.speaker, 0.0) + s.duration
             turns[s.speaker] = turns.get(s.speaker, 0) + 1
         return tuple(SpeakerStat(l, secs[l], turns[l]) for l in self.labels)

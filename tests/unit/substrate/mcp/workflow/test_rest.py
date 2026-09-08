@@ -37,8 +37,12 @@ def test_the_index_tells_a_flow_author_what_it_can_start_and_what_each_needs(api
     names = {p["name"] for p in body["processes"]}
     assert MEETING in names
     spec = next(p for p in body["processes"] if p["name"] == MEETING)
-    assert {i["name"] for i in spec["inputs"]} == {"owner", "recording"}
+    # MEMBERSHIP, not an exact set — an additive input must not break the index's contract test.
+    assert {"owner", "recording"} <= {i["name"] for i in spec["inputs"]}
     assert all(i["description"] for i in spec["inputs"]), "a flow author reads these instead of guessing"
+    # ...but a CLOSED set must publish its members, or the only way to learn them is to guess wrong
+    lane = next(i for i in spec["inputs"] if i["name"] == "provider")
+    assert lane["required"] is False and "munsit" in lane["choices"]
 
 
 # ------------------------------------------------------------------ starting a run

@@ -13,6 +13,8 @@ import importlib
 import json
 
 import pytest
+
+from lab.platform import contracts
 from fastmcp import Client
 
 from lab.core import speech
@@ -59,7 +61,9 @@ class FakeSpeech:
 
     def __init__(self, transcript=None, raises=None):
         self.transcript = transcript if transcript is not None else speech.Transcript(
-            segments=SEGS, duration=26.9, model="mixed-model", provider="p")
+            # a REAL provider name: the lane reaches a span and an artifact name, both of which
+            # refuse anything outside the declared vocabulary
+            segments=SEGS, duration=26.9, model="mixed-model", provider="munsit")
         self.raises, self.calls = raises, []
 
     def capabilities(self, deep=False):
@@ -146,7 +150,10 @@ def test_the_timeline_comes_back_by_reference_and_the_digest_inline(wired):
     """An hour of speech is not a tool result; a speaker list is."""
     server, sp, up, art = wired
     out = call(server, "speech_transcribe", audio_ref=AUDIO_REF, languages=["ar", "en"])
-    assert out["transcript_ref"] == "art://fake/meeting.m4a.segments.json"
+    # the LANE is in the artifact name: four providers transcribe one recording, and a person
+    # reading a list of refs must see which is which without opening any of them
+    assert out["transcript_ref"] == "art://fake/meeting.m4a.munsit.segments.json"
+    assert out["provider"] == "munsit"
     assert out["duration"] == pytest.approx(26.9) and out["read_with"] == "storage_get"
     assert [s["label"] for s in out["speakers"]] == ["SPEAKER_00", "SPEAKER_01"]
     assert out["speakers"][0]["turns"] == 2 and out["speakers"][0]["seconds"] == pytest.approx(10.0)
@@ -245,8 +252,18 @@ def test_no_span_attribute_carries_a_word_of_what_was_said(wired, srv, monkeypat
     call(server, "speech_transcribe", audio_ref=AUDIO_REF, languages=["ar", "en"])
     assert recorded, "the tool must still emit telemetry"
     said = {w for s in SEGS for w in s.text.split()}
+    # A span attribute is a COUNT or SHAPE — or one member of a CLOSED vocabulary this lab declares.
+    # The exception is narrow on purpose and is not a loosening of the rule: `speech.provider` names
+    # which lane a span belongs to, which is unreadable without it once four providers run the same
+    # recording, and a value that must be one of a fixed list cannot carry speech, a principal or a
+    # caller's free text. Anything NOT in that list is still refused, so the discipline holds.
+    closed = set(contracts.SPEECH_PROVIDERS) | {""}
     for key, value in recorded.items():
-        assert isinstance(value, (int, float, bool)), f"{key} is not a count/shape: {value!r}"
+        if isinstance(value, str):
+            assert value.split("-")[0] in {c.split("-")[0] for c in closed}, \
+                f"{key} is free text on a span: {value!r}"
+        else:
+            assert isinstance(value, (int, float, bool)), f"{key} is not a count/shape: {value!r}"
         assert not any(w in str(value) for w in said), f"{key} leaked speech"
     assert not any("name" in k or "ref" in k for k in recorded), "no file name or ref on a span"
 

@@ -42,6 +42,7 @@ from fastmcp.exceptions import ToolError
 
 from lab.core.speech import AudioClip, SpeechError, Transcript
 from lab.platform import config
+from lab.substrate import container
 from lab.platform.contracts import SpeechTools
 from lab.substrate.mcp.speech import audio as audio_tools
 from lab.substrate.mcp.speech import munsit_map
@@ -91,7 +92,7 @@ def _digest(t: Transcript) -> list[dict]:
 
 
 @governed
-def speech_capabilities(deep: bool = False) -> dict:
+def speech_capabilities(deep: bool = False, provider: str = "") -> dict:
     """What this deployment's speech provider will actually serve, and why not where it will not.
 
     One entry per capability — transcription, diarization, code_switching, timestamps, vocabulary,
@@ -99,22 +100,30 @@ def speech_capabilities(deep: bool = False) -> dict:
     Read this before designing around a feature: providers differ sharply on whether they transcribe
     speech that switches language mid-sentence, and on whether they accept a speaker-count hint,
     which is the single most useful lever for a meeting recorded on one microphone in a room.
-    `deep=true` asks for a live check where one is cheap; where every call costs credits and an
+    `provider` asks about ONE named provider instead of the configured one, and `providers` in the
+    answer lists every one this lab can be asked for — which is what makes choosing a lane possible
+    without running it first. `deep=true` asks for a live check where one is cheap; where every call costs credits and an
     upload, the provider says so rather than pretending a shallow answer was verified."""
-    caps = server.speech().capabilities(deep=deep)
+    # Symmetric with `speech_transcribe`: a caller choosing between LANES must be able to ask what
+    # each one serves. Without this, capabilities could only ever describe the configured provider,
+    # and every other lane's abilities would be discoverable only by running it.
+    box = server.speech_named(provider=provider) if provider else server.speech()
+    caps = box.capabilities(deep=deep)
     available = sorted(k for k, v in caps.items() if v is None)
     span().set_attributes({"speech.available": len(available), "speech.total": len(caps)})
     return {"provider_configured": "configuration" not in {getattr(v, "capability", "") for v in caps.values()},
             "available": available,
             "unavailable": {k: v.to_dict() for k, v in caps.items() if v is not None},
+            "provider": provider or config.SPEECH_PROVIDER,
+            "providers": sorted(container.SPEECH_PROVIDERS),   # what a lane may name
             "extraction_tool": bool(config.AUDIO_EXTRACT_BIN),
             "accepted_media": list(munsit_map.ACCEPTED_MEDIA)}
 
 
 @governed
 def speech_transcribe(audio_ref: str, languages: list[str] | None = None, diarize: bool = True,
-                      speaker_count: int | None = None,
-                      vocabulary: list[str] | None = None) -> dict:
+                      speaker_count: int | None = None, vocabulary: list[str] | None = None,
+                      provider: str = "") -> dict:
     """Transcribe a recording into timed, speaker-labelled segments.
 
     `audio_ref` is an `art://<id>/<name>` reference to audio OR video already in the lab's upload
@@ -131,6 +140,12 @@ def speech_transcribe(audio_ref: str, languages: list[str] | None = None, diariz
     `speaker_count`, when the organiser knows it, helps a recording made on one device in a room.
     Providers that do not support it accept and ignore it rather than failing — check
     speech_capabilities to see which this is.
+
+    `provider` names WHICH speech provider transcribes this recording — one of the lab's registered
+    providers. Omit it for the deployment's configured one, which is what a lab running a single
+    provider always does. It exists so the same recording can be run through several providers in
+    their own lanes, each producing its own transcript to be compared; the returned `provider` says
+    which one answered, and it is never the caller's credential that reaches the vendor.
 
     `vocabulary` biases toward names a general model will not know. Some providers refuse it
     together with a mixed-language model; when that happens the mixed language wins and the loss is
@@ -150,11 +165,15 @@ def speech_transcribe(audio_ref: str, languages: list[str] | None = None, diariz
         clip = audio_tools.extract(clip, config.AUDIO_EXTRACT_BIN)
         span().set_attribute("speech.extracted", True)
 
-    transcriber = server.speech()
+    transcriber = server.speech_named(provider=provider) if provider else server.speech()
     t = transcriber.transcribe(clip, languages=langs, diarize=diarize,
                                speaker_count=speaker_count, vocabulary=vocab)
+    # The lane is IN THE NAME. Four providers produce four transcripts of one recording, and a
+    # person reading a list of refs — or a file delivered beside the recording — must be able to see
+    # which is which without opening it.
+    lane = (t.provider or provider or "").strip()
     ref = server.artifacts().put(
-        f"{audio_ref.rstrip('/').split('/')[-1]}.segments.json",
+        f"{audio_ref.rstrip('/').split('/')[-1]}{'.' + lane if lane else ''}.segments.json",
         json.dumps({"duration": t.duration, "model": t.model, "provider": t.provider,
                     "segments": [{"speaker": s.speaker, "start": s.start, "end": s.end,
                                   "text": s.text, "language": s.language} for s in t.segments]},
@@ -163,8 +182,11 @@ def speech_transcribe(audio_ref: str, languages: list[str] | None = None, diariz
     # counts, durations and shapes only — never a word of what was said
     span().set_attributes({"speech.segments": len(t.segments), "speech.speakers": len(t.speakers),
                            "speech.duration": t.duration, "speech.code_switched": t.code_switched,
-                           "speech.diarize": diarize})
+                           "speech.diarize": diarize, "speech.provider": t.provider or provider})
     return {"transcript_ref": ref, "duration": t.duration, "model": t.model,
+            # WHICH provider answered, always — a comparison whose outputs cannot be attributed to a
+            # provider is not a comparison, and the caller may have passed no name at all.
+            "provider": t.provider or provider or config.SPEECH_PROVIDER,
             "speakers": _digest(t), "languages": list(t.languages),
             "code_switched": t.code_switched,
             "warnings": list(getattr(transcriber, "warnings", lambda *a: ())(langs, vocab)),

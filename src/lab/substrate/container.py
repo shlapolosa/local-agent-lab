@@ -34,7 +34,19 @@ COLLAB_PROVIDERS: dict[str, str] = {"graph": "lab.substrate.mcp.graph.graph_repo
 # The SPEECH port's adapters, by name — the same shape and for the same reason. Research settled the
 # first one, but not permanently: a second provider (one whose cloud is out of region, or one whose
 # diarization keeps speaker labels stable across a long recording) is one entry here plus its adapter.
-SPEECH_PROVIDERS: dict[str, str] = {"munsit": "lab.substrate.mcp.speech.repository"}
+# One line per speech provider — what `SPEECH_PROVIDER` may name. `soniox` returns what was SAID;
+# `soniox-en` is the same provider asked for the English half of the same unified token stream, and
+# it is a separate entry rather than a flag because the two are different artifacts that a bake-off
+# must be able to name and compare side by side.
+SPEECH_PROVIDERS: dict[str, str] = {
+    "munsit": "lab.substrate.mcp.speech.repository",
+    "elevenlabs": "lab.substrate.mcp.speech.eleven_repository",
+    "assemblyai": "lab.substrate.mcp.speech.assembly_repository",
+    "soniox": "lab.substrate.mcp.speech.soniox_repository",
+    "soniox-en": "lab.substrate.mcp.speech.soniox_repository",
+}
+# The overrides a named provider is built with, when the module alone does not say which it is.
+SPEECH_PROVIDER_OPTIONS: dict[str, dict] = {"soniox-en": {"want": "translation"}}
 
 # The governed CORPUS port's adapters. Postgres is the only one today and it is the one that does
 # not change on the Azure move — Azure Database for PostgreSQL runs pgvector — but the entry exists
@@ -88,7 +100,8 @@ def speech_transcriber(provider: str, **overrides):
     if name not in SPEECH_PROVIDERS:
         raise ValueError(f"unknown speech provider {name!r} — SPEECH_PROVIDER must be one of "
                          f"{sorted(SPEECH_PROVIDERS)}")
-    return importlib.import_module(SPEECH_PROVIDERS[name]).build(**overrides)
+    opts = {**SPEECH_PROVIDER_OPTIONS.get(name, {}), **overrides}
+    return importlib.import_module(SPEECH_PROVIDERS[name]).build(**opts)
 
 
 class SubstrateContainer(Container):
@@ -114,6 +127,10 @@ class SubstrateContainer(Container):
     # the governed corpus (signed, versioned artifacts read under a pin) — the reference-mcp role's adapter
     reference = providers.Singleton(reference_library, provider=Container.config.reference_provider,
                                     embedder=embedder)
+    # The same port, built for a NAMED provider instead of the configured one. A Factory rather than
+    # a Singleton because the name is the argument: running four providers in their own lanes means
+    # four adapters, and a Singleton would hand every lane the first one built.
+    speech_named = providers.Factory(speech_transcriber)
 
 
 def build(service_name: str, *, instrument_urllib: bool = False, **overrides) -> SubstrateContainer:

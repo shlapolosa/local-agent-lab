@@ -445,3 +445,42 @@ def test_no_other_role_is_handed_the_app_to_key_mapping():
     for role, keys in railway.ROLE_ENV.items():
         if role != "gateway":
             assert "ENTRA_CLIENT_TO_KEY" not in set(keys), role
+
+
+# ------------------------------------------------------- the lanes must survive the deploy
+def test_speech_mcp_receives_every_provider_credential_it_can_be_asked_to_build():
+    """The failure this prevents reports SUCCESS while doing nothing.
+
+    `configure()` strips whatever a role's allowlist does not name. speech-mcp can be asked for ANY
+    registered provider — that is what a lane is — so a credential missing from this list does not
+    error: the adapter reports `SpeechNotConfigured`, the lane is SKIPPED by name, and a
+    four-provider comparison quietly returns one provider's answer while every service reports
+    healthy. Exactly the declared-but-never-applied class the image tag and the team grants both
+    belonged to.
+
+    Derived from the registry rather than listed here, so a fifth provider cannot be added without
+    its key reaching the one service that needs it.
+    """
+    from lab.substrate import container
+    allowed = railway.ROLE_ENV["speech-mcp"]
+    for provider in container.SPEECH_PROVIDERS:
+        setting = provider.split("-")[0].upper()          # soniox-en is served by SONIOX_*
+        assert any(p.rstrip("*") == f"{setting}_" or p == f"{setting}_API_KEY" for p in allowed), \
+            f"speech-mcp may be asked for {provider!r} but {setting}_* is stripped from its env"
+
+
+def test_the_front_door_is_told_which_lanes_to_fan_out_into():
+    """`workflows.lanes_for` reads SPEECH_LANES, and the fan-out happens in the front door — both
+    its REST route and its MCP submit. Strip the setting and every meeting silently runs ONE lane,
+    which looks exactly like a working single-provider deployment."""
+    assert "SPEECH_LANES" in railway.ROLE_ENV["workflow-frontdoor"]
+
+
+def test_a_workload_still_receives_no_provider_credential_of_any_kind():
+    """A lane is chosen by NAME and served by the substrate. No workload may hold a vendor key —
+    adding three providers must not have widened that."""
+    for workload in ("meeting", "minutes"):
+        env = railway.env_for_role("workload", FAKE, workload=workload)
+        for leaked in ("MUNSIT_API_KEY", "ELEVENLABS_API_KEY", "ASSEMBLYAI_API_KEY",
+                       "SONIOX_API_KEY"):
+            assert leaked not in env, f"the {workload} workload must never hold {leaked}"

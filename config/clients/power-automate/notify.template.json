@@ -63,36 +63,32 @@
     }
   },
   "actions": {
-    "Initialize_Links": {
-      "//": "A Select whose Map is in key/value mode emits an array of OBJECTS, and Power Automate has no way to join over one property of those — so the list is accumulated in a string variable instead. Three designer-native actions, no map-mode toggle to find, and every field takes a plain expression.",
-      "type": "InitializeVariable",
-      "inputs": {
-        "variables": [
-          {
-            "name": "Links",
-            "type": "string",
-            "value": ""
-          }
-        ]
-      },
-      "runAfter": {}
-    },
     "For_each_file": {
       "type": "Foreach",
       "foreach": "@triggerBody()?['files']",
       "actions": {
         "Append_a_link": {
-          "//": "`url` is the address a person opens; the `handle` beside it in the payload addresses bytes for a tool and is deliberately never put in front of anyone.",
+          "//": "ONLY the tags this field actually honours. Measured on two live messages: `<a href>` rendered as a clean clickable filename, while `<p>` and `<ul>` appeared as literal text — the field SANITISES rather than escapes. A plain-text version then lost the links entirely AND collapsed its newlines, because the field is HTML underneath and whitespace does not survive it. So: anchors for links, `<br>` for breaks, no block tags.",
           "type": "AppendToStringVariable",
           "inputs": {
             "name": "Links",
-            "value": "@{concat('<li><a href=\"', item()?['url'], '\">', item()?['name'], '</a></li>')}"
+            "value": "@{concat('<a href=\"', item()?['url'], '\">', item()?['name'], '</a><br>')}"
           },
           "runAfter": {}
         }
       },
       "runAfter": {
         "Initialize_Links": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Compose_the_message": {
+      "//": "The Message field ESCAPES text typed into it at design time but does NOT escape a token's RUNTIME value — measured on two live messages: a typed <p> arrived as literal text while an <a href> carried in by variables('Links') rendered as a real link. So the whole body is built HERE and the Message field holds nothing but this action's output. The action's own code view cannot be used instead: it reports \"'Message' is required\" and never commits.",
+      "type": "Compose",
+      "inputs": "@concat('The minutes for this meeting are ready.<br>', triggerBody()?['speakers'], ' speaker(s), ', triggerBody()?['decisions'], ' decision(s), ', triggerBody()?['actions'], ' action(s)<br><br>', variables('Links'), '<br>They are saved beside the recording; opening them still needs your usual access to that folder.')",
+      "runAfter": {
+        "For_each_file": [
           "Succeeded"
         ]
       }
@@ -110,12 +106,12 @@
           "poster": "User",
           "location": "Group chat",
           "body/recipient": "@triggerBody()?['chat_id']",
-          "body/messageBody": "<p>The minutes for this meeting are ready.</p><p>@{triggerBody()?['speakers']} speaker(s) &middot; @{triggerBody()?['decisions']} decision(s) &middot; @{triggerBody()?['actions']} action(s)</p><ul>@{variables('Links')}</ul><p>They are saved beside the recording; opening them still needs your usual access to that folder.</p>"
+          "body/messageBody": "@{outputs('Compose_the_message')}"
         },
         "authentication": "@parameters('$authentication')"
       },
       "runAfter": {
-        "For_each_file": [
+        "Compose_the_message": [
           "Succeeded"
         ]
       }
