@@ -170,7 +170,7 @@
         }
       },
       "runAfter": {
-        "Initialize_problems": [
+        "Initialize_lost_answers": [
           "Succeeded"
         ]
       }
@@ -307,7 +307,7 @@
                 }
               },
               "runAfter": {
-                "Reset_run_state": [
+                "Reset_answer_draft": [
                   "Succeeded"
                 ]
               }
@@ -470,7 +470,7 @@
                       "location": "Chat with Flow bot",
                       "body/recipient": "@variables('organiser')",
                       "body/messageBody": "@{string(outputs('Compose_card'))}",
-                      "body/updateMessage": "Thank you — the speakers have been recorded and the minutes have been started.",
+                      "body/updateMessage": "Thank you — your answer has been received and is being recorded. If recording it fails, this flow fails and the approval stays open in the review app.",
                       "body/shouldUpdateCard": true
                     },
                     "authentication": "@parameters('$authentication')"
@@ -532,7 +532,7 @@
                           "//": "Lane-local. As a Terminate this ended the whole flow, so one lane's bad answer stopped every other lane being asked. The approval stays open, so the organiser can still answer it in the review app.",
                           "type": "AppendToArrayVariable",
                           "inputs": {
-                            "name": "problems",
+                            "name": "lostAnswers",
                             "value": "@{concat(items('For_each_lane')?['provider'], ': ', concat('every speaker needs exactly one of a directory identity or a free tag; these had both or neither: ', string(body('Find_the_ambiguous_ones')), '. The approval is still open — answer it in the review app, or run this flow again.'))}"
                           },
                           "runAfter": {}
@@ -618,7 +618,7 @@
                       "//": "Lane-local. As a Terminate this ended the whole flow, so one lane's bad answer stopped every other lane being asked. The approval stays open, so the organiser can still answer it in the review app.",
                       "type": "AppendToArrayVariable",
                       "inputs": {
-                        "name": "problems",
+                        "name": "lostAnswers",
                         "value": "@{concat(items('For_each_lane')?['provider'], ': ', concat('the approval refused the answer: ', coalesce(body('Send_the_answer')?['error'], string(coalesce(body('Send_the_answer'), 'no response body'))), '. The approval is still open in the review app.'))}"
                       },
                       "runAfter": {
@@ -682,6 +682,31 @@
                   "Succeeded"
                 ]
               }
+            },
+            "Reset_answer": {
+              "//": "`answer` and `answerDraft` ACCUMULATE: Add_one_speaker does setProperty(variables('answer'), ...), so without this lane 2's decide call carries lane 1's labels, names speakers who do not appear in this transcript, and the lab correctly refuses it. Measured live 8 Sep 2026: two of three answers lost this way, and the run still reported success.",
+              "type": "SetVariable",
+              "inputs": {
+                "name": "answer",
+                "value": {}
+              },
+              "runAfter": {
+                "Reset_run_state": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Reset_answer_draft": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "answerDraft",
+                "value": {}
+              },
+              "runAfter": {
+                "Reset_answer": [
+                  "Succeeded"
+                ]
+              }
             }
           },
           "else": {
@@ -723,17 +748,27 @@
       "//": "Fails ONLY when every lane failed — otherwise the flow succeeded at what it is for: a human was asked. The reasons are in the message either way.",
       "type": "If",
       "expression": {
-        "and": [
+        "or": [
           {
             "greater": [
-              "@length(variables('problems'))",
+              "@length(variables('lostAnswers'))",
               0
             ]
           },
           {
-            "equals": [
-              "@length(variables('problems'))",
-              "@length(coalesce(body('Start_run')?['lanes'], json('[]')))"
+            "and": [
+              {
+                "greater": [
+                  "@length(variables('problems'))",
+                  0
+                ]
+              },
+              {
+                "equals": [
+                  "@length(variables('problems'))",
+                  "@length(coalesce(body('Start_run')?['lanes'], json('[]')))"
+                ]
+              }
             ]
           }
         ]
@@ -744,8 +779,8 @@
           "inputs": {
             "runStatus": "Failed",
             "runError": {
-              "code": "EveryLaneFailed",
-              "message": "@{concat('no lane produced a question. ', join(variables('problems'), ' | '))}"
+              "code": "LaneProblems",
+              "message": "@{concat(if(greater(length(variables('lostAnswers')), 0), concat('ANSWERS LOST: ', join(variables('lostAnswers'), ' | '), '. '), ''), if(greater(length(variables('problems')), 0), concat('lanes that did not finish: ', join(variables('problems'), ' | ')), ''))}"
             }
           },
           "runAfter": {}
@@ -756,6 +791,24 @@
       },
       "runAfter": {
         "For_each_lane": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Initialize_lost_answers": {
+      "//": "Separate from `problems` deliberately. A lane that cannot TRANSCRIBE is worth carrying on from — the other lanes still have questions worth asking. An answer a human GAVE that was then not recorded is not the same thing and must not pass as success.",
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "lostAnswers",
+            "type": "array",
+            "value": []
+          }
+        ]
+      },
+      "runAfter": {
+        "Initialize_problems": [
           "Succeeded"
         ]
       }

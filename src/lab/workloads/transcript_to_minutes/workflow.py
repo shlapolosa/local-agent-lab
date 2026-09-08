@@ -239,7 +239,7 @@ def build_workflow(cfg):
             # translate the APPROVAL's answer into the domain's own idea of a speaker:
             # the mapper should not care that it arrived through a human gate
             mapping = Speakers.from_answer(state["speaker_map"])
-            used = {s.get("speaker") for s in segments if s.get("speaker")}
+            used = _speaking_labels(segments)
             mapped = {e.label for e in mapping.entries}
             if used - mapped:
                 raise RuntimeError(
@@ -363,6 +363,25 @@ def build_workflow(cfg):
 
     return (WorkflowBuilder(start_executor=attribute)
             .add_chain([attribute, minutes, to_spec, load_semantic, deliver, publish]).build())
+
+
+def _speaking_labels(segments) -> set[str]:
+    """The labels that actually SAID something — what a human can be asked about, and therefore
+    what the attribution gate may require.
+
+    This is `lab.core.speech.Transcript.spoken`'s rule, applied at the other end of the pipeline.
+    A diarizer segments AUDIO, not speech, so it emits labels whose segments carry no words; the
+    speaker DIGEST already excludes them, so the question never mentions them. The gate used to read
+    every label in the raw transcript instead, which meant it demanded an answer nobody had been
+    asked for.
+
+    Measured live 8 Sep 2026 on `wfr-4e17b417dd38`: two empty SPEAKER_01 segments, one of them 0.02
+    seconds long, and a run that refused minutes after the organiser had answered every question the
+    card put to them. Two ends of one rule must agree, or a human doing everything right is enough
+    to stop the pipeline.
+    """
+    return {s["speaker"] for s in segments
+            if s.get("speaker") and str(s.get("text") or "").strip()}
 
 
 def _segments(doc) -> list[dict]:
