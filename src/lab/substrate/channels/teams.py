@@ -171,6 +171,13 @@ class TeamsChannel:
         except Exception as e:              # noqa: BLE001 — a webhook hiccup is not this card's end
             print(f'[teams] send failed for {fields.get("request_id")}: {e}', flush=True)
             return
+        # SAY SO ON SUCCESS TOO. Printing only on failure makes "sent every card" and "never saw an
+        # event" produce byte-identical logs — which is exactly where an hour went when three
+        # approvals were raised and no card arrived: the service was healthy, the webhook answered
+        # 202, and nothing anywhere could say whether this channel had run at all. An instrument
+        # that cannot report success is not an instrument. Ids only, never the subject: a subject is
+        # free text a person typed.
+        print(f'[teams] card sent for {fields.get("request_id")}', flush=True)
         approvals.ack(self.name, eid)
 
     def run(self):
