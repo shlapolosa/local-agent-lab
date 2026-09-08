@@ -803,6 +803,61 @@ a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
 - **Placement**: `semantic-mcp` is a separate, credential-free, read-only server granted to every
   team; `adoit-mcp` stays the governed EA-repository facade. Both import the same package.
 
+## Speech (`lab.core.speech`, served by `speech-mcp` :9600) — and the provider bake-off
+
+The domain port is **`Transcriber`** (`lab.core.speech.port`): a `Protocol`, so an adapter is free of
+us and a test double is a plain object. It states four things a provider must honour — **languages
+are a plural HINT** (declaring one language is the documented way to make a switching engine worse),
+the **recognised language comes back PER SEGMENT** (without it, a span rendered in the wrong language
+is indistinguishable from a correct answer), **speaker labels are ANONYMOUS and per request**
+(mapping a label to a human is a separate, human-gated act), and **a refusal is TYPED**.
+Summarisation is deliberately absent: this port returns words and labels, and minutes are produced
+by the lab's own governed model — which is what makes "the vendor does not summarise our meetings"
+structural rather than a promise.
+
+**A speaker is someone who said something.** A diarizer segments AUDIO, not speech, so it can
+attribute a breath or a keyboard to a voice it thinks is new and return that segment with EMPTY
+text. Measured 7 Sep 2026: a one-person meeting produced three empty `SPEAKER_01` segments, and a
+human was asked at the approval gate to name a person who never spoke. `Transcript.spoken` is the
+basis of every speaker-facing derivation; the empty segments STAY in `segments` (a provider's
+timeline is evidence) and a silent span belonging to a speaker who DID talk still counts toward
+their share — a pause inside a turn is their time. Only the label minted by silence alone is excluded.
+
+**Adapters, one line each in `lab.substrate.container.SPEECH_PROVIDERS`** — three files per provider
+(`*_map.py` pure mapper, `*_rest.py` transport, `*_repository.py` adapter), with the generic parts
+shared: `http.py` (injected transport, multipart, `poll_until`), `refusal.py` (provider status -> the
+domain's typed refusal), `tokenmap.py` (a word/token stream -> speaker turns, breaking a run at a
+change of speaker OR of language, because that switch is the evidence). `soniox-en` is the same
+provider asked for the English half of its unified token stream — a separate registry entry, not a
+flag, because the verbatim record and the rendering are different artifacts.
+
+**The transliteration finding (7 Sep 2026), which drives the whole comparison.** Munsit heard
+English correctly and wrote it in ARABIC LETTERS: `اكشن ايتمز` is a faithful phonetic rendering of
+"action items". Verified against Microsoft's own transcript of the same recording. This is
+orthographic, not semantic — every word right, every letter wrong — and it is a KNOWN general
+behaviour, not a Munsit defect: the only independent benchmark of code-switched Arabic
+(arXiv 2605.19069, May 2026) reports **WER overstates such gaps ~3x by scoring semantically correct
+transliteration as error**, and puts ElevenLabs Scribe v2 first on all four pairs (13.2% vs 38.6%
+for the next system). **So never rank speech providers on WER here.** `lab.core.speech.compare`
+holds the metric that matters — **script mix**, the share of LETTERS in Arabic script, which needs no
+reference transcript — plus `digest` and a timeline-aligned `side_by_side`.
+
+**The bake-off**: `scripts/speech_bakeoff.py <recording> [--reference teams.vtt] [--repeat N]` runs
+one recording through every CONFIGURED provider and writes per-provider transcripts, a side-by-side
+comparison and `digests.json` into `var/out/bakeoff/<stamp>/`. A provider with no API key is SKIPPED
+by name with the setting it wants, so one credential still produces a usable run. `--reference` adds
+Microsoft's own `.vtt` as a column — for a Teams meeting it is the honest yardstick and it costs
+nothing. **`--repeat` is earned, not cautious**: three runs on IDENTICAL bytes returned 38, 55 and 38
+words, so a single run cannot tell a provider's behaviour from one sample of it.
+
+**Data residency is a property of the DEPLOYMENT MODE, not the vendor** (UAE Federal Law No. 2/2019
+Art. 13 forbids processing UAE health data abroad; AED 500-700k). All four candidates can run inside
+the boundary, but only Munsit (CNTXT AI, Dubai) has a UAE/KSA **sovereign SaaS** — everyone else buys
+residency with GPU infrastructure (ElevenLabs, Soniox and AssemblyAI all sell on-prem; Meta Seamless
+self-hosts but is CC BY-NC and does not diarize). **Azure OpenAI in UAE North is NOT an answer**: it
+provisions in-region but routes inference to West Europe / France Central, so a "governed gateway
+text step" there would itself be an export.
+
 ## Approval Gate (human-in-the-loop for EA repository writes)
 
 Event-based over the Redis already running — **Redis Streams**, not pub/sub, because approvals

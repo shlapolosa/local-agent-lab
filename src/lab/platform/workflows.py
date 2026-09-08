@@ -104,6 +104,65 @@ def _failed(r, request_id) -> bool:
     return status == WorkflowStatus.FAILED.value
 
 
+def lanes_for(spec, inputs, configured=()) -> tuple[str, ...]:
+    """Which lanes THIS submission runs in — the one place that decision is made.
+
+    A caller who NAMED a provider gets exactly that one lane: an explicit choice is never expanded
+    into four, or asking for one provider would silently bill for all of them. Otherwise the
+    deployment's configured lanes apply, and a process with no `provider` input never fans out.
+    """
+    if not configured or (inputs or {}).get("provider"):
+        return ()
+    return tuple(configured) if any(f.name == "provider" for f in spec.inputs) else ()
+
+
+def submit_lanes(process, inputs, requester, *, lanes=(), spec=None, idempotency_key=None,
+                 ttl=IDEMPOTENCY_TTL, client=None) -> list[dict]:
+    """Submit ONE request per lane; returns a row per lane, in the order given.
+
+    A LANE is a provider's own end-to-end pipeline over the same input. It is deliberately not new
+    orchestration: a lane is this same process submitted again with a different `provider`, so each
+    one gets its own run id, its own approval, its own continuation and its own outputs from the
+    machinery that already exists. Nothing here knows what a speech provider is.
+
+    Each row is `{provider, request_id, duplicate}` — or `{provider, request_id: "", error}` when
+    that one lane could not be submitted. A bad lane is REPORTED rather than raised because the run
+    that matters may be one of the others, and losing three good lanes to one typo would be a poor
+    trade.
+
+    The idempotency key is made PER LANE. Sharing one key across lanes is the subtle failure this
+    signature exists to prevent: the second lane would be handed the first lane's `request_id` with
+    `duplicate=True`, and a four-provider comparison would quietly become one provider while looking
+    entirely successful.
+
+    `lanes=()` means no fan-out at all: one submission, no `provider` written, behaviour identical
+    to `submit`. A deployment running a single provider must not acquire a field its consumer would
+    then have to interpret.
+    """
+    if spec is None:
+        spec = PROCESSES.get(process)
+        if spec is None:
+            raise ValueError(f"unknown process {process!r}; registered: {sorted(PROCESSES)}")
+    if not lanes:
+        rid, dup = submit(process, inputs, requester, spec=spec,
+                          idempotency_key=idempotency_key, ttl=ttl, client=client)
+        return [{"provider": "", "request_id": rid, "duplicate": dup}]
+    if not any(f.name == "provider" for f in spec.inputs):
+        raise ValueError(f"{spec.name} declares no `provider` input, so it cannot be run in lanes")
+
+    out: list[dict] = []
+    for lane in lanes:
+        key = f"{idempotency_key}:{lane}" if idempotency_key is not None else None
+        try:
+            rid, dup = submit(process, {**inputs, "provider": lane}, requester, spec=spec,
+                              idempotency_key=key, ttl=ttl, client=client)
+            out.append({"provider": lane, "request_id": rid, "duplicate": dup})
+        except Exception as e:              # noqa: BLE001 — one bad lane must not cost the others
+            out.append({"provider": lane, "request_id": "", "duplicate": False,
+                        "error": f"{type(e).__name__}: {e}"})
+    return out
+
+
 def submit(process, inputs, requester, *, spec=None, idempotency_key=None, ttl=IDEMPOTENCY_TTL, client=None):
     """Publish a run request; returns `(request_id, duplicate)`.
 

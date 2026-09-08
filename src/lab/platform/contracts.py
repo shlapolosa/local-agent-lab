@@ -688,6 +688,10 @@ class InputKind(StrEnum):
     validated as one (no whitespace, no URL, bounded): it names a destination, it grants nothing, and
     it is not somewhere prose can hide.
 
+    CHOICE carries a decision, not data: which of several LANES a run belongs to, chosen from a set
+    the lab itself declares. It is the answer to "a run must say which provider it used" that does
+    NOT reopen free text — a value is a member of the list or the run is refused before it starts.
+
     Deliberately absent: a general "text" kind. It would admit a URL, a whole document or an injected
     prompt into a contract whose entire discipline is by-reference. When a process genuinely needs
     free text, that is the moment to argue for it.
@@ -698,6 +702,7 @@ class InputKind(StrEnum):
     IDENTITY = "identity"  # ONE directory principal: who a question is asked of, or who owns a thing
     MAPPING = "mapping"    # a SMALL flat object of label -> {field: value}, from a human's answer
     CONVERSATION = "conversation"   # ONE opaque provider conversation id: where a result is announced
+    CHOICE = "choice"      # ONE value from a CLOSED set declared on the field
 
 
 # A mapping is a human's answer, not a payload. Bounded so it can never become a way to smuggle
@@ -721,6 +726,14 @@ class InputField:
     kind: InputKind
     description: str
     required: bool = True
+    choices: tuple[str, ...] = ()          # CHOICE only: the closed set of accepted values
+
+    def __post_init__(self) -> None:
+        # A CHOICE with no members would accept nothing (and read as an oversight); a CHOICE that
+        # skipped this check would accept anything, which is the free-text field this kind exists
+        # to avoid. Either way the failure belongs at construction, not at the first submit.
+        if (self.kind is InputKind.CHOICE) != bool(self.choices):
+            raise ValueError(f"{self.name}: CHOICE declares its choices, and nothing else takes them")
 
     def coerce(self, value: Any) -> Any:
         """The normalised value, or ValueError naming the field. `None`/absent is legal only when the
@@ -737,6 +750,8 @@ class InputField:
             return self._identity(value)
         if self.kind is InputKind.CONVERSATION:
             return self._conversation(value)
+        if self.kind is InputKind.CHOICE:
+            return self._choice(value)
         if self.kind is InputKind.MAPPING:
             return self._mapping(value)
         if self.kind is InputKind.REF:
@@ -803,6 +818,17 @@ class InputField:
             raise ValueError(f"{self.name} is {len(text)} characters, longer than the "
                              f"{MAX_CONVERSATION_CHARS} an id may be")
         return text
+
+    def _choice(self, value: Any) -> str:
+        """One member of the closed set, normalised. The refusal NAMES the members, because a closed
+        set nobody can see is just a rejection with no remedy."""
+        if not isinstance(value, str) or isinstance(value, bool):
+            raise ValueError(f"{self.name} is one of {list(self.choices)}, not a "
+                             f"{type(value).__name__}")
+        got = value.strip().lower()
+        if got not in self.choices:
+            raise ValueError(f"{self.name} must be one of {list(self.choices)}, not {value!r}")
+        return got
 
     def _mapping(self, value: Any) -> dict[str, dict[str, str]]:
         """A small flat object of label -> {field: value}: a human's answer, carried into the next run.
@@ -903,6 +929,23 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
     outputs=("trace_id", "approval_id", "review_app", "xml_ref", "import_artifacts", "summary"),
 )
 
+# The speech providers a run may name as its LANE. Declared HERE, in the contract, because it is a
+# value an outside caller passes and every producer validates against — while the ADAPTERS live in
+# `lab.substrate.container.SPEECH_PROVIDERS`, where their credentials are. The two are kept in step
+# in BOTH directions by tests/governance/test_speech_provider_parity.py: a name here with no adapter
+# is a run that will be accepted and then fail, and an adapter with no name here is one nobody can
+# ask for. Naming a vendor is legitimate here for the same reason `adoit-mcp` may: this is the
+# SERVICE, not a tool or an alias.
+SPEECH_PROVIDERS: tuple[str, ...] = ("munsit", "elevenlabs", "assemblyai", "soniox", "soniox-en")
+
+# The prose is shared because the field means the same thing in both processes, and a lane whose two
+# halves described themselves differently would be the first place a reader would lose the thread.
+_LANE = ("Which speech provider's LANE this run belongs to. Omit it to use the deployment's "
+         "configured provider — a lab running one provider never passes it. Passing it runs this "
+         "recording through that provider specifically, so several providers can each produce their "
+         "own transcript, their own speaker question and their own minutes from the same meeting, "
+         "without overwriting one another.")
+
 MEETING_TO_TRANSCRIPT = ProcessSpec(
     name="meeting_to_transcript",
     group="wf-meeting-transcript",
@@ -927,9 +970,11 @@ MEETING_TO_TRANSCRIPT = ProcessSpec(
                    "collab_recordings or collab_list handed it out. Never a download URL, never a "
                    "file path, and never the bytes — the run fetches it into the lab's own store "
                    "through the governed gateway. Video is fine; its audio is extracted."),
+        InputField("provider", InputKind.CHOICE, _LANE, required=False,
+                   choices=SPEECH_PROVIDERS),
     ),
     outputs=("trace_id", "approval_id", "review_app", "recording_ref", "transcript_ref",
-             "speakers", "candidates", "summary"),
+             "speakers", "candidates", "summary", "provider"),
 )
 
 TRANSCRIPT_TO_MINUTES = ProcessSpec(
@@ -972,8 +1017,11 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
                    "minutes name the meeting they are about — and therefore what lets them be put "
                    "back beside it. Omitted, the run still writes minutes; it simply cannot say "
                    "which meeting they belong to.", required=False),
+        InputField("provider", InputKind.CHOICE, _LANE, required=False,
+                   choices=SPEECH_PROVIDERS),
     ),
     outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary",
+             "provider",
              # what reached the collaboration platform, where to announce it, and why not when it
              # did not — delivery is best effort, so its outcome is reported rather than raised
              "delivered", "chat_id", "delivery"),

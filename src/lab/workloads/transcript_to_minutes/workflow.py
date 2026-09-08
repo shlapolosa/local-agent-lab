@@ -191,7 +191,16 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     folder = item.get("parent_handle")
     if not folder:
         return {"delivery": f'{item.get("name") or handle} names no folder to write beside'}
+    # The LANE is in the filename, and this is not cosmetic. `collab_put` REPLACES a file of the
+    # same name in the same folder — deliberately, so a re-run corrects its own output — and every
+    # lane derives the same stem from the same recording. Four providers would therefore write four
+    # files called `<stem>.transcript.md`, the last one to finish would win, the other three would
+    # be gone, and nothing anywhere would report an error. A lane-less run keeps the original names,
+    # so a deployment running one provider sees no change.
     stem = str(item.get("name") or "meeting").rsplit(".", 1)[0]
+    lane = str(state.get("provider") or "").strip()
+    if lane:
+        stem = f"{stem}.{lane}"
 
     prose_ref = await _store(cfg, f"{stem}.transcript.md", state["prose"].encode())
     written = []
@@ -337,6 +346,10 @@ def build_workflow(cfg):
                               | {k for k in (m.get("keywords") or []) if k})
             out = {"transcript_ref": state["transcript"], "minutes_ref": state["minutes_ref"],
                    "model_id": state["model_id"], "keywords": keywords,
+                   # WHICH lane produced these minutes. Four lanes deliver four sets of files from
+                   # one meeting, and a set of minutes that cannot name its provider cannot be
+                   # compared with the others — which is the entire point of running four.
+                   "provider": state.get("provider", ""),
                    # what reached the tenant, and where a notifier should announce it
                    "delivered": state.get("delivered") or [], "chat_id": state.get("chat_id", ""),
                    "delivery": state.get("delivery", ""),

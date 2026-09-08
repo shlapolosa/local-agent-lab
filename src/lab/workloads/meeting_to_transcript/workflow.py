@@ -220,15 +220,23 @@ def build_workflow(cfg):
         SPEAKER_00 for an entire meeting is worse than failing, because they would answer it.
         """
         with _span(cfg, "transcribe"):
-            got = await _call(cfg, SpeechTools.transcribe,
-                              {"audio_ref": state["recording_ref"],
-                               "languages": list(cfg["languages"]), "diarize": True})
+            # `provider` is this run's LANE. Absent, the deployment's configured provider answers
+            # and behaviour is exactly as before; present, this recording is transcribed by that
+            # provider specifically, so several lanes can each carry the same meeting end to end.
+            args = {"audio_ref": state["recording_ref"],
+                    "languages": list(cfg["languages"]), "diarize": True}
+            if state.get("provider"):
+                args["provider"] = state["provider"]
+            got = await _call(cfg, SpeechTools.transcribe, args)
             if not got.get("speakers"):
                 raise RuntimeError(
                     "the recording produced no speaker separation — it was transcribed but not "
                     f"diarized, so there is nobody to ask about. Check {SpeechTools.capabilities}, "
                     "and for a room on one microphone check the recording itself.")
-            state = state | {"transcript_ref": got["transcript_ref"], "speech": got}
+            # The provider that ANSWERED, not the one that was asked for: a lane left unset is
+            # still a lane, and every artifact and message downstream needs to name it.
+            state = state | {"transcript_ref": got["transcript_ref"], "speech": got,
+                             "provider": got.get("provider") or state.get("provider") or ""}
         await ctx.send_message(state)
 
     @executor(id="speaker_digest")
@@ -307,14 +315,21 @@ def build_workflow(cfg):
             # run resolved the meeting, and the minutes run is a continuation that never sees it.
             # Omitted when no meeting was resolved (an ad-hoc recording), which is what makes the
             # minutes run deliver its files and then stay quiet rather than guess a destination.
+            # The lane rides the continuation for the same reason `recording` and `chat_id` do: the
+            # minutes run is started by a human approving, and it must land in the SAME lane or four
+            # comparisons collapse into one set of minutes of unknown origin.
             cont = Continuation(process=TRANSCRIPT_TO_MINUTES.name,
                                 inputs={"transcript": state["transcript_ref"],
                                         "owner": state["owner"],
                                         "recording": state["recording"],
+                                        "provider": state.get("provider") or "",
                                         "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await _call(cfg, ApprovalTools.ask, {
-                "subject": f'{state.get("recording_name") or "meeting"} — who is speaking?',
+                # The lane is IN THE SUBJECT: four cards for one meeting arrive together, and a
+                # person answering them must be able to tell which provider each belongs to.
+                "subject": (f'{state.get("recording_name") or "meeting"} — who is speaking?'
+                            + (f' [{state["provider"]}]' if state.get("provider") else "")),
                 "prompt": PROMPT,
                 "items": state["items"],
                 "candidates": state.get("candidates") or [],
@@ -322,7 +337,8 @@ def build_workflow(cfg):
                 "artifacts": {"recording": state["recording_ref"],
                               "transcript": state["transcript_ref"]},
                 "requester": state["owner"]})
-            out = {"request_id": asked["request_id"], "status": asked.get("status", "pending"),
+            out = {"provider": state.get("provider") or "",
+                   "request_id": asked["request_id"], "status": asked.get("status", "pending"),
                    "approval_id": asked["request_id"], "review_app": asked.get("review_app", ""),
                    "recording_ref": state["recording_ref"],
                    "transcript_ref": state["transcript_ref"],

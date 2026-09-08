@@ -151,8 +151,24 @@ GRAPH_ALLOW_METERED = _bool(_e("GRAPH_ALLOW_METERED"))
 # Same shape as the collaboration port: one registry key picks the adapter, and adding a provider is
 # a registry entry plus its own settings — never an edit in the server.
 SPEECH_PROVIDER = _e("SPEECH_PROVIDER", "munsit")
+# The LANES every meeting runs in. Empty (the default) = no fan-out: one run, the configured
+# provider, exactly as before. Set it to several providers and each meeting produces one full
+# pipeline per provider — its own transcript, its own speaker question, its own minutes and its own
+# files. That is N times the provider spend and N times the human tagging, and it sends every
+# recording to N vendors, so it is opt-in by configuration rather than a default.
+SPEECH_LANES = tuple(x.strip().lower() for x in _e("SPEECH_LANES", "").split(",") if x.strip())
 MUNSIT_API_KEY = _e("MUNSIT_API_KEY")                 # the provider credential; only speech-mcp gets it
 MUNSIT_BASE_URL = _e("MUNSIT_BASE_URL", "https://api.munsit.com/api/v1")
+# The bake-off providers. Each is INERT without its key: an unconfigured adapter reports
+# SpeechNotConfigured from capabilities() and the comparison skips it by name, so a lab with one
+# credential runs exactly as before.
+ELEVENLABS_API_KEY = _e("ELEVENLABS_API_KEY")
+ELEVENLABS_BASE_URL = _e("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io")
+ASSEMBLYAI_API_KEY = _e("ASSEMBLYAI_API_KEY")
+ASSEMBLYAI_BASE_URL = _e("ASSEMBLYAI_BASE_URL", "https://api.assemblyai.com")
+SONIOX_API_KEY = _e("SONIOX_API_KEY")
+SONIOX_BASE_URL = _e("SONIOX_BASE_URL", "https://api.soniox.com")
+SONIOX_TRANSLATE_TO = _e("SONIOX_TRANSLATE_TO", "en")   # the target for its one_way translation
 # A meeting recording is VIDEO and every speech provider we surveyed takes audio only, so the audio
 # has to be extracted first. This is a HOST TOOL, exactly like SOFFICE_BIN for document rendering:
 # `ffmpeg` in a container, `afconvert` on macOS (built in, nothing to install). Unset disables

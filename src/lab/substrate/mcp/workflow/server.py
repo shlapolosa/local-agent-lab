@@ -33,7 +33,7 @@ front door that exposes the run.
 from __future__ import annotations
 
 import inspect
-from typing import Annotated, Any, Callable
+from typing import Annotated, Any, Callable, Literal
 
 from pydantic import Field
 
@@ -54,13 +54,19 @@ SERVICE = "workflow-frontdoor"     # the SERVICE says what it is; the gateway AL
 ANNOTATION: dict[InputKind, Any] = {InputKind.REF: str, InputKind.REF_LIST: list[str],
                                     InputKind.HANDLE: str, InputKind.IDENTITY: str,
                                     InputKind.CONVERSATION: str,
-                                    InputKind.MAPPING: dict[str, dict[str, str]]}
+                                    InputKind.MAPPING: dict[str, dict[str, str]],
+                                    InputKind.CHOICE: str}
 
 
 def annotation_of(field) -> Any:
     """An OPTIONAL single reference must also accept `null`: LLM clients routinely fill every declared
-    parameter, and pydantic would reject `None` against a bare `str` before `coerce` ever sees it."""
-    ann = ANNOTATION[field.kind]
+    parameter, and pydantic would reject `None` against a bare `str` before `coerce` ever sees it.
+
+    A CHOICE becomes a real `Literal`, so its members reach the JSON schema as an `enum` and an agent
+    can SEE what it may pass. Declaring it as a bare string would leave the closed set discoverable
+    only by guessing wrong and reading the error — which is how a lane gets picked at random.
+    """
+    ann = Literal[tuple(field.choices)] if field.kind is InputKind.CHOICE else ANNOTATION[field.kind]
     return ann if field.required or field.kind is InputKind.REF_LIST else ann | None
 
 
@@ -91,14 +97,19 @@ def _submit(server: LabServer, spec: ProcessSpec, requester: str, values: dict,
     "queued" from "you already asked for this"."""
     inputs = spec.validate(values)          # the ProcessSpec IS the validator (one impl, every surface)
     r = _redis(server)
-    rid, duplicate = workflows.submit(spec.name, inputs, (requester or "").strip() or "mcp",
-                                      spec=spec, idempotency_key=idempotency_key, client=r)
+    # One submission may become several RUNS — one per configured lane. `request_id` stays the first,
+    # so a caller written before lanes existed is unaffected, and `lanes` names them all.
+    rows = workflows.submit_lanes(spec.name, inputs, (requester or "").strip() or "mcp", spec=spec,
+                                  lanes=workflows.lanes_for(spec, inputs, config.SPEECH_LANES),
+                                  idempotency_key=idempotency_key, client=r)
+    rid, duplicate = rows[0]["request_id"], rows[0]["duplicate"]
     # a duplicate answers with the run's CURRENT status — the point of retrying is to learn where it got to
     status = workflows.status(rid, client=r).get("status") if duplicate else WorkflowStatus.PENDING.value
     span().set_attributes({"workflow.process": spec.name, "workflow.request_id": rid,
                            "workflow.status": status or "", "workflow.duplicate": duplicate})
     return {"request_id": rid, "process": spec.name, "status": status, "accepted": True,
-            "duplicate": duplicate, "poll_with": spec.tool("status"), "result_with": spec.tool("result"),
+            "duplicate": duplicate, "lanes": rows,
+            "poll_with": spec.tool("status"), "result_with": spec.tool("result"),
             "note": (f"already submitted under idempotency_key {idempotency_key!r} — this is the SAME "
                      f"run, nothing new was queued; poll the status tool"
                      if duplicate else
