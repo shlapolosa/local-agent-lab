@@ -1,0 +1,109 @@
+{
+  "_source": "TRANSLATED from component_families.json by hand — not extracted",
+  "_why": "The reference architecture states each family's trigger as prose ('is D1 or above', 'has a blast radius of cohort or population'). Step 22 has to evaluate them, and NFR-15 forbids compiling rules into the orchestrator, so each is restated in the same expression language the guardrail predicates use and evaluated by the same evaluator. The verbatim prose travels with every entry so a reviewer can check the translation rather than trust it; where the prose says something the language cannot express, the entry says so in 'unexpressed' instead of pretending.",
+  "families": [
+    {
+      "id": "F1",
+      "name": "Grounding and retrieval",
+      "prose": "reads a grounding source — federated variant where sources exceed one",
+      "predicate": "step reads any grounding source",
+      "variant": {
+        "name": "federated",
+        "prose": "where sources exceed one",
+        "unexpressed": "The count of grounding sources is a property of the retrieval contracts from step 11, not of a step's facet vector. The caller supplies it as 'grounding_sources'."
+      },
+      "guardrails": ["G06", "G13"]
+    },
+    {
+      "id": "F2",
+      "name": "Inference",
+      "prose": "is D1 or above",
+      "predicate": "step.determinism ≥ D1",
+      "guardrails": ["G01", "G22"]
+    },
+    {
+      "id": "F3",
+      "name": "Semantic binding",
+      "prose": "reasons over or emits a named concept",
+      "predicate": "the step reasons over or emits a named concept",
+      "guardrails": ["G15"]
+    },
+    {
+      "id": "F4",
+      "name": "Action and transaction",
+      "prose": "has an effect class of record write or above",
+      "predicate": "step.effect ∈ {record write, external communication, financial or contractual commitment, physical or clinical action}",
+      "guardrails": ["G02", "G23"]
+    },
+    {
+      "id": "F5",
+      "name": "Authorisation and approval",
+      "prose": "commits with an authorisation other than autonomous",
+      "predicate": "step.activity = commit ∧ step.authorisation ≠ autonomous",
+      "guardrails": ["G09"]
+    },
+    {
+      "id": "F6",
+      "name": "Identity and access",
+      "prose": "always — shape varies with the trigger modifier",
+      "predicate": "always",
+      "guardrails": ["G03"]
+    },
+    {
+      "id": "F7",
+      "name": "Control plane and inventory",
+      "prose": "always",
+      "predicate": "always",
+      "guardrails": ["G10", "G14"]
+    },
+    {
+      "id": "F8",
+      "name": "Evaluation",
+      "prose": "always — sized by the highest influence class present",
+      "predicate": "always",
+      "guardrails": ["G10", "G18"]
+    },
+    {
+      "id": "F9",
+      "name": "Observation and assurance",
+      "prose": "carries influence 2+, or consumes grounding that can go stale",
+      "predicate": "influence ≥ 2 ∨ step.input.freshness ∈ {dynamic, time-critical}",
+      "guardrails": ["G17", "G19"]
+    },
+    {
+      "id": "F10",
+      "name": "Evidence and retention",
+      "prose": "has any effect, or operates in a regulated domain",
+      "predicate": "step.effect ≠ none ∨ step.domain ∈ {clinical, financial, HR, safety}",
+      "guardrails": ["G09", "G26"]
+    },
+    {
+      "id": "F11",
+      "name": "Content inspection",
+      "prose": "reads content the enterprise did not author",
+      "predicate": "step reads any grounding source, tool output or agent response — any content the enterprise did not author",
+      "guardrails": ["G20"]
+    },
+    {
+      "id": "F12",
+      "name": "Egress control",
+      "prose": "emits externally, or reads confidential or restricted data",
+      "predicate": "step.effect = external communication ∨ input.sensitivity ∈ {confidential, restricted}",
+      "guardrails": ["G21", "G25"]
+    },
+    {
+      "id": "F13",
+      "name": "Release and rate control",
+      "prose": "has a blast radius of cohort or population",
+      "predicate": "step.blast_radius ∈ {cohort, population}",
+      "guardrails": ["G24"]
+    },
+    {
+      "id": "F14",
+      "name": "Delegation",
+      "prose": "only in T4",
+      "topology": ["T4"],
+      "guardrails": ["G07"]
+    }
+  ]
+}

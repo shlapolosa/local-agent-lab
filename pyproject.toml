@@ -17,6 +17,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "lab.core.semantic.archimate" = ["*.json", "*.xml"]
 "lab.core.archimate" = ["xsd/*.xsd"]
+"lab.core.usecase" = ["seed/*.json"]
 "lab.substrate.mcp.adoit" = ["templates/*.xlsx"]
 "lab.workloads.visio_to_archimate" = ["prompts/*.md", "schemas/*.json", "references/*.md"]
 

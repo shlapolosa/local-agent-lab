@@ -1,0 +1,199 @@
+{
+  "archetypes": [
+    {
+      "code": "A1",
+      "name": "Assistive Q&A Agent",
+      "fv": "activity retrieve · effect none · authorisation autonomous · audience internal individual",
+      "def": "Grounded question answering over a defined knowledge corpus, no side effects.",
+      "det": "D1",
+      "aut": "Assistive",
+      "ms": "M365 Copilot declarative agent + Work IQ + SharePoint/Graph",
+      "surf": "M365 Copilot",
+      "id": "User-delegated",
+      "know": "Declared corpus",
+      "tool": "None",
+      "mem": "Session",
+      "aud": "Employee",
+      "fail": [
+        "ASI01",
+        "ASI06",
+        "ASI09"
+      ],
+      "src": [
+        "S1",
+        "S7",
+        "S15"
+      ]
+    },
+    {
+      "code": "A2",
+      "name": "Task Execution Agent",
+      "fv": "activity commit · effect record write · reversibility reversible · authorisation policy-bounded",
+      "def": "Performs a bounded transaction in a system of record via tools/skills.",
+      "det": "D1–D2",
+      "aut": "Semi-autonomous",
+      "ms": "Copilot Studio custom engine OR Foundry prompt agent + Dataverse business skills",
+      "surf": "Teams / portal",
+      "id": "User-delegated or Agent ID",
+      "know": "None / declared",
+      "tool": "Declared skills",
+      "mem": "Session",
+      "aud": "Employee",
+      "fail": [
+        "ASI02",
+        "ASI03",
+        "ASI05",
+        "ASI09"
+      ],
+      "src": [
+        "S2",
+        "S3",
+        "S8"
+      ]
+    },
+    {
+      "code": "A3",
+      "name": "Workflow Orchestration Agent",
+      "fv": "activity orchestrate · effect record write · blast radius cohort · authorisation policy-bounded",
+      "def": "Executes a declarative graph of steps with branching and human-in-the-loop.",
+      "det": "D0–D1",
+      "aut": "Semi-autonomous",
+      "ms": "Foundry workflow agent OR Power Automate flow invoked by agent",
+      "surf": "Multiple",
+      "id": "User-delegated or Agent ID",
+      "know": "Optional",
+      "tool": "Declared skills",
+      "mem": "Durable",
+      "aud": "Employee / Partner",
+      "fail": [
+        "ASI02",
+        "ASI08",
+        "ASI09"
+      ],
+      "src": [
+        "S3",
+        "S8"
+      ]
+    },
+    {
+      "code": "A4",
+      "name": "Multi-Agent Coordinator",
+      "fv": "activity orchestrate · effect none · blast radius cohort · authorisation policy-bounded",
+      "def": "Dispatches to specialised agents using sequential / concurrent / handoff / group-chat patterns.",
+      "det": "D2",
+      "aut": "Semi-autonomous",
+      "ms": "Microsoft Agent Framework (incl. Magentic-One)",
+      "surf": "Code-hosted",
+      "id": "Agent ID",
+      "know": "Federated",
+      "tool": "Open MCP",
+      "mem": "Durable",
+      "aud": "Employee",
+      "fail": [
+        "ASI07",
+        "ASI08",
+        "ASI10"
+      ],
+      "src": [
+        "S6"
+      ]
+    },
+    {
+      "code": "A5",
+      "name": "Research / Analytic Agent",
+      "fv": "activity interpret · effect none · input trust corroborated · authorisation autonomous",
+      "def": "Multi-hop retrieval and synthesis across federated sources with citations.",
+      "det": "D2",
+      "aut": "Semi-autonomous",
+      "ms": "Foundry IQ agentic retrieval + Fabric IQ semantic layer",
+      "surf": "Foundry / portal",
+      "id": "User-delegated",
+      "know": "Federated retrieval contract",
+      "tool": "Read-only",
+      "mem": "Session",
+      "aud": "Employee",
+      "fail": [
+        "ASI06",
+        "ASI09"
+      ],
+      "src": [
+        "S9",
+        "S10"
+      ]
+    },
+    {
+      "code": "A6",
+      "name": "Autonomous Operations Agent",
+      "fv": "activity orchestrate · effect record write · authorisation autonomous · blast radius cohort",
+      "def": "Event/signal-triggered, runs without per-turn user prompts, own identity.",
+      "det": "D2–D3",
+      "aut": "Autonomous",
+      "ms": "Foundry hosted agent + Entra Agent ID + Managed Identity",
+      "surf": "Background",
+      "id": "Agent ID + Managed Identity",
+      "know": "Federated",
+      "tool": "Declared / MCP",
+      "mem": "Durable",
+      "aud": "Employee",
+      "fail": [
+        "ASI01",
+        "ASI03",
+        "ASI08",
+        "ASI10"
+      ],
+      "src": [
+        "S3",
+        "S5"
+      ]
+    },
+    {
+      "code": "A7",
+      "name": "Embedded Copilot Extension",
+      "fv": "activity transform · effect advisory · audience internal individual · authorisation per-action human",
+      "def": "Adds skills/knowledge to the host Copilot inside an M365 app surface.",
+      "det": "D1",
+      "aut": "Assistive",
+      "ms": "M365 Copilot declarative agent",
+      "surf": "Word/Excel/Outlook/Teams",
+      "id": "User-delegated",
+      "know": "Declared",
+      "tool": "Declared",
+      "mem": "Session",
+      "aud": "Employee",
+      "fail": [
+        "ASI01",
+        "ASI06",
+        "ASI09"
+      ],
+      "src": [
+        "S1"
+      ]
+    },
+    {
+      "code": "A8",
+      "name": "Continuous Monitor (Sentinel)",
+      "fv": "activity interpret · effect advisory · audience internal individual · authorisation autonomous",
+      "def": "Always-on standing watch: continuously senses and assesses signals and never acts autonomously — it emits advisories to a boundary channel for a human to decide. Autonomy is decomposed: autonomous sensing & assessment, zero autonomous action.",
+      "det": "D2",
+      "aut": "Sense-auton / no-act",
+      "ms": "Foundry hosted agent (always-on) + Agent Framework; grounds via Foundry IQ real-time-pull (federated / MCP / web)",
+      "surf": "Background → boundary channel",
+      "id": "Agent ID + Managed Identity",
+      "know": "Real-time-pull + federated",
+      "tool": "Read-only + emit-advisory",
+      "mem": "Rolling world-model",
+      "aud": "Owner / trusted circle",
+      "fail": [
+        "ASI06",
+        "ASI08",
+        "ASI10"
+      ],
+      "src": [
+        "S3",
+        "S5",
+        "S9"
+      ]
+    }
+  ],
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

@@ -1,0 +1,176 @@
+{
+  "artifacts": {
+    "section": "Input artifacts twenty · consumed by the process",
+    "headers": [
+      "Artifact",
+      "Description, contract and examples",
+      "Owner",
+      "Consumed at",
+      "Standard?",
+      "Readiness"
+    ],
+    "rows": [
+      [
+        "Business capability map",
+        "L1–L3 abilities the business possesses. Each L3 carries name (verb-plus-object), accountable executive, maturity, performance gap, strategic criticality, AI candidacy, and its KPIs as attributes. Four tests: org-independence, outsourcing-independence, MECE at each level, stable noun phrase. Example: \"Assess Contractual Exposure\", Supply Chain Director, maturity repeatable, gap materially below, criticality competitive, KPI mean time to exposure assessment.",
+        "Enterprise architecture; Board approves L1–L2",
+        "Match capabilities (E0.3) ; business grounding gate (Q0.8)",
+        "Standard EA",
+        "Assess — does one exist at L3, and is it org-independent?"
+      ],
+      [
+        "AI capability map",
+        "What AI building blocks can do — domain → capability → product, with a primary and substitutable alternatives. A to-be selection catalogue: what could be used, not what runs. Example: Knowledge → federated retrieval → Foundry IQ primary, Azure AI Search direct alternative.",
+        "Architecture Board",
+        "Select components (Q5.1)",
+        "Adapted — capability-map pattern applied to AI",
+        "Exists"
+      ],
+      [
+        "Traditional capability map",
+        "What non-AI systems can do, by abstract type not product — incident management, ERP, EHR, master data, event source, identity, notification, document store, data platform, audit store. Portability depends on this.",
+        "Enterprise architecture",
+        "Match realisations (E0.4) ; incumbent question (Q4.1)",
+        "Standard EA",
+        "Assess — usually exists as a portfolio; may need typing"
+      ],
+      [
+        "AI application architecture (as-is)",
+        "What AI services are actually deployed. Per entry: service name, consumers, offered behaviour, current service level, owned entities, failure semantics, operator. Example: \"Classify Incident\" — consumer ITSM triage flow, 2s p95, owns nothing, at-most-once, operated by AI Platform.",
+        "Platform and AI operations",
+        "Match realisations (E0.4)",
+        "Standard EA",
+        "Optional — falls back to the capability map, then survey"
+      ],
+      [
+        "Traditional application architecture (as-is)",
+        "Same schema, for deployed non-AI systems. The instance behind the type: not \"an incident management system\" but the one you run, its level and its operator.",
+        "Application owners, curated by EA",
+        "Match realisations (E0.4) ; incumbent question (Q4.1)",
+        "Standard EA",
+        "Optional — same fallback"
+      ],
+      [
+        "Ontology",
+        "Concepts with relationships, rules and data bindings; vocabulary register; conflict log. Every concept a step reasons over must be defined, related, ruled and bound to real data — a term with no binding fails the semantic gate. Example: Shipment, with warehouse_arrived_at and customer_received_at split after a logged conflict.",
+        "Domain stewards own concepts; Ontology Council owns the model and arbitrates",
+        "Check the ontology (E0.6) ; ontology conformance (G15)",
+        "Standard EA conceptual data model",
+        "Assess — most commonly absent, most expensive to retrofit"
+      ],
+      [
+        "Grounding source classification",
+        "A classification overlay on systems already inventoried, not a second estate list. Per source: sensitivity, permission scope and propagation, freshness (static, periodic, dynamic, time-critical), provenance and trust. Example: contract library — Confidential, ops and compliance, static daily index, authoritative.",
+        "Knowledge Council",
+        "Contract the sources (E0.8) ; knowledge gate (Q0.8) ; retrieval contract (G06)",
+        "Adapted",
+        "Assess"
+      ],
+      [
+        "Risk register",
+        "Enterprise risk entries that step-level risks map to. Every step risk maps to an entry or creates one; a step risk with no plausible register home is usually a typing error.",
+        "Risk function",
+        "Assign criticality (E0.9)",
+        "Standard enterprise",
+        "Assess — usually exists; the AI linkage rarely does"
+      ],
+      [
+        "Readiness gate definitions",
+        "Four gates — business grounding, semantic readiness, knowledge readiness, criticality — with evidence per gate and three verdicts. Conditional unavailable for safety-of-life.",
+        "Ontology and Knowledge Councils jointly",
+        "Readiness verdict (Q0.8)",
+        "CAFÉ",
+        "Exists"
+      ],
+      [
+        "Criticality taxonomy",
+        "Three classes with the rigor each sets, the heterogeneous-population rule, and the pre-triage router constraint.",
+        "Architecture Board",
+        "Assign criticality (E0.9) ; carry forward (Q0.9) ; escalation (Q3.4) ; operate (Q7.2)",
+        "Adapted from enterprise risk classification",
+        "Exists"
+      ],
+      [
+        "Determinism criteria register",
+        "Seven criteria predicting non-determinism, five counter-indicators, reducibility flags. Grows from logged classification overrides.",
+        "Architecture Board",
+        "Classify steps (Q1.2) ; necessity test (Q1.3)",
+        "CAFÉ",
+        "Exists"
+      ],
+      [
+        "Facet schema and risk derivations",
+        "Nine facets, defaults per activity verb, exposure derivation (base, modifiers, floor, cap), influence read along data flow with attenuation, four-point class scale.",
+        "Agent Council",
+        "Type the steps (Q2.1–Q2.4)",
+        "CAFÉ",
+        "Exists"
+      ],
+      [
+        "Guardrail set",
+        "Twenty-six issued, twenty-four live, each with trigger predicate, obligation, enforcement point, evidence artifact, failure mode. Plus six opportunity obligations, warn-and-log only.",
+        "Agent Council, with security and responsible AI",
+        "Derive obligations (Q3.1–Q3.4) ; select (Q5.3) ; govern (Q7.1)",
+        "Adapted — the first ten OWASP ASI-aligned",
+        "Exists"
+      ],
+      [
+        "Risk class → guardrail mapping",
+        "Mandatory set per exposure and influence class over a baseline. Answers \"we are exposure 2 and influence 3 — what applies\".",
+        "Agent Council",
+        "Derive obligations (Q3.1)",
+        "CAFÉ",
+        "Exists"
+      ],
+      [
+        "Surface × guardrail enforceability matrix",
+        "Eighteen surface-sensitive obligations across five surfaces. Six invariants named as surface-independent.",
+        "Architecture Board",
+        "Choose the surface (Q4.2) ; can it enforce (Q4.3)",
+        "CAFÉ",
+        "Exists"
+      ],
+      [
+        "Tradeoff catalogue and decision record schema",
+        "Eight known conflicts with usual resolutions; a record schema whose load-bearing field is what was sacrificed. Grows from practice.",
+        "Architecture Board",
+        "Unenforceable obligation (Q4.3) ; empty intersection (Q5.2)",
+        "Standard — ADR and ATAM",
+        "Exists"
+      ],
+      [
+        "Quality attribute form and envelope patterns",
+        "Six-part scenario — source, stimulus, environment, artifact, response, response measure. Six patterns, four derived and two chosen, with mutual constraints. Levels taken from existing business commitments, never invented.",
+        "Business service owners for levels; Architecture Board for patterns",
+        "Derive quality attributes (E0.5) ; select components (Q5.1)",
+        "Standard — ATAM — with CAFÉ patterns",
+        "Exists — the levels need assessing"
+      ],
+      [
+        "Build surface matrix",
+        "Surfaces, when to use each, hosting, including the incumbent-platform and non-Microsoft rows.",
+        "Architecture Board",
+        "Choose the surface (Q4.2)",
+        "CAFÉ",
+        "Exists"
+      ],
+      [
+        "Reference architecture model",
+        "Four topologies × fourteen derived component families × three modifiers, plus the five-move composition procedure.",
+        "Agent Council; Board for deployment baselines",
+        "Compose (Q6.1–Q6.2)",
+        "Standard EA pattern, CAFÉ content",
+        "Exists"
+      ],
+      [
+        "Decision tree",
+        "Stages zero to seven, the behavioural artifact. Each item typed as pre-work, decision or gate.",
+        "Architecture Board",
+        "Every stage",
+        "CAFÉ",
+        "Exists"
+      ]
+    ]
+  },
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}

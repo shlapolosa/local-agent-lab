@@ -1,0 +1,169 @@
+{
+  "artifacts": {
+    "section": "Output artifacts twenty-two · created as the process runs",
+    "headers": [
+      "Artifact",
+      "Description",
+      "Produced at",
+      "Consumed at",
+      "Lives past go-live"
+    ],
+    "rows": [
+      [
+        "Use case record",
+        "Problem, sponsor, single accountable owner",
+        "Frame (E0.1)",
+        "Throughout",
+        "No"
+      ],
+      [
+        "Element inventory",
+        "Active elements, business functions, business objects — unsequenced",
+        "Decompose (E0.2)",
+        "E0.3, E0.4, E0.6, E0.7",
+        "No"
+      ],
+      [
+        "Capability coverage map",
+        "Function to L3 mapping with both gap lists",
+        "Match capabilities (E0.3)",
+        "Business grounding gate (Q0.8)",
+        "No"
+      ],
+      [
+        "Realisation match",
+        "Active elements to as-is services or types, with confidence level: lookup, assumption or survey",
+        "Match realisations (E0.4)",
+        "Incumbent question (Q4.1) ; select (Q5.1)",
+        "No — but survey results feed back as candidate as-is entries"
+      ],
+      [
+        "Quality attribute scenarios",
+        "Per function, with response measures; the six envelope pattern values",
+        "Derive quality attributes (E0.5)",
+        "Select components (Q5.1)",
+        "No"
+      ],
+      [
+        "Ontology delta",
+        "Concepts absent or unbound; conflicts logged and resolved",
+        "Check the ontology (E0.6)",
+        "Semantic gate (Q0.8) ; ontology backlog",
+        "No — but merges into the ontology"
+      ],
+      [
+        "Workflow graph",
+        "Explicit graph of steps with data flow edges",
+        "Sequence (E0.7)",
+        "Q1.1–Q1.5, Q2.x, Q3.x",
+        "No"
+      ],
+      [
+        "Retrieval contracts",
+        "What this workflow may pull, under whose permissions, with what citation policy",
+        "Contract the sources (E0.8)",
+        "Knowledge gate (Q0.8) ; G06",
+        "Yes — enforced at runtime"
+      ],
+      [
+        "Criticality assignment",
+        "Class per branch; pre-triage router definition; risk register links",
+        "Assign criticality (E0.9)",
+        "Carry forward (Q0.9) ; escalation (Q3.4)",
+        "No"
+      ],
+      [
+        "Outcome assertions",
+        "Required outcomes with source of truth and evaluation schedule",
+        "Declare assertions (E0.10)",
+        "G19 ; operate (Q7.2)",
+        "Yes — monitored in production"
+      ],
+      [
+        "Readiness record",
+        "Four gate verdicts, binding conditions with owners and dates, signatures",
+        "Readiness verdict (Q0.8)",
+        "Stage 0 of routing; obligations (Q3.1)",
+        "No — re-read quarterly"
+      ],
+      [
+        "Step tier classification",
+        "Determinism tier per step; necessity test outcomes; re-tiering decisions",
+        "Classify and test (Q1.2–Q1.3)",
+        "Type the steps (Q2.1)",
+        "No"
+      ],
+      [
+        "Containment record",
+        "Per non-deterministic step: necessity, bounded input, bounded output, neighbours, position relative to a commit",
+        "Record containment (Q1.4)",
+        "Derive obligations (Q3.1)",
+        "No"
+      ],
+      [
+        "Facet vectors",
+        "Nine facets per step with overrides justified; derived type, exposure, influence",
+        "Type the steps (Q2.4)",
+        "Derive obligations (Q3.1)",
+        "No — but overrides feed the criteria register"
+      ],
+      [
+        "Control requirement set",
+        "Obligations, failure modes, escalations. Surface-free",
+        "Derive obligations (Q3.1–Q3.4)",
+        "Surface (Q4.2) ; select (Q5.1)",
+        "No"
+      ],
+      [
+        "Build surface decision",
+        "Selected surface; for a rejected incumbent, the obligations it failed",
+        "Choose the surface (Q4.1–Q4.2)",
+        "Select components (Q5.1)",
+        "No"
+      ],
+      [
+        "Component selection",
+        "Per capability, with rejected alternatives and rationale; declared EA blocks",
+        "Select (Q5.1)",
+        "Compose (Q6.1)",
+        "No"
+      ],
+      [
+        "Decision records",
+        "Context, drivers, options, decision, what was sacrificed, compensating control, review trigger, approver",
+        "Resolve a tradeoff (Q5.2)",
+        "Conformance review; revisited at the trigger",
+        "Yes — until the trigger fires , and feed the tradeoff catalogue"
+      ],
+      [
+        "Enforcement binding",
+        "Every obligation to a named enforcement point, or labelled advisory",
+        "Exit gate (Q5.3)",
+        "Govern (Q7.1)",
+        "No"
+      ],
+      [
+        "Conceptual, logical and physical designs",
+        "Three levels; the first two signed before product commitment",
+        "Compose (Q6.2)",
+        "Govern (Q7.1) ; build",
+        "No"
+      ],
+      [
+        "Guardrail evidence record",
+        "Each guardrail, its evidence artifact, and for every escalated cell the justification, owner and compensating control",
+        "Govern (Q7.1)",
+        "Conformance review",
+        "Yes"
+      ],
+      [
+        "Operating record",
+        "Assertion breaches, evaluation results, tier changes, override log",
+        "Operate (Q7.2–Q7.3)",
+        "Quarterly review; re-entry at Stage 0",
+        "Yes"
+      ]
+    ]
+  },
+  "_source": "CAFE_Artifacts_Visualisation_v0_25.html"
+}
