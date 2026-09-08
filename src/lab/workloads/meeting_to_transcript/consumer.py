@@ -16,7 +16,12 @@ PROCESS = "meeting_to_transcript"
 async def _run(root, req, on_trace):
     """This process's inputs, by name. The generic request object carries `inputs` and nothing
     process-shaped, so a second workload cannot accidentally depend on the first one's fields."""
-    return await run_once(root, req.inputs["recording"], req.inputs["owner"], on_trace=on_trace)
+    # `provider` is this run's LANE — absent for a single-provider deployment, and then the
+    # configured provider answers exactly as before. Dropping it here is not an error anyone sees:
+    # the run SUCCEEDS, transcribed by the default, and every lane returns the same provider's
+    # answer while the outputs claim to be a comparison.
+    return await run_once(root, req.inputs["recording"], req.inputs["owner"],
+                          provider=req.inputs.get("provider", ""), on_trace=on_trace)
 
 
 def _describe(req) -> str:

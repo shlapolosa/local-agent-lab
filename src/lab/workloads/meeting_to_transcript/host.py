@@ -38,7 +38,7 @@ def run_fields(out: dict) -> dict:
     return {"approval_id": out.get("request_id"), "transcript_ref": out.get("transcript_ref")}
 
 
-async def run_once(root, recording: str, owner: str, on_trace=None) -> dict:
+async def run_once(root, recording: str, owner: str, provider: str = "", on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> a question for the organiser.
 
     The span, the trace headers, the run-log entry and the one way a run is closed are the SHARED
@@ -55,7 +55,11 @@ async def run_once(root, recording: str, owner: str, on_trace=None) -> dict:
         cfg=lambda c: make_cfg(credential=_cred(), traceparent=c.traceparent_header,
                                languages=config.MEETING_LANGUAGES, tracer=c.tracer,
                                root_ctx=c.root_ctx, mcp_url=c.mcp_url, run_id=c.run_id),
-        run=run_workflow, inputs={"recording": recording, "owner": owner}, fields=run_fields)
+        # `provider` is the LANE, and it must reach the workflow STATE: that is what lets the
+        # transcribe node ask for this provider instead of taking the deployment's default, and it
+        # is what every artifact name, approval subject and continuation downstream reads.
+        run=run_workflow, inputs={"recording": recording, "owner": owner, "provider": provider},
+        fields=run_fields)
 
 
 def _run_label(recording: str) -> str:
