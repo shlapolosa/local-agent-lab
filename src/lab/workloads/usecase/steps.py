@@ -76,10 +76,26 @@ def _frame(out: dict) -> list[str]:
         bad.append(f"the problem is stated as a solution ({hit[0]!r}) — say what is wrong and for "
                    f"whom, not what to build; choosing the answer is what the rest of this "
                    f"assessment is for")
-    owner = str(out.get("accountable_owner", ""))
+    owner = str(out.get("accountable_owner", "")).strip()
+    # An owner the submission does not name is an OPEN QUESTION, not a failure. A live run proved
+    # why: the model read a submission that names nobody, said so honestly, and the gate refused it
+    # — leaving one honest answer and one fabricated one, of which only the fabricated one passes.
+    # That is the opposite of what every prompt here asks for. A gap that reaches a human gets
+    # closed; a name invented to satisfy a gate never does.
+    unnamed = not owner or any(w in owner.lower() for w in ("unspecified", "not named", "unknown",
+                                                            "names no person", "no person"))
+    if unnamed:
+        if not any("owner" in str(q).lower() or "accountab" in str(q).lower()
+                   for q in out.get("open_questions") or []):
+            bad.append("no accountable owner is named and no open question asks for one — an "
+                       "unowned use case must reach a human as a question, not pass as an answer")
+        return bad[:5]
     # `&` and `/` are not word characters, so a `\b` around them matches nothing — the separators
     # have to be looked for literally, and " and " needs its spaces or it fires inside "Alexander".
-    shared = any(sep in owner for sep in ("&", "/", ",", ";")) or " and " in f" {owner} "
+    # A COMMA is deliberately not a separator: "Jane Smith, Chief Medical Officer" is one person
+    # with a title, and treating punctuation as plurality refused more honest answers than shared
+    # ones.
+    shared = any(sep in owner for sep in ("&", "/")) or " and " in f" {owner} "
     if shared or any(w in owner.lower() for w in (" team", " group", " department", " unit")):
         bad.append(f"accountability is shared ({owner!r}) — name ONE person; a use case everyone "
                    f"owns is a use case nobody answers for")

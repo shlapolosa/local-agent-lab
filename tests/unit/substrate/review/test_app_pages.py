@@ -263,7 +263,12 @@ def test_a_use_case_submission_carries_its_intake_mapping_and_its_document():
     process, inputs, _ = wf.requests[0]
     assert process == "use_case_screening"
     assert inputs["submission"] == "art://s/case.docx"
-    assert inputs["intake"] == {"Urgency": "Q3", "Investment": "budget bucket, 250k"}
+    # The shape the CONTRACT takes — `label -> {field: value}`. Asserted against the real
+    # validator below, so this cannot drift back to a flat mapping the front door refuses.
+    assert inputs["intake"] == {"Urgency": {"value": "Q3"},
+                                "Investment": {"value": "budget bucket, 250k"}}
+    from lab.platform.contracts import USE_CASE_SCREENING
+    USE_CASE_SCREENING.field("intake").coerce(inputs["intake"])      # would raise on a flat map
     assert inputs["submitter"] == "ba@x.ae"
 
 

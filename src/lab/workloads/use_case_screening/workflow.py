@@ -44,9 +44,41 @@ REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec, Approval
 #: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a
 #: named gap — refusing the whole run would give a deployment missing one grant nothing at all.
 CORPORA = {
-    "capabilities": (SemanticTools.concepts, {"scheme": "healthcare-provider-v2.0", "depth": 3}),
+    # DEPTH 1, and the reason is the honest limit of this design rather than a tuning choice.
+    # The published map has 1,666 concepts to L3; projected to what a match reads that is still
+    # ~45,000 tokens, and a coverage match cannot be done by putting a map that size in a prompt.
+    # L1 is 395 concepts (~10,000 tokens) and fits. So the match is made at L1 and the run SAYS the
+    # L2/L3 refinement was not attempted — `capability_depth` in the record, and step 5's gate asks
+    # for an open question about it. Matching to L3 needs RETRIEVAL over the map, which is the
+    # embedding upstream this lab does not yet have; stuffing more of the map in is not the fix.
+    "capabilities": (SemanticTools.concepts, {"scheme": "healthcare-provider-v2.0", "depth": 1}),
     "ontology": (SemanticTools.ontologies, {}),
 }
+
+#: Fields a corpus record contributes to a PROMPT, by corpus. Everything else is dropped before the
+#: message is built.
+#:
+#: This is a projection, not a truncation — no concept is lost, so a coverage match still sees the
+#: whole published map and can still refuse to match. What goes is the prose: a capability record
+#: carries a `definition` that a MATCH does not read, and 1,666 of them made step 5's prompt 94,000
+#: tokens. Measured, on a live run that sat on step 5 for fifty-three minutes without failing —
+#: which is the worst way for a size problem to present, because a hang looks like slowness and
+#: slowness looks like patience.
+PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent")}
+
+#: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
+#: unavailable with its size, rather than sent — a step that silently receives half a corpus
+#: answers confidently from half a corpus.
+MAX_CORPUS_BYTES = 120_000
+
+
+def project(name: str, corpus):
+    """A corpus as a step should READ it — the fields a match needs, and nothing else."""
+    fields = PROMPT_FIELDS.get(name)
+    if not fields or not isinstance(corpus, list):
+        return corpus
+    return [{k: c[k] for k in fields if c.get(k) is not None}
+            for c in corpus if isinstance(c, dict)]
 
 #: Corpora the assessment needs and this instance does not have. NAMED, because a step that reads
 #: an absent corpus answers confidently from nothing and the answer is indistinguishable from a
@@ -150,9 +182,15 @@ def build_workflow(cfg):
             missing: dict = dict(UNAVAILABLE)
             for name, (tool, args) in CORPORA.items():
                 try:
-                    got = await gateway.call(cfg, tool, dict(args))
+                    got = project(name, await gateway.call(cfg, tool, dict(args)))
                 except Exception as exc:                     # noqa: BLE001 — a corpus is optional
                     missing[name] = f"{type(exc).__name__}: {exc}"[:200]
+                    continue
+                size = len(json.dumps(got, ensure_ascii=False, default=str))
+                if size > MAX_CORPUS_BYTES:
+                    missing[name] = (f"{size} bytes after projection, over the "
+                                     f"{MAX_CORPUS_BYTES} a prompt may carry — the steps that "
+                                     f"read it are not run rather than run on part of it")
                     continue
                 # An EMPTY corpus is unavailable, not present. A step handed `None` or `{}` reads
                 # an absent capability map and answers from nothing, which is the exact failure
@@ -162,7 +200,10 @@ def build_workflow(cfg):
                     fetched[name] = got
                 else:
                     missing[name] = "the corpus was served but is empty"
-            state = state | {"corpora": fetched, "corpora_unavailable": missing}
+            # Said in the record, not just in a comment: a reader must be able to tell that the
+            # coverage map is L1 without going and reading this module.
+            state = state | {"corpora": fetched, "corpora_unavailable": missing,
+                             "capability_depth": CORPORA["capabilities"][1].get("depth")}
         await ctx.send_message(state)
 
     @executor(id="derive")
@@ -187,6 +228,7 @@ def build_workflow(cfg):
 
             screening = {"pending_steps": pending,
                          "corpora_unavailable": dict(state.get("corpora_unavailable") or {}),
+                         "capability_depth": state.get("capability_depth"),
                          "submission_ref": state["submission_record_ref"], **derived}
             stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": screening, "name": "screening.json"})

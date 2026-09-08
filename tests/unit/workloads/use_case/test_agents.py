@@ -432,3 +432,43 @@ def test_every_agent_is_built_against_the_same_model_and_gateway():
                         model="kimi-k3")
     assert set(built) == {s.key for s in STEPS}
     assert all(a.name.startswith("usecase-") for a in built.values())
+
+
+# ------------------------------------------------- what a live screening run found at step 3
+
+FRAME = {"problem": "urgent referrals wait too long to be triaged",
+         "for_whom": "patients awaiting an urgent referral, and the nurses who triage them",
+         "expected_change": "time to triage falls from 30 minutes to under 10",
+         "open_questions": []}
+
+
+def test_an_owner_with_a_title_is_one_person():
+    """A comma separates a name from a title far more often than it separates two owners. Treating
+    punctuation as plurality refused more honest answers than shared ones."""
+    assert gated("3", dict(FRAME, accountable_owner="Dr Jane Smith, Chief Medical Officer")) == []
+
+
+def test_genuinely_shared_accountability_is_still_refused():
+    for owner in ("Ops / Clinical", "Finance & Risk", "Ana and Bo", "the referrals team"):
+        assert gated("3", dict(FRAME, accountable_owner=owner)), owner
+
+
+def test_an_owner_the_submission_never_named_is_an_open_question_not_a_failure():
+    """A live run proved why. The model read a submission that names nobody, said so honestly, and
+    the gate refused it — leaving one honest answer and one fabricated one, of which only the
+    fabricated one passed. That is the opposite of what every prompt here asks for."""
+    assert gated("3", dict(FRAME, accountable_owner="unspecified — the submission names no person",
+                           open_questions=["Who is the accountable owner for this use case?"])) == []
+
+
+def test_but_an_unnamed_owner_must_actually_REACH_a_human():
+    """Otherwise "unspecified" is just a quieter way through the gate.
+
+    The EMPTY owner is refused a layer earlier by the schema, so the case that matters here is the
+    honest marker with nothing behind it."""
+    problems = gated("3", dict(FRAME, accountable_owner="unspecified", open_questions=[]))
+    assert problems and "open question" in problems[0]
+
+    from lab.workloads.usecase.steps import schema
+    assert schema("frame")["properties"]["accountable_owner"].get("minLength"), \
+        "an EMPTY owner is the schema's job, and this rule relies on that"

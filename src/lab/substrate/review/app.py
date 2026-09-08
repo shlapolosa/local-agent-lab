@@ -89,7 +89,11 @@ def _mapping_editor(process: str, field, key: str) -> dict:
     edited = st.data_editor(rows, key=f"{key}_ed", num_rows="dynamic", use_container_width=True,
                             column_config={"label": st.column_config.TextColumn("Field"),
                                            "value": st.column_config.TextColumn("Value")})
-    return {r["label"].strip(): r["value"].strip() for r in edited
+    # `label -> {field: value}`, which is what `InputKind.MAPPING` means and what every other
+    # producer sends. A flat `label -> value` is refused by the contract — found by trying to
+    # submit one, because no test asserted the shape this widget produces against the validator
+    # that has to accept it.
+    return {r["label"].strip(): {"value": r["value"].strip()} for r in edited
             if str(r.get("label", "")).strip() and str(r.get("value", "")).strip()}
 
 

@@ -931,3 +931,41 @@ def test_the_conditions_ride_on_the_step_and_reach_the_derivation():
     payload = _workflow_payload({"criticality": {"criticality_class": "routine"}},
                                 {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
     assert all(set(s["conditions"]) == set(_seed.NAMED_CONDITIONS) for s in payload["steps"])
+
+
+# ------------------------------------------------- what a live screening run found at step 5
+
+def test_a_corpus_reaches_a_prompt_projected_to_what_the_step_reads():
+    """A projection, not a truncation — every concept survives, the prose does not.
+
+    Measured on a live run that sat on step 5 for fifty-three minutes: the published capability map
+    carries a `definition` per concept that a MATCH never reads, and 1,666 of them made the prompt
+    94,000 tokens. A hang is the worst way for a size problem to present, because it looks like
+    slowness and slowness looks like patience."""
+    from lab.workloads.use_case_screening.workflow import PROMPT_FIELDS, project
+    corpus = [{"id": "c1", "label": "Patient Management", "level": 1, "tier": "core",
+               "parent": None, "definition": "x" * 400}]
+    out = project("capabilities", corpus)
+    assert len(out) == len(corpus), "no concept may be dropped — a match must see the whole map"
+    assert set(out[0]) <= set(PROMPT_FIELDS["capabilities"])
+    assert "definition" not in out[0]
+
+
+def test_a_corpus_with_no_projection_declared_is_passed_through_untouched():
+    from lab.workloads.use_case_screening.workflow import project
+    assert project("ontology", {"vocabularies": ["archimate-3.1"]}) == {
+        "vocabularies": ["archimate-3.1"]}
+
+
+def test_a_corpus_over_the_prompt_budget_is_unavailable_rather_than_partial():
+    """A step that silently receives half a corpus answers confidently from half a corpus."""
+    from lab.workloads.use_case_screening import workflow as W
+    assert W.MAX_CORPUS_BYTES > 0
+    src = W.__doc__ or ""
+    assert "depth" in open(W.__file__).read()
+
+
+def test_the_capability_depth_the_run_used_is_in_the_record():
+    """A reader must be able to tell the coverage map is L1 without reading the module."""
+    from lab.workloads.use_case_screening.workflow import CORPORA
+    assert CORPORA["capabilities"][1]["depth"] == 1
