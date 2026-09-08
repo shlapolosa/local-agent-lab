@@ -170,7 +170,7 @@
         }
       },
       "runAfter": {
-        "Initialize_answer": [
+        "Initialize_problems": [
           "Succeeded"
         ]
       }
@@ -221,436 +221,6 @@
         ]
       }
     },
-    "Poll_until_the_question_exists": {
-      "//": "STEP 2. Transcription takes several minutes for an hour of audio. One minute between polls, ninety polls, ninety minutes of patience; the run either reaches `done` (and carries approval_id, speakers, transcript_ref, summary) or `failed` (and carries a readable `error`).",
-      "type": "Until",
-      "expression": "@or(equals(variables('runState')?['status'], 'done'), equals(variables('runState')?['status'], 'failed'))",
-      "limit": {
-        "count": 90,
-        "timeout": "PT1H30M"
-      },
-      "actions": {
-        "Wait_a_minute": {
-          "type": "Wait",
-          "inputs": {
-            "interval": {
-              "count": 1,
-              "unit": "Minute"
-            }
-          },
-          "runAfter": {}
-        },
-        "Get_run": {
-          "type": "Http",
-          "inputs": {
-            "method": "GET",
-            "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/processes/meeting_to_transcript/runs/', body('Start_run')?['request_id'])}",
-            "authentication": {
-              "type": "ActiveDirectoryOAuth",
-              "tenant": "${ENTRA_TENANT_ID}",
-              "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-              "clientId": "${CONNECTOR_CLIENT_ID}",
-              "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
-            }
-          },
-          "runAfter": {
-            "Wait_a_minute": [
-              "Succeeded"
-            ]
-          }
-        },
-        "Remember_run": {
-          "type": "SetVariable",
-          "inputs": {
-            "name": "runState",
-            "value": "@body('Get_run')"
-          },
-          "runAfter": {
-            "Get_run": [
-              "Succeeded"
-            ]
-          }
-        }
-      },
-      "runAfter": {
-        "Start_run": [
-          "Succeeded"
-        ]
-      }
-    },
-    "Stop_if_the_run_did_not_finish": {
-      "type": "If",
-      "expression": {
-        "not": {
-          "equals": [
-            "@variables('runState')?['status']",
-            "done"
-          ]
-        }
-      },
-      "actions": {
-        "Report_the_run_failure": {
-          "type": "Terminate",
-          "inputs": {
-            "runStatus": "Failed",
-            "runError": {
-              "code": "MeetingToTranscriptRunNotDone",
-              "message": "@{if(equals(variables('runState')?['status'], 'failed'), concat('the transcription run failed: ', coalesce(variables('runState')?['error'], 'no reason given')), concat('run ', coalesce(body('Start_run')?['request_id'], '?'), ' was still ', coalesce(variables('runState')?['status'], 'unknown'), ' when the poll window closed; it may still finish, and the question will then be waiting in the review app'))}"
-            }
-          },
-          "runAfter": {}
-        }
-      },
-      "else": {
-        "actions": {}
-      },
-      "runAfter": {
-        "Poll_until_the_question_exists": [
-          "Succeeded"
-        ]
-      }
-    },
-    "Build_speaker_blocks": {
-      "//": "One Adaptive Card Container per speaker, built as OBJECTS so the engine does the JSON escaping. Never assemble card JSON by string concatenation: a quote or a newline inside an Arabic sample utterance would break the card, and hand-escaping is how encoding gets mangled.",
-      "type": "Select",
-      "inputs": {
-        "from": "@coalesce(variables('runState')?['speakers'], json('[]'))",
-        "select": {
-          "type": "Container",
-          "separator": true,
-          "spacing": "Medium",
-          "items": [
-            {
-              "type": "TextBlock",
-              "text": "@{item()['label']}",
-              "weight": "Bolder",
-              "size": "Medium",
-              "wrap": true
-            },
-            {
-              "type": "TextBlock",
-              "text": "@{concat('spoke for ', string(item()['seconds']), ' seconds across ', string(item()['turns']), ' turns')}",
-              "isSubtle": true,
-              "spacing": "None",
-              "wrap": true
-            },
-            {
-              "type": "TextBlock",
-              "text": "@{if(empty(coalesce(item()['samples'], json('[]'))), '(no sample utterance was captured for this voice)', join(item()['samples'], decodeUriComponent('%0A%0A')))}",
-              "wrap": true,
-              "isSubtle": false
-            },
-            {
-              "//": "A picker of who actually attended. isVisible is driven by whether any candidate exists, so a meeting we could not resolve shows no empty dropdown. A typed identity below still wins — this fills the common case, it does not constrain the honest one.",
-              "type": "Input.ChoiceSet",
-              "id": "@{concat('pick_', item()['label'])}",
-              "label": "Attended this meeting",
-              "placeholder": "Pick who this voice is, or type below",
-              "isRequired": false,
-              "style": "compact",
-              "choices": "@body('Build_choices')",
-              "isVisible": "@greater(length(coalesce(variables('runState')?['candidates'], json('[]'))), 0)"
-            },
-            {
-              "type": "Input.Text",
-              "id": "@{concat('identity_', item()['label'])}",
-              "label": "Directory identity (email or user principal name)",
-              "placeholder": "maria@contoso.com",
-              "isRequired": false
-            },
-            {
-              "type": "Input.Text",
-              "id": "@{concat('tag_', item()['label'])}",
-              "label": "OR a free tag, if they are not in the directory",
-              "placeholder": "the vendor's architect",
-              "isRequired": false
-            }
-          ]
-        }
-      },
-      "runAfter": {
-        "Build_choices": [
-          "Succeeded"
-        ]
-      }
-    },
-    "Compose_card": {
-      "type": "Compose",
-      "inputs": {
-        "type": "AdaptiveCard",
-        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-        "version": "1.4",
-        "body": [
-          {
-            "type": "TextBlock",
-            "text": "@{concat('Who is speaking in ', coalesce(variables('runState')?['summary']?['recording'], 'this meeting'), '?')}",
-            "weight": "Bolder",
-            "size": "Large",
-            "wrap": true
-          },
-          {
-            "type": "TextBlock",
-            "text": "For every speaker below, give the person's directory identity if they are in the organisation, or a free tag describing them if they are not — a guest, a vendor, anyone external. Fill exactly one of the two boxes for each. Use the duration, the turn count and the sample quotes to tell the voices apart; an unidentified speaker stops the minutes being written.",
-            "wrap": true,
-            "isSubtle": true
-          },
-          {
-            "type": "Container",
-            "items": "@body('Build_speaker_blocks')"
-          }
-        ],
-        "actions": [
-          {
-            "type": "Action.Submit",
-            "title": "Submit",
-            "data": {
-              "action": "approve"
-            }
-          },
-          {
-            "type": "Action.Submit",
-            "title": "I can't answer this",
-            "data": {
-              "action": "decline"
-            }
-          }
-        ]
-      },
-      "runAfter": {
-        "Build_speaker_blocks": [
-          "Succeeded"
-        ]
-      },
-      "//": "A Select's array is at body('Name'), NOT outputs('Name') — outputs() returns the wrapper object, so the card received {\"body\": [...]} where an array was required and Teams rendered nothing. Verified against a live card."
-    },
-    "Ask_the_organiser": {
-      "//": "STEP 3. 'Post adaptive card and wait for a response' (operationId PostCardAndWaitForResponse) — the Flow bot posts it, so no bot registration and no Teams app deployment is needed. The card is passed as a serialized string; string() keeps the Arabic as UTF-8 rather than escaping it.",
-      "type": "OpenApiConnectionWebhook",
-      "inputs": {
-        "host": {
-          "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
-          "connectionName": "shared_teams",
-          "operationId": "PostCardAndWaitForResponse"
-        },
-        "parameters": {
-          "poster": "Flow bot",
-          "location": "Chat with Flow bot",
-          "body/recipient": "@variables('organiser')",
-          "body/messageBody": "@{string(outputs('Compose_card'))}",
-          "body/updateMessage": "Thank you — the speakers have been recorded and the minutes have been started.",
-          "body/shouldUpdateCard": true
-        },
-        "authentication": "@parameters('$authentication')"
-      },
-      "limit": {
-        "timeout": "P7D"
-      },
-      "runAfter": {
-        "Compose_card": [
-          "Succeeded"
-        ]
-      }
-    },
-    "Was_it_answered": {
-      "type": "If",
-      "expression": {
-        "equals": [
-          "@coalesce(body('Ask_the_organiser')?['data']?['action'], 'approve')",
-          "approve"
-        ]
-      },
-      "actions": {
-        "Read_the_answers": {
-          "//": "A typed identity WINS over a pick. The box is the more specific act, and silently overriding what somebody typed is how a form loses their trust — so `identity` is the typed value, falling back to the dropdown only when the box is empty. The same one-of-identity-or-tag rule then applies unchanged, which is why the ambiguity check below needed no edit.",
-          "type": "Select",
-          "inputs": {
-            "from": "@coalesce(variables('runState')?['speakers'], json('[]'))",
-            "select": {
-              "label": "@item()['label']",
-              "identity": "@trim(coalesce(if(empty(trim(coalesce(body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])], ''))), coalesce(body('Ask_the_organiser')?['data']?[concat('pick_', item()['label'])], ''), body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])]), ''))",
-              "tag": "@trim(coalesce(body('Ask_the_organiser')?['data']?[concat('tag_', item()['label'])], ''))"
-            }
-          },
-          "runAfter": {}
-        },
-        "Find_the_ambiguous_ones": {
-          "//": "Exactly one of identity or tag. Both filled is ambiguous, neither is unanswered, and the lab refuses to resolve either silently — so the flow refuses too, rather than quietly preferring one box.",
-          "type": "Query",
-          "inputs": {
-            "from": "@body('Read_the_answers')",
-            "where": "@equals(empty(item()['identity']), empty(item()['tag']))"
-          },
-          "runAfter": {
-            "Read_the_answers": [
-              "Succeeded"
-            ]
-          }
-        },
-        "Stop_if_the_answer_is_ambiguous": {
-          "type": "If",
-          "expression": {
-            "greater": [
-              "@length(body('Find_the_ambiguous_ones'))",
-              0
-            ]
-          },
-          "actions": {
-            "Report_the_ambiguous_answer": {
-              "type": "Terminate",
-              "inputs": {
-                "runStatus": "Failed",
-                "runError": {
-                  "code": "SpeakerAnswerAmbiguous",
-                  "message": "@{concat('every speaker needs exactly one of a directory identity or a free tag; these had both or neither: ', string(body('Find_the_ambiguous_ones')), '. The approval is still open — answer it in the review app, or run this flow again.')}"
-                }
-              },
-              "runAfter": {}
-            }
-          },
-          "else": {
-            "actions": {}
-          },
-          "runAfter": {
-            "Find_the_ambiguous_ones": [
-              "Succeeded"
-            ]
-          }
-        },
-        "Build_the_answer": {
-          "//": "setProperty on an empty object builds {\"identity\": ...} or {\"tag\": ...} with the engine doing the escaping — no string concatenation, so a tag containing a quote or an Arabic phrase survives intact. Concurrency is pinned to 1 because a variable set inside a parallel loop races.",
-          "type": "Foreach",
-          "foreach": "@body('Read_the_answers')",
-          "actions": {
-            "Add_one_speaker": {
-              "type": "SetVariable",
-              "inputs": {
-                "name": "answerDraft",
-                "value": "@setProperty(variables('answer'), item()['label'], if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity'])))"
-              },
-              "runAfter": {}
-            },
-            "Carry_it_forward": {
-              "//": "The copy back. Splitting the write is what keeps either action from self-referencing.",
-              "type": "SetVariable",
-              "inputs": {
-                "name": "answer",
-                "value": "@variables('answerDraft')"
-              },
-              "runAfter": {
-                "Add_one_speaker": [
-                  "Succeeded"
-                ]
-              }
-            }
-          },
-          "runtimeConfiguration": {
-            "concurrency": {
-              "repetitions": 1
-            }
-          },
-          "runAfter": {
-            "Stop_if_the_answer_is_ambiguous": [
-              "Succeeded"
-            ]
-          }
-        },
-        "Send_the_answer": {
-          "//": "STEP 4. `actor` is the signed-in person who answered the card, taken from the card response and from nowhere else. There is deliberately no fallback: a blank actor is refused with a 422, which is the correct outcome, because 'who identified these speakers' is the whole point of the audit record. Approving starts the minutes run inside the lab; this flow must not, and its credential cannot.",
-          "type": "Http",
-          "inputs": {
-            "method": "POST",
-            "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
-            "headers": {
-              "Content-Type": "application/json; charset=utf-8"
-            },
-            "body": {
-              "decision": "approve",
-              "actor": "@{coalesce(body('Ask_the_organiser')?['responder']?['email'], body('Ask_the_organiser')?['responder']?['userPrincipalName'], '')}",
-              "channel": "power-automate",
-              "answer": "@variables('answer')"
-            },
-            "authentication": {
-              "type": "ActiveDirectoryOAuth",
-              "tenant": "${ENTRA_TENANT_ID}",
-              "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-              "clientId": "${CONNECTOR_CLIENT_ID}",
-              "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
-            }
-          },
-          "runAfter": {
-            "Build_the_answer": [
-              "Succeeded"
-            ]
-          }
-        },
-        "Explain_why_the_answer_was_refused": {
-          "type": "Terminate",
-          "inputs": {
-            "runStatus": "Failed",
-            "runError": {
-              "code": "SpeakerAnswerRefused",
-              "message": "@{concat('the approval refused the answer: ', coalesce(body('Send_the_answer')?['error'], string(coalesce(body('Send_the_answer'), 'no response body'))), '. The approval is still open in the review app.')}"
-            }
-          },
-          "runAfter": {
-            "Send_the_answer": [
-              "Failed",
-              "TimedOut"
-            ]
-          }
-        }
-      },
-      "else": {
-        "actions": {
-          "Send_the_decline": {
-            "//": "A decline carries no answer — the approval closes without releasing the minutes run.",
-            "type": "Http",
-            "inputs": {
-              "method": "POST",
-              "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
-              "headers": {
-                "Content-Type": "application/json; charset=utf-8"
-              },
-              "body": {
-                "decision": "decline",
-                "actor": "@{coalesce(body('Ask_the_organiser')?['responder']?['email'], body('Ask_the_organiser')?['responder']?['userPrincipalName'], '')}",
-                "channel": "power-automate",
-                "comment": "declined from the Teams card"
-              },
-              "authentication": {
-                "type": "ActiveDirectoryOAuth",
-                "tenant": "${ENTRA_TENANT_ID}",
-                "audience": "${ENTRA_GATEWAY_AUDIENCE}",
-                "clientId": "${CONNECTOR_CLIENT_ID}",
-                "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
-              }
-            },
-            "runAfter": {}
-          }
-        }
-      },
-      "runAfter": {
-        "Ask_the_organiser": [
-          "Succeeded"
-        ]
-      }
-    },
-    "Build_choices": {
-      "//": "The attendees the lab resolved, as Adaptive Card choices. Empty when the meeting could not be matched to the recording, which is normal — the card then shows only the free-text boxes, exactly as before.",
-      "type": "Select",
-      "inputs": {
-        "from": "@coalesce(variables('runState')?['candidates'], json('[]'))",
-        "select": {
-          "title": "@{if(empty(coalesce(item()['display'], '')), item()['identity'], concat(item()['display'], ' <', item()['identity'], '>'))}",
-          "value": "@{item()['identity']}"
-        }
-      },
-      "runAfter": {
-        "Stop_if_the_run_did_not_finish": [
-          "Succeeded"
-        ]
-      }
-    },
     "Initialize_answer_draft": {
       "//": "Power Automate REFUSES a Set variable that references the variable it is setting (WorkflowRunActionInputsInvalidProperty: 'Self reference is not supported'). Accumulating into one variable inside a loop is therefore impossible in a single action, so the loop reads `answer`, writes this draft, and copies it back.",
       "type": "InitializeVariable",
@@ -665,6 +235,527 @@
       },
       "runAfter": {
         "Initialize_run_state": [
+          "Succeeded"
+        ]
+      }
+    },
+    "For_each_lane": {
+      "//": "ONE LANE PER SPEECH PROVIDER. `SPEECH_LANES` makes a single submit create a run per provider, and the 202 lists them in `lanes` as [{provider, request_id, duplicate}]. Looping is what asks about all of them; polling `request_id` alone asks about the first and silently ignores the rest. A lane whose request_id is empty failed to submit and carries its own `error` — it is skipped rather than polled forever. SEQUENTIAL (concurrency 1) and not by preference: Power Automate refuses SetVariable inside a concurrent Apply-to-each, and `runState` is set on every pass.",
+      "type": "Foreach",
+      "foreach": "@coalesce(body('Start_run')?['lanes'], json('[]'))",
+      "actions": {
+        "Skip_lanes_that_never_started": {
+          "type": "If",
+          "expression": {
+            "not": {
+              "equals": [
+                "@coalesce(items('For_each_lane')?['request_id'], '')",
+                ""
+              ]
+            }
+          },
+          "actions": {
+            "Poll_until_the_question_exists": {
+              "//": "STEP 2. Transcription takes several minutes for an hour of audio. One minute between polls, ninety polls, ninety minutes of patience; the run either reaches `done` (and carries approval_id, speakers, transcript_ref, summary) or `failed` (and carries a readable `error`).",
+              "type": "Until",
+              "expression": "@or(equals(variables('runState')?['status'], 'done'), equals(variables('runState')?['status'], 'failed'))",
+              "limit": {
+                "count": 90,
+                "timeout": "PT1H30M"
+              },
+              "actions": {
+                "Wait_a_minute": {
+                  "type": "Wait",
+                  "inputs": {
+                    "interval": {
+                      "count": 1,
+                      "unit": "Minute"
+                    }
+                  },
+                  "runAfter": {}
+                },
+                "Get_run": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "GET",
+                    "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/processes/meeting_to_transcript/runs/', items('For_each_lane')?['request_id'])}",
+                    "authentication": {
+                      "type": "ActiveDirectoryOAuth",
+                      "tenant": "${ENTRA_TENANT_ID}",
+                      "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+                      "clientId": "${CONNECTOR_CLIENT_ID}",
+                      "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+                    }
+                  },
+                  "runAfter": {
+                    "Wait_a_minute": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Remember_run": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "runState",
+                    "value": "@body('Get_run')"
+                  },
+                  "runAfter": {
+                    "Get_run": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "runAfter": {
+                "Reset_run_state": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Reset_run_state": {
+              "//": "Each lane polls its OWN run. Without this the Until's condition is already satisfied by the previous lane and the loop exits before the new run has even started.",
+              "type": "SetVariable",
+              "inputs": {
+                "name": "runState",
+                "value": {}
+              },
+              "runAfter": {}
+            },
+            "Did_this_lane_finish": {
+              "//": "Terminate here would abort the whole flow and take the healthy lanes with it. Measured 8 Sep 2026: three lanes, the first failed on a provider 500, and no question was asked at all even though a later lane had a perfectly good transcript.",
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@variables('runState')?['status']",
+                  "done"
+                ]
+              },
+              "actions": {
+                "Build_choices": {
+                  "//": "The attendees the lab resolved, as Adaptive Card choices. Empty when the meeting could not be matched to the recording, which is normal — the card then shows only the free-text boxes, exactly as before.",
+                  "type": "Select",
+                  "inputs": {
+                    "from": "@coalesce(variables('runState')?['candidates'], json('[]'))",
+                    "select": {
+                      "title": "@{if(empty(coalesce(item()['display'], '')), item()['identity'], concat(item()['display'], ' <', item()['identity'], '>'))}",
+                      "value": "@{item()['identity']}"
+                    }
+                  },
+                  "runAfter": {}
+                },
+                "Build_speaker_blocks": {
+                  "//": "One Adaptive Card Container per speaker, built as OBJECTS so the engine does the JSON escaping. Never assemble card JSON by string concatenation: a quote or a newline inside an Arabic sample utterance would break the card, and hand-escaping is how encoding gets mangled.",
+                  "type": "Select",
+                  "inputs": {
+                    "from": "@coalesce(variables('runState')?['speakers'], json('[]'))",
+                    "select": {
+                      "type": "Container",
+                      "separator": true,
+                      "spacing": "Medium",
+                      "items": [
+                        {
+                          "type": "TextBlock",
+                          "text": "@{item()['label']}",
+                          "weight": "Bolder",
+                          "size": "Medium",
+                          "wrap": true
+                        },
+                        {
+                          "type": "TextBlock",
+                          "text": "@{concat('spoke for ', string(item()['seconds']), ' seconds across ', string(item()['turns']), ' turns')}",
+                          "isSubtle": true,
+                          "spacing": "None",
+                          "wrap": true
+                        },
+                        {
+                          "type": "TextBlock",
+                          "text": "@{if(empty(coalesce(item()['samples'], json('[]'))), '(no sample utterance was captured for this voice)', join(item()['samples'], decodeUriComponent('%0A%0A')))}",
+                          "wrap": true,
+                          "isSubtle": false
+                        },
+                        {
+                          "//": "A picker of who actually attended. isVisible is driven by whether any candidate exists, so a meeting we could not resolve shows no empty dropdown. A typed identity below still wins — this fills the common case, it does not constrain the honest one.",
+                          "type": "Input.ChoiceSet",
+                          "id": "@{concat('pick_', item()['label'])}",
+                          "label": "Attended this meeting",
+                          "placeholder": "Pick who this voice is, or type below",
+                          "isRequired": false,
+                          "style": "compact",
+                          "choices": "@body('Build_choices')",
+                          "isVisible": "@greater(length(coalesce(variables('runState')?['candidates'], json('[]'))), 0)"
+                        },
+                        {
+                          "type": "Input.Text",
+                          "id": "@{concat('identity_', item()['label'])}",
+                          "label": "Directory identity (email or user principal name)",
+                          "placeholder": "maria@contoso.com",
+                          "isRequired": false
+                        },
+                        {
+                          "type": "Input.Text",
+                          "id": "@{concat('tag_', item()['label'])}",
+                          "label": "OR a free tag, if they are not in the directory",
+                          "placeholder": "the vendor's architect",
+                          "isRequired": false
+                        }
+                      ]
+                    }
+                  },
+                  "runAfter": {
+                    "Build_choices": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Compose_card": {
+                  "type": "Compose",
+                  "inputs": {
+                    "type": "AdaptiveCard",
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "version": "1.4",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "text": "@{concat('Who is speaking in ', coalesce(variables('runState')?['summary']?['recording'], 'this meeting'), '?  [', items('For_each_lane')?['provider'], ']')}",
+                        "weight": "Bolder",
+                        "size": "Large",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "For every speaker below, give the person's directory identity if they are in the organisation, or a free tag describing them if they are not — a guest, a vendor, anyone external. Fill exactly one of the two boxes for each. Use the duration, the turn count and the sample quotes to tell the voices apart; an unidentified speaker stops the minutes being written.",
+                        "wrap": true,
+                        "isSubtle": true
+                      },
+                      {
+                        "type": "Container",
+                        "items": "@body('Build_speaker_blocks')"
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "type": "Action.Submit",
+                        "title": "Submit",
+                        "data": {
+                          "action": "approve"
+                        }
+                      },
+                      {
+                        "type": "Action.Submit",
+                        "title": "I can't answer this",
+                        "data": {
+                          "action": "decline"
+                        }
+                      }
+                    ]
+                  },
+                  "runAfter": {
+                    "Build_speaker_blocks": [
+                      "Succeeded"
+                    ]
+                  },
+                  "//": "A Select's array is at body('Name'), NOT outputs('Name') — outputs() returns the wrapper object, so the card received {\"body\": [...]} where an array was required and Teams rendered nothing. Verified against a live card."
+                },
+                "Ask_the_organiser": {
+                  "//": "STEP 3. 'Post adaptive card and wait for a response' (operationId PostCardAndWaitForResponse) — the Flow bot posts it, so no bot registration and no Teams app deployment is needed. The card is passed as a serialized string; string() keeps the Arabic as UTF-8 rather than escaping it.",
+                  "type": "OpenApiConnectionWebhook",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                      "connectionName": "shared_teams",
+                      "operationId": "PostCardAndWaitForResponse"
+                    },
+                    "parameters": {
+                      "poster": "Flow bot",
+                      "location": "Chat with Flow bot",
+                      "body/recipient": "@variables('organiser')",
+                      "body/messageBody": "@{string(outputs('Compose_card'))}",
+                      "body/updateMessage": "Thank you — the speakers have been recorded and the minutes have been started.",
+                      "body/shouldUpdateCard": true
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "limit": {
+                    "timeout": "P7D"
+                  },
+                  "runAfter": {
+                    "Compose_card": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Was_it_answered": {
+                  "type": "If",
+                  "expression": {
+                    "equals": [
+                      "@coalesce(body('Ask_the_organiser')?['data']?['action'], 'approve')",
+                      "approve"
+                    ]
+                  },
+                  "actions": {
+                    "Read_the_answers": {
+                      "//": "A typed identity WINS over a pick. The box is the more specific act, and silently overriding what somebody typed is how a form loses their trust — so `identity` is the typed value, falling back to the dropdown only when the box is empty. The same one-of-identity-or-tag rule then applies unchanged, which is why the ambiguity check below needed no edit.",
+                      "type": "Select",
+                      "inputs": {
+                        "from": "@coalesce(variables('runState')?['speakers'], json('[]'))",
+                        "select": {
+                          "label": "@item()['label']",
+                          "identity": "@trim(coalesce(if(empty(trim(coalesce(body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])], ''))), coalesce(body('Ask_the_organiser')?['data']?[concat('pick_', item()['label'])], ''), body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])]), ''))",
+                          "tag": "@trim(coalesce(body('Ask_the_organiser')?['data']?[concat('tag_', item()['label'])], ''))"
+                        }
+                      },
+                      "runAfter": {}
+                    },
+                    "Find_the_ambiguous_ones": {
+                      "//": "Exactly one of identity or tag. Both filled is ambiguous, neither is unanswered, and the lab refuses to resolve either silently — so the flow refuses too, rather than quietly preferring one box.",
+                      "type": "Query",
+                      "inputs": {
+                        "from": "@body('Read_the_answers')",
+                        "where": "@equals(empty(item()['identity']), empty(item()['tag']))"
+                      },
+                      "runAfter": {
+                        "Read_the_answers": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Stop_if_the_answer_is_ambiguous": {
+                      "type": "If",
+                      "expression": {
+                        "greater": [
+                          "@length(body('Find_the_ambiguous_ones'))",
+                          0
+                        ]
+                      },
+                      "actions": {
+                        "Report_the_ambiguous_answer": {
+                          "//": "Lane-local. As a Terminate this ended the whole flow, so one lane's bad answer stopped every other lane being asked. The approval stays open, so the organiser can still answer it in the review app.",
+                          "type": "AppendToArrayVariable",
+                          "inputs": {
+                            "name": "problems",
+                            "value": "@{concat(items('For_each_lane')?['provider'], ': ', concat('every speaker needs exactly one of a directory identity or a free tag; these had both or neither: ', string(body('Find_the_ambiguous_ones')), '. The approval is still open — answer it in the review app, or run this flow again.'))}"
+                          },
+                          "runAfter": {}
+                        }
+                      },
+                      "else": {
+                        "actions": {}
+                      },
+                      "runAfter": {
+                        "Find_the_ambiguous_ones": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Build_the_answer": {
+                      "//": "setProperty on an empty object builds {\"identity\": ...} or {\"tag\": ...} with the engine doing the escaping — no string concatenation, so a tag containing a quote or an Arabic phrase survives intact. Concurrency is pinned to 1 because a variable set inside a parallel loop races.",
+                      "type": "Foreach",
+                      "foreach": "@body('Read_the_answers')",
+                      "actions": {
+                        "Add_one_speaker": {
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "answerDraft",
+                            "value": "@setProperty(variables('answer'), item()['label'], if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity'])))"
+                          },
+                          "runAfter": {}
+                        },
+                        "Carry_it_forward": {
+                          "//": "The copy back. Splitting the write is what keeps either action from self-referencing.",
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "answer",
+                            "value": "@variables('answerDraft')"
+                          },
+                          "runAfter": {
+                            "Add_one_speaker": [
+                              "Succeeded"
+                            ]
+                          }
+                        }
+                      },
+                      "runtimeConfiguration": {
+                        "concurrency": {
+                          "repetitions": 1
+                        }
+                      },
+                      "runAfter": {
+                        "Stop_if_the_answer_is_ambiguous": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Send_the_answer": {
+                      "//": "STEP 4. `actor` is the signed-in person who answered the card, taken from the card response and from nowhere else. There is deliberately no fallback: a blank actor is refused with a 422, which is the correct outcome, because 'who identified these speakers' is the whole point of the audit record. Approving starts the minutes run inside the lab; this flow must not, and its credential cannot.",
+                      "type": "Http",
+                      "inputs": {
+                        "method": "POST",
+                        "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
+                        "headers": {
+                          "Content-Type": "application/json; charset=utf-8"
+                        },
+                        "body": {
+                          "decision": "approve",
+                          "actor": "@{coalesce(body('Ask_the_organiser')?['responder']?['email'], body('Ask_the_organiser')?['responder']?['userPrincipalName'], '')}",
+                          "channel": "power-automate",
+                          "answer": "@variables('answer')"
+                        },
+                        "authentication": {
+                          "type": "ActiveDirectoryOAuth",
+                          "tenant": "${ENTRA_TENANT_ID}",
+                          "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+                          "clientId": "${CONNECTOR_CLIENT_ID}",
+                          "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+                        }
+                      },
+                      "runAfter": {
+                        "Build_the_answer": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Explain_why_the_answer_was_refused": {
+                      "//": "Lane-local. As a Terminate this ended the whole flow, so one lane's bad answer stopped every other lane being asked. The approval stays open, so the organiser can still answer it in the review app.",
+                      "type": "AppendToArrayVariable",
+                      "inputs": {
+                        "name": "problems",
+                        "value": "@{concat(items('For_each_lane')?['provider'], ': ', concat('the approval refused the answer: ', coalesce(body('Send_the_answer')?['error'], string(coalesce(body('Send_the_answer'), 'no response body'))), '. The approval is still open in the review app.'))}"
+                      },
+                      "runAfter": {
+                        "Send_the_answer": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Send_the_decline": {
+                        "//": "A decline carries no answer — the approval closes without releasing the minutes run.",
+                        "type": "Http",
+                        "inputs": {
+                          "method": "POST",
+                          "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', variables('runState')?['approval_id'], '/decide')}",
+                          "headers": {
+                            "Content-Type": "application/json; charset=utf-8"
+                          },
+                          "body": {
+                            "decision": "decline",
+                            "actor": "@{coalesce(body('Ask_the_organiser')?['responder']?['email'], body('Ask_the_organiser')?['responder']?['userPrincipalName'], '')}",
+                            "channel": "power-automate",
+                            "comment": "declined from the Teams card"
+                          },
+                          "authentication": {
+                            "type": "ActiveDirectoryOAuth",
+                            "tenant": "${ENTRA_TENANT_ID}",
+                            "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+                            "clientId": "${CONNECTOR_CLIENT_ID}",
+                            "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
+                          }
+                        },
+                        "runAfter": {}
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Ask_the_organiser": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Note_the_lane_problem": {
+                    "type": "AppendToArrayVariable",
+                    "inputs": {
+                      "name": "problems",
+                      "value": "@{concat(items('For_each_lane')?['provider'], ': ', if(equals(variables('runState')?['status'], 'failed'), coalesce(variables('runState')?['error'], 'failed with no reason given'), concat('still ', coalesce(variables('runState')?['status'], 'unknown'), ' when the poll window closed — it may still finish, and the question will be waiting in the review app')))}"
+                    },
+                    "runAfter": {}
+                  }
+                }
+              },
+              "runAfter": {
+                "Poll_until_the_question_exists": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "else": {
+            "actions": {}
+          },
+          "runAfter": {}
+        }
+      },
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 1
+        }
+      },
+      "runAfter": {
+        "Start_run": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Initialize_problems": {
+      "//": "What went wrong, per lane. Collected rather than raised, so one provider's outage costs its own lane and nothing else.",
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "problems",
+            "type": "array",
+            "value": []
+          }
+        ]
+      },
+      "runAfter": {
+        "Initialize_answer": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Report_lane_problems": {
+      "//": "Fails ONLY when every lane failed — otherwise the flow succeeded at what it is for: a human was asked. The reasons are in the message either way.",
+      "type": "If",
+      "expression": {
+        "and": [
+          {
+            "greater": [
+              "@length(variables('problems'))",
+              0
+            ]
+          },
+          {
+            "equals": [
+              "@length(variables('problems'))",
+              "@length(coalesce(body('Start_run')?['lanes'], json('[]')))"
+            ]
+          }
+        ]
+      },
+      "actions": {
+        "Report_every_lane_failed": {
+          "type": "Terminate",
+          "inputs": {
+            "runStatus": "Failed",
+            "runError": {
+              "code": "EveryLaneFailed",
+              "message": "@{concat('no lane produced a question. ', join(variables('problems'), ' | '))}"
+            }
+          },
+          "runAfter": {}
+        }
+      },
+      "else": {
+        "actions": {}
+      },
+      "runAfter": {
+        "For_each_lane": [
           "Succeeded"
         ]
       }
