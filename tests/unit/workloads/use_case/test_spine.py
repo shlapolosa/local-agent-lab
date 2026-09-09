@@ -1138,7 +1138,10 @@ def test_a_use_case_that_matched_at_l1_but_not_at_l3_is_still_a_match():
              {"level": 2, "candidates": 12, **_covers(_match("triage", "c1a", "Referral Triage"))},
              {"level": 3, "candidates": 4, **_covers()}]          # the leaf pass found nothing
     coverage = composed(trail)
-    assert [m["level"] for m in coverage["matched"]] == [1, 2]
+    # ONE row for the function, at the deepest level it reached — the L3 pass found nothing, so it
+    # keeps L2 rather than disappearing.
+    assert [m["level"] for m in coverage["matched"]] == [2]
+    assert coverage["matched"][0]["capability_label"] == "Referral Triage"
     assert feasibility_evidence({"coverage_map": coverage})["capability_matched"] is True
 
 
@@ -1193,3 +1196,38 @@ def test_the_drill_does_not_leave_the_last_level_s_leaves_under_the_map_s_name()
         d = _Derivation(h, candidates=list(top))
         asyncio.run(W.drill_coverage(h.cfg, d))
     assert d.available["capabilities"] == top
+
+
+def test_the_coverage_map_is_one_row_per_function_not_one_per_level():
+    """A deeper level REFINES the shallower one for the same function — resolving to Initiative
+    Management, then Initiative Definition, then Initiative Identification is ONE answer at three
+    resolutions. Concatenating them turned 14 functions into 40 rows with one capability repeated
+    eleven times, which is a list of everything the drill looked at rather than a coverage map."""
+    from lab.workloads.use_case_screening.workflow import composed
+    trail = [
+        {"level": 1, "candidates": 42, **_covers(_match("submit", "c1", "Initiative Management"),
+                                                 _match("cost", "c9", "Investment Management"))},
+        {"level": 2, "candidates": 12, **_covers(_match("submit", "c1a", "Initiative Definition"))},
+        {"level": 3, "candidates": 6, **_covers(_match("submit", "c1a1", "Initiative Identification"))},
+    ]
+    matched = composed(trail)["matched"]
+    assert len(matched) == 2, "one row per FUNCTION"
+    submit = next(m for m in matched if m["function"] == "submit")
+    assert submit["capability_label"] == "Initiative Identification" and submit["level"] == 3
+    assert submit["path"] == ["Initiative Management", "Initiative Definition",
+                              "Initiative Identification"], "the path it resolved through"
+
+
+def test_a_function_that_stops_early_keeps_the_level_it_reached():
+    """It found nothing relevant below, which is not the same as matching nothing — and
+    `capability_matched` reads this field."""
+    from lab.workloads.use_case_design.workflow import feasibility_evidence
+    from lab.workloads.use_case_screening.workflow import composed
+    trail = [
+        {"level": 1, "candidates": 42, **_covers(_match("check", "c2", "Information Management"))},
+        {"level": 2, "candidates": 8, **_covers()},          # nothing relevant one level down
+    ]
+    coverage = composed(trail)
+    shallow = coverage["matched"][0]
+    assert shallow["capability_label"] == "Information Management" and shallow["level"] == 1
+    assert feasibility_evidence({"coverage_map": coverage})["capability_matched"] is True

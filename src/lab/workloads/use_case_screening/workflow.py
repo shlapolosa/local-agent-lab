@@ -163,8 +163,30 @@ def composed(trail: list[dict]) -> dict:
     from L1 for the same reason — it is the position step 16's rule was written about.
     """
     first = trail[0]
+    # ONE row per function: the DEEPEST capability it resolved to, with the path it took.
+    #
+    # Concatenating the levels was wrong and it showed: 14 functions produced 40 rows, and
+    # "Initiative Management" appeared eleven times. A deeper level REFINES the shallower one for
+    # the same function — `submit use case` resolving to Initiative Management, then Initiative
+    # Definition, then Initiative Identification is one answer at three resolutions, not three
+    # answers. Treating refinement as addition turns a coverage map into a list of everything the
+    # drill looked at, which is exactly what a coverage map is supposed to summarise.
+    #
+    # The DEEPEST rather than the last level, because the two differ: a function may resolve at L1
+    # and find nothing relevant below it, and it must keep its L1 match — that function still has
+    # a capability, and `feasibility_evidence` reads this field to decide `capability_matched`.
+    deepest: dict[str, dict] = {}
+    path: dict[str, list[str]] = {}
+    for entry in trail:
+        for match in entry.get("matched") or []:
+            function = str(match.get("function", ""))
+            label = str(match.get("capability_label") or "")
+            if label and label not in path.setdefault(function, []):
+                path[function].append(label)
+            if entry["level"] >= deepest.get(function, {}).get("level", 0):
+                deepest[function] = dict(match, level=entry["level"])
     return {**{k: v for k, v in first.items() if k not in ("level", "candidates", "matched")},
-            "matched": [dict(m, level=t["level"]) for t in trail for m in t.get("matched") or []]}
+            "matched": [dict(m, path=path.get(f, [])) for f, m in deepest.items()]}
 
 
 async def _children_of(cfg, labels, level: int) -> list[dict]:

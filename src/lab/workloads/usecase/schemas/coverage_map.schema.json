@@ -26,6 +26,13 @@
             "type": "integer",
             "minimum": 1,
             "description": "Which level of the capability map this match was made at. Written by the drill, not by the agent \u2014 a pass matches at the level it was given."
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The capability path this function resolved through, L1 first. Written by the drill: it is how the match was reached, not something an agent asserts."
           }
         },
         "required": [
