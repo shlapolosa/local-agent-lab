@@ -8,6 +8,7 @@ Two behaviours carry the weight, and neither is about the derivations (there are
   and no partial design package is produced — asserted against the named outputs a package HAS, so
   a typo in one of them cannot make the test pass.
 """
+import asyncio
 import json
 import re
 
@@ -969,3 +970,79 @@ def test_the_capability_depth_the_run_used_is_in_the_record():
     """A reader must be able to tell the coverage map is L1 without reading the module."""
     from lab.workloads.use_case_screening.workflow import CORPORA
     assert CORPORA["capabilities"][1]["depth"] == 1
+
+
+# ------------------------------------------------- L3 capability matching, without embeddings
+
+def test_only_the_branches_that_matched_are_refetched():
+    from lab.workloads.use_case_screening.workflow import MAX_REFINED_BRANCHES, matched_labels
+    coverage = {"matched": [{"function": "triage", "capability_label": "Patient Management"},
+                            {"function": "notify", "capability_label": "Patient Management"},
+                            {"function": "record", "capability_label": "Clinical Documentation"}]}
+    assert matched_labels(coverage) == ["Patient Management", "Clinical Documentation"]
+    many = {"matched": [{"capability_label": f"C{i}"} for i in range(50)]}
+    assert len(matched_labels(many)) == MAX_REFINED_BRANCHES, \
+        "a map that matched fifty branches is not a map; refetching all of them rebuilds the corpus"
+
+
+def test_a_coverage_map_that_matched_nothing_is_not_refined():
+    from lab.workloads.use_case_screening.workflow import matched_labels
+    assert matched_labels({"matched": []}) == []
+    assert matched_labels({}) == []
+
+
+def test_the_refinement_reads_the_subtree_of_each_match_to_l3():
+    """A capability map is a TREE, and the way to reach a leaf in a tree is to walk the branch you
+    matched — not to search every leaf. Measured: four matched branches to L3 are 1,151 tokens
+    against 45,000 for the whole map, which is why this needs no embeddings."""
+    from lab.workloads.use_case_screening import workflow as W
+    subtree = [{"id": "c1", "label": "Patient Management", "level": 1},
+               {"id": "c2", "label": "Referral Triage", "level": 3, "parent": "c1"}]
+    with spine(W, _screening_router(**{SemanticTools.concepts: subtree})) as h:
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent({
+            "matched": [{"function": "triage", "capability_label": "Patient Management",
+                         "capability_id": "c1", "confidence": "lookup"}],
+            "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                         "source": "the published map"},
+            "functions_without_capability": [], "capabilities_without_function": []})}
+        out = asyncio.run(W.refine_coverage(h.cfg, _Derivation(h)))
+    asked = [c[1] for c in h.router.calls if c[0] == SemanticTools.concepts]
+    assert any(a.get("root_label") == "Patient Management" and a.get("depth") == W.REFINE_DEPTH
+               for a in asked), asked
+    assert out["capability_depth"] == W.REFINE_DEPTH
+
+
+def test_a_branch_that_will_not_fetch_leaves_the_l1_map_standing():
+    """A refinement that fails must not lose the answer the first pass already produced."""
+    from lab.workloads.use_case_screening import workflow as W
+    router = _screening_router(**{SemanticTools.concepts: RuntimeError("scheme unavailable")})
+    with spine(W, router) as h:
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent({"matched": []})}
+        out = asyncio.run(W.refine_coverage(h.cfg, _Derivation(h, coverage={"matched": [
+            {"capability_label": "Patient Management"}]})))
+    assert out["capability_depth"] == 1, "the L1 map stands, and the record says it is L1"
+
+
+class _Derivation:
+    """The working set as `refine_coverage` reads it — the coverage map it already produced."""
+    def __init__(self, h, coverage=None):
+        from lab.workloads.usecase.derivation import Derivation
+        # `elements` because step 5 reads it — a refinement runs the SAME exercise, so it needs
+        # the same context the first pass had, minus the corpus this pass replaces.
+        self.d = Derivation(available={"elements": {"active": [{"name": "triage"}]}},
+                            derived={"coverage_map": coverage or {
+                                "matched": [{"capability_label": "Patient Management"}]}})
+
+    def __getattr__(self, name):
+        return getattr(self.d, name)
+
+
+def test_a_match_that_named_only_an_id_still_resolves_its_branch():
+    """`capability_label` is optional and `capability_id` is required, because an id is what a
+    lookup can check and a label is what a model can approximate. So the label comes from the
+    corpus — asking the agent to repeat one it read is asking it to typo a subtree fetch."""
+    from lab.workloads.use_case_screening.workflow import matched_labels
+    corpus = [{"id": "c1", "label": "Patient Management"}, {"id": "c2", "label": "Scheduling"}]
+    coverage = {"matched": [{"function": "triage", "capability_id": "c2", "confidence": "lookup"}]}
+    assert matched_labels(coverage, corpus) == ["Scheduling"]
+    assert matched_labels(coverage) == [], "with no corpus there is no honest label to resolve"

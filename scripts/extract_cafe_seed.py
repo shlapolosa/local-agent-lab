@@ -386,6 +386,51 @@ TITLES: dict[str, str] = {
 }
 
 
+#: Columns for a section whose source rows are positional lists — the JS carries the order and not
+#: the names, so the names are declared here once rather than guessed per reader.
+ROW_COLUMNS = {"components": ("zone", "name", "detail", "archetypes")}
+
+#: Keys that describe where a thing is DRAWN rather than what it is. Dropped from every rendered
+#: master: a zone's fill colour is not part of the reference architecture, and carrying it into a
+#: governed artifact would put diagram layout under a signature and into an agent's prompt.
+LAYOUT_KEYS = frozenset({"x", "y", "w", "h", "fill", "stroke", "col", "row", "span"})
+
+#: Whole SECTIONS that describe the drawing rather than the architecture. `columns` is how many
+#: columns a zone is rendered in; publishing it would put a signature over a layout hint and invite
+#: a reader to treat it as meaning.
+LAYOUT_SECTIONS = frozenset({"columns"})
+
+#: The id given to a row the source keys on an empty string.
+DEFAULT_ID = "(all)"
+
+
+def _rows_from(key: str, value: object):
+    """(headers, rows) for any shape the seed actually uses, or None if it is not tabular.
+
+    Four shapes appear and only the first was handled, which is why the reference architecture — a
+    nested model of zones, components and topologies — could be published only as prose, and prose
+    needs an embedder this lab does not have. It is structure, so it should publish as records.
+    """
+    if isinstance(value, dict) and value and all(isinstance(v, dict) for v in value.values()):
+        headers = ["id"]
+        for entry in value.values():
+            headers += [k for k in entry if k not in headers and k not in LAYOUT_KEYS]
+        # An EMPTY key is how the source spells "nothing selected — the whole diagram" (its own
+        # title says "All archetypes"). A record needs an id a lookup can name, and a blank one is
+        # refused by the publisher, correctly: it is not a key. Naming it is a translation the data
+        # supports, not a value invented for it.
+        return headers, [[ident or DEFAULT_ID] + [_cell(entry.get(h, "")) for h in headers[1:]]
+                         for ident, entry in value.items()]
+    if isinstance(value, dict) and value and not any(isinstance(v, dict) for v in value.values()):
+        return ["id", "value"], [[k, _cell(v)] for k, v in value.items()]
+    if isinstance(value, list) and value and all(isinstance(r, (list, tuple)) for r in value):
+        headers = list(ROW_COLUMNS.get(key) or [f"column {i + 1}" for i in range(len(value[0]))])
+        return headers, [[_cell(c) for c in row] for row in value]
+    if isinstance(value, list) and value and all(isinstance(r, str) for r in value):
+        return ["id"], [[r] for r in value]
+    return None
+
+
 def _cell(value: object) -> str:
     """One cell of a rendered table.
 
@@ -409,10 +454,13 @@ def _tabular(payload: dict) -> list[tuple[str, list[str], list[list]]]:
     """
     out = []
     for key, value in payload.items():
-        if key.startswith("_"):
+        if key.startswith("_") or key in LAYOUT_SECTIONS:
             continue
         if isinstance(value, dict) and "headers" in value:
             out.append((key, list(value["headers"]), [list(r) for r in value["rows"]]))
+        elif (shaped := _rows_from(key, value)) and not (
+                isinstance(value, list) and value and isinstance(value[0], dict)):
+            out.append((key, shaped[0], shaped[1]))
         elif isinstance(value, list) and value and isinstance(value[0], dict):
             # The UNION of every row's keys, in first-seen order — not the first row's keys. One
             # family in fourteen carries a `topology` the others do not, and taking the first row's

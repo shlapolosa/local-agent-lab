@@ -167,7 +167,13 @@ jobs:
           # fork or a repo without LAB_ENV still ships code. Both log key NAMES and never values.
           if [ -s .env ]; then
             python deploy/railway.py substrate up   # stdlib only: no pip install needed
-            for w in visio meeting minutes; do python deploy/railway.py workload $w up; done
+            # The workload list comes from `WORKLOADS` itself, not from this file. It used to be
+            # spelled out here, so a new business process shipped its substrate on push and its
+            # HOST only when somebody remembered to edit CI — which is the same class of drift the
+            # image pinning exists to stop, one layer up.
+            for w in $(python deploy/railway.py workload list); do
+              python deploy/railway.py workload "$w" up
+            done
           else
             python deploy/railway.py release
           fi

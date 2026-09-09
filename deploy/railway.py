@@ -1240,7 +1240,11 @@ if __name__ == "__main__":
              "       (`env` = offline audit of the exact key names each service receives; no Railway call)")
     tier = sys.argv[1] if len(sys.argv) > 1 else ""
     cmd = (sys.argv[3] if tier == "workload" else sys.argv[2]) if len(sys.argv) > (3 if tier == "workload" else 2) else "status"
-    if cmd != "env":
+    # `env` and `workload list` are OFFLINE audits of this file's own tables — requiring Railway
+    # credentials for them would make CD unable to ask what it should deploy without first holding
+    # the token that deploys it.
+    offline = cmd == "env" or (tier == "workload" and len(sys.argv) > 2 and sys.argv[2] == "list")
+    if not offline:
         _require_railway()                                 # every other command talks to Railway
     if tier == "release":                                  # what CD runs: code, never configuration
         sys.exit(1 if release() else 0)
@@ -1250,6 +1254,14 @@ if __name__ == "__main__":
          "versions": lambda: sys.exit(1 if version_report() else 0)}[cmd]()
     elif tier == "bucket":
         {"up": ensure_bucket, "status": bucket_status}[cmd]()
+    elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] == "list":
+        # The LONG-LIVED workloads, one per line, for CD to iterate. CI used to carry its own
+        # hardcoded list, so a new process was deployed only when somebody remembered to add it
+        # there too — a second place to declare something `WORKLOADS` already declares. One-shot
+        # jobs are excluded: `restart=NEVER` means "run once", and running one on every push is
+        # not a deployment.
+        print("\n".join(sorted(n for n, w in WORKLOADS.items()
+                               if w.get("restart") == "ALWAYS")))
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:
         {"up": workload_up, "down": workload_down, "status": workload_status,
          "env": workload_env_report}[cmd](sys.argv[2])

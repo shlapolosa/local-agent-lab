@@ -29,7 +29,7 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.steps import SCREENING_STEPS
+from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
@@ -74,6 +74,12 @@ PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent")}
 #: unavailable with its size, rather than sent — a step that silently receives half a corpus
 #: answers confidently from half a corpus.
 MAX_CORPUS_BYTES = 120_000
+
+#: How many matched branches are re-fetched to L3, and how deep. A bound rather than a guess: a
+#: coverage map that matched thirty branches is not a coverage map, and refetching them all would
+#: rebuild the whole corpus one subtree at a time.
+MAX_REFINED_BRANCHES = 8
+REFINE_DEPTH = 3
 
 
 def project(name: str, corpus):
@@ -121,6 +127,73 @@ def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=N
             "root_ctx": root_ctx, "run_id": run_id}
 
 
+
+
+def matched_labels(coverage: dict, corpus=None) -> list[str]:
+    """The capability branches a coverage map actually matched, in order, de-duplicated.
+
+    `capability_label` is OPTIONAL in the schema — a match is required to name the capability's ID,
+    because an id is what a lookup can check and a label is what a model can approximate. So the
+    label is resolved from the CORPUS by that id where the match did not carry one: the mapping is
+    already in hand, and asking the agent to repeat a label it read is asking it to introduce a
+    typo into a subtree fetch."""
+    by_id = {str(c.get("id")): str(c.get("label") or "") for c in (corpus or [])
+             if isinstance(c, dict)}
+    seen: list[str] = []
+    for match in (coverage or {}).get("matched") or []:
+        label = str(match.get("capability_label")
+                    or by_id.get(str(match.get("capability_id")), "")).strip()
+        if label and label not in seen:
+            seen.append(label)
+    return seen[:MAX_REFINED_BRANCHES]
+
+
+async def refine_coverage(cfg, d) -> dict:
+    """Step 5, a second time, against the SUBTREES of what it matched — so the map reaches L3.
+
+    The published capability map is 1,666 concepts to L3. Projected to what a match reads it is
+    still ~45,000 tokens, so the first pass runs against L1 (395 concepts) and this pass re-runs
+    the same exercise against only the branches that matched: four of them to L3 measured 1,151
+    tokens, against 45,000 for the whole map.
+
+    That is retrieval, and it needs no embeddings — a capability map is a TREE, and the way to
+    reach a leaf in a tree is to walk the branch you matched rather than to search every leaf. The
+    embedding upstream is what a PROSE corpus needs; it is not what this needed, and reaching for
+    it here would have been the expensive way to do something the structure already answers.
+
+    Best effort in both directions: no matches, no agent, or a subtree that will not fetch leaves
+    the L1 map standing and says at what depth it was made. A refinement that fails must not lose
+    the answer the first pass already produced.
+    """
+    step = step_for("5")
+    coverage = d.derived.get("coverage_map") or {}
+    labels = matched_labels(coverage, d.available.get("capabilities"))
+    if not labels or (cfg.get("agents") or {}).get(step.key) is None:
+        return {"capability_depth": CORPORA["capabilities"][1].get("depth")}
+
+    subtrees, fetched = [], []
+    for label in labels:
+        try:
+            got = await gateway.call(cfg, SemanticTools.concepts,
+                                     {"scheme": CORPORA["capabilities"][1]["scheme"],
+                                      "root_label": label, "depth": REFINE_DEPTH})
+        except Exception:                                # noqa: BLE001 — a branch is best effort
+            continue
+        subtrees += project("capabilities", got) or []
+        fetched.append(label)
+    if not subtrees:
+        return {"capability_depth": CORPORA["capabilities"][1].get("depth")}
+
+    size = len(json.dumps(subtrees, ensure_ascii=False, default=str))
+    if size > MAX_CORPUS_BYTES:
+        return {"capability_depth": CORPORA["capabilities"][1].get("depth"),
+                "capability_refine_skipped": f"{len(fetched)} branches came to {size} bytes"}
+
+    with gateway.node_span(cfg, "step_5_refine"):
+        d.available["capabilities"] = subtrees
+        ran = await d.run_step(cfg, step, label="match capabilities (to L3)")
+    return {"capability_depth": REFINE_DEPTH if ran else CORPORA["capabilities"][1].get("depth"),
+            "capability_branches_refined": fetched}
 
 
 def build_workflow(cfg):
@@ -228,6 +301,8 @@ def build_workflow(cfg):
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.
                 await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
+                if step.key == "coverage_map":
+                    state = state | await refine_coverage(cfg, d)
             derived, pending = d.derived, d.pending
 
             screening = {"pending_steps": pending,

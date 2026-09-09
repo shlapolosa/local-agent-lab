@@ -41,11 +41,20 @@ ARTIFACTS = {
     "facet-schema": ("facet", "Facet", "architecture governance"),
     "readiness-gates": ("gate", "Gate", "architecture governance"),
     "risk-derivation": ("risk-rule", "Exposure,Influence", "architecture governance"),
-    # PROSE, not records: the reference architecture is a nested model (zones containing
-    # components containing variants), not a table, and forcing it into rows would invent a key
-    # that has no meaning in the source. Prose is searched semantically and cited by heading —
-    # which is how a person reads this one anyway.
-    "reference-architecture": ("", "", "architecture governance"),
+    # The reference architecture, as RECORDS. It was published as prose because the renderer only
+    # understood one shape (a list of dicts) and this is a nested model — and prose needs an index,
+    # which needs an embedder this lab does not have, so it published as nothing at all. It is
+    # structure, and it now renders as structure: one artifact per section, diagram geometry
+    # dropped because where a zone is drawn is not part of the architecture.
+    "reference-architecture": ("archetype", "id", "architecture governance"),
+    "reference-architecture-zones": ("zone", "id", "architecture governance"),
+    "reference-architecture-components": ("component", "zone,name", "architecture governance"),
+    "reference-architecture-detail": ("archetype-detail", "id", "architecture governance"),
+    "reference-architecture-topologies": ("topology", "id", "architecture governance"),
+    "reference-architecture-topology-archetypes": ("topology-archetype", "id",
+                                                   "architecture governance"),
+    "reference-architecture-guardrail-origin": ("guardrail-origin", "id",
+                                                "architecture governance"),
     "surface-enforceability": ("obligation", "Obligation", "architecture governance"),
     "ai-capability-map": ("capability", "domain,capability", "architecture governance"),
     "capability-domains": ("domain", "domain", "architecture governance"),

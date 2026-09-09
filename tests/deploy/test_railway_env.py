@@ -484,3 +484,29 @@ def test_a_workload_still_receives_no_provider_credential_of_any_kind():
         for leaked in ("MUNSIT_API_KEY", "ELEVENLABS_API_KEY", "ASSEMBLYAI_API_KEY",
                        "SONIOX_API_KEY"):
             assert leaked not in env, f"the {workload} workload must never hold {leaked}"
+
+
+# ------------------------------------------------- what CD deploys, and where that list comes from
+
+def test_ci_derives_the_workload_list_rather_than_carrying_its_own():
+    """A new business process used to ship its substrate on push and its HOST only when somebody
+    remembered to edit the workflow file — a second place declaring what `WORKLOADS` declares."""
+    ci = open(os.path.join(ROOT, ".github", "workflows", "image.yml")).read()
+    assert "workload list" in ci, "CD must ask the deploy CLI which workloads exist"
+    assert "for w in visio meeting minutes" not in ci, "a hardcoded list is the drift itself"
+
+
+def test_workload_list_names_every_long_lived_host_and_no_one_shot_job():
+    listed = sorted(n for n, w in railway.WORKLOADS.items() if w.get("restart") == "ALWAYS")
+    # Every use-case host is deployable by CD, which is the point of this change.
+    assert {"usecase-screening", "usecase-design", "usecase-investment",
+            "usecase-provisioning"} <= set(listed)
+    # ... and a one-shot job is not run on every push, because that is not a deployment.
+    one_shot = [n for n, w in railway.WORKLOADS.items() if w.get("restart") != "ALWAYS"]
+    assert not (set(one_shot) & set(listed)), one_shot
+
+
+def test_listing_the_workloads_needs_no_railway_credential():
+    """CD must be able to ask what it should deploy without first holding the token that deploys."""
+    source = open(os.path.join(ROOT, "deploy", "railway.py")).read()
+    assert "offline = cmd ==" in source and '"list"' in source
