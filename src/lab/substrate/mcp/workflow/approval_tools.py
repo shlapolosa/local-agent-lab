@@ -1,16 +1,16 @@
 """The APPROVAL GATE as governed MCP tools — the human-in-the-loop surface of workflow-mcp, so a
 channel where the reviewers already are (Teams via a Copilot Studio connector; any client, really)
-can list, read and DECIDE approvals through the gateway exactly like every other capability: granted
-per team, metered, PII-scanned, traced. Until now the only inbound path that carried a real identity
+can list, read, ASK, DECIDE and RETIRE approvals through the gateway exactly like every other
+capability: granted per team, metered, PII-scanned, traced. Until now the only inbound path that carried a real identity
 was a Python call (`lab.substrate.channels.teams.TeamsChannel.decide`), so deciding meant leaving
 Teams for the review app.
 
 WHY HERE, not on a server of its own: a run PAUSES for an approval. `<process>_status` already hands
 back the `approval_id` it raised, so the same connector that submits a run and polls it must be able
 to open the approval and answer it — one server, one grant, one connector. The read/decide split that
-a separate server would have bought is expressed instead as TWO GRANTS over the one alias
-(`ApprovalTools.READ` / `.WRITE` + the gateway's per-tool `mcp_tool_permissions`), which is the lab's
-existing ACL mechanism and costs no extra service.
+a separate server would have bought is expressed instead as SEVERAL GRANTS over the one alias
+(`ApprovalTools.GRANTS` + the gateway's per-tool `mcp_tool_permissions`), which is the lab's existing
+ACL mechanism and costs no extra service.
 
 GOVERNANCE — `approvals_decide` records a HUMAN'S decision:
   * `actor` is a REQUIRED argument and must be the signed-in person the calling channel authenticated
@@ -52,8 +52,13 @@ SOURCE = "mcp"        # provenance the SERVER stamps, never the caller (see chan
 MAX_LIST = 200
 
 READ_ONLY = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False}
-# destructiveHint: recording an approval RELEASES a repository write downstream — a client that asks
-# a human before destructive calls (Copilot Studio does) should ask here too.
+# destructiveHint: recording an approval RELEASES a repository write downstream, and withdrawing one
+# takes the question away from the people who could still answer it — a client that asks a human
+# before destructive calls (Copilot Studio does) should ask before either.
+#
+# idempotentHint stays FALSE for both, and for the same reason: a client reads it as licence to retry
+# a call whose response was lost, and a retry here is REFUSED ("already decided" / "already
+# withdrawn"), so the client would report a failure for an operation that in fact succeeded.
 HUMAN_WRITE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False,
                "openWorldHint": False}
 
@@ -109,7 +114,7 @@ def _detail(st: dict, jaeger_url: str, review_app: str) -> dict:
 
 
 def register(server: LabServer) -> None:
-    """The three approval tools on `server` (workflow-mcp). Redis comes from the server's container."""
+    """The approval tools on `server` (workflow-mcp). Redis comes from the server's container."""
 
     cfg = server.container.config                 # addresses from the container, not module globals
 
@@ -297,6 +302,42 @@ def register(server: LabServer) -> None:
                                "approval.channel": fields["channel"]})
         return fields | {"recorded": True, "status": fields["decision"],
                          "open": fields["decision"] not in APPROVAL_FINAL}
+
+    @server.tool(annotations=HUMAN_WRITE)
+    def approvals_withdraw(
+        request_id: Annotated[str, Field(description="The approval id (`apr-…`) to retire.")],
+        actor: Annotated[str, Field(description="WHO is retiring it, as your caller authenticated "
+                                                "them. Required, never a default — retiring "
+                                                "somebody's question is an act, and the log records "
+                                                "who did it.")],
+        reason: Annotated[str, Field(description="Why it is being retired, in a few words — "
+                                                 "'superseded by a fresh run', 'pipeline replaced'. "
+                                                 "It is what a reader finds later instead of an "
+                                                 "answer.")] = "",
+        channel: Annotated[str, Field(description="Where the withdrawal came from — your channel "
+                                                  "name. Recorded as `mcp:<channel>`, so a tool call "
+                                                  "is never logged as something done at the review "
+                                                  "app itself.")] = "",
+    ) -> dict:
+        """Retire an approval nobody is going to answer — a superseded test run, a question whose
+        pipeline has been replaced. It CLOSES the request: no channel announces it again and it can
+        no longer be answered.
+
+        This is NOT a decision and must never be used as one. It approves nothing, declines nothing
+        and releases nothing — a run waiting on this gate simply never proceeds. If a human has an
+        opinion on the subject, use approvals_decide and record it; withdrawing to make a decision
+        disappear destroys exactly the record this gate exists to create.
+
+        It is SOFT: the question, its subject and its artifacts all remain readable, and the
+        withdrawal is appended to the audit log with your actor and reason. Refused for an approval a
+        human has already decided — a record of what a person said is never overwritten."""
+        fields = approvals.withdraw(request_id, actor, reason, channel_of(channel), client=_client())
+        # the actor is deliberately NOT a span attribute (see the module docstring), and the keys are
+        # the SAME two `approvals_decide` sets — one trace answers "how did this approval end"
+        span().set_attributes({"approval.request_id": request_id,
+                               "approval.decision": fields["decision"],
+                               "approval.channel": fields["channel"]})
+        return fields | {"withdrawn": True, "status": fields["decision"], "open": False}
 
 
 __all__ = ["register", "channel_of", "SOURCE"]

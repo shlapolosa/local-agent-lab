@@ -7,18 +7,22 @@ from whichever channel answers first keeps the workflow/tool side channel-agnost
 
 Streams / keys
   approvals:requests   XADD per request; consumer groups = CHANNELS (each channel acks its copy)
-  approvals:decisions  XADD per decision (approve | decline | update) — the audit log
+  approvals:decisions  XADD per ENDING (approve | decline | update | withdrawn) — the audit log,
+                       and the ONE trail of how an approval ended, whichever way it did
   approvals:req:<id>   hash: current state of one request (fast lookup for status/await)
   approvals:pending    set of request ids still awaiting a decision
 
-Two write entry points, deliberately: `decide()` RECORDS a decision (the raw append), and
+Three write entry points, deliberately. `decide()` RECORDS a decision (the raw append).
 `human_decision()` VALIDATES one taken by a person — identified actor, legal decision, request still
 open — and is what every human channel (Teams, the `approvals_decide` MCP tool a Copilot Studio
-connector calls, this CLI) goes through, so the guarantees cannot differ per channel.
+connector calls, this CLI) goes through, so the guarantees cannot differ per channel; a channel calls
+this one and never `decide`. `withdraw()` RETIRES a question nobody is going to answer, which is not
+a decision at all — see its docstring for why that distinction is the point. All three end an
+approval through the one `_end()` write, so the transactional protocol cannot differ between them.
 
 CLI (any terminal is also a channel):
   python -m lab.substrate.approvals list | show <id> | approve <id> [comment] | decline <id> [comment]
-                              | update <id> <comment> | count
+                              | update <id> <comment> | withdraw <id> <reason> | count
 """
 import json
 import os
@@ -81,6 +85,44 @@ def request(kind, subject, payload, requester, trace_id=None, *, client=None):
     return rid
 
 
+def _end(r, key, fields, state, *, release=True):
+    """THE write that ends an approval: the hash first, the audit stream second, rolled back together.
+
+    ONE implementation because what it encodes is not a shape but a transactional protocol, and both
+    halves of it were learned from live failures. Everything that ends an approval — a decision, a
+    withdrawal — goes through here, so tightening it tightens every ending at once. (`update` passes
+    `release=False`: changes requested leaves the request open.)
+
+    ORDER. The continuation runner is woken by this stream entry and immediately reads the request
+    back — `state.get("answer")` — so announcing an ending whose state is not yet readable loses it.
+    It happened live: a human tagged both speakers, `check_answer` accepted the answer, and the
+    continuation still died with "speaker_map is required" because it read the hash a moment too
+    early. Worse than the request-stream twin, which survives because an unacked entry is redelivered:
+    the continuation runner ALWAYS acks, so there is no second chance and the run is simply gone.
+    `workflows.mark` states the same rule for the finished-runs stream.
+
+    ROLLBACK. Writing the hash first means a failed append would otherwise leave the request marked
+    ended with NOTHING in the audit log — something that happened for every reader and never happened
+    for the record. So the prior fields are restored, the fields this ending INTRODUCED are removed,
+    and the claim on `approvals:pending` goes back.
+    """
+    prior = {k: v for k, v in (r.hgetall(key) or {}).items() if k in state}
+    r.hset(key, mapping=state)
+    if release:
+        r.srem("approvals:pending", fields["request_id"])
+    try:
+        r.xadd(DEC, fields)
+    except Exception:
+        if prior:
+            r.hset(key, mapping=prior)
+        for field in set(state) - set(prior):
+            r.hdel(key, field)                  # fields this ending INTRODUCED, e.g. the answer
+        if release:
+            r.sadd("approvals:pending", fields["request_id"])
+        raise
+    return fields
+
+
 def decide(request_id, decision, actor, channel, comment="", *, answer=None, client=None):
     """Record a decision from any channel. 'update' = changes requested (stays open). This is the raw
     RECORDER — it does not ask whether a human made the decision or whether the request is still open;
@@ -102,40 +144,7 @@ def decide(request_id, decision, actor, channel, comment="", *, answer=None, cli
              "comment": comment, "decided_at": fields["decided_at"]}
     if "answer" in fields:
         state["answer"] = fields["answer"]
-    # THE HASH FIRST, THE STREAM SECOND, and the order is the whole point. The continuation runner is
-    # woken by this stream entry and immediately reads the request back — `state.get("answer")` — so
-    # announcing a decision whose answer is not yet readable loses the answer. It happened live: a
-    # human tagged both speakers, `check_answer` accepted the answer, and the continuation still died
-    # with "speaker_map is required" because it read the hash a moment too early. Worse than the
-    # request-stream twin, which survives because an unacked entry is redelivered: the continuation
-    # runner ALWAYS acks, so there is no second chance and the run is simply gone.
-    #
-    # `workflows.mark` states this rule for the finished-runs stream. It is the same rule.
-    # Written first and announced second, then ROLLED BACK if the announcement fails — both halves
-    # are required and each was learned the hard way.
-    #
-    # Order: the continuation runner is woken by the stream entry and immediately reads the request
-    # back, so a decision announced before its answer is readable loses the answer. That happened
-    # live and cost a run outright, because that runner acks unconditionally and never retries.
-    #
-    # Rollback: writing first means a failed append would otherwise leave the request marked decided
-    # with nothing in the audit log — a decision that happened for the reader and never happened for
-    # the record. So the prior fields are restored and the caller's claim released.
-    prior = {k: v for k, v in (r.hgetall(key) or {}).items() if k in state}
-    r.hset(key, mapping=state)
-    if decision != Decision.UPDATE:
-        r.srem("approvals:pending", request_id)
-    try:
-        r.xadd(DEC, fields)
-    except Exception:
-        if prior:
-            r.hset(key, mapping=prior)
-        for field in set(state) - set(prior):
-            r.hdel(key, field)                  # fields this decision INTRODUCED, e.g. the answer
-        if decision != Decision.UPDATE:
-            r.sadd("approvals:pending", request_id)
-        raise
-    return fields
+    return _end(r, key, fields, state, release=decision != Decision.UPDATE)
 
 
 def status(request_id, *, client=None):
@@ -201,6 +210,69 @@ def human_decision(request_id, decision, actor, channel, comment="", *, answer=N
     except Exception:
         if final:
             r.sadd("approvals:pending", request_id)                # the claim is released if the write failed
+        raise
+
+
+def withdraw(request_id, actor, reason="", channel="cli", *, client=None):
+    """RETIRE an approval nobody is going to answer. Not a decision — a third way for one to end.
+
+    A lab that is tested leaves questions behind: a run asked, the test moved on, and the card sits in
+    `approvals:pending` for ever, re-announced by every channel that restarts (`channel_events` reads
+    its group from `0` on purpose, so a channel added later still sees what is open). Until now the
+    only closing verbs were a human's — and recording a `decline` to tidy up writes a person's name
+    against a judgement they never made, which is precisely what this audit log exists to prevent.
+
+    So it is deliberately NOT in `Decision`:
+
+      * CLOSED — `WITHDRAWN` is in `APPROVAL_FINAL`, which is the one membership every reader already
+        consults, so no channel announces it again and `human_decision` refuses to answer it. One
+        edit, rather than the same rule copied into three channels and two tools.
+      * SOFT — the request hash, its subject and its payload all stay. `withdraw`, not `delete`: what
+        was asked is evidence, and a fresh run is only comparable with the one it replaces while the
+        one it replaces is still readable.
+      * RELEASES NOTHING — the withdrawal is appended to the decisions stream so there is ONE trail
+        of how approvals end, and `continuations` starts a run on `approve` alone, so appearing there
+        cannot smuggle in the work an approval would have released. `usecase_notifier` skips it for
+        the same reason: it announces what an architect DECIDED, and this is not that.
+
+    It records itself in the SAME hash fields a decision does (`decided_by` / `decided_via` /
+    `comment` / `decided_at`), with `status` carrying the distinction. Inventing `withdrawn_by`
+    alongside them would make a withdrawal invisible to every surface that already renders how an
+    approval ended — including `_already`'s own message, which would then name nobody.
+
+    An actor is required exactly as it is for a decision: retiring somebody's question is an act, and
+    an act with no name against it is the thing the log is for. Refuses an already-closed request —
+    a record of what a person said is never overwritten — and an unknown id.
+
+    Returns the audit fields; ValueError for a blank actor or a closed request, KeyError for an
+    unknown one.
+    """
+    actor = (actor or "").strip()
+    if not actor:
+        raise ValueError("actor is required — a withdrawal must carry who retired the question")
+    r = _r(client)
+    key = f"approvals:req:{request_id}"
+    st = status(request_id, client=r)
+    if not st:
+        raise KeyError(f"unknown request {request_id}")
+    if st.get("status") in APPROVAL_FINAL:
+        raise _already(st)
+    # CLAIMED atomically on `approvals:pending`, exactly as `human_decision` claims a final answer,
+    # and for the same measured reason: the status check above is a READ, and between it and the write
+    # a person may answer through any of several concurrent channels. A check-then-act here would let
+    # a withdrawal and an approval each append an ending for the same request — the hash would read
+    # `withdrawn` while carrying the approver's name, and the continuation runner, which dispatches on
+    # the STREAM entry, would start the run behind a question every human surface says was retired.
+    if not r.srem("approvals:pending", request_id):
+        raise _already(status(request_id, client=r) or st)
+    fields = {"request_id": request_id, "decision": ApprovalStatus.WITHDRAWN.value, "actor": actor,
+              "channel": channel, "comment": (reason or "").strip(), "decided_at": _now()}
+    state = {"status": ApprovalStatus.WITHDRAWN.value, "decided_by": actor, "decided_via": channel,
+             "comment": fields["comment"], "decided_at": fields["decided_at"]}
+    try:
+        return _end(r, key, fields, state, release=False)   # the claim above already released it
+    except Exception:
+        r.sadd("approvals:pending", request_id)             # ...and puts it back if the write failed
         raise
 
 
@@ -321,5 +393,7 @@ if __name__ == "__main__":
         print(json.dumps(status(a[1]), indent=1))
     elif a[0] in DECISIONS:                          # the terminal is a channel like any other
         print(human_decision(a[1], a[0], actor, "cli", " ".join(a[2:])))
+    elif a[0] == "withdraw":                         # retire a question nobody will answer
+        print(withdraw(a[1], actor, " ".join(a[2:]), "cli"))
     else:
         sys.exit(__doc__)

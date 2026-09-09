@@ -60,14 +60,13 @@ def call_error(server, _tool, **args) -> str:
 def test_asking_is_its_own_grant_separate_from_answering():
     assert ApprovalTools.ask in ApprovalTools.RAISE
     assert ApprovalTools.ask not in ApprovalTools.WRITE and ApprovalTools.ask not in ApprovalTools.READ
-    assert set(ApprovalTools.READ) | set(ApprovalTools.RAISE) | set(ApprovalTools.WRITE) \
-        == ApprovalTools.names()
+    assert set().union(*map(set, ApprovalTools.GRANTS)) == ApprovalTools.names()
 
 
-def test_the_three_grants_are_disjoint():
+def test_the_grants_are_disjoint():
     """Overlap would make a per-tool ACL meaningless — granting one would quietly grant another."""
-    read, raise_, write = map(set, (ApprovalTools.READ, ApprovalTools.RAISE, ApprovalTools.WRITE))
-    assert read & raise_ == read & write == raise_ & write == set()
+    grants = [set(g) for g in ApprovalTools.GRANTS]
+    assert all(a & b == set() for i, a in enumerate(grants) for b in grants[i + 1:])
 
 
 # ------------------------------------------------------------------ asking

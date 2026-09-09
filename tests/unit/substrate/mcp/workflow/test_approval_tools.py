@@ -290,13 +290,103 @@ def test_changes_requested_can_still_be_decided_later(server, redis):
     assert out["status"] == "approve" and out["open"] is False
 
 
+# ---------------------------------------------------------------- withdraw
+def test_withdraw_retires_a_stale_approval_and_takes_it_out_of_the_queue(server, redis):
+    rid = seed(redis, "a run nobody will answer")
+    out = call(server, ApprovalTools.withdraw, request_id=rid, actor="ops@contoso.com",
+               reason="superseded by a fresh run", channel="cli").data
+
+    assert out["withdrawn"] is True and out["status"] == "withdrawn" and out["open"] is False
+    assert call(server, ApprovalTools.list).data["approvals"] == []
+    # ...and it is SOFT: the question is still fully readable, which is what makes it a withdrawal
+    # rather than a delete
+    detail = call(server, ApprovalTools.get, request_id=rid).data
+    assert detail["subject"] == "a run nobody will answer" and detail["open"] is False
+    assert detail["summary"] == PAYLOAD["summary"] and detail["import_artifacts"]
+
+
+def test_withdraw_stamps_the_channel_so_a_relay_is_never_logged_as_the_review_app(server, redis):
+    """The same provenance rule `approvals_decide` obeys, through the same `channel_of`."""
+    rid = seed(redis)
+    out = call(server, ApprovalTools.withdraw, request_id=rid, actor="ops@contoso.com",
+               channel="teams").data
+    assert out["channel"] == "mcp:teams"
+    assert approvals.status(rid, client=redis)["decided_via"] == "mcp:teams"
+
+
+@pytest.mark.parametrize("actor", ["", "   "])
+def test_withdraw_refuses_an_anonymous_caller_and_retires_nothing(server, redis, actor):
+    """Retiring someone's question is an act; an act with no name against it is what the log is for."""
+    rid = seed(redis)
+    assert "actor is required" in call_error(server, ApprovalTools.withdraw, request_id=rid,
+                                            actor=actor)
+    assert approvals.status(rid, client=redis)["status"] == "pending"
+
+
+def test_withdraw_refuses_an_unknown_request(server, redis):
+    assert "unknown request" in call_error(server, ApprovalTools.withdraw, request_id="apr-nope",
+                                          actor="ops@contoso.com")
+
+
+def test_withdraw_never_overwrites_what_a_person_decided(server, redis):
+    rid = seed(redis)
+    call(server, ApprovalTools.decide, request_id=rid, decision="decline",
+         actor="maria@contoso.com", comment="not this quarter", channel="teams")
+    assert "already" in call_error(server, ApprovalTools.withdraw, request_id=rid,
+                                  actor="ops@contoso.com", reason="tidying up")
+    assert approvals.status(rid, client=redis)["status"] == "decline"
+
+
+def test_withdraw_is_hinted_a_destructive_non_idempotent_write(server):
+    """Non-idempotent deliberately: a client reads that hint as licence to retry a call whose response
+    was lost, and the retry is REFUSED — so it would report a failure for something that succeeded."""
+    a = tools(server)[ApprovalTools.withdraw].annotations
+    assert a.readOnlyHint is False and a.destructiveHint is True and a.idempotentHint is False
+
+
+def test_withdraw_says_it_is_not_a_way_to_make_a_decision_disappear(server):
+    doc = tools(server)[ApprovalTools.withdraw].description
+    assert "NOT a decision" in doc and "releases nothing" in doc.lower()
+    schema = tools(server)[ApprovalTools.withdraw].inputSchema
+    assert sorted(schema["required"]) == ["actor", "request_id"]
+    assert "decision" not in schema["properties"], "retiring must not be a way to record one"
+
+
+def test_the_withdrawal_span_names_the_ending_but_never_the_person(server, redis):
+    """Traces are the audit TRAIL and this lab's Jaeger is unauthenticated, so WHO acted belongs in
+    the audit log only — the rule this module's docstring states for `approvals_decide`, asserted for
+    the tool that ends an approval the other way. The keys are the same two, so one trace answers
+    "how did this approval end" however it ended."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    rid = seed(redis)
+    with server.container.tracer.override(provider.get_tracer("workflow-mcp")):
+        call(server, ApprovalTools.withdraw, request_id=rid, actor="ops@contoso.com",
+             reason="superseded", channel="cli")
+
+    attrs = {k: str(v) for span in exporter.get_finished_spans()
+             for k, v in (span.attributes or {}).items()}
+    assert attrs, "the spans were not recorded at all — the ratchet would pass vacuously"
+    assert attrs.get("approval.decision") == "withdrawn"
+    assert attrs.get("approval.channel") == "mcp:cli"
+    for leaked in ("ops@contoso.com", "ops", "superseded"):
+        assert not [v for v in attrs.values() if leaked in v.lower()], \
+            f"{leaked!r} reached a span attribute"
+
+
 # ---------------------------------------------------------------- governance
 def test_a_read_only_grant_cannot_decide(server):
     """The gateway grants tools per team (`mcp_tool_permissions`); ApprovalTools.READ IS that
     read-only grant, so a team holding it sees no tool that can write a decision."""
     assert ApprovalTools.decide not in ApprovalTools.READ
-    assert set(ApprovalTools.READ) | set(ApprovalTools.RAISE) | set(ApprovalTools.WRITE) \
-        == ApprovalTools.names()
+    # derived from GRANTS, not from three named tuples: a grant added later is covered here on the
+    # day it is added rather than the day somebody remembers this line
+    assert set().union(*map(set, ApprovalTools.GRANTS)) == ApprovalTools.names()
     granted = {n: t for n, t in tools(server).items() if n in ApprovalTools.READ}
     assert set(granted) == set(ApprovalTools.READ)
     assert all(t.annotations.readOnlyHint for t in granted.values())
