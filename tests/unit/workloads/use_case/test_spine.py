@@ -519,13 +519,19 @@ def test_a_gateway_missing_a_required_tool_refuses_before_spending_anything(modu
 # ---------------------------------------------------------------- screening with agents wired
 
 class ScriptedAgent:
-    """Answers with one canned object, whatever it is asked."""
+    """Answers with canned objects, in order.
 
-    def __init__(self, reply): self.reply, self.asked = json.dumps(reply), []
+    One reply is the common case and repeats for every call. SEVERAL replies is how a step that
+    runs more than once per run is scripted — the capability drill runs step 5 once per level, and
+    a single canned answer could not tell an L1 match from an L3 one."""
+
+    def __init__(self, *replies):
+        self.replies = [json.dumps(r) for r in replies] or ["{}"]
+        self.asked = []
 
     async def run(self, message):
         self.asked.append(message)
-        return self.reply
+        return self.replies[min(len(self.asked) - 1, len(self.replies) - 1)]
 
 
 ANSWERS = {
@@ -966,10 +972,13 @@ def test_a_corpus_over_the_prompt_budget_is_unavailable_rather_than_partial():
     assert "depth" in open(W.__file__).read()
 
 
-def test_the_capability_depth_the_run_used_is_in_the_record():
-    """A reader must be able to tell the coverage map is L1 without reading the module."""
-    from lab.workloads.use_case_screening.workflow import CORPORA
-    assert CORPORA["capabilities"][1]["depth"] == 1
+def test_the_drill_starts_from_the_top_level_only():
+    """The fetched corpus is the 42 top-level capabilities. Everything below is fetched by the
+    drill, as the level above decides it is worth looking at — so the starting prompt is small and
+    stays small, however large the published map grows."""
+    from lab.workloads.use_case_screening.workflow import CORPORA, DEEPEST_LEVEL
+    assert CORPORA["capabilities"][1]["depth"] == 0
+    assert DEEPEST_LEVEL == 3
 
 
 # ------------------------------------------------- L3 capability matching, without embeddings
@@ -991,47 +1000,114 @@ def test_a_coverage_map_that_matched_nothing_is_not_refined():
     assert matched_labels({}) == []
 
 
-def test_the_refinement_reads_the_subtree_of_each_match_to_l3():
-    """A capability map is a TREE, and the way to reach a leaf in a tree is to walk the branch you
-    matched — not to search every leaf. Measured: four matched branches to L3 are 1,151 tokens
-    against 45,000 for the whole map, which is why this needs no embeddings."""
-    from lab.workloads.use_case_screening import workflow as W
-    subtree = [{"id": "c1", "label": "Patient Management", "level": 1},
-               {"id": "c2", "label": "Referral Triage", "level": 3, "parent": "c1"}]
-    with spine(W, _screening_router(**{SemanticTools.concepts: subtree})) as h:
-        h.cfg["agents"] = {"coverage_map": ScriptedAgent({
-            "matched": [{"function": "triage", "capability_label": "Patient Management",
-                         "capability_id": "c1", "confidence": "lookup"}],
+def _level(ident, label, level, parent=None):
+    return {"id": ident, "label": label, "level": level, **({"parent": parent} if parent else {})}
+
+
+def _match(function, ident, label):
+    return {"function": function, "capability_id": ident, "capability_label": label,
+            "confidence": "lookup"}
+
+
+def _covers(*matched):
+    return {"matched": list(matched), "functions_without_capability": [],
+            "capabilities_without_function": [],
             "heat_map": {"commodity": False, "mature": False, "meets_target": False,
-                         "source": "the published map"},
-            "functions_without_capability": [], "capabilities_without_function": []})}
-        out = asyncio.run(W.refine_coverage(h.cfg, _Derivation(h)))
-    asked = [c[1] for c in h.router.calls if c[0] == SemanticTools.concepts]
-    assert any(a.get("root_label") == "Patient Management" and a.get("depth") == W.REFINE_DEPTH
-               for a in asked), asked
-    assert out["capability_depth"] == W.REFINE_DEPTH
+                         "source": "the published map"}}
 
 
-def test_a_branch_that_will_not_fetch_leaves_the_l1_map_standing():
-    """A refinement that fails must not lose the answer the first pass already produced."""
+def test_the_drill_matches_l1_then_l2_within_those_then_l3():
+    """The map is a tree of 1,666 concepts and will not go in a prompt — but no LEVEL of it is
+    large. Each pass sees a small candidate set, and what it selects decides what the next pass is
+    even shown."""
+    from lab.workloads.use_case_screening import workflow as W
+
+    children = {"Patient Management": [_level("c1", "Patient Management", 1),
+                                       _level("c1a", "Referral Triage", 2, "c1"),
+                                       _level("c1b", "Admissions", 2, "c1")],
+                "Referral Triage": [_level("c1a", "Referral Triage", 2),
+                                    _level("c1a1", "Urgency Assessment", 3, "c1a")]}
+    router = _screening_router(**{
+        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
+    answers = [_covers(_match("triage", "c1", "Patient Management")),
+               _covers(_match("triage", "c1a", "Referral Triage")),
+               _covers(_match("triage", "c1a1", "Urgency Assessment"))]
+    with spine(W, router) as h:
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent(*answers)}
+        d = _Derivation(h, candidates=[_level("c1", "Patient Management", 1),
+                                       _level("c2", "Scheduling", 1)])
+        out = asyncio.run(W.drill_coverage(h.cfg, d))
+
+    assert out["capability_depth"] == 3, "the drill must reach the leaves"
+    trail = out["coverage_trail"]
+    assert [t["level"] for t in trail] == [1, 2, 3]
+    # Each level was shown ONLY what the level above selected.
+    assert trail[0]["candidates"] == 2 and trail[1]["candidates"] == 2 and trail[2]["candidates"] == 1
+    asked = [c[1].get("root_label") for c in h.router.calls if c[0] == SemanticTools.concepts]
+    assert asked == ["Patient Management", "Referral Triage"], asked
+    assert "Scheduling" not in asked, "a branch nobody matched must never be opened"
+
+
+def test_every_level_is_kept_not_just_the_last():
+    """"Which L1s matched, then which L2s within those" is the reasoning a reviewer follows. A final
+    L3 list alone cannot be checked: a leaf under a branch nobody should have opened looks exactly
+    like a leaf under one they should."""
+    from lab.workloads.use_case_screening import workflow as W
+    children = {"Patient Management": [_level("c1", "Patient Management", 1),
+                                       _level("c1a", "Referral Triage", 2, "c1")]}
+    router = _screening_router(**{
+        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
+    with spine(W, router) as h:
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent(
+            _covers(_match("triage", "c1", "Patient Management")),
+            _covers(_match("triage", "c1a", "Referral Triage")))}
+        out = asyncio.run(W.drill_coverage(h.cfg, _Derivation(
+            h, candidates=[_level("c1", "Patient Management", 1)])))
+    assert [t["matched"][0]["capability_label"] for t in out["coverage_trail"]] == [
+        "Patient Management", "Referral Triage"]
+
+
+def test_a_level_that_matches_nothing_stops_the_drill_and_keeps_what_answered():
+    from lab.workloads.use_case_screening import workflow as W
+    with spine(W, _screening_router(**{SemanticTools.concepts: []})) as h:
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent(
+            _covers(), _covers(_match("x", "c9", "Never reached")))}
+        out = asyncio.run(W.drill_coverage(h.cfg, _Derivation(
+            h, candidates=[_level("c1", "Patient Management", 1)])))
+    assert out["capability_depth"] == 1
+    assert len(out["coverage_trail"]) == 1, "no matches at L1 means there is no L2 to look in"
+
+
+def test_a_branch_that_will_not_fetch_leaves_the_level_above_standing():
+    """A drill that fails must not lose the answer the level above already produced."""
     from lab.workloads.use_case_screening import workflow as W
     router = _screening_router(**{SemanticTools.concepts: RuntimeError("scheme unavailable")})
     with spine(W, router) as h:
-        h.cfg["agents"] = {"coverage_map": ScriptedAgent({"matched": []})}
-        out = asyncio.run(W.refine_coverage(h.cfg, _Derivation(h, coverage={"matched": [
-            {"capability_label": "Patient Management"}]})))
-    assert out["capability_depth"] == 1, "the L1 map stands, and the record says it is L1"
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent(
+            _covers(_match("triage", "c1", "Patient Management")))}
+        out = asyncio.run(W.drill_coverage(h.cfg, _Derivation(
+            h, candidates=[_level("c1", "Patient Management", 1)])))
+    assert out["capability_depth"] == 1 and len(out["coverage_trail"]) == 1
+
+
+def test_the_parent_is_not_offered_back_as_its_own_child():
+    """`concepts(root_label=X, depth=1)` returns X AND its children. A candidate set containing the
+    thing already matched invites the next pass to match it again and call that progress."""
+    from lab.workloads.use_case_screening import workflow as W
+    children = [_level("c1", "Patient Management", 1), _level("c1a", "Referral Triage", 2, "c1")]
+    with spine(W, _screening_router(**{SemanticTools.concepts: children})) as h:
+        out = asyncio.run(W._children_of(h.cfg, ["Patient Management"], 2))
+    assert [c["label"] for c in out] == ["Referral Triage"]
 
 
 class _Derivation:
-    """The working set as `refine_coverage` reads it — the coverage map it already produced."""
-    def __init__(self, h, coverage=None):
+    """The working set as the drill reads it — step 5's context, and the level-1 candidates."""
+    def __init__(self, h, candidates=None):
         from lab.workloads.usecase.derivation import Derivation
-        # `elements` because step 5 reads it — a refinement runs the SAME exercise, so it needs
-        # the same context the first pass had, minus the corpus this pass replaces.
-        self.d = Derivation(available={"elements": {"active": [{"name": "triage"}]}},
-                            derived={"coverage_map": coverage or {
-                                "matched": [{"capability_label": "Patient Management"}]}})
+        # `elements` because step 5 reads it — every level runs the SAME exercise, so it needs the
+        # same context, differing only in the candidate set the level above chose.
+        self.d = Derivation(available={"elements": {"active": [{"name": "triage"}]},
+                                       "capabilities": list(candidates or [])})
 
     def __getattr__(self, name):
         return getattr(self.d, name)

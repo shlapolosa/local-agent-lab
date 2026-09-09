@@ -48,14 +48,10 @@ REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec,
 #: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a
 #: named gap — refusing the whole run would give a deployment missing one grant nothing at all.
 CORPORA = {
-    # DEPTH 1, and the reason is the honest limit of this design rather than a tuning choice.
-    # The published map has 1,666 concepts to L3; projected to what a match reads that is still
-    # ~45,000 tokens, and a coverage match cannot be done by putting a map that size in a prompt.
-    # L1 is 395 concepts (~10,000 tokens) and fits. So the match is made at L1 and the run SAYS the
-    # L2/L3 refinement was not attempted — `capability_depth` in the record, and step 5's gate asks
-    # for an open question about it. Matching to L3 needs RETRIEVAL over the map, which is the
-    # embedding upstream this lab does not yet have; stuffing more of the map in is not the fix.
-    "capabilities": (SemanticTools.concepts, {"scheme": "healthcare-provider-v2.0", "depth": 1}),
+    # DEPTH 0 — the 42 top-level capabilities and nothing else. The match then DRILLS: see
+    # `drill_coverage`. The whole map is 1,666 concepts and will not go in a prompt, but no level
+    # of it is large, so the map is walked rather than searched.
+    "capabilities": (SemanticTools.concepts, {"scheme": "healthcare-provider-v2.0", "depth": 0}),
     "ontology": (SemanticTools.ontologies, {}),
 }
 
@@ -75,11 +71,13 @@ PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent")}
 #: answers confidently from half a corpus.
 MAX_CORPUS_BYTES = 120_000
 
-#: How many matched branches are re-fetched to L3, and how deep. A bound rather than a guess: a
-#: coverage map that matched thirty branches is not a coverage map, and refetching them all would
-#: rebuild the whole corpus one subtree at a time.
+#: How many branches one level may open into the next. A bound rather than a guess: a coverage map
+#: that matched thirty branches is not a coverage map, and following them all would rebuild the
+#: whole corpus one subtree at a time.
 MAX_REFINED_BRANCHES = 8
-REFINE_DEPTH = 3
+
+#: The deepest level the drill goes to. L3 is where the published map's leaves are.
+DEEPEST_LEVEL = 3
 
 
 def project(name: str, corpus):
@@ -148,52 +146,71 @@ def matched_labels(coverage: dict, corpus=None) -> list[str]:
     return seen[:MAX_REFINED_BRANCHES]
 
 
-async def refine_coverage(cfg, d) -> dict:
-    """Step 5, a second time, against the SUBTREES of what it matched — so the map reaches L3.
+async def _children_of(cfg, labels, level: int) -> list[dict]:
+    """The concepts one level BELOW each of these, and nothing else.
 
-    The published capability map is 1,666 concepts to L3. Projected to what a match reads it is
-    still ~45,000 tokens, so the first pass runs against L1 (395 concepts) and this pass re-runs
-    the same exercise against only the branches that matched: four of them to L3 measured 1,151
-    tokens, against 45,000 for the whole map.
-
-    That is retrieval, and it needs no embeddings — a capability map is a TREE, and the way to
-    reach a leaf in a tree is to walk the branch you matched rather than to search every leaf. The
-    embedding upstream is what a PROSE corpus needs; it is not what this needed, and reaching for
-    it here would have been the expensive way to do something the structure already answers.
-
-    Best effort in both directions: no matches, no agent, or a subtree that will not fetch leaves
-    the L1 map standing and says at what depth it was made. A refinement that fails must not lose
-    the answer the first pass already produced.
-    """
-    step = step_for("5")
-    coverage = d.derived.get("coverage_map") or {}
-    labels = matched_labels(coverage, d.available.get("capabilities"))
-    if not labels or (cfg.get("agents") or {}).get(step.key) is None:
-        return {"capability_depth": CORPORA["capabilities"][1].get("depth")}
-
-    subtrees, fetched = [], []
+    `semantic_concepts(root_label=X, depth=1)` returns X and its children, so the parent is
+    filtered out by level — a candidate set that contained the thing already matched would invite
+    the next pass to match it again and call that progress."""
+    out: list[dict] = []
     for label in labels:
         try:
             got = await gateway.call(cfg, SemanticTools.concepts,
                                      {"scheme": CORPORA["capabilities"][1]["scheme"],
-                                      "root_label": label, "depth": REFINE_DEPTH})
+                                      "root_label": label, "depth": 1})
         except Exception:                                # noqa: BLE001 — a branch is best effort
             continue
-        subtrees += project("capabilities", got) or []
-        fetched.append(label)
-    if not subtrees:
-        return {"capability_depth": CORPORA["capabilities"][1].get("depth")}
+        out += [c for c in project("capabilities", got) or [] if c.get("level") == level]
+    return out
 
-    size = len(json.dumps(subtrees, ensure_ascii=False, default=str))
-    if size > MAX_CORPUS_BYTES:
-        return {"capability_depth": CORPORA["capabilities"][1].get("depth"),
-                "capability_refine_skipped": f"{len(fetched)} branches came to {size} bytes"}
 
-    with gateway.node_span(cfg, "step_5_refine"):
-        d.available["capabilities"] = subtrees
-        ran = await d.run_step(cfg, step, label="match capabilities (to L3)")
-    return {"capability_depth": REFINE_DEPTH if ran else CORPORA["capabilities"][1].get("depth"),
-            "capability_branches_refined": fetched}
+async def drill_coverage(cfg, d) -> dict:
+    """Step 5, level by level: which L1 capabilities match, then which L2 WITHIN those, then L3.
+
+    The map is a tree of 1,666 concepts and will not go in a prompt — but no LEVEL of it is large.
+    The top is 42 concepts; the children of eight matched branches are a few dozen. So each pass
+    sees a small, relevant candidate set, and what it selects decides what the next pass is even
+    shown.
+
+    **The split is the point.** Walking the tree is deterministic — given the matches, the children
+    to fetch next are not a matter of opinion. Deciding which of those children this use case
+    actually touches is NOT deterministic, and could not be: it is a judgement about relevance and
+    impact, which is exactly the work an agent is here to do and exactly the work a gate should
+    check rather than replace. Fetch is `[D]`, selection is `[A]`, and each level is gated before
+    it is allowed to decide the next one.
+
+    Every level is KEPT, not just the last. "Which L1s matched, then which L2s within those" is the
+    reasoning a reviewer has to be able to follow, and a final L3 list alone cannot be checked —
+    a leaf under a branch nobody should have opened looks exactly like a leaf under one they should.
+
+    Best effort throughout: a level that yields no candidates, no matches, or a failed fetch stops
+    the drill and leaves the deepest level that DID answer standing, with the depth recorded.
+    """
+    step = step_for("5")
+    if (cfg.get("agents") or {}).get(step.key) is None:
+        return {}
+
+    trail: list[dict] = []
+    candidates = d.available.get("capabilities") or []
+    for level in range(1, DEEPEST_LEVEL + 1):
+        if not candidates:
+            break
+        d.available["capabilities"] = candidates
+        with gateway.node_span(cfg, f"step_5_l{level}"):
+            if not await d.run_step(cfg, step, label=f"match capabilities (L{level})"):
+                break
+        coverage = dict(d.derived.get("coverage_map") or {})
+        trail.append({"level": level, "candidates": len(candidates),
+                      "matched": coverage.get("matched") or []})
+        labels = matched_labels(coverage, candidates)
+        if not labels or level == DEEPEST_LEVEL:
+            break
+        candidates = await _children_of(cfg, labels, level + 1)
+
+    if not trail:
+        return {}
+    # The map a later step reads is the DEEPEST one that answered; the trail is how it was reached.
+    return {"capability_depth": trail[-1]["level"], "coverage_trail": trail}
 
 
 def build_workflow(cfg):
@@ -298,16 +315,28 @@ def build_workflow(cfg):
                                       **(state.get("corpora") or {})},
                            pending=dict(PENDING_STEPS))
             for step in SCREENING_STEPS:
+                if step.key == "coverage_map":
+                    # Run by the drill instead: one pass per level of the capability map, each
+                    # deciding what the next one is shown. The keys are spelled out rather than
+                    # merged from the return, so what this executor adds to the state is readable
+                    # here — `test_workflow_state_keys` reads exactly this and would otherwise have
+                    # no way to tell a written key from a typo.
+                    drilled = await drill_coverage(cfg, d)
+                    state = state | {"capability_depth": drilled.get("capability_depth"),
+                                     "coverage_trail": drilled.get("coverage_trail")}
+                    continue
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.
                 await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
-                if step.key == "coverage_map":
-                    state = state | await refine_coverage(cfg, d)
             derived, pending = d.derived, d.pending
 
             screening = {"pending_steps": pending,
                          "corpora_unavailable": dict(state.get("corpora_unavailable") or {}),
+                         # How deep the capability match actually reached, and the trail it took —
+                         # a final L3 list alone cannot be checked, because a leaf under a branch
+                         # nobody should have opened looks exactly like a leaf under one they should.
                          "capability_depth": state.get("capability_depth"),
+                         "coverage_trail": state.get("coverage_trail"),
                          "submission_ref": state["submission_record_ref"], **derived}
             stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": screening, "name": "screening.json"})
