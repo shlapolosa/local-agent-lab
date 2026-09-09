@@ -69,14 +69,22 @@ def main(argv: list[str]) -> int:
         card = spec.card(gateway, config.ENTRA_TENANT_ID, config.ENTRA_GATEWAY_AUDIENCE,
                          client_id=client_id)
         try:
-            pub.publish(spec, card, key=key, client_id=client_id)
-            published.append(spec.name)
+            if pub.publish(spec, card, key=key, client_id=client_id) or dry:
+                published.append(spec.name)
         except Exception as e:                    # noqa: BLE001 — one bad agent must not hide the rest
             failed.append(f"{spec.name}: {type(e).__name__}: {e}")
 
     print(f"published {len(published)}: {', '.join(published) or '-'}")
     if skipped:
         print(f"skipped {len(skipped)} with no credential yet: {', '.join(sorted(skipped))}")
+    # Registered, but under a row this gateway cannot see — LiteLLM does not reload agents from its
+    # store after a restart. Reported rather than failed: the name IS taken by the agent we wanted,
+    # and a deploy must not go red for a condition it neither caused nor can fix. Recovery is an
+    # operator DELETE by id followed by a republish.
+    stale = list(getattr(pub, "already", ()))
+    if stale:
+        print(f"already registered but invisible to this gateway ({len(stale)}): "
+              f"{', '.join(stale)}")
     for line in failed:
         print(f"FAILED {line}", file=sys.stderr)
     return 1 if failed else 0

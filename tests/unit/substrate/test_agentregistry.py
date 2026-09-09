@@ -190,3 +190,50 @@ def test_giving_up_reports_the_last_failure_rather_than_a_shrug():
     with pytest.raises(Exception) as e:
         R.retrying(fake, attempts=2, backoff=0.0)("GET", "/v1/agents")
     assert "502" in str(e.value)
+
+
+# --------------------------------------- an agent the registry has forgotten but the DB still holds
+def test_an_agent_the_list_cannot_see_but_the_database_still_holds_is_not_a_failure():
+    """The defect this survives, root-caused live 9 Sep 2026 against LiteLLM v1.98.0.
+
+    `GET /v1/agents` is served from an IN-MEMORY registry populated on write, and it is not reloaded
+    from Postgres when the gateway restarts. So after every redeploy the list answers `200 []` while
+    the rows are still there — proven by `POST` then failing with
+    `500 "Unique constraint failed on the fields: (agent_name)"`, and by the row count in
+    `LiteLLM_AgentsTable`.
+
+    Reconcile-by-name reads that list, so it decides to CREATE and hits the constraint. The agent IS
+    registered under the name we wanted; what is broken is the gateway's view of it. Failing the
+    deploy for that would make every push red for a condition CD cannot fix and did not cause — so it
+    is reported and carried, and `publish` says which agents were in that state.
+    """
+    import urllib.error
+
+    def conflicts(method, path, body=None):
+        if method == "GET":
+            return {"agents": []}                      # the empty view a restart leaves behind
+        raise urllib.error.HTTPError(
+            path, 500, "Internal Server Error", {},                      # type: ignore[arg-type]
+            __import__("io").BytesIO(
+                b'{"detail":"Error adding agent to DB: Unique constraint failed on the fields: '
+                b'(`agent_name`)"}'))
+
+    pub = R.LiteLLMPublisher(GW, "sk-master", request=conflicts)
+    assert pub.publish(SPEC, SPEC.card(GW, TENANT, AUD)) == ""
+    assert SPEC.name in pub.already, "it must say which agents it could not refresh"
+
+
+def test_a_500_that_is_not_a_name_conflict_still_fails():
+    """Carrying the conflict must not become swallowing every server error — a gateway that is
+    genuinely broken has to reach the deploy log."""
+    import urllib.error
+
+    def broken(method, path, body=None):
+        if method == "GET":
+            return {"agents": []}
+        raise urllib.error.HTTPError(path, 500, "Internal Server Error", {},   # type: ignore[arg-type]
+                                     __import__("io").BytesIO(b'{"detail":"database is on fire"}'))
+
+    pub = R.LiteLLMPublisher(GW, "sk-master", request=broken)
+    with pytest.raises(urllib.error.HTTPError):
+        pub.publish(SPEC, SPEC.card(GW, TENANT, AUD))

@@ -87,8 +87,12 @@ class NullPublisher:
 #: Statuses that mean "not yet", not "no". A gateway that has just been redeployed answers 502/503
 #: from the edge until its container is listening, and CD publishes seconds after `substrate up`
 #: returns — which deploys and does NOT wait.
-TRANSIENT = (500, 502, 503, 504)
+TRANSIENT = (502, 503, 504)
 ATTEMPTS, BACKOFF_S = 5, 4.0
+
+#: How LiteLLM reports "that name is taken" — as a 500, not a 409. Matched on the body because the
+#: status code cannot distinguish it from a gateway that is genuinely broken.
+NAME_TAKEN = "unique constraint failed"
 
 
 def retrying(request: Callable, *, attempts: int = ATTEMPTS, backoff: float = BACKOFF_S) -> Callable:
@@ -118,6 +122,14 @@ def retrying(request: Callable, *, attempts: int = ATTEMPTS, backoff: float = BA
                 time.sleep(backoff)
         raise last if last else RuntimeError("no attempt was made")
     return attempt
+
+
+def _body_of(e: urllib.error.HTTPError) -> str:
+    """The error body, once — an HTTPError's stream can only be read a single time."""
+    try:
+        return (e.read() or b"").decode(errors="replace")
+    except Exception:                                  # noqa: BLE001 — already handling an error
+        return ""
 
 
 def _http(gateway_url: str, master_key: str, timeout: float = 30.0):
@@ -150,6 +162,8 @@ class LiteLLMPublisher:
         self.tenant_id, self.audience, self.public = tenant_id, audience, public
         self._request = request or retrying(_http(gateway_url, master_key))
         self._client_to_key = dict(client_to_key or {})
+        #: Agents whose row exists but which this gateway cannot see or refresh — see `publish`.
+        self.already: list[str] = []
 
     def _existing(self) -> dict[str, str]:
         rows = self._request("GET", "/v1/agents") or {}
@@ -178,7 +192,26 @@ class LiteLLMPublisher:
         if agent_id:
             self._request("PATCH", f"/v1/agents/{agent_id}", body)
         else:
-            created = self._request("POST", "/v1/agents", body) or {}
+            try:
+                created = self._request("POST", "/v1/agents", body) or {}
+            except urllib.error.HTTPError as e:
+                # THE ROW EXISTS AND THE GATEWAY CANNOT SEE IT. Root-caused live 9 Sep 2026 against
+                # LiteLLM v1.98.0: `GET /v1/agents` is served from an in-memory registry populated on
+                # WRITE and never reloaded from Postgres, so every restart leaves the list answering
+                # `200 []` over rows that are still there. Reconcile reads that list, decides to
+                # create, and hits `agent_name`'s unique constraint — reported as a 500, not a 409.
+                #
+                # The agent IS registered under the name we asked for; what is stale is the
+                # gateway's view. Failing a deploy for a condition CD neither caused nor can fix
+                # would make every push red, so it is CARRIED and named. Recovery is a DELETE by id
+                # — which does reach an invisible row — followed by a republish, and that needs the
+                # id from the store, so it is an operator's action rather than this script's.
+                if NAME_TAKEN not in (_body_of(e)).lower():
+                    raise
+                self.already.append(spec.name)
+                print(f"  {spec.name}: already registered; this gateway cannot see it "
+                      "(LiteLLM does not reload agents after a restart)", flush=True)
+                return ""
             agent_id = created.get("agent_id") or created.get("id") or ""
         if self.public and agent_id:
             self._request("POST", f"/v1/agents/{agent_id}/make_public", {})
