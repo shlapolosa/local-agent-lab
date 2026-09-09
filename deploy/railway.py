@@ -252,7 +252,9 @@ ROLE_ENV = {
         "REVIEW_APP_URL",                          # tool results link the reviewer to the review app
         _OTLP, "REFERENCE_MODELS_DIR",             # tracing; src/lab/core/semantic/reference/baguild.py workbook dir (optional)
     ],
-    "semantic-mcp": [                              # src/lab/substrate/mcp/semantic/server.py — credential-free, read-only
+    "semantic-mcp": [
+        # The licensed reference workbooks, BY REFERENCE — they cannot be in a public image.
+        "REFERENCE_MODELS_REFS",                              # src/lab/substrate/mcp/semantic/server.py — credential-free, read-only
         "MCP_SHARED_SECRET", "BIND_HOST", "SEMANTIC_MCP_PORT",
         "ARTIFACTS_URL", "DATABASE_URL",           # semantic_store_spec / semantic_export_archimate write spec refs
         _OTLP, "REFERENCE_MODELS_DIR",

@@ -26,7 +26,36 @@ from lab.substrate.mcpserver import LabServer, span
 SERVICE = "semantic-mcp"
 
 server = LabServer(SERVICE, config.SEMANTIC_MCP_PORT)
-S = SemanticService(reference_dir=config.REFERENCE_MODELS_DIR)   # licensed workbooks: var/reference-sources or REFERENCE_MODELS_DIR
+
+
+def reference_dir(refs=config.REFERENCE_MODELS_REFS, directory=config.REFERENCE_MODELS_DIR) -> str:
+    """Where the licensed reference workbooks are, materialising them first if they arrive by ref.
+
+    They cannot be in the image. This repository is public and the BA Guild models are licensed, so
+    neither the workbooks nor content derived from them can be committed — but a cloud deployment
+    that lacks them answers `unknown scheme`, and every capability match silently becomes a gap.
+    Measured on the first cloud run: `unknown scheme healthcare-provider-v2.0; have []`.
+
+    So they travel the way all content in this lab travels — by `art://` reference through the
+    private artifact store, which the substrate already holds a credential for and the image does
+    not contain. `lab.core` still just globs a directory: the domain knows nothing about stores,
+    and a workstation with the workbooks on disk is unaffected.
+    """
+    if not refs:
+        return directory
+    import tempfile
+    from pathlib import Path
+
+    store = server.container.artifacts()
+    out = Path(tempfile.mkdtemp(prefix="reference-models-"))
+    for ref in refs:
+        # The NAME in the ref is the filename, and the loader keys the scheme on the stem — so a
+        # ref must keep the workbook's own name or the scheme comes back under a different one.
+        (out / ref.rsplit("/", 1)[-1]).write_bytes(store.get(ref))
+    return str(out)
+
+
+S = SemanticService(reference_dir=reference_dir())
 
 
 @server.tool()

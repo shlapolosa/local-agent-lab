@@ -308,3 +308,37 @@ def test_load_model_accepts_a_reference_like_validate_does():
 def test_load_model_refuses_a_nameless_model():
     """`model_id` names the graph it lands in; without one the load has no address at all."""
     assert "model_id" in call_error("semantic_load_model", spec=MODEL, model_id="")
+
+
+# ------------------------------------------------- licensed reference data, by reference
+
+def test_with_no_refs_the_workbooks_come_from_a_directory():
+    """A workstation with the workbooks on disk is unaffected — `lab.core` still just globs."""
+    from lab.substrate.mcp.semantic.server import reference_dir
+    assert reference_dir(refs=(), directory="/var/reference-sources") == "/var/reference-sources"
+
+
+def test_refs_are_materialised_under_their_own_filenames(monkeypatch, tmp_path):
+    """The loader keys a scheme on the FILE STEM, so a materialised workbook must keep the name it
+    was published under or the scheme comes back called something else — and every lookup for it
+    then answers `unknown scheme`."""
+    from lab.substrate.mcp.semantic import server as S
+
+    class FakeStore:
+        def get(self, ref): return b"xlsx-bytes-for-" + ref.encode()
+
+    monkeypatch.setattr(S.server.container, "artifacts", lambda: FakeStore())
+    out = S.reference_dir(refs=("art://a1/healthcare-provider-v2.0.xlsx",
+                                "art://b2/insurance-v5.0.xlsx"), directory="unused")
+    names = sorted(p.name for p in __import__("pathlib").Path(out).iterdir())
+    assert names == ["healthcare-provider-v2.0.xlsx", "insurance-v5.0.xlsx"]
+
+
+def test_the_licensed_workbooks_are_not_in_the_repository():
+    """This repository is PUBLIC and the BA Guild models are licensed. Neither the workbooks nor
+    content derived from them may be committed — which is the whole reason they travel by ref."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[5]
+    committed = [p for p in root.rglob("*.xlsx")
+                 if "reference-sources" in str(p) or "baguild" in p.name.lower()]
+    assert not committed, committed

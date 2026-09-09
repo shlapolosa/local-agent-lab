@@ -172,6 +172,13 @@ ARTIFACT_INLINE_MAX_BYTES = int(_e("ARTIFACT_INLINE_MAX_BYTES") or 64 * 1024 ** 
 
 # --- licensed reference workbooks (BA Guild): never in the repo; a directory outside the tree or var/ ---
 REFERENCE_MODELS_DIR = _e("REFERENCE_MODELS_DIR") or str(VAR_DIR / "reference-sources")
+#: The licensed reference workbooks, as `art://` refs, comma-separated. They cannot travel in the
+#: image: this repository is PUBLIC, and the BA Guild models are licensed — so the derived content
+#: cannot be committed either. They travel the way every other piece of content in this lab travels,
+#: by reference through the private artifact store, and the substrate materialises them at startup.
+#: Unset means the local directory, which is how a workstation with the workbooks already works.
+REFERENCE_MODELS_REFS = tuple(r.strip() for r in _e("REFERENCE_MODELS_REFS", "").split(",")
+                              if r.strip())
 
 # --- collaboration provider (Microsoft Graph adapter: src/lab/substrate/mcp/graph/) ---
 # WHICH adapter the substrate wires behind the vendor-neutral `collab_mcp` port. The name is a key
