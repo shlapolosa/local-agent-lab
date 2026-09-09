@@ -77,15 +77,21 @@ async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable
             f"image (the deploy CLI's `substrate images` shows what each service runs) or fix "
             f"the team grant. Exposed: {sorted(exposed)}")
 
+    # Resolve exactly as the CALL will. Checking every tool whose name ends with a wanted suffix
+    # would refuse a run because of a tool that would never be called — a stale duplicate
+    # registration, or a second server exposing a same-named tool. A false refusal is worse than
+    # the gap this closes.
+    by_name = {t.name: t for t in tools}
     stale: list[str] = []
-    for tool in tools:
-        args = next((a for suffix, a in wanted.items() if tool.name.endswith(suffix)), ())
-        schema = getattr(tool, "inputSchema", None) or {}
-        if not args or schema.get("additionalProperties") is not False:
+    for suffix, args in wanted.items():
+        if not args:
+            continue
+        schema = getattr(by_name[resolve(by_name, suffix)], "inputSchema", None) or {}
+        if schema.get("additionalProperties") is not False:
             continue
         unknown = [a for a in args if a not in (schema.get("properties") or {})]
         if unknown:
-            stale.append(f"{tool.name} does not accept {unknown}")
+            stale.append(f"{resolve(by_name, suffix)} does not accept {unknown}")
     if stale:
         raise RuntimeError(
             f"the gateway exposes every tool this workload needs, but not every ARGUMENT: {stale}. "
@@ -156,7 +162,7 @@ async def call(cfg: Mapping[str, Any], suffix: str, args: Mapping[str, Any]) -> 
 
 
 async def run_graph(cfg: Mapping[str, Any], build, inputs: Mapping[str, Any], *, what: str,
-                    required: Iterable[str]) -> dict:
+                    required: Iterable[Any]) -> dict:
     """Preflight, publish the graph to the run board, run it, and return the one output.
 
     The preflight is the part that must not be forgotten: it lists the gateway's tools and refuses

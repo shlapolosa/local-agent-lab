@@ -57,8 +57,14 @@ def credential_for(service: str, *, fallback: str) -> str:
     if prefix:
         try:
             return agent_headers(prefix)["Authorization"].removeprefix("Bearer ").strip()
-        except KeyError:
-            pass                     # not provisioned yet — the shared identity, deliberately
+        except KeyError as missing:
+            # ONLY a missing `<PREFIX>_KEY` means "not provisioned yet". `agent_headers` also
+            # raises KeyError for ENTRA_TENANT_ID and ENTRA_GATEWAY_AUDIENCE, and swallowing those
+            # would silently downgrade ten provisioned identities to the shared credential in a
+            # deployment whose tenant config is broken — leaving the spend ledger showing exactly
+            # what it showed before, which is the one signal that would have told anybody.
+            if missing.args and missing.args[0] != f"{prefix}_KEY":
+                raise
     if not fallback:
         raise NoCredential(
             f"{service!r} has no credential and neither does the workload it runs in; set "

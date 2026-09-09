@@ -137,10 +137,15 @@ class FakeReferenceLibrary:
 
     # ---------------------------------------------------------------- the two verbs
 
-    def lookup(self, pin: Pin, *, record_type: str, key, run: RunRef, limit: int = 20
-               ) -> RecordResult:
+    def lookup(self, pin: Pin, *, record_type: str, key, run: RunRef, limit: int = 20,
+               artifact_id: str = "") -> RecordResult:
         self._check_pin(pin)
-        matching = [a for a in self._visible() if a.record_type == record_type]
+        # `artifact_id` narrows exactly as the real adapter does — a record type is a
+        # classification, and two artifacts may publish the same one honestly. A double that
+        # ignored it would let a caller pass the wrong artifact and never find out.
+        matching = [a for a in self._visible()
+                    if a.record_type == record_type
+                    and (not artifact_id or a.artifact_id == artifact_id)]
         if not matching:
             raise UnknownRecordType(record_type,
                                     sorted({a.record_type for a in self._visible() if a.record_type}))

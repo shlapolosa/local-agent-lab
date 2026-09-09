@@ -171,9 +171,13 @@ jobs:
             # spelled out here, so a new business process shipped its substrate on push and its
             # HOST only when somebody remembered to edit CI — which is the same class of drift the
             # image pinning exists to stop, one layer up.
-            for w in $(python deploy/railway.py workload list); do
-              python deploy/railway.py workload "$w" up
-            done
+            # Captured and checked, NOT inlined into the `for`: bash's `set -e` does not check a
+            # command substitution in a for-list, so a failing `workload list` would iterate zero
+            # times and the step would SUCCEED having deployed nothing — the same shape as the
+            # silent tag fallback this file's pinning exists to prevent.
+            workloads=$(python deploy/railway.py workload list) || exit 1
+            [ -n "$workloads" ] || { echo "::error::no workloads listed"; exit 1; }
+            for w in $workloads; do python deploy/railway.py workload "$w" up; done
           else
             python deploy/railway.py release
           fi

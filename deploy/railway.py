@@ -299,7 +299,11 @@ ROLE_ENV = {
     "decision-mcp": [                              # src/lab/substrate/mcp/decision/*.py + lab.core.usecase — pure derivation
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "DECISION_MCP_PORT",                       # which port it serves
-        "REFERENCE_*",                             # to read the governed rules under a pin
+        # NAMED, not `REFERENCE_*`: the glob would also match REFERENCE_SIGNING_KEY and
+        # REFERENCE_PUBLISH_DB_URL. Neither is in `.env` today, so the private seed staying out of
+        # every container rested on nobody adding a line — which is the shape of guarantee this
+        # whole file exists to replace.
+        "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_TRUST_KEYS", "REFERENCE_KEY_ID",
         "GATEWAY_URL",                             # ... which it reaches like any other caller
         _OTLP,
     ],

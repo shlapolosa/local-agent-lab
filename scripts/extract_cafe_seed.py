@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from lab.core.reference import cells
 from lab.core.reference.master import render as render_master  # noqa: E402
 
 # ---------------------------------------------------------------- JS literals
@@ -431,6 +432,38 @@ def _rows_from(key: str, value: object):
     return None
 
 
+#: The ONE encoder, shared with every adapter that has to read these bytes back. It used to live
+#: here and be reversed, differently and incompletely, in decision-mcp.
+_cell = cells.encode
+
+
+def _rows_from(key: str, value: object):
+    """(headers, rows) for any shape the seed actually uses, or None if it is not tabular.
+
+    Four shapes appear and only the first was handled, which is why the reference architecture — a
+    nested model of zones, components and topologies — could be published only as prose, and prose
+    needs an embedder this lab does not have. It is structure, so it should publish as records.
+    """
+    if isinstance(value, dict) and value and all(isinstance(v, dict) for v in value.values()):
+        headers = ["id"]
+        for entry in value.values():
+            headers += [k for k in entry if k not in headers and k not in LAYOUT_KEYS]
+        # An EMPTY key is how the source spells "nothing selected — the whole diagram" (its own
+        # title says "All archetypes"). A record needs an id a lookup can name, and a blank one is
+        # refused by the publisher, correctly: it is not a key. Naming it is a translation the data
+        # supports, not a value invented for it.
+        return headers, [[ident or DEFAULT_ID] + [_cell(entry.get(h, "")) for h in headers[1:]]
+                         for ident, entry in value.items()]
+    if isinstance(value, dict) and value and not any(isinstance(v, dict) for v in value.values()):
+        return ["id", "value"], [[k, _cell(v)] for k, v in value.items()]
+    if isinstance(value, list) and value and all(isinstance(r, (list, tuple)) for r in value):
+        headers = list(ROW_COLUMNS.get(key) or [f"column {i + 1}" for i in range(len(value[0]))])
+        return headers, [[_cell(c) for c in row] for row in value]
+    if isinstance(value, list) and value and all(isinstance(r, str) for r in value):
+        return ["id"], [[r] for r in value]
+    return None
+
+
 def _cell(value: object) -> str:
     """One cell of a rendered table.
 
@@ -607,7 +640,14 @@ def main(argv=None) -> int:
     masters_dir = args.out / "masters"
     masters_dir.mkdir(parents=True, exist_ok=True)
     for name, payload in sorted(files.items()):
-        (masters_dir / f"{name}.md").write_text(master_for(name, payload), encoding="utf-8")
+        # `masters_for`, not `master_for`: a multi-table artifact publishes as one master per
+        # SECTION, because the corpus is one record type per artifact. This was the ad-hoc path for
+        # a while and the CLI still wrote the concatenated form — so 15 of the 50 committed masters
+        # could not be reproduced by the documented entry point, and re-running it would have
+        # overwritten their parents back into a shape the publisher refuses. The masters are signed
+        # inputs; a generator that cannot regenerate them is not a generator.
+        for stem, text in masters_for(name, payload).items():
+            (masters_dir / f"{stem}.md").write_text(text, encoding="utf-8")
         path = args.out / f"{name}.json"
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
                         encoding="utf-8")

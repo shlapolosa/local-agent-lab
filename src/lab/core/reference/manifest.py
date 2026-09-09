@@ -21,7 +21,7 @@ signing is a pure function over a canonical string and holds no key material of 
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import base64
 import binascii
@@ -66,7 +66,14 @@ def _canonical_timestamp(value: Any) -> Any:
     is on call to re-publish an artifact that was never wrong. Normalising here rather than at the
     two call sites means a third caller cannot reintroduce it.
     """
-    return value.isoformat() if isinstance(value, datetime) else value
+    # `astimezone(utc)` as well as `isoformat()`: normalising the separator and not the OFFSET
+    # leaves the same trap one deployment setting away. A session whose TimeZone is not UTC returns
+    # the same instant spelled `+04:00`, which signs and verifies differently — and presents, again,
+    # as every artifact in the corpus reporting itself tampered with. Neon happens to be UTC; Azure
+    # Database for PostgreSQL makes no such promise, so this would have fired on the migration.
+    if isinstance(value, datetime):
+        return (value.astimezone(timezone.utc) if value.tzinfo else value).isoformat()
+    return value
 
 
 def manifest(**fields: Any) -> str:
@@ -90,7 +97,6 @@ def manifest(**fields: Any) -> str:
 def generate_key() -> tuple[str, str]:
     """A fresh (private seed, public key) pair, both base64. For tests and for bootstrapping."""
     private = Ed25519PrivateKey.generate()
-    from cryptography.hazmat.primitives import serialization
     seed = private.private_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PrivateFormat.Raw,

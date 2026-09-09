@@ -18,7 +18,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
-VERSION = "v0.25"
+#: The corpus version this script publishes. BUMP IT whenever a master's bytes change — the
+#: masters are the signed input, and re-publishing changed content under an unchanged version is
+#: refused by the store. It is also why this is one constant rather than a per-artifact version: a
+#: corpus whose artifacts drift apart in version cannot be pinned coherently, and the one time an
+#: artifact was corrected on its own (v0.25.1) the next corpus-wide run silently RE-RELEASED the
+#: older v0.25 over it, because that is the version this script releases.
+VERSION = "v0.26"
 
 #: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
 #: and differs from the file stem where a consumer already spells it differently.
@@ -106,8 +112,13 @@ def already_published() -> set[str]:
     """What this version already holds. Publishing is idempotent from the OPERATOR's side — a
     re-run after fixing one artifact must not need the other thirty-four undone first."""
     code, out = run("list")
-    return {line.split()[0] for line in out.splitlines()
-            if len(line.split()) > 1 and line.split()[1] == VERSION} if not code else set()
+    if code:
+        return set()
+    # The STATUS column too: a `draft` or withdrawn version at this version string would otherwise
+    # count as published and be skipped forever — precisely the "re-run after fixing one artifact"
+    # case this exists for.
+    return {parts[0] for parts in (line.split() for line in out.splitlines())
+            if len(parts) > 2 and parts[1] == VERSION and parts[2] == "published"}
 
 
 def run(*args: str) -> tuple[int, str]:
@@ -137,6 +148,7 @@ def main() -> int:
 
     have = already_published()
     deferred: list[str] = []
+    unreleased: list[str] = []
     published = released = skipped = 0
     for artifact_id, (record_type, key, owner) in sorted(ARTIFACTS.items()):
         if artifact_id in have:
@@ -172,6 +184,9 @@ def main() -> int:
           f"{released} released to ring {args.ring}")
     if deferred:
         print(f"deferred until an embedder is configured: {deferred}")
+    if unreleased:
+        print(f"FAILED to release: {unreleased}")
+        return 1
     return 0
 
 

@@ -57,22 +57,31 @@ class Derivation:
         """What this step needs and does not have."""
         return sorted(set(A.CONTEXT_FOR.get(step.key, ())) - set(self.available))
 
-    async def run_step(self, cfg: Mapping[str, Any], step: Step, *, label: str = "") -> bool:
+    async def run_step(self, cfg: Mapping[str, Any], step: Step, *, label: str = "",
+                       context: Mapping[str, Any] | None = None) -> bool:
         """Run one exercise if its agent and its whole context are both there; report whether it ran.
 
         An exercise whose corpus is absent is NOT run. Asked anyway it would answer from nothing,
         and that answer is indistinguishable from a grounded one — which is the failure this whole
         assessment cannot recover from.
+
+        `context` overrides the working set for THIS call only. It exists for the capability drill,
+        which runs one step three times over three different candidate sets: writing those onto
+        `available` instead would leave the last level's handful of leaves sitting there under the
+        name of the published map, and the only thing preventing a later step from reading them
+        would be that nobody had yet added `capabilities` to another entry in `CONTEXT_FOR` — a
+        one-line change in a different file, made by somebody with no reason to read this one.
         """
         agent = (cfg.get("agents") or {}).get(step.key)
         if agent is None:
             return False                       # not wired yet; whatever deferred it still stands
-        needs = self.missing(step)
+        pool = {**self.available, **(context or {})}
+        needs = sorted(set(A.CONTEXT_FOR.get(step.key, ())) - set(pool))
         if needs:
             self.defer(step.number, f"{label or step.key} — needs {needs}")
             return False
         with gateway.node_span(cfg, f"step_{step.number}"):
-            out = await run_gated(agent, A.message(step, A.context_for(step.key, self.available)),
+            out = await run_gated(agent, A.message(step, A.context_for(step.key, pool)),
                                   step=step.number, validator=step.validator(),
                                   normalise=step.normalise, complete=step.complete)
         self.record(step.key, out, step.number)

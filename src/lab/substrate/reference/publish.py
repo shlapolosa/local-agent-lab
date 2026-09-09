@@ -270,7 +270,11 @@ class Publisher:
                 continue
             body = manifest(artifact_id=r[0], version=r[1], kind=r[2], master_sha256=r[3],
                             agent_sha256=r[4], derived_from=r[5], content_digest=r[6],
-                            published_at=str(r[9]), key_id=r[8])
+                            # RAW, not `str()` — the same defect this command exists to catch.
+                            # `str(datetime)` spells the ISO separator as a space, so `verify`
+                            # reported every artifact tampered and exited 1. Its test passed
+                            # because the plan it ran against returned no rows.
+                            published_at=r[9], key_id=r[8])
             ok = verify(body, r[7], r[10])
             out.append({"artifact_id": r[0], "version": r[1], "ok": ok,
                         "why": "" if ok else "the signature does not cover this version"})

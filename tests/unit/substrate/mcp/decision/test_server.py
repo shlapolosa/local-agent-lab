@@ -184,8 +184,19 @@ def governed_mapping():
                   "Mandatory": "An evaluation harness with a stated accuracy target"}])
 
 
+def governed_guardrails():
+    """The guardrail set as the corpus returns it. Present in every pin these tests take, because a
+    derivation whose pin LACKS it now refuses rather than answering from the seed while claiming
+    the governed corpus — so a fixture without it is not a governed derivation at all."""
+    return SeededArtifact(
+        artifact_id="guardrails", kind=ArtifactKind.RECORD, record_type="guardrail",
+        records=[{"id": g["id"], "asi": g.get("asi", ""), "pred": g["pred"],
+                  "cap": g.get("cap", ""), "rule": g.get("rule", ""), "ctrl": g.get("ctrl", ""),
+                  "src": g.get("src", "")} for g in seed.guardrails()])
+
+
 def test_a_pin_makes_the_derivation_read_the_governed_corpus():
-    library = FakeReferenceLibrary([governed_mapping()])
+    library = FakeReferenceLibrary([governed_mapping(), governed_guardrails()])
     with S.server.container.reference.override(library):
         pin = library.pin()
         out = S.decision_obligations(wf(COMMIT), conditions=ANSWERS, pin_id=pin.pin_id,
@@ -198,7 +209,7 @@ def test_a_pin_makes_the_derivation_read_the_governed_corpus():
 
 def test_a_derivation_under_a_pin_is_recorded_against_the_derived_field():
     """FR-44: the rules a run obeyed are part of how the field was derived."""
-    library = FakeReferenceLibrary([governed_mapping()])
+    library = FakeReferenceLibrary([governed_mapping(), governed_guardrails()])
     with S.server.container.reference.override(library):
         pin = library.pin()
         S.decision_obligations(wf(COMMIT), conditions=ANSWERS, pin_id=pin.pin_id,
@@ -260,6 +271,8 @@ def test_the_mapper_gives_the_domain_the_shape_it_reads():
     rows = S.from_corpus([_Rec({"record_id": "r1", "id": "F14", "name": "Delegation",
                                 "predicate": "", "topology": "T4; T3",
                                 "guardrails": "G07"})])
+    # `guardrails` is a declared list column, so a single value still comes back as a list — the
+    # format renders `["G07"]` and `"G07"` identically and only a declaration can separate them.
     assert rows == [{"id": "F14", "name": "Delegation",
                      "topology": ["T4", "T3"], "guardrails": ["G07"]}]
 
@@ -292,3 +305,66 @@ def test_a_retired_guardrail_from_the_corpus_never_enters_a_control_set():
     with_seed = obligations.derive(workflow, conditions=ANSWERS)
     assert not ({"G11", "G12"} & with_corpus.guardrails())
     assert with_corpus.guardrails() == with_seed.guardrails()
+
+
+# ------------------------------------------------- the round trip: master -> corpus -> domain
+
+def _records_from_master(stem: str, record_type: str):
+    """A COMMITTED master, through the same derivation the publisher uses. No database, no server —
+    just the bytes that were signed and the mapper that has to read them back."""
+    from pathlib import Path
+
+    from lab.core.reference.derive import records
+    from lab.core.reference.master import parse
+
+    text = (Path(__file__).resolve().parents[5] / "src" / "lab" / "core" / "usecase" / "seed"
+            / "masters" / f"{stem}.md").read_text()
+    rows = [dict(zip(parse(text).headers, row)) for row in parse(text).rows]
+    return records(stem.replace("_", "-"), rows, key_fields=["id"])
+
+
+def test_a_committed_master_round_trips_into_the_shape_the_domain_reads():
+    """The test neither half had. The generator writes bytes, the mapper reads them, and nothing
+    checked that the second is the inverse of the first — so a nested `variant` reached the domain
+    as a string and `compose` indexed a string as a dict, on the common case of more than one
+    grounding source."""
+    rows = S.from_corpus(_records_from_master("family_triggers", "family"))
+    by_id = {r["id"]: r for r in rows}
+
+    f1 = by_id["F1"]
+    assert isinstance(f1["variant"], dict), "a nested cell must come back nested"
+    assert f1["variant"]["name"] == "federated"
+    assert f1["guardrails"] == ["G06", "G13"], "a joined cell must come back as a list"
+
+    f14 = by_id["F14"]
+    assert f14["topology"] == ["T4"], "a single-value list is still a list"
+    assert "predicate" not in f14, "an empty cell is dropped, not kept as ''"
+
+
+def test_the_corpus_and_the_seed_derive_the_same_families():
+    """The parity that makes the corpus trustworthy, run over the COMMITTED bytes rather than over
+    a live database — so it holds in CI and fails the moment an encoding drifts."""
+    from lab.core.usecase import composition
+    from lab.core.usecase.model import Step, Workflow
+
+    workflow = Workflow(steps=(Step(**INTERPRET), Step(**COMMIT)), criticality="business-critical")
+    families = S.from_corpus(_records_from_master("family_triggers", "family"))
+    from_corpus = composition.families_for(workflow, topology="T2", conditions=ANSWERS,
+                                           families=families)
+    from_seed = composition.families_for(workflow, topology="T2", conditions=ANSWERS)
+    assert from_corpus == from_seed, sorted(from_corpus ^ from_seed)
+
+
+def test_the_encoder_and_the_mapper_are_inverses():
+    from lab.core.reference.cells import decode, encode
+    for value in ({"name": "federated", "prose": "where sources exceed one"}, "plain text"):
+        assert decode(encode(value)) == value, value
+    assert decode(encode(["T4", "T3"]), "topology") == ["T4", "T3"]
+    # PROSE containing a separator stays prose. Guardrail G04's rule really does read
+    # "...capability map only; projects cannot introduce components unilaterally".
+    sentence = "admitted via the M4 capability map only; projects cannot introduce them"
+    assert decode(sentence, "rule") == sentence
+    # A ONE-element list is the case the format cannot carry: it renders exactly like a scalar, so
+    # which it is must be declared rather than guessed.
+    assert decode(encode(["G06"])) == "G06"
+    assert decode(encode(["G06"]), "guardrails") == ["G06"]

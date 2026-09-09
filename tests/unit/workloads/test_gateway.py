@@ -63,3 +63,14 @@ def test_an_open_schema_is_not_second_guessed(monkeypatch):
                         _client([_Tool("wf-approvals_ask", ("subject",), closed=False)]))
     asyncio.run(gateway.preflight("http://x/mcp", {},
                                   [("approvals_ask", ("subject", "process"))]))
+
+
+def test_preflight_checks_the_tool_the_call_would_actually_pick(monkeypatch):
+    """A FALSE refusal is worse than the gap this closes. Checking every tool whose name ends with
+    a wanted suffix would refuse a run because of a tool that would never be called — a stale
+    duplicate registration, or a second server exposing a same-named tool."""
+    monkeypatch.setattr(gateway, "Client", _client([
+        _Tool("wf-approvals_ask", ("subject", "prompt", "process")),   # the one `resolve` picks
+        _Tool("old-approvals_ask", ("subject",))]))                    # a stale duplicate
+    asyncio.run(gateway.preflight("http://x/mcp", {},
+                                  [("approvals_ask", ("subject", "prompt", "process"))]))

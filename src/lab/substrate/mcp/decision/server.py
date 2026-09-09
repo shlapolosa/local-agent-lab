@@ -23,6 +23,7 @@ from typing import Any
 
 from fastmcp.exceptions import ToolError
 
+from lab.core.reference import cells
 from lab.core.reference.errors import ReferenceError
 from lab.core.reference.model import RunRef
 from lab.core.usecase import composition, exposure, gates, obligations
@@ -44,33 +45,25 @@ RULES = {
 }
 
 
-#: Corpus columns whose published cell is a LIST, joined with "; " by the master renderer.
-LIST_COLUMNS = ("topology", "guardrails")
-
-
 def from_corpus(records) -> list[dict]:
     """Corpus records as the DOMAIN's rows — the mapper, and where correctness lives.
 
     A master is a table, so everything in it is text; the domain reads lists and nested objects.
-    Three conversions, each of which was a live failure before it was a line of code:
+    `cells.decode` is the inverse of the `cells.encode` that WROTE those bytes, which is the whole
+    reason the pair lives in one module: this used to reverse only one of encode's two conversions,
+    so a family's nested `variant` reached `compose` as a string and it indexed a string as a dict.
+
+    Two rules stay here because they are about the STORE rather than the encoding:
 
     * the bookkeeping `record_id` is dropped — it is the store's name for the row, not the row;
-    * a `; `-joined cell becomes a list again, so `family["topology"]` is `["T4"]` and not `"T4"`;
-    * an EMPTY cell is dropped entirely rather than kept as `""`. This is the subtle one. Every
-      family gets a `topology` column because one family has a topology, and `families_for` asks
-      `family.get("topology") is not None` — so an empty string would make all thirteen others look
-      topology-restricted and silently vanish from every composition.
+    * an EMPTY cell is dropped entirely rather than kept as `""`. Every family gets a `topology`
+      column because ONE family has a topology, and `families_for` asks whether that key is None —
+      kept as "", the other thirteen would look topology-restricted and vanish from every
+      composition, silently, and only under a pin.
     """
-    out = []
-    for record in records:
-        row = {}
-        for key, value in record.body.items():
-            if key == "record_id" or value in ("", None):
-                continue
-            row[key] = ([v.strip() for v in str(value).split(";") if v.strip()]
-                        if key in LIST_COLUMNS else value)
-        out.append(row)
-    return out
+    return [{k: cells.decode(v, k) for k, v in record.body.items()
+             if k != "record_id" and v not in ("", None)}
+            for record in records]
 
 
 def _workflow(payload: dict) -> Workflow:
@@ -86,7 +79,8 @@ def _workflow(payload: dict) -> Workflow:
         raise ToolError(f"the workflow is not a valid facet vector set: {exc}") from exc
 
 
-def _rules(pin_id: str, run_id: str, process: str, field: str) -> tuple[dict, dict]:
+def _rules(pin_id: str, run_id: str, process: str, field: str,
+           needs: tuple[str, ...] = ()) -> tuple[dict, dict]:
     """(rules, provenance). Empty rules mean "use the local seed", said plainly in the provenance."""
     if not pin_id:
         return {}, {"kind": "local seed",
@@ -97,10 +91,31 @@ def _rules(pin_id: str, run_id: str, process: str, field: str) -> tuple[dict, di
         pin = library.pin_by_id(pin_id)
         run = RunRef(run_id=run_id, process=process, field=field)
         found: dict[str, Any] = {}
+        pinned = {v.artifact_id for v in pin.versions}
         for key, (artifact_id, record_type) in RULES.items():
-            if artifact_id not in {v.artifact_id for v in pin.versions}:
-                continue
-            result = library.lookup(pin, record_type=record_type, key={}, run=run, limit=500)
+            if artifact_id not in pinned:
+                # Only what THIS derivation reads is required. Obligations do not read the family
+                # triggers and composition does not read the guardrail mapping, so demanding the
+                # whole RULES table would refuse runs over a pin that carried everything they
+                # actually use.
+                if key not in needs:
+                    continue
+                # REFUSE, rather than falling through to the packaged seed for this one artifact.
+                # A per-artifact fallback is exactly the failure this module's docstring names: it
+                # would answer from the seed while the response still said "governed corpus", and
+                # nothing downstream could tell. Reachable in practice — a partial release leaves a
+                # ring holding some artifacts and not others.
+                raise ToolError(
+                    f"the pin does not carry {artifact_id!r}, which this derivation reads. A "
+                    f"control set derived without it would be silently short, and the answer would "
+                    f"still claim the governed corpus. Re-pin once {artifact_id!r} is released to "
+                    f"this ring.")
+            # BY ARTIFACT, not by record type alone: a type is a classification and two artifacts
+            # may publish the same one honestly — `family-triggers` and `component-families` both
+            # publish `family`. Keyed on type alone this returned both, interleaved, and the
+            # derivation indexed a column the other artifact does not have.
+            result = library.lookup(pin, artifact_id=artifact_id, record_type=record_type,
+                                    key={}, run=run, limit=500)
             found[key] = from_corpus(result.records)
         return found, {"kind": "governed corpus", "pin_id": pin.pin_id,
                        "versions": [{"artifact_id": v.artifact_id, "version": v.version}
@@ -179,7 +194,8 @@ def decision_obligations(workflow: dict, conditions: dict | None = None, pin_id:
     false: a guardrail that quietly fails to fire is invisible, and the run would complete with a
     control set that is silently short."""
     wf = _workflow(workflow)
-    rules, provenance = _rules(pin_id, run_id, process, field)
+    rules, provenance = _rules(pin_id, run_id, process, field,
+                               needs=("guardrails", "guardrail_mapping"))
     try:
         out = obligations.derive(wf, conditions=conditions or {},
                                  guardrails=rules.get("guardrails"),
@@ -210,7 +226,7 @@ def decision_composition(workflow: dict, topology: str, conditions: dict | None 
     obligation that resolved to no enforcement point — Q5.3 makes that a STOP, and it can only stop
     if somebody is told."""
     wf = _workflow(workflow)
-    rules, provenance = _rules(pin_id, run_id, process, field)
+    rules, provenance = _rules(pin_id, run_id, process, field, needs=("family_triggers",))
     try:
         out = composition.compose(wf, topology=topology, conditions=conditions or {},
                                   grounding_sources=grounding_sources,

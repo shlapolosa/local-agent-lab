@@ -22,7 +22,7 @@ from lab.workloads.identity import agent_headers
 from lab.workloads.usecase import identity as ids
 from lab.workloads.run import governed_run
 from lab.workloads.usecase import agents as A
-from lab.workloads.usecase.steps import STEPS
+from lab.workloads.usecase.steps import SCREENING_STEPS
 from lab.workloads.use_case_screening.workflow import make_cfg, run_workflow
 
 SERVICE = "process-usecase-screening"   # one distinct service name per business process
@@ -76,7 +76,7 @@ async def run_once(root, submission: str = "", submitter: str = "", *, handle: s
             # The agents are built HERE, in the composition root, because building one reads
             # configuration — the model, the gateway address, the credential — and the graph below
             # is deliberately unable to.
-            agents=A.build_all(STEPS, credential_for=_credential_for,
+            agents=A.build_all(SCREENING_STEPS, credential_for=_credential_for,
                                gateway_url=config.GATEWAY_URL,
                                model=config.USECASE_AGENT_MODEL,
                                headers=c.traceparent)),

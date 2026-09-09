@@ -64,10 +64,16 @@ class ReferenceLibrary(Protocol):
         ...
 
     def lookup(self, pin: Pin, *, record_type: str, key: Mapping[str, Any],
-               run: RunRef, limit: int = 20) -> RecordResult:
+               run: RunRef, limit: int = 20, artifact_id: str = "") -> RecordResult:
         """EXACT retrieval. `key` is matched by equality on the published natural key, never
         fuzzily. A miss is a legitimate answer and returns no records; anything that merely
-        resembles the key appears under `near`, which is documented as not an answer."""
+        resembles the key appears under `near`, which is documented as not an answer.
+
+        `artifact_id` narrows the lookup to ONE artifact, and a caller that knows which artifact it
+        wants should always pass it. A record type is a CLASSIFICATION, not an identity: two
+        artifacts may publish the same type honestly — the family triggers and the component
+        families both publish `family` — and a lookup on type alone returns both, interleaved, with
+        different columns. The caller then indexes a column the other artifact does not have."""
         ...
 
     def search(self, pin: Pin, *, question: str, run: RunRef,

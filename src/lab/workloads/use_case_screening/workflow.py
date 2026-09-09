@@ -29,6 +29,7 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase.derivation import Derivation
+from lab.workloads.usecase.gates import GateFailed
 from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
@@ -146,6 +147,26 @@ def matched_labels(coverage: dict, corpus=None) -> list[str]:
     return seen[:MAX_REFINED_BRANCHES]
 
 
+def composed(trail: list[dict]) -> dict:
+    """One coverage map out of the levels the drill walked.
+
+    The deepest pass alone is NOT the answer, and reading it as one is a live defect: `matched`
+    would hold only the L3 leaves, so a use case that matched seven L1 capabilities and eleven L2s
+    but no L3 leaf reports `matched: []` — and `feasibility_evidence` reads exactly that field to
+    decide `capability_matched`, whose false is step 16's REJECT rule. The drill would then reject
+    a use case the single-pass version passed.
+
+    So `matched` is every level's matches, each tagged with the level it was made at. The two
+    coverage-gap fields come from the FIRST pass, because that is the only level where "the map"
+    means the map: at L3 `functions_without_capability` means "found no relevant leaf under the
+    branches we opened", which is a different statement wearing the same name. The heat map comes
+    from L1 for the same reason — it is the position step 16's rule was written about.
+    """
+    first = trail[0]
+    return {**{k: v for k, v in first.items() if k not in ("level", "candidates", "matched")},
+            "matched": [dict(m, level=t["level"]) for t in trail for m in t.get("matched") or []]}
+
+
 async def _children_of(cfg, labels, level: int) -> list[dict]:
     """The concepts one level BELOW each of these, and nothing else.
 
@@ -191,17 +212,25 @@ async def drill_coverage(cfg, d) -> dict:
         return {}
 
     trail: list[dict] = []
-    candidates = d.available.get("capabilities") or []
+    candidates = list(d.available.get("capabilities") or [])
     for level in range(1, DEEPEST_LEVEL + 1):
         if not candidates:
             break
-        d.available["capabilities"] = candidates
-        with gateway.node_span(cfg, f"step_5_l{level}"):
-            if not await d.run_step(cfg, step, label=f"match capabilities (L{level})"):
+        try:
+            # The candidate set is passed for THIS call rather than written onto the working set:
+            # after the drill, `available["capabilities"]` would otherwise hold the last level's
+            # handful of leaves under the name of the published map.
+            if not await d.run_step(cfg, step, label=f"match capabilities (L{level})",
+                                    context={"capabilities": candidates}):
                 break
+        except GateFailed as refused:
+            # A deeper pass is MORE likely to fail its gate, not less, and losing the run would
+            # throw away every level that already passed — plus every other step in a 700-second
+            # run. The drill stops where it stopped and says so.
+            d.defer("5", f"match capabilities stopped at L{level}: {refused}")
+            break
         coverage = dict(d.derived.get("coverage_map") or {})
-        trail.append({"level": level, "candidates": len(candidates),
-                      "matched": coverage.get("matched") or []})
+        trail.append({"level": level, "candidates": len(candidates), **coverage})
         labels = matched_labels(coverage, candidates)
         if not labels or level == DEEPEST_LEVEL:
             break
@@ -209,7 +238,11 @@ async def drill_coverage(cfg, d) -> dict:
 
     if not trail:
         return {}
-    # The map a later step reads is the DEEPEST one that answered; the trail is how it was reached.
+    # NO step number here. `record(..., "5")` clears step 5's pending marker — including the one
+    # the gate-failure branch above has just written, which would erase the only statement that the
+    # drill stopped early. The per-level `run_step` already cleared the seeded marker for any level
+    # that passed, so there is nothing left for this call to clear.
+    d.record("coverage_map", composed(trail))
     return {"capability_depth": trail[-1]["level"], "coverage_trail": trail}
 
 
@@ -296,8 +329,7 @@ def build_workflow(cfg):
                     missing[name] = "the corpus was served but is empty"
             # Said in the record, not just in a comment: a reader must be able to tell that the
             # coverage map is L1 without going and reading this module.
-            state = state | {"corpora": fetched, "corpora_unavailable": missing,
-                             "capability_depth": CORPORA["capabilities"][1].get("depth")}
+            state = state | {"corpora": fetched, "corpora_unavailable": missing}
         await ctx.send_message(state)
 
     @executor(id="derive")
@@ -322,8 +354,11 @@ def build_workflow(cfg):
                     # here — `test_workflow_state_keys` reads exactly this and would otherwise have
                     # no way to tell a written key from a typo.
                     drilled = await drill_coverage(cfg, d)
-                    state = state | {"capability_depth": drilled.get("capability_depth"),
-                                     "coverage_trail": drilled.get("coverage_trail")}
+                    # 0 and [], not None: the drill returns nothing when the coverage agent is
+                    # unwired or its corpus was unavailable, and those are exactly the runs where a
+                    # reader most needs the record to say how deep the match went.
+                    state = state | {"capability_depth": drilled.get("capability_depth", 0),
+                                     "coverage_trail": drilled.get("coverage_trail") or []}
                     continue
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.

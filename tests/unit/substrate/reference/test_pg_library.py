@@ -202,7 +202,41 @@ def test_the_lookup_key_is_sent_as_json_for_containment():
                    "DISTINCT a.record_type": [("risk-class",)]})
     lib.lookup(_pinned(lib), record_type="risk-class", key={"risk_class": "E2"}, run=RUN)
     params = [p for s, p in _executed(lib) if "FROM ref_record r" in s][0]
-    assert json.loads(params[2]) == {"risk_class": "E2"}
+    assert json.loads(params[4]) == {"risk_class": "E2"}
+
+
+def test_a_lookup_can_name_the_artifact_it_means():
+    """A record type is a CLASSIFICATION, not an identity: two artifacts may publish the same one
+    honestly — the family triggers and the component families both publish `family` — and a lookup
+    on type alone returns both, interleaved, with different columns. The caller then indexes a
+    column the other artifact does not have."""
+    lib = library({"FROM ref_release r": [resolve_row()],
+                   "DISTINCT a.record_type": [("family",)]})
+    lib.lookup(_pinned(lib), record_type="family", key={}, run=RUN,
+               artifact_id="family-triggers")
+    sql, params = [(s, p) for s, p in _executed(lib) if "FROM ref_record r" in s][0]
+    assert "r.artifact_id = %s" in sql
+    assert params[2] == params[3] == "family-triggers"
+
+
+def test_a_lookup_that_names_no_artifact_still_spans_the_type():
+    """The old behaviour, kept for a caller that genuinely wants every artifact of a type."""
+    lib = library({"FROM ref_release r": [resolve_row()],
+                   "DISTINCT a.record_type": [("family",)]})
+    lib.lookup(_pinned(lib), record_type="family", key={}, run=RUN)
+    params = [p for s, p in _executed(lib) if "FROM ref_record r" in s][0]
+    assert params[2] == "" and params[3] == ""
+
+
+def test_a_truncated_lookup_is_at_least_ORDERED():
+    """`LIMIT` with no `ORDER BY` lets Postgres return any N rows — the same "a truncated answer is
+    indistinguishable from a thorough one" failure the ANN index was rejected for, on the exact
+    side of the corpus."""
+    lib = library({"FROM ref_release r": [resolve_row()],
+                   "DISTINCT a.record_type": [("family",)]})
+    lib.lookup(_pinned(lib), record_type="family", key={}, run=RUN)
+    sql = [s for s, _ in _executed(lib) if "FROM ref_record r" in s][0]
+    assert "ORDER BY" in sql
 
 
 # ---------------------------------------------------------------- search fails closed

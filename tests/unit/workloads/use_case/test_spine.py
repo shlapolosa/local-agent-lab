@@ -1122,3 +1122,74 @@ def test_a_match_that_named_only_an_id_still_resolves_its_branch():
     coverage = {"matched": [{"function": "triage", "capability_id": "c2", "confidence": "lookup"}]}
     assert matched_labels(coverage, corpus) == ["Scheduling"]
     assert matched_labels(coverage) == [], "with no corpus there is no honest label to resolve"
+
+
+def test_a_use_case_that_matched_at_l1_but_not_at_l3_is_still_a_match():
+    """The contract test between the two bounded contexts, and the one nobody wrote.
+
+    `feasibility_evidence` reads `coverage_map["matched"]` to decide `capability_matched`, whose
+    FALSE is step 16's reject rule. Recording only the deepest pass meant a use case that matched
+    seven L1 capabilities and eleven L2s, but no L3 leaf, arrived at the design half as "matched
+    nothing" — so the drill could reject a use case the single-pass version passed."""
+    from lab.workloads.use_case_design.workflow import feasibility_evidence
+    from lab.workloads.use_case_screening.workflow import composed
+
+    trail = [{"level": 1, "candidates": 42, **_covers(_match("triage", "c1", "Patient Management"))},
+             {"level": 2, "candidates": 12, **_covers(_match("triage", "c1a", "Referral Triage"))},
+             {"level": 3, "candidates": 4, **_covers()}]          # the leaf pass found nothing
+    coverage = composed(trail)
+    assert [m["level"] for m in coverage["matched"]] == [1, 2]
+    assert feasibility_evidence({"coverage_map": coverage})["capability_matched"] is True
+
+
+def test_the_coverage_gaps_come_from_the_level_where_the_map_means_the_map():
+    """At L3 `functions_without_capability` means "found no relevant leaf under the branches we
+    opened" — a different statement wearing the same name."""
+    from lab.workloads.use_case_screening.workflow import composed
+    l1 = _covers(_match("triage", "c1", "Patient Management"))
+    l1["functions_without_capability"] = ["billing"]
+    l3 = _covers(_match("triage", "c1a1", "Urgency Assessment"))
+    l3["functions_without_capability"] = ["triage", "billing", "notify"]
+    coverage = composed([{"level": 1, "candidates": 42, **l1},
+                         {"level": 3, "candidates": 4, **l3}])
+    assert coverage["functions_without_capability"] == ["billing"]
+    assert coverage["heat_map"]["source"] == "the published map"
+
+
+def test_a_gate_failure_deep_in_the_drill_keeps_the_levels_that_passed():
+    """A deeper pass is MORE likely to fail its gate, not less — and losing the run would throw
+    away every level that already passed, plus every other step in a 700-second run."""
+    from lab.workloads.use_case_screening import workflow as W
+    children = {"Patient Management": [_level("c1", "Patient Management", 1),
+                                       _level("c1a", "Referral Triage", 2, "c1")]}
+    router = _screening_router(**{
+        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
+    with spine(W, router) as h:
+        # The L2 answer omits `heat_map`, which its gate requires whenever anything matched.
+        bad = {"matched": [_match("triage", "c1a", "Referral Triage")],
+               "functions_without_capability": [], "capabilities_without_function": []}
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent(
+            _covers(_match("triage", "c1", "Patient Management")), bad, bad, bad)}
+        d = _Derivation(h, candidates=[_level("c1", "Patient Management", 1)])
+        out = asyncio.run(W.drill_coverage(h.cfg, d))
+
+    assert out["capability_depth"] == 1, "the L1 level stands"
+    assert d.derived["coverage_map"]["matched"][0]["capability_label"] == "Patient Management"
+    assert "stopped at L2" in d.pending["5"], d.pending
+
+
+def test_the_drill_does_not_leave_the_last_level_s_leaves_under_the_map_s_name():
+    """After the drill, `available["capabilities"]` must still be the corpus it was given — not a
+    handful of leaves wearing the published map's name."""
+    from lab.workloads.use_case_screening import workflow as W
+    children = {"Patient Management": [_level("c1", "Patient Management", 1),
+                                       _level("c1a", "Referral Triage", 2, "c1")]}
+    router = _screening_router(**{
+        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
+    top = [_level("c1", "Patient Management", 1), _level("c2", "Scheduling", 1)]
+    with spine(W, router) as h:
+        h.cfg["agents"] = {"coverage_map": ScriptedAgent(
+            _covers(_match("triage", "c1", "Patient Management")))}
+        d = _Derivation(h, candidates=list(top))
+        asyncio.run(W.drill_coverage(h.cfg, d))
+    assert d.available["capabilities"] == top

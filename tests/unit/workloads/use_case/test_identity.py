@@ -52,3 +52,15 @@ def test_a_fallback_that_is_itself_missing_refuses_rather_than_running_unauthent
     monkeypatch.delenv("USECASE_RISK_KEY", raising=False)
     with pytest.raises(identity.NoCredential):
         identity.credential_for("Risk Officer", fallback="")
+
+
+def test_a_half_configured_identity_is_a_fault_not_an_absence(monkeypatch):
+    """`agent_headers` raises KeyError for three different missing variables. Swallowing all of
+    them would silently downgrade ten provisioned identities to the shared credential in a
+    deployment whose tenant config is broken — and the spend ledger would show exactly what it
+    showed before, which is the one signal that would have told anybody."""
+    monkeypatch.setenv("USECASE_RISK_CLIENT_ID", "an-app-id")
+    monkeypatch.setenv("USECASE_RISK_CLIENT_SECRET", "a-secret")
+    monkeypatch.delenv("ENTRA_TENANT_ID", raising=False)
+    with pytest.raises(KeyError):
+        identity.credential_for("Risk Officer", fallback="sk-shared")

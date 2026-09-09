@@ -97,7 +97,7 @@ def _mapping_editor(process: str, field, key: str) -> dict:
             if str(r.get("label", "")).strip() and str(r.get("value", "")).strip()}
 
 
-def _field_widget(spec, field, refs: dict) -> object:
+def _field_widget(spec, field) -> object:
     """One input field, rendered from its KIND. Adding a process adds no code here.
 
     REF and REF_LIST are the exception and deliberately so: content reaches a workload only as a
@@ -136,7 +136,7 @@ def _submit_page(reviewer):
     st.caption(spec.description)
 
     refs = st.session_state.setdefault(f"submit_refs_{spec.name}", {})
-    widgets = {f.name: _field_widget(spec, f, refs) for f in spec.inputs}
+    widgets = {f.name: _field_widget(spec, f) for f in spec.inputs}
 
     file_fields = [f for f in spec.inputs
                    if f.kind in (contracts.InputKind.REF, contracts.InputKind.REF_LIST)]

@@ -510,3 +510,23 @@ def test_listing_the_workloads_needs_no_railway_credential():
     """CD must be able to ask what it should deploy without first holding the token that deploys."""
     source = open(os.path.join(ROOT, "deploy", "railway.py")).read()
     assert "offline = cmd ==" in source and '"list"' in source
+
+
+def test_the_signing_seed_and_the_publish_dsn_reach_no_container():
+    """`REFERENCE_*` as a glob would match both. Neither is in `.env` today, so the private seed
+    staying out of every container rested on nobody adding a line — which is the shape of guarantee
+    this file exists to replace."""
+    never = ("REFERENCE_SIGNING_KEY", "REFERENCE_PUBLISH_DB_URL")
+    for role, allowed in railway.ROLE_ENV.items():
+        for secret in never:
+            assert not any(secret == a or (a.endswith("*") and secret.startswith(a[:-1]))
+                           for a in allowed), f"{role} would receive {secret}"
+
+
+def test_only_the_corpus_server_receives_the_reader_dsn():
+    """A reader dsn is a credential. decision-mcp reads the corpus THROUGH the gateway and has no
+    business holding one."""
+    for role, allowed in railway.ROLE_ENV.items():
+        if role == "reference-mcp":
+            continue
+        assert "REFERENCE_DB_URL" not in allowed, role

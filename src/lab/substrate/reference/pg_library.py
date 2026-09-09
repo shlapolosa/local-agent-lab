@@ -222,7 +222,10 @@ class PostgresReferenceLibrary:
           JOIN ref_artifact a ON a.artifact_id = r.artifact_id
           JOIN ref_artifact_version v
             ON v.artifact_id = r.artifact_id AND v.version = r.version
-         WHERE r.record_type = %s AND r.key @> %s
+         WHERE r.record_type = %s
+           AND (%s = '' OR r.artifact_id = %s)
+           AND r.key @> %s
+         ORDER BY r.artifact_id, r.record_id
          LIMIT %s"""
 
     _TYPES = """
@@ -231,13 +234,16 @@ class PostgresReferenceLibrary:
          WHERE a.record_type IS NOT NULL"""
 
     def lookup(self, pin: Pin, *, record_type: str, key: Mapping[str, Any], run: RunRef,
-               limit: int = 20) -> RecordResult:
+               limit: int = 20, artifact_id: str = "") -> RecordResult:
         self._check_pin(pin)
         known = [r[0] for r in self._rows(self._TYPES, (self.ring,))]
         if record_type not in known:
             raise UnknownRecordType(record_type, sorted(known))
 
-        rows = self._rows(self._LOOKUP, (pin.pin_id, record_type, json.dumps(dict(key)), limit))
+        # `%s = '' OR r.artifact_id = %s` rather than two queries: an empty artifact_id keeps the
+        # old whole-type behaviour for a caller that genuinely wants every artifact of a type.
+        rows = self._rows(self._LOOKUP, (pin.pin_id, record_type, artifact_id, artifact_id,
+                                         json.dumps(dict(key)), limit))
         records, citations = [], []
         for row in rows:
             citation = Citation(artifact_id=row[0], title=row[6], version=row[1],

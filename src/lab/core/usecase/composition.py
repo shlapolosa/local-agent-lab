@@ -76,6 +76,15 @@ def families_for(workflow: Workflow, *, topology: str,
             if topology in allowed:
                 present.add(family["id"])
             continue
+        if not str(family.get("predicate", "")).strip():
+            # A family with neither a topology nor a predicate cannot be evaluated. It means a
+            # published row lost a column — measured, against a stale version of the artifact whose
+            # master predated the union-columns fix — and a KeyError here says nothing about which
+            # rule or which artifact.
+            raise CompositionError(
+                f'family {family.get("id")!r} carries neither a topology nor a predicate, so '
+                f'nothing can decide whether it is present. The published row is missing a column; '
+                f'check which version of the family triggers this run pinned.')
         predicate = parse(family["predicate"])
         try:
             if any(predicate.evaluate(v, workflow=vectors, conditions=a)
