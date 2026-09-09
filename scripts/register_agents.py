@@ -59,7 +59,7 @@ def main(argv: list[str]) -> int:
     print(f"registry={config.AGENT_REGISTRY or 'none'} gateway={gateway} "
           f"agents={len(AGENTS)}{' (dry run)' if dry else ''}{' public' if public else ''}")
 
-    published, skipped, failed = [], [], []
+    published, skipped, failed, ids = [], [], [], []
     for spec in AGENTS:
         key, client_id = _identity(spec.prefix)
         if not key and not client_id:
@@ -71,10 +71,19 @@ def main(argv: list[str]) -> int:
         card = spec.card(gateway, config.ENTRA_TENANT_ID, config.ENTRA_GATEWAY_AUDIENCE,
                          client_id=client_id)
         try:
-            if pub.publish(spec, card, key=key, client_id=client_id) or dry:
+            agent_id = pub.publish(spec, card, key=key, client_id=client_id)
+            if agent_id or dry:
                 published.append(spec.name)
+                ids.append(agent_id)
         except Exception as e:                    # noqa: BLE001 — one bad agent must not hide the rest
             failed.append(f"{spec.name}: {type(e).__name__}: {e}")
+
+    # ONE call for the whole set — see LiteLLMPublisher.make_public for why per-agent does not work.
+    if public and ids:
+        try:
+            print(f"made public: {pub.make_public([i for i in ids if i])}")
+        except Exception as e:                # noqa: BLE001 — discovery is not worth a red deploy
+            failed.append(f"make_public: {type(e).__name__}: {e}")
 
     print(f"published {len(published)}: {', '.join(published) or '-'}")
     if skipped:

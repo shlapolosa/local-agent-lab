@@ -69,6 +69,10 @@ class AgentPublisher(Protocol):
     def publish(self, spec: AgentSpec, card: dict, *, key: str = "",
                 client_id: str = "") -> str: ...
 
+    def make_public(self, agent_ids: "list[str]") -> int:
+        """Publish these to the unauthenticated hub, in ONE write. Returns how many."""
+        ...
+
 
 class NullPublisher:
     """The default: publish nothing, and SAY what would have been published.
@@ -82,6 +86,11 @@ class NullPublisher:
         print(f"[{SETTING} unset] would publish {spec.name} ({spec.prefix}) skills=[{skills}]",
               flush=True)
         return ""
+
+    def make_public(self, agent_ids: list[str]) -> int:
+        if agent_ids:
+            print(f"[{SETTING} unset] would make {len(agent_ids)} agent(s) public", flush=True)
+        return 0
 
 
 #: Statuses that mean "not yet", not "no". A gateway that has just been redeployed answers 502/503
@@ -216,9 +225,25 @@ class LiteLLMPublisher:
             agent_id = created.get("agent_id") or created.get("id") or ""
         if agent_id and key:
             self._link_key(spec, agent_id, key)
-        if self.public and agent_id:
-            self._request("POST", f"/v1/agents/{agent_id}/make_public", {})
         return agent_id
+
+    def make_public(self, agent_ids: list[str]) -> int:
+        """Put the whole registry on the public hub in ONE write.
+
+        NOT once per agent, which is what the per-agent route would be. `make_agent_public` appends
+        to `litellm.public_agent_groups` — a MODULE-LEVEL list — and then saves the entire config;
+        seventeen calls are seventeen read-modify-writes of one shared value, and with
+        `store_model_in_db` on, the periodic config reload overlays it from the database in between.
+        Measured 9 Sep 2026: seventeen calls all returned 200 and exactly one agent ended up public.
+
+        The bulk endpoint takes every id at once, so there is one read, one list and one save. It is
+        also the reason this is a separate verb rather than a flag on `publish`: "make these public"
+        is a statement about the SET, and doing it per item is what broke it.
+        """
+        if not (self.public and agent_ids):
+            return 0
+        self._request("POST", "/v1/agents/make_public", {"agent_ids": list(agent_ids)})
+        return len(agent_ids)
 
     def _link_key(self, spec: AgentSpec, agent_id: str, key: str) -> None:
         """Point this agent's virtual key AT the agent — the third link in the identity claim.

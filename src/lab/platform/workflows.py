@@ -146,7 +146,11 @@ def submit_lanes(process, inputs, requester, *, lanes=(), spec=None, idempotency
     if not lanes:
         rid, dup = submit(process, inputs, requester, spec=spec,
                           idempotency_key=idempotency_key, ttl=ttl, client=client)
-        return [{"provider": "", "request_id": rid, "duplicate": dup}]
+        # The provider the RUN carries, not a blank. A caller who named one was being told it had
+        # been dropped, which is indistinguishable from the defect where it really was — and an
+        # acknowledgement that lies in the safe case teaches people to ignore it in the unsafe one.
+        return [{"provider": str((inputs or {}).get("provider") or ""),
+                 "request_id": rid, "duplicate": dup}]
     if not any(f.name == "provider" for f in spec.inputs):
         raise ValueError(f"{spec.name} declares no `provider` input, so it cannot be run in lanes")
 

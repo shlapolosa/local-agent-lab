@@ -44,8 +44,8 @@ class FakeGateway:
             return row
         if method in ("PATCH", "PUT") and path.startswith("/v1/agents/"):
             return {"agent_id": path.rsplit("/", 1)[-1], **(body or {})}
-        if method == "POST" and path.endswith("/make_public"):
-            return {"public": True}
+        if method == "POST" and "make_public" in path:
+            return {"public_agent_groups": (body or {}).get("agent_ids") or []}
         raise AssertionError(f"unexpected call {method} {path}")
 
 
@@ -107,12 +107,41 @@ def test_the_virtual_key_associates_SERVER_side_and_never_on_the_card():
     assert "abc" in json.dumps(body["agent_card_params"]), "the client id is what belongs there"
 
 
-def test_a_card_is_made_public_only_when_asked():
+def test_publishing_alone_makes_nothing_public():
     fake = FakeGateway()
-    litellm(fake).publish(SPEC, SPEC.card(GW, TENANT, AUD))
-    assert not [c for c in fake.calls if c[1].endswith("/make_public")]
     litellm(fake, public=True).publish(SPEC, SPEC.card(GW, TENANT, AUD))
-    assert [c for c in fake.calls if c[1].endswith("/make_public")]
+    assert not [c for c in fake.calls if "make_public" in c[1]], \
+        "publish must not make an agent public on its own — see make_public()"
+
+
+def test_the_whole_registry_is_made_public_in_ONE_write():
+    """Seventeen per-agent calls made exactly ONE agent public, live on 9 Sep 2026.
+
+    `make_agent_public` appends to `litellm.public_agent_groups` — a module-level list — then saves
+    the entire config; with `store_model_in_db` on, the periodic reload overlays that value from the
+    database in between. So the calls race each other and all but one append is lost, while every
+    call returns 200. The bulk endpoint takes the whole set, so there is one read and one save.
+    """
+    fake = FakeGateway()
+    pub = litellm(fake, public=True)
+    assert pub.make_public(["ag-0", "ag-1", "ag-2"]) == 3
+    calls = [c for c in fake.calls if "make_public" in c[1]]
+    assert len(calls) == 1, f"one write for the whole set, not {len(calls)}"
+    method, path, body = calls[0]
+    assert path == "/v1/agents/make_public"
+    assert body["agent_ids"] == ["ag-0", "ag-1", "ag-2"]
+
+
+def test_nothing_is_made_public_unless_asked():
+    fake = FakeGateway()
+    assert litellm(fake).make_public(["ag-0"]) == 0
+    assert not [c for c in fake.calls if "make_public" in c[1]]
+
+
+def test_an_empty_set_is_not_a_write():
+    fake = FakeGateway()
+    assert litellm(fake, public=True).make_public([]) == 0
+    assert not fake.calls
 
 
 def test_an_identity_pair_that_contradicts_the_lab_s_own_map_is_refused():
