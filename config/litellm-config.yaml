@@ -17,8 +17,12 @@
 #                                   "visio_to_archimate_result", "approvals_list", "approvals_get"]}}
 #     + decide   … the same list + "approvals_decide"      (lab.platform.contracts.ApprovalTools
 #                                                           READ / WRITE are these two sets)
-#   An agent that can submit a run AND approve it is not human-in-the-loop at all — never
-#   grant workflow_mcp to a workload's own agents, and never without the tool list.
+#     + retire   … + "approvals_withdraw" — housekeeping only (ApprovalTools.RETIRE). It closes a
+#                  stale question so nobody can answer it; grant it to an operator, never together
+#                  with decide by reflex, and never to anything that runs unattended.
+#   An agent that can submit a run AND approve it is not human-in-the-loop at all — nor is one that
+#   can retire its own gate. Never grant workflow_mcp to a workload's own agents (a workload gets
+#   ApprovalTools.RAISE and nothing else at the gate), and never without the tool list.
 # PER-TOOL ACL — REQUIRED on collab_mcp too, for the same reason in a different shape. Its
 #   READ tools query a collaboration tenant and fetch content into the upload store; its
 #   THREE WRITE tools (collab_watch / collab_watch_renew / collab_unwatch) manage change-

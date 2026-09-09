@@ -216,11 +216,12 @@ class ApprovalTools(ToolCatalogue):
     a run pauses for an approval and `<process>_status` already hands back the `approval_id`, so one
     server = one connector for a channel that must follow a run from submit to decision.
 
-    TWO GRANTS, not one. `READ` is safe for anything that shows a human what is waiting; `decide`
-    RECORDS A HUMAN'S DECISION to release an EA-repository write and must reach only a channel that
-    carries a signed-in user (Teams/Copilot Studio, the review app) — never a workload's own agents.
-    The gateway enforces the split per team with `mcp_tool_permissions` (per-tool ACL on the same
-    `object_permission` as the server grant):
+    SEVERAL GRANTS, not one — `GRANTS` below is the list, and every tool belongs to exactly one.
+    `READ` is safe for anything that shows a human what is waiting; `decide` RECORDS A HUMAN'S
+    DECISION to release an EA-repository write and must reach only a channel that carries a signed-in
+    user (Teams/Copilot Studio, the review app) — never a workload's own agents. The gateway enforces
+    the split per team with `mcp_tool_permissions` (per-tool ACL on the same `object_permission` as
+    the server grant):
 
         read-only  {"object_permission": {"mcp_servers": ["workflow_mcp"],
                     "mcp_tool_permissions": {"workflow_mcp": list(ApprovalTools.READ)}}}
@@ -231,8 +232,9 @@ class ApprovalTools(ToolCatalogue):
     get = "approvals_get"
     ask = "approvals_ask"
     decide = "approvals_decide"
+    withdraw = "approvals_withdraw"
 
-    # THREE GRANTS, and the split is the control. READ shows a human what is waiting. RAISE asks a
+    # THE SPLIT IS THE CONTROL. READ shows a human what is waiting. RAISE asks a
     # question — a workload's own step needs this, because a workload may not import the substrate
     # and so has no other way to reach the gate. WRITE answers, and must reach only a channel
     # carrying a signed-in person. A workload gets RAISE and never WRITE: asking must never imply
@@ -240,6 +242,18 @@ class ApprovalTools(ToolCatalogue):
     READ = (list, get)          # the GRANTS, as tuples so `names()`'s string filter ignores them
     RAISE = (ask,)              # a workload's step, over the gateway — it publishes, never decides
     WRITE = (decide,)           # the human-gated write — granted deliberately, never by default
+    # A FOURTH grant, because withdrawing is not deciding and does not have `decide`'s blast radius.
+    # `WRITE` releases a repository write; `RETIRE` closes a question so that nobody can answer it —
+    # an operator's power over a stale gate, not a reviewer's over its subject. Kept apart so
+    # "exactly one tool records a decision" stays literally true, and so a housekeeping caller need
+    # not be handed the ability to approve. Never to a workload's own agents either: an agent that
+    # can retire its own gate has silenced the control as surely as one that could answer it.
+    RETIRE = (withdraw,)
+
+    #: The grants, so a caller that must reason about ALL of them — a test asserting every tool
+    #: belongs to exactly one, a provisioning script building a per-tool ACL — reads them from here
+    #: rather than naming them one by one and silently missing the next one added.
+    GRANTS = (READ, RAISE, WRITE, RETIRE)
 
 
 class ApiRoles:
@@ -472,14 +486,26 @@ class Decision(StrEnum):
 
 
 class ApprovalStatus(StrEnum):
-    """A request's status: pending until a decision, then the decision itself."""
+    """A request's status: pending until it ENDS, then how it ended.
+
+    Three of the four are a human's decision. `WITHDRAWN` is the one that is not: a question retired
+    because nobody is going to answer it — a superseded test run, a pipeline replaced by a newer one.
+    It exists because the alternative was recording a `decline`, which puts a person's name against a
+    judgement they never made, and "who decided this" is the entire point of the audit log.
+    """
     PENDING = "pending"
     APPROVE = "approve"
     DECLINE = "decline"
     UPDATE = "update"
+    WITHDRAWN = "withdrawn"
 
 
-APPROVAL_FINAL = frozenset({ApprovalStatus.APPROVE, ApprovalStatus.DECLINE})   # `update` = changes requested, still open
+#: A request that is CLOSED — awaiting nobody. Not the same as "a human decided": `WITHDRAWN` is in
+#: here and is deliberately absent from `Decision`. Every reader of this set means closed (a channel
+#: deciding what to announce, `human_decision` refusing a second answer, `await_decision` returning,
+#: a tool reporting `open`), so one membership answers all of them. `update` = changes requested,
+#: which leaves the request OPEN for a later answer and so is not in here.
+APPROVAL_FINAL = frozenset({ApprovalStatus.APPROVE, ApprovalStatus.DECLINE, ApprovalStatus.WITHDRAWN})
 
 
 # ----------------------------------------------------------------------------- asking a human a question

@@ -100,9 +100,20 @@ def test_is_ref_is_the_cheap_syntactic_check():
 
 # ------------------------------------------------------------------ approvals
 def test_approval_contract_values_are_the_wire_strings():
-    assert [d.value for d in Decision] == ["approve", "decline", "update"]
-    assert [s.value for s in ApprovalStatus] == ["pending", "approve", "decline", "update"]
-    assert APPROVAL_FINAL == frozenset({ApprovalStatus.APPROVE, ApprovalStatus.DECLINE})   # `update` stays open
+    # MEMBERSHIP and invariants, not the exact lists: editing an exact list is what an additive change
+    # costs and it catches nothing, which this very change demonstrated.
+    assert {"approve", "decline", "update"} <= {d.value for d in Decision}
+    assert ApprovalStatus.PENDING.value == "pending"          # the wire value a fresh request carries
+    # every DECISION is a status a request can be left in; not every status is a decision. `withdrawn`
+    # is the one that is not — a question retired because nobody will answer it, which closes the
+    # request without putting a person's name against a judgement they never made.
+    assert {d.value for d in Decision} < {s.value for s in ApprovalStatus}
+    assert ApprovalStatus.WITHDRAWN.value not in {d.value for d in Decision}
+    # `update` = CHANGES REQUESTED, so it stays open; `withdrawn` is closed, which is what makes one
+    # membership test enough for every channel, tool and waiter that asks "does this need a person?"
+    assert ApprovalStatus.UPDATE not in APPROVAL_FINAL and ApprovalStatus.PENDING not in APPROVAL_FINAL
+    assert {ApprovalStatus.APPROVE, ApprovalStatus.DECLINE,
+            ApprovalStatus.WITHDRAWN} <= APPROVAL_FINAL
     assert ApprovalKind.EA_IMPORT == "ea-import"           # neutral: the PORT never names an EA vendor
     assert Decision.APPROVE == "approve" and f"{Decision.UPDATE}" == "update"        # StrEnum: plain-string compatible
     assert "decline" in Decision and "maybe" not in Decision

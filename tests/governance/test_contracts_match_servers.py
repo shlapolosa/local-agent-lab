@@ -176,9 +176,13 @@ def test_a_split_catalogue_really_splits_its_tools_in_two():
     assert contracts.ApprovalTools.WRITE == ("approvals_decide",)      # exactly one tool writes a decision
     assert set(contracts.ApprovalTools.READ) < contracts.WorkflowTools.names()
     for alias, cat in split_catalogues().items():
-        read, write = set(cat.READ), set(cat.WRITE)
-        assert read and write and not (read & write), alias
-        assert read | write == set(cat.names()) or cat is contracts.ApprovalTools, alias
+        # `GRANTS` where a catalogue declares one (ApprovalTools has four, so READ|WRITE could never
+        # cover it and this test used to except it by name — which meant the one catalogue with the
+        # most grants was the only one whose partition went unchecked).
+        grants = [set(g) for g in getattr(cat, "GRANTS", (cat.READ, cat.WRITE))]
+        assert all(grants), alias
+        assert all(a & b == set() for i, a in enumerate(grants) for b in grants[i + 1:]), alias
+        assert set.union(*grants) == set(cat.names()), alias
 
 
 def test_no_grant_hands_a_team_a_guarded_write_by_accident():

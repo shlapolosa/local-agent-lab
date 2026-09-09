@@ -46,23 +46,27 @@ def test_a_continuation_only_process_contributes_no_submit_tool():
         assert WorkflowTools.verbs_for(spec) == ("status", "result")
 
 
-def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_three_grants():
-    """A run PAUSES for a human, so the approval tools sit on workflow-mcp — but READ, RAISE and the
-    human-gated WRITE are separate GRANTS (`mcp_tool_permissions`), never one blanket permission.
+def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_separate_grants():
+    """A run PAUSES for a human, so the approval tools sit on workflow-mcp — but READ, RAISE, the
+    human-gated WRITE and RETIRE are separate GRANTS (`mcp_tool_permissions`), never one blanket
+    permission.
 
-    RAISE is the third: a workload cannot import the substrate, so asking a person a question has to
-    be a governed tool. A workload gets RAISE and never WRITE — it may ask, never answer its own
-    question, which is the entire control."""
+    RAISE is there because a workload cannot import the substrate, so asking a person a question has
+    to be a governed tool. A workload gets RAISE and never WRITE — it may ask, never answer its own
+    question, which is the entire control. RETIRE is apart from WRITE for a different reason: closing
+    a question nobody will answer is an operator's power, and it must not be reachable by anyone
+    holding the housekeeping grant alone."""
     assert ApprovalTools.SERVER == WorkflowTools.SERVER
-    assert {"approvals_list", "approvals_get", "approvals_ask",
-            "approvals_decide"} <= ApprovalTools.names()
+    assert {"approvals_list", "approvals_get", "approvals_ask", "approvals_decide",
+            "approvals_withdraw"} <= ApprovalTools.names()
     assert ApprovalTools.names() < WorkflowTools.names()         # reachable under the one alias
-    grants = (set(ApprovalTools.READ), set(ApprovalTools.RAISE), set(ApprovalTools.WRITE))
+    grants = [set(g) for g in ApprovalTools.GRANTS]
     assert set.union(*grants) == ApprovalTools.names()           # every tool belongs to a grant
     assert all(a & b == set() for i, a in enumerate(grants) for b in grants[i + 1:]), \
         "grants must be disjoint, or granting one quietly grants another"
     assert ApprovalTools.RAISE == (ApprovalTools.ask,)           # asking is not answering
     assert ApprovalTools.WRITE == (ApprovalTools.decide,)        # exactly one tool writes a decision
+    assert ApprovalTools.RETIRE == (ApprovalTools.withdraw,)     # ...and retiring is not deciding
     assert C.SERVERS.get("approvals_mcp") is None                # NOT a server of its own
     assert ApprovalTools.gateway(ApprovalTools.decide) == "workflow_mcp-approvals_decide"
 

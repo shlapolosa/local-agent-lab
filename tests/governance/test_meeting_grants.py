@@ -49,7 +49,11 @@ def test_a_workload_may_ask_a_human_but_never_answer():
     granted = P.TRANSCRIPT_TOOLS[WorkflowTools.SERVER]
     assert ApprovalTools.ask in granted
     assert ApprovalTools.decide not in granted
-    assert not set(granted) & set(ApprovalTools.WRITE)
+    # asserted as the POSITIVE shape, not as a list of forbidden grants: naming `WRITE` alone let a
+    # later grant hand the workload `approvals_withdraw` — retiring your own gate silences the control
+    # as surely as answering it — and would have passed. `<= RAISE` covers every grant there ever is.
+    assert set(granted) <= set(ApprovalTools.RAISE), \
+        "a workload may ASK at the gate, and do nothing else there"
 
 
 def test_the_minutes_workload_neither_asks_nor_answers():
