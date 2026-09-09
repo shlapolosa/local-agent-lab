@@ -101,3 +101,41 @@ def test_a_card_is_publishable_as_declared(spec):
     assert all(s["id"] for s in card["skills"])
     unknown = sorted(set(spec.processes) - set(PROCESSES))
     assert not unknown, f"{spec.name} names unregistered processes {unknown}"
+
+
+# ------------------------------------------------------------------ the gateway setting it needs
+def test_the_gateway_loads_agents_back_out_of_its_own_store():
+    """`store_model_in_db` is what makes a published card survive a restart, and nothing else says so.
+
+    Root-caused in LiteLLM's source (proxy/proxy_server.py, v1.98.0): `_init_agents_in_db` — the
+    DB -> in-memory registry load — is reachable only through `add_deployment`, which is scheduled
+    and awaited only inside `if store_model_in_db is True`. The `is not True` branch carries an
+    explicit exemption for MCP servers and agents were left out of it.
+
+    Without the setting the failure is silent and delayed: publishing succeeds, the pane is right
+    until the next deploy, and then it is empty for ever while the rows are still in Postgres and a
+    republish fails on the `agent_name` unique constraint. Exactly the shape of defect this repo
+    keeps meeting — correct at the moment somebody looked, wrong from then on — so it is asserted
+    rather than remembered.
+    """
+    import yaml
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "config", "litellm-config.yaml"), encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    assert cfg["general_settings"].get("store_model_in_db") is True, (
+        "general_settings.store_model_in_db must stay true, or the gateway writes agent cards to "
+        "Postgres and never reads them back — the registry empties on the next restart")
+
+
+def test_nothing_narrows_the_db_objects_the_gateway_loads():
+    """`supported_db_objects`, when set, is an allowlist — and one that omits "agents" would undo the
+    setting above while leaving it in place, which is worse than not having it."""
+    import yaml
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "config", "litellm-config.yaml"), encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    allowed = cfg["general_settings"].get("supported_db_objects")
+    assert allowed is None or "agents" in allowed, (
+        f"supported_db_objects={allowed} excludes agents, so they are never loaded from the store")

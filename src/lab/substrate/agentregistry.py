@@ -195,17 +195,18 @@ class LiteLLMPublisher:
             try:
                 created = self._request("POST", "/v1/agents", body) or {}
             except urllib.error.HTTPError as e:
-                # THE ROW EXISTS AND THE GATEWAY CANNOT SEE IT. Root-caused live 9 Sep 2026 against
-                # LiteLLM v1.98.0: `GET /v1/agents` is served from an in-memory registry populated on
-                # WRITE and never reloaded from Postgres, so every restart leaves the list answering
-                # `200 []` over rows that are still there. Reconcile reads that list, decides to
-                # create, and hits `agent_name`'s unique constraint — reported as a 500, not a 409.
+                # THE ROW EXISTS AND THE GATEWAY CANNOT SEE IT. The cause was a gateway that never
+                # loads agents back out of its own store, and it is FIXED in configuration —
+                # `general_settings.store_model_in_db: true`, guarded by
+                # tests/governance/test_agent_registry_parity.py, which is what makes
+                # `_init_agents_in_db` run at all (see the note there and in litellm-config.yaml).
                 #
-                # The agent IS registered under the name we asked for; what is stale is the
-                # gateway's view. Failing a deploy for a condition CD neither caused nor can fix
-                # would make every push red, so it is CARRIED and named. Recovery is a DELETE by id
-                # — which does reach an invisible row — followed by a republish, and that needs the
-                # id from the store, so it is an operator's action rather than this script's.
+                # This path survives as the guard for the day that setting is removed or a gateway
+                # runs without it: the agent IS registered under the name we asked for, and what is
+                # stale is only that gateway's view of it. Failing a deploy for that would make
+                # every push red over something the push neither caused nor could fix, so it is
+                # CARRIED and named. Once the reload is on, the list is truthful and this branch is
+                # unreachable — a republish reconciles the existing row instead.
                 if NAME_TAKEN not in (_body_of(e)).lower():
                     raise
                 self.already.append(spec.name)
@@ -213,9 +214,32 @@ class LiteLLMPublisher:
                       "(LiteLLM does not reload agents after a restart)", flush=True)
                 return ""
             agent_id = created.get("agent_id") or created.get("id") or ""
+        if agent_id and key:
+            self._link_key(spec, agent_id, key)
         if self.public and agent_id:
             self._request("POST", f"/v1/agents/{agent_id}/make_public", {})
         return agent_id
+
+    def _link_key(self, spec: AgentSpec, agent_id: str, key: str) -> None:
+        """Point this agent's virtual key AT the agent — the third link in the identity claim.
+
+        Not a field on the card and not `litellm_params`: an agent's `keys` are joined from a FOREIGN
+        KEY on the key table (`litellm_verificationtoken.agent_id`, see LiteLLM's
+        `agent_endpoints/endpoints.py`), which is why twelve freshly published agents all showed
+        "Needs setup" — the card was right and nothing associated it with the key that spends.
+
+        `litellm_params.api_key` is the credential the agent calls OUT with; this is what makes the
+        agent the thing spend and grants attribute to, rather than an opaque key beside it.
+
+        Best effort. The card is what is being published; the link is what makes it useful, and an
+        agent registered but unlinked is worth strictly more than a failed deploy — so a refusal is
+        reported and carried, exactly as the name conflict is.
+        """
+        try:
+            self._request("POST", "/key/update", {"key": key, "agent_id": agent_id})
+        except Exception as e:                    # noqa: BLE001 — see the docstring
+            print(f"  {spec.name}: published, but its key could not be linked ({e}); "
+                  "the registry will show it as needing setup", flush=True)
 
 
 def _litellm(**overrides) -> AgentPublisher:

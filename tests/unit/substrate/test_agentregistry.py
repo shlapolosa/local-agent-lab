@@ -237,3 +237,46 @@ def test_a_500_that_is_not_a_name_conflict_still_fails():
     pub = R.LiteLLMPublisher(GW, "sk-master", request=broken)
     with pytest.raises(urllib.error.HTTPError):
         pub.publish(SPEC, SPEC.card(GW, TENANT, AUD))
+
+
+# ------------------------------------------------------------------ agent <-> key, the third link
+def test_publishing_links_the_agents_virtual_key_to_it():
+    """Without this every agent shows "Needs setup", and the claim that spend attributes per AGENT is
+    not true — it attributes per key, with nothing joining the two.
+
+    The association is a FOREIGN KEY on the key table, not a field on the card: `endpoints.py`
+    populates an agent's `keys` from `litellm_verificationtoken.agent_id`. So the key row has to
+    point at the agent, and `/key/update` takes `agent_id` for exactly that. Read from LiteLLM's
+    source rather than guessed, after the UI showed twelve agents with `"keys": null`.
+    """
+    fake = FakeGateway()
+    litellm(fake).publish(SPEC, SPEC.card(GW, TENANT, AUD), key=KEY)
+    linked = [c for c in fake.calls if c[1] == "/key/update"]
+    assert linked, "the agent's key was never pointed at it — the UI will say Needs setup"
+    (_, _, body), = linked
+    assert body["key"] == KEY and body["agent_id"] == "ag-0"
+
+
+def test_an_agent_with_no_key_links_nothing_rather_than_sending_a_null():
+    """Ten identities are provisioned only against a live tenant. An agent with no key has nothing to
+    link, and sending `agent_id` for a key that does not exist would fail a deploy over an identity
+    nobody has created yet."""
+    fake = FakeGateway()
+    litellm(fake).publish(SPEC, SPEC.card(GW, TENANT, AUD))
+    assert not [c for c in fake.calls if c[1] == "/key/update"]
+
+
+def test_a_failed_link_does_not_lose_the_published_agent():
+    """The card is the thing being published; the key link is the association that makes it useful.
+    If the link fails the agent is still registered, so the failure is reported without pretending
+    the publish did not happen."""
+    import urllib.error
+
+    class LinkFails(FakeGateway):
+        def __call__(self, method, path, body=None):
+            if path == "/key/update":
+                raise urllib.error.HTTPError(path, 400, "Bad Request", {}, None)  # type: ignore[arg-type]
+            return super().__call__(method, path, body)
+
+    fake = LinkFails()
+    assert litellm(fake).publish(SPEC, SPEC.card(GW, TENANT, AUD), key=KEY) == "ag-0"

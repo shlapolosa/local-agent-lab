@@ -8,10 +8,12 @@ reach; an Entra app registration says who it IS to the tenant; the card is what 
 discoverable to anyone who did not write the code. The first two have existed for months and the
 third never did — `GET /v1/agents` returned an empty list.
 
-WHY A SCRIPT AND NOT A STARTUP HOOK. `POST /v1/agents` is an admin write: an agent's own virtual key
-gets `403 "Only proxy admins can create, update, or delete agents"`. Self-registration would mean
-handing every workload the master key, and an agent that can register agents can register a more
-privileged one. So publication runs where the master key already lives — a person's shell, or CI.
+NOT A MANUAL STEP. This is a CD step (`.github/workflows/image.yml`, after `verify`), and running it
+by hand is only the local escape hatch. It is not a STARTUP hook either, because `POST /v1/agents` is
+an admin write — an agent's own virtual key gets `403 "Only proxy admins can create, update, or
+delete agents"` — so self-registration would mean handing every workload the master key, and an agent
+that can register agents can register a more privileged one. It therefore runs where that key already
+lives, which is CI.
 
 WHY IT RECONCILES RATHER THAN CREATES. It runs on every push. "Declared once at creation and never
 reconciled" is the defect the image tag had: a table is only the truth if something applies it every
@@ -77,10 +79,10 @@ def main(argv: list[str]) -> int:
     print(f"published {len(published)}: {', '.join(published) or '-'}")
     if skipped:
         print(f"skipped {len(skipped)} with no credential yet: {', '.join(sorted(skipped))}")
-    # Registered, but under a row this gateway cannot see — LiteLLM does not reload agents from its
-    # store after a restart. Reported rather than failed: the name IS taken by the agent we wanted,
-    # and a deploy must not go red for a condition it neither caused nor can fix. Recovery is an
-    # operator DELETE by id followed by a republish.
+    # Registered, but under a row this gateway cannot see. Should not happen any more —
+    # `store_model_in_db: true` makes the gateway load agents back out of its store — and it is
+    # reported rather than failed so that a gateway missing that setting degrades loudly instead of
+    # turning every push red.
     stale = list(getattr(pub, "already", ()))
     if stale:
         print(f"already registered but invisible to this gateway ({len(stale)}): "

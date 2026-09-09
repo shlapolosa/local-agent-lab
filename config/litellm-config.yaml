@@ -188,6 +188,27 @@ router_settings:                      # Redis: shared state for rate limits, bud
     claude/auto: {model: auto, hidden: false}
 
 general_settings:
+  # WITHOUT THIS, AGENTS ARE WRITTEN TO POSTGRES AND NEVER READ BACK. Root-caused in LiteLLM's own
+  # source (proxy/proxy_server.py, v1.98.0): `_init_agents_in_db` — the DB -> in-memory registry
+  # load — is reachable only through `add_deployment`, and `add_deployment` is scheduled and awaited
+  # only inside `if store_model_in_db is True`. The `is not True` branch carries an explicit
+  # exemption for MCP servers ("DB-backed MCP servers are live objects in every mode") and agents
+  # were left out of it. So `POST /v1/agents` persisted a row, the gateway restarted, `GET
+  # /v1/agents` answered `200 []` over rows that were still there, and re-publishing failed with
+  # `500 Unique constraint failed on the fields: (agent_name)` — the registry pane empty after every
+  # deploy while the store was correct all along.
+  #
+  # Measured before enabling it, because this also makes the proxy overlay models and settings from
+  # the database: `LiteLLM_Config`, `LiteLLM_ProxyModelTable`, `LiteLLM_ConfigOverrides`,
+  # `LiteLLM_SSOConfig` and `LiteLLM_CacheConfig` are ALL EMPTY on this deployment, so there is
+  # nothing to overlay and this file remains the only source of models and settings. If a model is
+  # ever added through the UI that stops being true — which is the point of the setting, and worth
+  # knowing before somebody does it.
+  #
+  # Guarded by tests/governance/test_agent_registry_parity.py: removing this line silently empties
+  # the agent registry on the next restart, which is exactly the kind of failure that goes unnoticed.
+  store_model_in_db: true
+
   # The REST ingress of workflow-frontdoor, reached THROUGH the gateway so it inherits the whole
   # governance plane: custom_auth validates an Entra token (issuer, audience, signature against the
   # tenant's JWKS) and maps the app registration to its virtual key, so a REST caller gets exactly
