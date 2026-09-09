@@ -182,6 +182,18 @@ jobs:
             python deploy/railway.py release
           fi
 
+      - name: verify — one build everywhere, and it is the one just pushed
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+        run: |
+          [ -n "$RAILWAY_TOKEN" ] || exit 0
+          python deploy/railway.py substrate images
+          # what each container SAYS it is, which a tag cannot tell you — a tag that moves under a
+          # service that never restarted leaves it serving the previous build
+          python deploy/railway.py substrate versions
+
       # The third leg of the identity claim. A virtual key says what an agent may spend and reach;
       # an Entra app registration says who it IS; the card is what makes either DISCOVERABLE. The
       # first two are provisioned by a human against a live tenant, but the card describes what the
@@ -200,15 +212,3 @@ jobs:
           if [ ! -s .env ]; then echo "::notice::no deploy profile — agent cards not published"; exit 0; fi
           set -a && . ./.env && set +a
           python scripts/register_agents.py --public
-
-      - name: verify — one build everywhere, and it is the one just pushed
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
-        run: |
-          [ -n "$RAILWAY_TOKEN" ] || exit 0
-          python deploy/railway.py substrate images
-          # what each container SAYS it is, which a tag cannot tell you — a tag that moves under a
-          # service that never restarted leaves it serving the previous build
-          python deploy/railway.py substrate versions

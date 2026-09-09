@@ -138,3 +138,55 @@ def test_an_agent_with_no_registration_is_not_checked_against_the_map():
     fake = FakeGateway()
     pub = litellm(fake, client_to_key={"abc": "sk-other"})
     assert pub.publish(SPEC, SPEC.card(GW, TENANT, AUD), key=KEY)
+
+
+# ------------------------------------------------------------------ a gateway that is still starting
+class Flaky:
+    """A gateway that 502s while it boots, then answers. Exactly what CD saw."""
+
+    def __init__(self, fails: int):
+        self.fails, self.seen = fails, 0
+
+    def __call__(self, method, path, body=None):
+        import urllib.error
+        self.seen += 1
+        if self.seen <= self.fails:
+            raise urllib.error.HTTPError(path, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
+        return {"agents": []} if method == "GET" else {"agent_id": "ag-1"}
+
+
+def test_a_gateway_that_is_still_booting_is_waited_for_not_failed_on():
+    """Measured in CI 9 Sep 2026: the publish step ran straight after `substrate up`, which deploys
+    and RETURNS — so all seventeen cards hit a gateway mid-restart and every one reported 502. A
+    deploy that ships code correctly must not go red because discovery metadata raced the rollout.
+
+    Bounded, and only for transient statuses: `railway.py`'s own `gql()` retries transport failures
+    for the same reason, and refuses to retry a real error reply.
+    """
+    fake = Flaky(fails=2)
+    pub = R.LiteLLMPublisher(GW, "sk-master", request=R.retrying(fake, attempts=4, backoff=0.0))
+    assert pub.publish(SPEC, SPEC.card(GW, TENANT, AUD)) == "ag-1"
+    assert fake.seen > 2, "it gave up before the gateway came back"
+
+
+def test_a_real_refusal_is_not_retried():
+    """A 400 is the gateway saying the request is WRONG. Retrying it burns the window a 502 needs and
+    delays the message that would explain it."""
+    import urllib.error
+
+    calls = []
+
+    def refuses(method, path, body=None):
+        calls.append(path)
+        raise urllib.error.HTTPError(path, 400, "Bad Request", {}, None)  # type: ignore[arg-type]
+
+    with pytest.raises(urllib.error.HTTPError):
+        R.retrying(refuses, attempts=4, backoff=0.0)("GET", "/v1/agents")
+    assert len(calls) == 1, "a 400 must fail immediately"
+
+
+def test_giving_up_reports_the_last_failure_rather_than_a_shrug():
+    fake = Flaky(fails=99)
+    with pytest.raises(Exception) as e:
+        R.retrying(fake, attempts=2, backoff=0.0)("GET", "/v1/agents")
+    assert "502" in str(e.value)

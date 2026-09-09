@@ -47,13 +47,16 @@ stdlib `urllib`. An adapter that needs a heavy dependency should move to the laz
 from __future__ import annotations
 
 import json
+import time
+import urllib.error
 import urllib.request
 from typing import Callable, Protocol, runtime_checkable
 
 from lab.platform import config
 from lab.platform.contracts import AgentSpec
 
-__all__ = ["AgentPublisher", "LiteLLMPublisher", "NullPublisher", "AGENT_PUBLISHERS", "publisher"]
+__all__ = ["AgentPublisher", "LiteLLMPublisher", "NullPublisher", "AGENT_PUBLISHERS",
+           "publisher", "retrying"]
 
 SETTING = "AGENT_REGISTRY"          # named in every refusal, so a reader knows what to set
 
@@ -79,6 +82,42 @@ class NullPublisher:
         print(f"[{SETTING} unset] would publish {spec.name} ({spec.prefix}) skills=[{skills}]",
               flush=True)
         return ""
+
+
+#: Statuses that mean "not yet", not "no". A gateway that has just been redeployed answers 502/503
+#: from the edge until its container is listening, and CD publishes seconds after `substrate up`
+#: returns — which deploys and does NOT wait.
+TRANSIENT = (500, 502, 503, 504)
+ATTEMPTS, BACKOFF_S = 5, 4.0
+
+
+def retrying(request: Callable, *, attempts: int = ATTEMPTS, backoff: float = BACKOFF_S) -> Callable:
+    """Wrap a transport so a gateway that is still starting is WAITED for, not failed on.
+
+    Measured in CI 9 Sep 2026: the publish step ran immediately after `substrate up`, and all
+    seventeen cards came back 502 because the gateway was mid-restart. A deploy that shipped the code
+    correctly went red over discovery metadata that raced the rollout.
+
+    Bounded and narrow, the same shape `deploy/railway.py:gql()` uses and for the same stated reason:
+    a TRANSPORT failure is worth another try, a real error reply never is. A 400 fails immediately —
+    retrying it would burn the window a 502 needs and delay the message that explains it.
+    """
+    def attempt(method: str, path: str, body: dict | None = None) -> dict:
+        last: Exception | None = None
+        for n in range(attempts):
+            try:
+                return request(method, path, body)
+            except urllib.error.HTTPError as e:
+                if e.code not in TRANSIENT:
+                    raise
+                last = e
+            except urllib.error.URLError as e:          # connection refused while it boots
+                last = e
+            if n + 1 < attempts:
+                print(f"  gateway not ready ({last}); retrying in {backoff:.0f}s", flush=True)
+                time.sleep(backoff)
+        raise last if last else RuntimeError("no attempt was made")
+    return attempt
 
 
 def _http(gateway_url: str, master_key: str, timeout: float = 30.0):
@@ -109,7 +148,7 @@ class LiteLLMPublisher:
                  audience: str = "", public: bool = False, request: Callable | None = None,
                  client_to_key: dict[str, str] | None = None):
         self.tenant_id, self.audience, self.public = tenant_id, audience, public
-        self._request = request or _http(gateway_url, master_key)
+        self._request = request or retrying(_http(gateway_url, master_key))
         self._client_to_key = dict(client_to_key or {})
 
     def _existing(self) -> dict[str, str]:
