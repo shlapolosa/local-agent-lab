@@ -26,7 +26,8 @@ import json
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 from jsonschema import Draft7Validator
 
-from lab.core.meetings import Speakers, minutes_to_spec
+from lab.core.meetings import (Speakers, minutes_to_spec, named_minutes,
+                                 transcript_for_people)
 from lab.platform import runlog
 from lab.platform.contracts import CollabTools, SemanticTools, StorageTools
 from lab.workloads import gateway, workflowviz
@@ -169,10 +170,12 @@ def gate(validator, minutes, labels: set[str]) -> list[str]:
 async def _deliver(cfg, state: dict, handle: str) -> dict:
     """Upload the prose transcript and the minutes into the folder the recording sits in.
 
-    The PROSE transcript, not the structured one: it carries display names only, so what lands in
-    the tenant is readable and holds no directory addresses. The structured form stays in the lab as
-    the audit trail — publishing it would put a list of who-is-who into a folder whose permissions
-    are the recording's, which is a wider audience than the audit needs.
+    Both files are the NAMED renderings (`lab.core.meetings.naming`): the transcript reads as a
+    conversation between people and the minutes name whoever decided or owes something, because a
+    person asked to identify the speakers must get back something that says who. The LABELLED
+    artifacts stay in the lab as the audit trail — they are what the gate validated and what the
+    semantic model is keyed on — and they also hold the directory addresses, which must not land in
+    a folder whose permissions are the recording's: a wider audience than the audit needs.
     """
     item = await gateway.call(cfg, CollabTools.item, {"handle": handle})
     folder = item.get("parent_handle")
@@ -189,10 +192,13 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     if lane:
         stem = f"{stem}.{lane}"
 
-    prose_ref = await _store(cfg, f"{stem}.transcript.md", state["prose"].encode())
+    prose_ref = await _store(cfg, f"{stem}.transcript.md", state["reading"].encode())
+    named = named_minutes(state["minutes"], state["map"])
+    named_ref = await _store(cfg, f"{stem}.minutes.json", json.dumps(named, ensure_ascii=False,
+                                                                    indent=1).encode())
     written = []
     for ref, name in ((prose_ref, f"{stem}.transcript.md"),
-                      (state["minutes_ref"], f"{stem}.minutes.json")):
+                      (named_ref, f"{stem}.minutes.json")):
         out = await gateway.call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
         written.append({"name": out.get("name", name), "handle": out.get("handle", ""),
                         # the address a person opens — without it the meeting gets a notice it
@@ -242,7 +248,13 @@ def build_workflow(cfg):
             prose = "\n".join(
                 f'{s["speaker"]} ({mapping.of(s["speaker"]).display}): {s.get("text", "")}'.rstrip()
                 for s in segments if s.get("text", "").strip())
-            state = state | {"segments": segments, "labels": used, "map": mapping, "prose": prose}
+            # ...and the SECOND rendering, the one a person receives: names only, turns merged. The
+            # label is a model-internal key and it used to reach the reader — a delivered transcript
+            # that said SPEAKER_01 after a human had just said who SPEAKER_01 was, which is the whole
+            # point of asking. Two renderings, because the two audiences need different things and
+            # one artifact cannot serve both.
+            state = state | {"segments": segments, "labels": used, "map": mapping, "prose": prose,
+                             "reading": transcript_for_people(segments, mapping)}
         await ctx.send_message(state)
 
     @executor(id="minutes")

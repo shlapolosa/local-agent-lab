@@ -159,3 +159,20 @@ def test_with_no_webhook_it_logs_what_it_would_post(redis, capsys):
 def test_it_reads_a_group_of_its_own_so_it_cannot_consume_the_continuation_runners_entries():
     assert N.GROUP in approvals.DEC_GROUPS
     assert N.GROUP != "continuations"
+
+
+def test_a_withdrawal_tells_nobody_and_does_not_blow_up_the_consumer(redis):
+    """`payload()` coerces `Decision(fields["decision"])`, and `withdrawn` is deliberately NOT a
+    Decision — so this passes only because `handle` filters on DECISIONS membership BEFORE reaching
+    that coercion. Nothing recorded that ordering, and swapping the two guards would raise a
+    ValueError inside a stream consumer, where `streams.serve` logs it and backs off: every later
+    decision on this group would queue behind a retired card nobody was going to be told about.
+
+    Telling nobody is also the RIGHT outcome, not merely the safe one — this notifier announces what
+    an architect DECIDED about someone's submission, and a question retired for housekeeping is not
+    that.
+    """
+    rid = _raise(redis)
+    fields = approvals.withdraw(rid, "ops@x.ae", "superseded", client=redis)
+    assert fields["decision"] == "withdrawn"
+    assert N.handle(fields, client=redis) is False
