@@ -91,12 +91,15 @@ class ReferenceTools(ToolCatalogue):
     SERVER = "reference_mcp"
     catalogue = "reference_catalogue"
     pin = "reference_pin"
+    #: A pin the caller already holds, rehydrated — what lets a REMOTE reader (decision-mcp,
+    #: valuation-mcp, which hold no corpus credential) satisfy the port over these tools.
+    pin_info = "reference_pin_info"
     lookup = "reference_lookup"
     search = "reference_search"
     record = "reference_record"
     consumers = "reference_consumers"
 
-    READ = (catalogue, pin, lookup, search, record)
+    READ = (catalogue, pin, pin_info, lookup, search, record)
     #: The reverse index spans RUNS, so it answers "what else consumed this version" — an audit
     #: question, not a derivation one. Granted separately, and never to a workload's own agents.
     AUDIT = (consumers,)

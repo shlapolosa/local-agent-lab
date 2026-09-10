@@ -30,10 +30,16 @@ from fastmcp.exceptions import ToolError
 
 from lab.core.usecase import benefit, cost
 from lab.platform import config
+from lab.platform.contracts import ValuationTools
+from lab.substrate.mcp import pinned
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "valuation-mcp"
 server = LabServer(SERVICE, config.VALUATION_MCP_PORT)
+
+#: The finance artifact the cost join reads, by the key `pinned.rules` returns it under. Held
+#: equal to `ValuationTools.READS` by a test, as decision-mcp's table is.
+RULES = {"component_prices": ("component-prices", "component-price")}
 
 #: The reference registries, read HERE rather than passed in by a caller — for the same reason the
 #: price sheet is: they are finance's artifacts, at finance's release cadence, and a caller
@@ -56,18 +62,22 @@ def _driver(driver: benefit.Driver) -> dict:
 
 
 @server.tool()
-def valuation_cost(resources: list[str], envelope: str = "expected", build_amount: float = 0.0,
-                   build_provenance: str = "", design_version: str = "") -> dict:
-    """Step 23 — the cost model for a composed design.
+def valuation_cost(component_ids: list[str], envelope: str = "expected",
+                   volume: dict | None = None, build_amount: float = 0.0,
+                   build_provenance: str = "", design_version: str = "", pin_id: str = "",
+                   run_id: str = "", process: str = "", field: str = "") -> dict:
+    """Step 23 — the cost model for a composed design: a JOIN, not an estimate.
 
-    `resources` is the list of reference-topology tiles the design switched on, priced against the
-    REFERENCE sheet rather than a live pricing query. That is what makes estimates comparable: two
-    submissions costed a week apart against a moving feed cannot be ranked against each other, and
-    a portfolio you cannot rank is not a portfolio.
+    `component_ids` are the catalogue ids step 21 selected (G04: a design admits components by
+    identity); `envelope` follows the confirmed criticality class; `volume` is what intake
+    captured (`runs_per_month`, `users`, `records`). Every catalogue variant the envelope may buy
+    is priced, positioned in its band by the captured volume — a driven line with no captured
+    volume is EXCLUDED and named, never guessed; a component with no line at this envelope is a
+    gap flag, never a proxy price. Priced against the component-price catalogue at the caller's
+    PINNED version (CR-23/24), through the governed corpus, attributed to the derived field.
 
     `build_provenance` must be a vendor quote, a budget bucket or an estimate; omit `build_amount`
-    entirely and the build cost is declared MISSING rather than read as zero — a Year-1 investment
-    silently missing its build is the single most misleading figure this tool could return.
+    entirely and the build cost is declared MISSING rather than read as zero.
     """
     built = None
     if build_amount:
@@ -79,9 +89,15 @@ def valuation_cost(resources: list[str], envelope: str = "expected", build_amoun
                 f"must state itself as one of "
                 f"{[p.value for p in cost.Provenance]} — an estimate presented as a vendor quote "
                 f"is read as a number somebody will be held to") from exc
+    rules, provenance = pinned.rules(server.reference(), pin_id, run_id, process, field,
+                                     table=RULES, needs=("component_prices",),
+                                     reads=ValuationTools.READS)
+    sheet_version = next((v["version"] for v in provenance["versions"]
+                          if v["artifact_id"] == RULES["component_prices"][0]), "")
     try:
-        model = cost.cost_model(resources, build=built, envelope=envelope,
-                                design_version=design_version)
+        model = cost.cost_model(list(component_ids or ()), cost.catalogue(rules["component_prices"]),
+                                envelope=envelope, volume=dict(volume or {}), build=built,
+                                design_version=design_version, sheet_version=sheet_version)
     except cost.CostError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -90,18 +106,24 @@ def valuation_cost(resources: list[str], envelope: str = "expected", build_amoun
     span().set_attributes({"valuation.cost.lines": len(model.lines),
                            "valuation.cost.gaps": len(model.gap_flags),
                            "valuation.cost.open": len(model.requires_input)})
-    return {"lines": [{"service": line.service, "unit": line.unit, "banded": line.banded,
-                       "monthly": _three_point(line.monthly), "note": line.note}
+    return {"lines": [{"component": line.component, "component_name": line.component_name,
+                       "variant": line.variant, "unit": line.unit,
+                       "monthly": _three_point(line.monthly),
+                       "volume_driver": line.volume_driver, "volume": line.volume,
+                       "source_line": line.source_line, "note": line.note}
                       for line in model.lines],
             "monthly": _three_point(model.monthly),
             "year_one": _three_point(model.year_one),
+            "capex": model.capex,
+            "envelope": model.envelope,
             "gap_flags": list(model.gap_flags),
             "build": ({"amount": model.build.amount, "provenance": str(model.build.provenance),
                        "basis": model.build.basis} if model.build else None),
             "requires_input": list(model.requires_input),
             "sheet_version": model.sheet_version,
             "design_version": model.design_version,
-            "caveat": model.caveat}
+            "caveat": model.caveat,
+            "rules_source": provenance}
 
 
 @server.tool()

@@ -555,3 +555,13 @@ def test_the_gateway_reaches_the_substrate_s_own_embedder_over_the_private_netwo
     assert "[::]" in railway.EMBED_CMD, "Railway private DNS is IPv6-only: the model must bind ::"
     assert railway.EMBED_MODEL in railway.EMBED_CMD, "the model is pulled at start, onto the volume"
     assert railway.EMBED_NAME in railway.substrate_names(FAKE)
+
+
+def test_the_derivation_servers_read_the_corpus_through_reference_mcp_and_hold_no_dsn():
+    """A pure derivation holds no reader credential; its provider is `mcp`, its address the corpus
+    server's, its bearer the substrate's shared secret."""
+    for role in ("decision-mcp", "valuation-mcp"):
+        env = railway.substrate_env(role, railway.SUBSTRATE[role], FAKE)
+        assert env["REFERENCE_PROVIDER"] == "mcp", role
+        assert env["REFERENCE_MCP_URL"].startswith("http://reference-mcp.railway.internal")
+        assert "REFERENCE_DB_URL" not in env and "DATABASE_URL" not in env, role

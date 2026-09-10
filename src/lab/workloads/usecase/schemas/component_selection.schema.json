@@ -9,6 +9,11 @@
           "capability": {
             "type": "string"
           },
+          "component_id": {
+            "type": "string",
+            "minLength": 3,
+            "description": "The catalogue id of the component (the `id` column of the component catalogue in your context). Only a catalogue component may be selected (G04)."
+          },
           "component": {
             "type": "string"
           },
@@ -21,6 +26,7 @@
         },
         "required": [
           "capability",
+          "component_id",
           "component"
         ],
         "additionalProperties": false

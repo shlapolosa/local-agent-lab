@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parents[2] / "src" / "lab"
 
 #: The runtime readers still to be moved onto the corpus (Phase 3 of the reference-layer plan).
 RATCHET = {
-    "core/usecase/cost.py",                   # price_lines(): every valuation_cost answers from the image
     "core/usecase/composition.py",            # default-argument fallback to the packaged families
     "core/usecase/obligations.py",            # default-argument fallback to the packaged guardrails
     "substrate/review/app.py",                # the Submit form's intake fields

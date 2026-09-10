@@ -43,6 +43,7 @@ def _drill(h, d, children=None):
                           children=children or _kids({}), project=_proj)
 from lab.core.usecase import seed as _seed
 from lab.core.usecase import predicates as _predicates
+from lab.core.semantic.ids import content_id
 from lab.platform.contracts import (
     PROCESSES,
     USE_CASE_DESIGN,
@@ -667,6 +668,10 @@ def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
 
 # ---------------------------------------------------------------- the design chain, steps 17-22
 
+#: A REAL catalogue id: step 21's gate checks the selection against the pinned component catalogue
+#: the corpus fixture serves, so a made-up id is refused exactly as it would be on a run.
+MODEL_CATALOG = content_id("cmp-", "mod", "Foundry model catalog")
+
 DESIGN_ANSWERS = {
     "assertions": {"assertions": [{"statement": "every urgent referral was seen within 24 hours",
                                    "evaluated_against": "patient administration system",
@@ -679,15 +684,14 @@ DESIGN_ANSWERS = {
                                  "effect": "record write", "conditions": ANSWERED}]},
     "build_surface": {"incumbent_considered": True, "surface": "Foundry hosted agent",
                       "topology": "T2", "unenforceable_obligations": []},
-    "cost_inputs": {"resources": ["Container Apps"],
-                    "switched_on_by": {"Container Apps": "F2"},
-                    "envelope": "expected", "unpriceable": []},
+    "cost_inputs": {"build_provenance": "", "notes": []},
     "benefit_inputs": {"effort": [{"role": "nurse", "headcount": 4, "frequency_per_week": 20,
                                    "current_minutes": 30, "expected_minutes": 10,
                                    "source": "the submission, paragraph 2"}],
                        "sensitivity_flags": [], "data_fully_digital": True,
                        "excluded_value": [], "unsupplied": []},
-    "component_selection": {"selected": [{"capability": "inference", "component": "Foundry",
+    "component_selection": {"selected": [{"capability": "inference", "component_id": MODEL_CATALOG,
+                                          "component": "Foundry model catalog",
                                           "rejected_alternatives": ["self-hosted"]}],
                             "tradeoffs": [], "unresolved": []},
 }
@@ -859,16 +863,18 @@ def test_a_readiness_return_still_carries_the_assertions_it_declared():
 
 # ---------------------------------------------------------------- the valuation half, 23 and 24
 
-def test_the_cost_is_priced_from_what_step_23_selected_and_not_from_the_composition():
-    """The composition names families; only the cost engineer maps them to lines of a price sheet,
-    spelled as the sheet spells them. Costing the families directly would be a second mapping
-    living in the orchestrator."""
+def test_the_cost_is_a_join_on_what_step_21_selected_under_the_pin():
+    """No agent maps components to price lines any more: the ids step 21 selected, the envelope
+    the confirmed class demands and the volume intake captured go to the governed join."""
     from lab.workloads.use_case_design import workflow as W
     with spine(W, _design_chain_router()) as h:
         _with_design_agents(h)
         run_spine(W, h, _design_inputs())
     sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.cost][0]
-    assert sent["resources"] == ["Container Apps"]
+    assert sent["component_ids"] == [MODEL_CATALOG]
+    assert sent["envelope"] == "expected", "business-critical buys at the expected envelope"
+    assert sent["pin_id"] == "pin-test" and sent["field"] == "cost"
+    assert sent["volume"] == {} and sent["build_provenance"] == ""
 
 
 def test_the_benefit_is_computed_against_the_cost_it_has_to_repay():
@@ -892,10 +898,11 @@ def test_the_recommendation_is_step_24s_verdict_and_never_a_default():
 
 
 def test_without_a_cost_the_benefit_is_not_computed_and_the_case_says_so():
-    """A benefit judged against no investment repays trivially. That is not a business case."""
+    """A benefit judged against no investment repays trivially. That is not a business case. With
+    no components selected there is nothing to join, and the cost half stays pending."""
     from lab.workloads.use_case_design import workflow as W
     with spine(W, _design_chain_router()) as h:
-        _with_design_agents(h, cost_inputs=None)
+        _with_design_agents(h, component_selection=None)
         out = run_spine(W, h, _design_inputs())
     called = [c[0] for c in h.router.calls]
     assert ValuationTools.cost not in called and ValuationTools.benefit not in called
@@ -1320,3 +1327,19 @@ def test_a_map_the_corpus_cannot_serve_is_named_as_unavailable_not_silently_abse
         run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
     record = h.router.called(SemanticTools.store_spec)[-1]["spec"]
     assert "corpus down" in record["corpora_unavailable"]["capabilities"]
+
+
+def test_the_volume_intake_captured_reaches_the_join_and_the_build_provenance_travels():
+    from lab.workloads.use_case_design import workflow as W
+    record = {"intake": {"Volume assumptions": {"value": "5,000 runs a month, 40 users"},
+                         "Investment": {"value": "budget bucket AED 250k"}}}
+    screening = dict(READY) | {"quality_attributes": {"attributes": [{"name": "latency"}]},
+                               "frame": {"problem": "referral triage takes too long"}}
+    reads = {"art://s/scr.json": screening, "art://s/sub.json": record}
+    with spine(W, _design_chain_router(**{StorageTools.read_artifact: lambda a: reads[a["ref"]]})) as h:
+        _with_design_agents(h, cost_inputs={"build_amount": 250000, "build_provenance": "budget bucket",
+                                            "build_basis": "the Investment row", "notes": []})
+        run_spine(W, h, _design_inputs())
+    sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.cost][0]
+    assert sent["volume"] == {"runs_per_month": 5000.0, "users": 40.0}
+    assert sent["build_amount"] == 250000 and sent["build_provenance"] == "budget bucket"

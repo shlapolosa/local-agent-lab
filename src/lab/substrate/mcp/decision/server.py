@@ -23,14 +23,12 @@ from typing import Any
 
 from fastmcp.exceptions import ToolError
 
-from lab.core.reference import cells
-from lab.core.reference.errors import ReferenceError
-from lab.core.reference.model import RunRef
 from lab.core.usecase import composition, exposure, gates, obligations
 from lab.core.usecase.model import Step, Workflow
 from lab.core.usecase.predicates import PredicateError
 from lab.platform import config
 from lab.platform.contracts import DecisionTools
+from lab.substrate.mcp import pinned
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "decision-mcp"
@@ -61,56 +59,10 @@ def _workflow(payload: dict) -> Workflow:
 
 def _rules(pin_id: str, run_id: str, process: str, field: str,
            needs: tuple[str, ...] = ()) -> tuple[dict, dict]:
-    """(rules, provenance) — from the governed corpus, under the caller's pin, or not at all.
-
-    There is no packaged fallback any more. One answered here for as long as the corpus was
-    unpublished, and it was honest about itself ("local seed") — but a derivation that can answer
-    from the image is a derivation that changes when the image does, which is the property the
-    corpus exists to remove. A caller with no pin is told how to get one."""
-    if not pin_id:
-        raise ToolError(
-            "a derivation reads the governed corpus under a pin: call reference_pin for "
-            f"{list(DecisionTools.READS)} first and pass its pin_id (with run_id, process and the "
-            "derived field), so the rules this answer obeyed are the released ones and are "
-            "recorded against the field")
-    library = server.reference()
-    try:
-        pin = library.pin_by_id(pin_id)
-        run = RunRef(run_id=run_id, process=process, field=field)
-        found: dict[str, Any] = {}
-        pinned = {v.artifact_id for v in pin.versions}
-        for key, (artifact_id, record_type) in RULES.items():
-            if artifact_id not in pinned:
-                # Only what THIS derivation reads is required. Obligations do not read the family
-                # triggers and composition does not read the guardrail mapping, so demanding the
-                # whole RULES table would refuse runs over a pin that carried everything they
-                # actually use.
-                if key not in needs:
-                    continue
-                # REFUSE, rather than falling through to the packaged seed for this one artifact.
-                # A per-artifact fallback is exactly the failure this module's docstring names: it
-                # would answer from the seed while the response still said "governed corpus", and
-                # nothing downstream could tell. Reachable in practice — a partial release leaves a
-                # ring holding some artifacts and not others.
-                raise ToolError(
-                    f"the pin does not carry {artifact_id!r}, which this derivation reads. A "
-                    f"control set derived without it would be silently short, and the answer would "
-                    f"still claim the governed corpus. Re-pin once {artifact_id!r} is released to "
-                    f"this ring.")
-            # BY ARTIFACT, not by record type alone: a type is a classification and two artifacts
-            # may publish the same one honestly — `family-triggers` and `component-families` both
-            # publish `family`. Keyed on type alone this returned both, interleaved, and the
-            # derivation indexed a column the other artifact does not have.
-            result = library.lookup(pin, artifact_id=artifact_id, record_type=record_type,
-                                    key={}, run=run, limit=500)
-            found[key] = cells.rows(result.records)
-        return found, {"kind": "governed corpus", "pin_id": pin.pin_id,
-                       "versions": [{"artifact_id": v.artifact_id, "version": v.version}
-                                    for v in pin.versions]}
-    except ReferenceError as exc:
-        raise ToolError(exc.sentence) from exc
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
+    """(rules, provenance) from the corpus under the caller's pin — the shared policy in
+    `lab.substrate.mcp.pinned`: no pin, no derivation; a missing artifact refuses."""
+    return pinned.rules(server.reference(), pin_id, run_id, process, field, table=RULES,
+                        needs=needs, reads=DecisionTools.READS)
 
 
 @server.tool()

@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 from lab.workloads.usecase.gates import validator_for
 
@@ -308,12 +308,21 @@ def _build_surface(out: dict) -> list[str]:
     return bad
 
 
-def _component_selection(out: dict) -> list[str]:
-    """FR-27 and FR-28. A tradeoff is RECORDED, never resolved by dropping a constraint — a
+def _component_selection(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """FR-27 and FR-28, and G04 as a GATE: a component is admitted by its catalogue id, checked
+    against the pinned catalogue this step was shown — a component named in prose costs nothing in
+    the join and looks free. A tradeoff is RECORDED, never resolved by dropping a constraint — a
     constraint quietly dropped reappears as an incident."""
     bad = []
     if not out.get("selected"):
         bad.append("nothing was selected")
+    known = {str(row.get("id", "")) for row in (context or {}).get("component_catalogue") or []
+             if isinstance(row, Mapping)}
+    unknown = [str(c.get("component_id")) for c in out.get("selected") or []
+               if known and str(c.get("component_id", "")) not in known]
+    if unknown:
+        bad.append(f"{unknown} are not ids in the component catalogue — a design admits components "
+                   f"by catalogue identity (G04); use the `id` column, or declare a building block")
     for choice in out.get("selected") or []:
         if not choice.get("rejected_alternatives"):
             bad.append(f'{choice.get("capability")!r} names no rejected alternative — a selection '
@@ -369,18 +378,9 @@ def _delivery_artifacts(out: dict) -> list[str]:
 
 
 def _cost_inputs(out: dict) -> list[str]:
-    """Sub-steps 23.1-23.2 and 23.5. The arithmetic is the service's; what is checked here is that
-    the selection is auditable and that a build cost never arrives without its provenance."""
+    """Sub-step 23.5. The run cost is a join the service does; what an agent contributes is the
+    build cost with its provenance, and a build cost never arrives without one."""
     bad = []
-    resources = out.get("resources") or []
-    switched = out.get("switched_on_by") or {}
-    if not resources and not (out.get("unpriceable") or []):
-        bad.append("no resource was selected and none was flagged unpriceable — a composed design "
-                   "switches something on, and a cost of nothing is not an answer")
-    unexplained = [r for r in resources if not str(switched.get(r, "")).strip()]
-    if unexplained:
-        bad.append(f"{unexplained} name no family or component that switched them on — a bill "
-                   f"nobody can audit is a bill nobody should approve")
     if out.get("build_amount") and not out.get("build_provenance"):
         bad.append("a build cost was given with no provenance — an approver reads a vendor quote "
                    "as a number somebody will be held to, and an estimate is not one")

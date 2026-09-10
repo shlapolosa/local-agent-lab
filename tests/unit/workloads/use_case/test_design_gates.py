@@ -12,17 +12,22 @@ from lab.core.usecase import seed
 from lab.core.usecase import predicates
 from lab.workloads.usecase.steps import BUSINESS_CASE_SECTIONS, step_for
 
-from fixtures.usecase_answers import (ASSERTIONS, BENEFIT_INPUTS, BUILD_SURFACE, COMPONENTS,
-                                      COST_INPUTS, DELIVERY, DETERMINISM, FACETS, without)
+from fixtures.usecase_answers import (ASSERTIONS, BENEFIT_INPUTS, BUILD_SURFACE, CATALOGUE,
+                                      COMPONENTS, COST_INPUTS, DELIVERY, DETERMINISM, FACETS,
+                                      without)
 
 
-def gated(number, out):
-    """The rule alone — schema validation is tested next door; this is about MEANING."""
-    return step_for(number).complete(out)
+def gated(number, out, context=None):
+    """The rule alone — schema validation is tested next door; this is about MEANING. A rule that
+    reads the context (step 21's catalogue check) is given one."""
+    complete = step_for(number).complete
+    if context is not None:
+        return complete(out, context=context)
+    return complete(out)
 
 
-def rejects(number, out, *needles):
-    problems = " ".join(gated(number, out))
+def rejects(number, out, *needles, context=None):
+    problems = " ".join(gated(number, out, context))
     assert problems, "the rule accepted something it should refuse"
     for needle in needles:
         assert needle in problems, problems
@@ -117,6 +122,14 @@ def test_rejecting_an_incumbent_without_naming_what_it_failed_is_refused():
 
 def test_a_well_formed_component_selection_is_accepted():
     assert gated("21", COMPONENTS) == []
+    assert gated("21", COMPONENTS, CATALOGUE) == []
+
+
+def test_a_component_not_in_the_catalogue_is_refused_by_its_id():
+    """G04 as a gate: a component named in prose costs nothing in the join and looks free."""
+    selected = [dict(COMPONENTS["selected"][0], component_id="cmp-made-up")]
+    rejects("21", dict(COMPONENTS, selected=selected), "catalogue", "cmp-made-up",
+            context=CATALOGUE)
 
 
 def test_a_component_chosen_with_no_rejected_alternative_is_refused():
@@ -139,32 +152,17 @@ def test_a_tradeoff_with_no_review_trigger_is_refused():
 
 # ---------------------------------------------------------------- 23 · cost inputs
 
-def test_a_well_formed_cost_selection_is_accepted():
+def test_a_well_formed_build_statement_is_accepted():
     assert gated("23", COST_INPUTS) == []
-
-
-def test_a_resource_that_names_nothing_that_switched_it_on_is_refused():
-    """A bill nobody can audit is a bill nobody should approve."""
-    rejects("23", dict(COST_INPUTS, switched_on_by={}), "audit")
+    assert gated("23", {"build_provenance": "", "notes": []}) == [], "nothing captured is honest"
 
 
 def test_a_build_cost_with_no_provenance_is_refused():
-    rejects("23", dict(COST_INPUTS, build_amount=250000), "provenance")
+    rejects("23", dict(COST_INPUTS, build_provenance=""), "provenance")
 
 
 def test_a_provenance_with_no_amount_is_refused():
-    rejects("23", dict(COST_INPUTS, build_provenance="vendor quote"), "no amount")
-
-
-def test_costing_nothing_at_all_is_refused():
-    rejects("23", {"resources": [], "switched_on_by": {}, "envelope": "expected",
-                   "unpriceable": []}, "cost of nothing")
-
-
-def test_a_design_that_switched_nothing_on_but_flagged_a_gap_is_accepted():
-    """The honest empty case: nothing could be priced and it SAYS so."""
-    assert gated("23", {"resources": [], "switched_on_by": {}, "envelope": "expected",
-                        "unpriceable": ["an agent runtime nobody has a line for"]}) == []
+    rejects("23", {"build_provenance": "vendor quote", "notes": []}, "no amount")
 
 
 # ---------------------------------------------------------------- 24 · benefit inputs

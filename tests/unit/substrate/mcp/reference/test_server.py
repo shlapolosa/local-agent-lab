@@ -224,3 +224,16 @@ def test_a_lookup_can_name_the_one_artifact_it_means(library):
                              artifact_id="guardrail-mapping", **ATTRIBUTION)
     assert both["matched"] == 2 and one["matched"] == 1
     assert one["records"][0]["artifact_id"] == "guardrail-mapping"
+
+
+def test_a_pin_can_be_rehydrated_by_its_id_with_every_field_a_remote_reader_needs(library):
+    taken = S.reference_pin(["guardrail-mapping"])
+    info = S.reference_pin_info(pin_id=taken["pin_id"])
+    assert info["pin_id"] == taken["pin_id"]
+    version = info["versions"][0]
+    for field in ("artifact_id", "version", "kind", "title", "master_ref", "master_sha256",
+                  "agent_sha256", "derived_from", "signature_id", "signed_at", "ring",
+                  "published_at", "retrieval"):
+        assert field in version, field
+    with pytest.raises(ToolError):
+        S.reference_pin_info(pin_id="pin-nope")

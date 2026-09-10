@@ -37,6 +37,7 @@ from lab.platform.contracts import (ReferenceTools,
     ValuationTools,
 )
 from lab.workloads import gateway
+from lab.core.usecase import cost
 from lab.workloads.usecase import reference
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import step_for
@@ -53,7 +54,8 @@ REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec,
                   # workload would refuse `pin_id` at the call, twenty minutes in.
                   (DecisionTools.obligations, ("workflow", "pin_id", "run_id", "process", "field")),
                   (DecisionTools.composition, ("workflow", "pin_id", "run_id", "process", "field")),
-                  ValuationTools.cost, ValuationTools.benefit,
+                  (ValuationTools.cost, ("component_ids", "envelope", "volume", "pin_id")),
+                  ValuationTools.benefit,
                   ReferenceTools.pin, (ReferenceTools.lookup, ("pin_id", "artifact_id")))
 
 #: The reference corpora the design exercises read, as CONTEXT key -> (artifact, record type),
@@ -65,7 +67,6 @@ CORPORA = {
     "surface_enforceability": ("surface-enforceability", "obligation"),
     "ai_capability_map": ("ai-capability-map", "capability"),
     "component_catalogue": ("reference-architecture-components", "component"),
-    "component_prices": ("component-prices", "component-price"),
 }
 
 #: Everything this run pins: what its own steps read, plus what the governed derivations read on
@@ -238,28 +239,33 @@ def design_version(derived: Mapping[str, Any]) -> str:
 async def _valuation(cfg, d: Derivation, state: dict) -> None:
     """Steps 23 and 24 through the governed service.
 
-    Each half runs only if its agent produced inputs, and a missing half is left PENDING rather
-    than costed at zero — a Year-1 investment with no build line and a benefit with no drivers are
-    both perfectly plausible numbers and both completely wrong. The benefit call is given the cost
-    it must repay, which is the one direction the dependency may run: the figures were already
-    fixed by the step that could not see them.
+    The run cost is a JOIN: the component ids step 21 selected, the envelope the confirmed
+    criticality class demands, the volume intake captured — priced by valuation-mcp against the
+    catalogue at this run's pin. Nothing here is an estimate; a component with no line is a gap
+    flag, a driven line with no captured volume is excluded and named. Step 23's agent contributes
+    only the build cost and its provenance. Without a selection there is nothing to join, and the
+    half is left PENDING rather than costed at zero. The benefit call is given the cost it must
+    repay, which is the one direction the dependency may run.
 
     No role rates or error costs are passed. Those are finance's registries and live on
-    valuation-mcp beside the price sheet — a workload supplying its own rate card is how two
-    submissions become incomparable while both look priced. They used to be read from a state key
-    nothing wrote, so both quantified drivers came back `requires_input` on every run and the
-    recommendation was decided before the arithmetic ran.
+    valuation-mcp — a workload supplying its own rate card is how two submissions become
+    incomparable while both look priced.
     """
-    inputs = d.derived.get("cost_inputs")
-    if not inputs:
-        d.defer("23", "estimate cost — needs the resources the design switched on, from step 23")
+    selected = (d.derived.get("component_selection") or {}).get("selected") or []
+    component_ids = [str(c.get("component_id", "")).strip() for c in selected
+                     if str(c.get("component_id", "")).strip()]
+    if not component_ids:
+        d.defer("23", "estimate cost — needs the components step 21 selected, by catalogue id")
     else:
+        inputs = d.derived.get("cost_inputs") or {}
         d.record("cost", await gateway.call(cfg, ValuationTools.cost, {
-            "resources": list(inputs.get("resources") or ()),
-            "envelope": inputs.get("envelope") or "expected",
+            "component_ids": component_ids,
+            "envelope": cost.envelope_for(_criticality(state)),
+            "volume": cost.volume_from_intake(state.get("intake") or {}),
             "build_amount": float(inputs.get("build_amount") or 0.0),
             "build_provenance": inputs.get("build_provenance") or "",
-            "design_version": design_version(d.derived)}), "23")
+            "design_version": design_version(d.derived),
+            "pin_id": state["pin_id"], **reference.attribution(cfg, "cost")}), "23")
 
     evidence = d.derived.get("benefit_inputs")
     cost_model = d.derived.get("cost")
@@ -298,6 +304,11 @@ def build_workflow(cfg):
         with gateway.node_span(cfg, "readiness"):
             raw = await gateway.call(cfg, StorageTools.read_artifact, {"ref": state["screening_ref"]})
             screening = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+            # The canonical submission record, for what a person captured at INTAKE: the volume
+            # assumptions the cost join positions banded lines from, and the build figure.
+            record = await gateway.call(cfg, StorageTools.read_artifact,
+                                        {"ref": state["submission_ref"]})
+            record = record if isinstance(record, dict) else json.loads(record or "{}")
             # The pin comes FIRST: every derivation below reads under it, and the versions it
             # froze are compared with the ones the screening run cited — recorded, not blocked
             # on, because a routine corpus release must not stall every in-flight case.
@@ -310,6 +321,7 @@ def build_workflow(cfg):
                 "gates_evidenced": gate_evidence(screening, state.get("criticality") or {}),
                 "criticality": _criticality(state)})
             state = state | {"screening": screening, "readiness": verdict["verdict"],
+                             "intake": dict(record.get("intake") or {}),
                              "pin_id": pinned["pin_id"],
                              "pinned_versions": pinned["versions"],
                              "version_drift": pinned["drift"],
@@ -364,6 +376,7 @@ def build_workflow(cfg):
             d = Derivation(
                 available={**await _corpora(cfg, state["pin_id"]),
                            **{k: v for k, v in screening.items() if v},
+                           "intake": dict(state.get("intake") or {}),
                            "criticality": dict(state.get("criticality") or {}),
                            "determinism": state.get("determinism") or {},
                            **(state.get("derived") or {})},

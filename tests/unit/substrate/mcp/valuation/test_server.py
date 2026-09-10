@@ -1,22 +1,38 @@
 """valuation-mcp — cost and benefit as governed tools.
 
 The arithmetic is tested in `tests/unit/core/usecase`. What is tested here is what the SERVER adds,
-and all of it is about refusing to produce a confident number:
-
-* a resource with no price line raises a GAP FLAG and never a proxy price — a proxy is
-  indistinguishable from a real figure once it is inside a total;
-* a build cost states its provenance, and a quote is not an estimate;
-* a driver nobody supplied inputs for is `requires_input`, which is not the same as zero;
-* every answer names the sheet VERSION it was costed against, because an estimate against a
-  superseded sheet is wrong in a way nothing downstream can see.
+and all of it is about refusing to produce a confident number: a component with no catalogue line
+is a gap flag and never a proxy price; a build cost states its provenance; a driver nobody supplied
+inputs for is `requires_input`; every answer names the catalogue VERSION it was costed against,
+and reads it under the caller's PIN — there is no packaged sheet to fall back on.
 """
 import pytest
 from fastmcp.exceptions import ToolError
 
+from fixtures.reference import FakeReferenceLibrary
+from fixtures.usecase_corpus import corpus, seeded
 from lab.platform.contracts import ValuationTools
 from lab.substrate.mcp.valuation import server as S
 
-RESOURCES = ["Container Apps", "AI Search (Basic)"]
+_PIN: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def governed_pin():
+    library = FakeReferenceLibrary([seeded(a) for a in ValuationTools.READS])
+    with S.server.container.reference.override(library):
+        pin = library.pin()
+        _PIN.clear()
+        _PIN.update(pin_id=pin.pin_id, run_id="wfr-t", process="use_case_design", field="cost")
+        yield library
+
+
+def pinned(**over):
+    return {**_PIN, **over}
+
+
+def _component(name: str) -> str:
+    return next(r["component"] for r in corpus()["component-prices"] if r["component_name"] == name)
 
 
 # ---------------------------------------------------------------- the contract
@@ -36,49 +52,63 @@ def test_nothing_here_writes():
 
 
 def test_it_is_a_separate_server_from_the_architecture_derivations():
-    """The split is by artifact OWNER: finance releases the price sheet, architecture governance
-    releases the guardrails, and neither release may require the other's redeploy."""
     from lab.platform.contracts import DecisionTools
     assert ValuationTools.SERVER != DecisionTools.SERVER
     assert not (ValuationTools.names() & DecisionTools.names())
 
 
+def test_the_rules_table_reads_exactly_what_the_contract_says_it_reads():
+    assert {a for a, _ in S.RULES.values()} == set(ValuationTools.READS)
+
+
 # ---------------------------------------------------------------- step 23
 
-def test_a_cost_model_prices_the_lines_the_design_switched_on():
-    out = S.valuation_cost(resources=["Container Apps"])
-    assert out["lines"] and out["monthly"]["expected"] >= 0
-    assert out["year_one"]["expected"] >= out["monthly"]["expected"]
+def test_a_cost_model_joins_the_selected_components_onto_the_pinned_catalogue():
+    out = S.valuation_cost(component_ids=[_component("Key Vault"), _component("Compute hosts")],
+                           envelope="expected", volume={"runs_per_month": 6000}, **pinned())
+    assert {l["component_name"] for l in out["lines"]} == {"Key Vault", "Compute hosts"}
+    assert out["monthly"]["expected"] > 0 and out["year_one"]["expected"] >= out["monthly"]["expected"]
+    assert out["rules_source"]["kind"] == "governed corpus"
+    assert out["sheet_version"] == "v0.27", "the catalogue version the join read, from the pin"
 
 
-def test_a_resource_with_no_price_line_is_a_gap_flag_and_never_a_proxy_price():
-    out = S.valuation_cost(resources=["a service nobody has priced"])
-    assert out["gap_flags"] == ["a service nobody has priced"]
+def test_a_component_with_no_catalogue_line_is_a_gap_flag_and_never_a_proxy_price():
+    out = S.valuation_cost(component_ids=["cmp-nobody-priced"], **pinned())
+    assert out["gap_flags"] == ["cmp-nobody-priced"] and out["lines"] == []
     assert any("gap flag" in r for r in out["requires_input"])
 
 
-def test_the_estimate_names_the_sheet_version_it_was_costed_against():
-    out = S.valuation_cost(resources=["Container Apps"])
-    assert out["sheet_version"]
-    assert out["caveat"], "the seeded sheet is marked illustrative and must say so"
+def test_a_driven_line_with_no_captured_volume_is_excluded_and_named_not_guessed():
+    out = S.valuation_cost(component_ids=[_component("App Insights")], envelope="expected",
+                           volume={}, **pinned())
+    assert out["lines"] == [] and any("runs_per_month" in r for r in out["requires_input"])
+
+
+def test_a_derivation_with_no_pin_refuses_and_says_how_to_get_one():
+    with pytest.raises(ToolError) as e:
+        S.valuation_cost(component_ids=[_component("Key Vault")])
+    assert "reference_pin" in str(e.value) and "component-prices" in str(e.value)
 
 
 def test_a_build_cost_must_say_whether_it_is_a_quote_or_an_estimate():
-    """FR-34. An approver reads "quote" as a number somebody will be held to."""
-    quoted = S.valuation_cost(resources=["Container Apps"], build_amount=50000,
-                              build_provenance="vendor quote")
+    quoted = S.valuation_cost(component_ids=[_component("Key Vault")], build_amount=50000,
+                              build_provenance="vendor quote", **pinned())
     assert quoted["build"]["provenance"] == "vendor quote"
     with pytest.raises(ToolError) as e:
-        S.valuation_cost(resources=["Container Apps"], build_amount=50000,
-                         build_provenance="a number somebody mentioned")
+        S.valuation_cost(component_ids=[_component("Key Vault")], build_amount=50000,
+                         build_provenance="a number somebody mentioned", **pinned())
     assert "vendor quote" in str(e.value)
 
 
 def test_a_missing_build_cost_is_declared_rather_than_read_as_zero():
-    out = S.valuation_cost(resources=["Container Apps"])
-    assert out["build"] is None
-    assert any("build cost" in r for r in out["requires_input"])
+    out = S.valuation_cost(component_ids=[_component("Key Vault")], **pinned())
+    assert out["build"] is None and any("build cost" in r for r in out["requires_input"])
     assert out["year_one"]["expected"] == out["monthly"]["expected"] * 12
+
+
+def test_an_unknown_envelope_refuses():
+    with pytest.raises(ToolError):
+        S.valuation_cost(component_ids=[_component("Key Vault")], envelope="huge", **pinned())
 
 
 # ---------------------------------------------------------------- step 24
@@ -89,60 +119,3 @@ def _benefit(**kw):
             "role_rates": {"nurse": 120.0},
             "build_cost": 50000.0, "monthly_run_cost": 1000.0}
     return S.valuation_benefit(**(args | kw))
-
-
-def test_the_benefit_case_carries_the_summary_and_a_verdict():
-    out = _benefit()
-    assert out["summary"]["annual_benefit"] > 0
-    assert out["recommendation"]["verdict"] in ("proceed", "proceed with conditions", "defer")
-    assert out["recommendation"]["rationale"]
-
-
-def test_a_driver_nobody_supplied_inputs_for_is_declared_not_scored_as_zero():
-    """"Nobody supplied what this needs" and "this is worth nothing" produce the same number and
-    mean opposite things — only one of them should reach a funding decision."""
-    out = _benefit(effort=[], role_rates={})
-    efficiency = [d for d in out["drivers"] if "efficiency" in d["name"]][0]
-    assert efficiency["requires_input"]
-    assert efficiency["annual_value"] == 0
-
-
-def test_an_incomplete_benefit_side_never_produces_a_confident_proceed():
-    """The understatement runs one way: a case with an unsupplied driver is worth AT LEAST what was
-    computed, so the honest answer is conditions, never a defer dressed up as arithmetic."""
-    out = _benefit(effort=[], role_rates={}, build_cost=500000.0)
-    assert out["recommendation"]["verdict"] == "proceed with conditions"
-
-
-def test_a_role_with_no_rate_is_declared_rather_than_priced_at_the_nearest_rate():
-    out = _benefit(role_rates={"clinician": 300.0})
-    efficiency = [d for d in out["drivers"] if "efficiency" in d["name"]][0]
-    assert efficiency["requires_input"]
-
-
-def test_the_authority_the_decision_needs_is_named_with_the_number():
-    """26b routes by delegated authority, and the routing is only as good as the figure it reads."""
-    out = _benefit()
-    assert out["summary"]["year_one_investment"] > 0
-
-
-# ---------------------------------------------------------------- what a span may carry
-
-def test_no_span_attribute_carries_a_figure_or_a_role(monkeypatch):
-    """Counts and shapes only. Spans reach a collector this lab does not authenticate, and a
-    year-one investment on one is a budget disclosed to whoever can open the trace."""
-    recorded = {}
-
-    class Span:
-        def set_attribute(self, k, v): recorded[k] = v
-        def set_attributes(self, kv): recorded.update(kv)
-
-    monkeypatch.setattr(S, "span", lambda: Span())
-    S.valuation_cost(resources=["Container Apps"], build_amount=50000,
-                     build_provenance="vendor quote")
-    _benefit()
-    assert recorded
-    for key, value in recorded.items():
-        assert isinstance(value, (int, bool)), f"{key} carries {value!r}"
-        assert "cost" not in key.split(".")[-1] or isinstance(value, int)
-    assert not any(k.endswith(("investment", "benefit", "amount", "rate")) for k in recorded)

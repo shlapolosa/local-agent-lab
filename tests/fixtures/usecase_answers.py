@@ -8,7 +8,7 @@ than a shape error.
 from lab.core.usecase import seed
 from lab.core.usecase import predicates
 
-__all__ = ["ANSWERED", "ASSERTIONS", "BENEFIT_INPUTS", "BUILD_SURFACE", "COMPONENTS",
+__all__ = ["ANSWERED", "ASSERTIONS", "BENEFIT_INPUTS", "BUILD_SURFACE", "CATALOGUE", "COMPONENTS",
            "COST_INPUTS", "DELIVERY", "DETERMINISM", "FACETS", "without"]
 
 #: Every prose condition the published guardrails ask, answered. A facet vector that leaves one out
@@ -34,12 +34,17 @@ FACETS = {"steps": [{"id": "n1", "activity": "interpret", "determinism": "D2", "
 BUILD_SURFACE = {"incumbent_considered": True, "surface": "a hosted agent runtime",
                  "topology": "T2", "unenforceable_obligations": []}
 
-COMPONENTS = {"selected": [{"capability": "inference", "component": "the hosted model service",
+COMPONENTS = {"selected": [{"capability": "inference", "component_id": "cmp-model",
+                            "component": "the hosted model service",
                             "rejected_alternatives": ["a self-hosted model"]}],
               "tradeoffs": [], "unresolved": []}
 
-COST_INPUTS = {"resources": ["Container Apps"], "switched_on_by": {"Container Apps": "family F2"},
-               "envelope": "expected", "unpriceable": []}
+#: The catalogue step 21 is shown, as its gate reads it — the id column is what admits a component.
+CATALOGUE = {"component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog"},
+                                     {"id": "cmp-vault", "zone": "ident", "name": "Key Vault"}]}
+
+COST_INPUTS = {"build_amount": 250000, "build_provenance": "budget bucket",
+               "build_basis": "the Investment row of the intake", "notes": []}
 
 BENEFIT_INPUTS = {"effort": [{"role": "nurse", "headcount": 4, "frequency_per_week": 20,
                               "current_minutes": 30, "expected_minutes": 10,

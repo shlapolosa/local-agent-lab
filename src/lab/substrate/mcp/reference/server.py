@@ -89,6 +89,26 @@ def reference_pin(artifact_ids: list[str] | None = None) -> dict:
                          for v in pin.versions]}
 
 
+def _version(v: Any) -> dict:
+    """A pinned version, whole — what a remote reader needs to rebuild the pin it was given."""
+    return {"artifact_id": v.artifact_id, "version": v.version, "kind": str(v.kind),
+            "title": v.title, "master_ref": v.master_ref, "master_sha256": v.master_sha256,
+            "agent_sha256": v.agent_sha256, "derived_from": v.derived_from,
+            "signature_id": v.signature_id, "signed_at": v.signed_at, "ring": v.ring,
+            "published_at": v.published_at, "retrieval": str(v.retrieval)}
+
+
+@server.tool()
+def reference_pin_info(pin_id: str) -> dict:
+    """The pin a caller already holds, rehydrated from the server's own record: its versions,
+    whole. A remote reader with no corpus credential satisfies the reference port over this and
+    the reads below; a pin that has expired refuses."""
+    pin = _guard(server.reference().pin_by_id, str(pin_id or ""))
+    span().set_attribute("reference.pinned", len(pin.versions))
+    return {"pin_id": pin.pin_id, "ring": pin.ring, "pinned_at": pin.pinned_at,
+            "expires_at": pin.expires_at, "versions": [_version(v) for v in pin.versions]}
+
+
 @server.tool()
 def reference_lookup(pin_id: str, record_type: str, key: dict, run_id: str, process: str,
                      field: str, limit: int = 20, artifact_id: str = "") -> dict:

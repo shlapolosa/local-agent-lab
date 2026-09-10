@@ -137,10 +137,12 @@ SUBSTRATE = {
     "reference-mcp": {"cmd": "python -m lab.substrate.mcp.reference.server", "port": None},
     # Pure derivation over facet vectors: no store, no bucket, no database of its own. It
     # reads the governed rules through the GATEWAY like any other caller.
-    "decision-mcp": {"cmd": "python -m lab.substrate.mcp.decision.server", "port": None},
+    "decision-mcp": {"cmd": "python -m lab.substrate.mcp.decision.server", "port": None,
+                     "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no DSN here
     # The FINANCIAL derivations, split from decision-mcp by artifact OWNER: finance releases the
     # price sheet and the rate cards, and must not need architecture governance's redeploy.
-    "valuation-mcp": {"cmd": "python -m lab.substrate.mcp.valuation.server", "port": None},
+    "valuation-mcp": {"cmd": "python -m lab.substrate.mcp.valuation.server", "port": None,
+                      "env": {"REFERENCE_PROVIDER": "mcp"}},
     # What makes FR-12 structural: the architect's decision is the EVENT that releases the
     # submitter's message, so there is no code path where the submitter hears first.
     "usecase-notifier": {"cmd": "python -m lab.substrate.usecase_notifier", "port": None},
@@ -297,11 +299,14 @@ ROLE_ENV = {
         "JAEGER_UI_URL",                           # the link it puts in the message
         _OTLP,
     ],
-    "valuation-mcp": [                             # src/lab/substrate/mcp/valuation/*.py + lab.core.usecase — pure arithmetic
+    "valuation-mcp": [                             # src/lab/substrate/mcp/valuation/*.py + lab.core.usecase — the cost JOIN
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "VALUATION_MCP_PORT",                      # which port it serves
-        _OTLP,                                     # NO store, NO database, NO model credential: it
-    ],                                             # prices a list of names against a packaged sheet
+        "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_PROVIDER",   # the price catalogue, read THROUGH
+                                                   # reference-mcp under the caller's pin — no DSN, no
+                                                   # packaged sheet: the spec env sets the provider to mcp
+        _OTLP,                                     # NO store, NO database, NO model credential
+    ],
     "decision-mcp": [                              # src/lab/substrate/mcp/decision/*.py + lab.core.usecase — pure derivation
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "DECISION_MCP_PORT",                       # which port it serves
@@ -309,8 +314,8 @@ ROLE_ENV = {
         # REFERENCE_PUBLISH_DB_URL. Neither is in `.env` today, so the private seed staying out of
         # every container rested on nobody adding a line — which is the shape of guarantee this
         # whole file exists to replace.
-        "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_TRUST_KEYS", "REFERENCE_KEY_ID",
-        "GATEWAY_URL",                             # ... which it reaches like any other caller
+        "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_PROVIDER",   # the corpus THROUGH reference-mcp
+                                                   # (spec env: provider mcp), never a DSN of its own
         _OTLP,
     ],
     "reference-mcp": [                             # src/lab/substrate/{reference,mcp/reference}/*.py + lab.core.reference — the governed CORPUS

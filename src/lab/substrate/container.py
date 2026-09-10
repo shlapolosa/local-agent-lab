@@ -52,7 +52,10 @@ SPEECH_PROVIDER_OPTIONS: dict[str, dict] = {"soniox-en": {"want": "translation"}
 # not change on the Azure move — Azure Database for PostgreSQL runs pgvector — but the entry exists
 # so a managed retrieval service (AI Search) is an adapter plus a line, not a rewrite of every
 # caller. Same contract: the module exposes `build(**overrides)`.
-REFERENCE_PROVIDERS: dict[str, str] = {"postgres": "lab.substrate.reference.pg_library"}
+REFERENCE_PROVIDERS: dict[str, str] = {
+    "postgres": "lab.substrate.reference.pg_library",     # reads the tables — the corpus server
+    "mcp": "lab.substrate.reference.mcp_library",         # reads THROUGH reference-mcp — a server with no DSN
+}
 
 
 def reference_library(provider: str, **overrides):

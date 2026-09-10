@@ -1064,6 +1064,28 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   (the approval can wait days) and states "screened at v0.26, designed at v0.27" per artifact —
   recorded, never blocked on (user decision). Reads are attributed to the DERIVED FIELD
   (`reference.attribution`), and `cells.rows` is the one corpus-to-domain mapper.
+- **The capability map is read from the corpus, searched through a store, matched three ways.**
+  Screening pins its map (`VectorStores.for_scheme(SCHEME)` = the artifact id), fetches L1 and L3
+  rows under the pin (`id, parent, level, label, path`) and hands the matchers two SEAMS —
+  `children(ids, level)` (rows by parent through `reference_lookup`) and `search(query, k)` (the
+  store through the gateway, under the pin, attributed to the coverage map). `coverage.MATCHERS`
+  = `drill` | `leaves` | `vector` (one query per behavioural element, record-backed hits unioned,
+  one pass of step 5); `COVERAGE_MATCHER` picks, `scripts/eval_coverage.py` scores all three over
+  the same seams — the harness decides, not the plan. `semantic_concepts` is no longer an intake
+  grant; the intake team holds exactly the two map stores.
+- **Cost is a JOIN, not an estimate** (user decision). Step 21 selects components BY CATALOGUE ID
+  (`reference-architecture-components`, keyed by `content_id("cmp-", zone, name)`; the AI
+  capability map's `components` column says which realise each capability) and its gate refuses an
+  id the pinned catalogue lacks — G04 as a gate. `valuation_cost(component_ids, envelope, volume,
+  …, pin_id)` joins them onto `component-prices` (`(component, variant)`; opex three-point,
+  `envelope_in`, `volume_driver` + `expected_at`/`high_at`) at the pinned version: the envelope
+  FOLLOWS the confirmed criticality class (`cost.envelope_for`), the volume is what intake captured
+  (`cost.volume_from_intake`, the "Volume assumptions" group), a driven line with no captured volume
+  is EXCLUDED and named, a component with no line is a gap flag, capex the catalogue lacks is
+  named. Step 23's agent is left with the build cost and its provenance. decision-mcp and
+  valuation-mcp read the corpus THROUGH reference-mcp (`REFERENCE_PROVIDER=mcp`,
+  `lab.substrate.reference.mcp_library`, the shared `lab.substrate.mcp.pinned.rules` policy): no
+  DSN, no packaged fallback — no pin, no derivation.
 
 ## Observability (Foundry observability analogue; traces double as the audit trail)
 

@@ -1,27 +1,36 @@
 {
   "type": "object",
   "properties": {
-    "resources": {
-      "type": "array",
-      "items": {"type": "string", "minLength": 2},
-      "description": "Price-sheet service names, spelled EXACTLY as the sheet spells them."
+    "build_amount": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The build cost captured at intake, if one was \u2014 never invented."
     },
-    "switched_on_by": {
-      "type": "object",
-      "additionalProperties": {"type": "string"},
-      "description": "resource -> the family or component that requires it."
+    "build_provenance": {
+      "enum": [
+        "vendor quote",
+        "budget bucket",
+        "estimate",
+        ""
+      ],
+      "description": "What the captured figure IS. Empty when nothing was captured."
     },
-    "envelope": {"enum": ["low", "expected", "high"]},
-    "build_amount": {"type": "number", "minimum": 0},
-    "build_provenance": {"enum": ["vendor quote", "budget bucket", "estimate", ""]},
-    "build_basis": {"type": "string"},
-    "unpriceable": {
+    "build_basis": {
+      "type": "string",
+      "description": "Where in the intake the figure came from."
+    },
+    "notes": {
       "type": "array",
-      "items": {"type": "string"},
-      "description": "Anything the design needs that the sheet has no line for. A gap flag, never a substitution."
+      "items": {
+        "type": "string"
+      },
+      "description": "Anything the design needs that is not a catalogue component and so will not be in the join \u2014 named, for the Review Board."
     }
   },
-  "required": ["resources", "switched_on_by", "envelope", "unpriceable"],
+  "required": [
+    "build_provenance",
+    "notes"
+  ],
   "additionalProperties": false,
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "cost_inputs"
