@@ -363,3 +363,95 @@ def test_init_registers_the_public_half_of_the_key_that_will_sign():
     assert written, "init must seed the trust store"
     assert written[0][1][0] == "k7" and written[0][1][2] == public
     assert public_key_of(private) == public
+
+
+# ---------------------------------------------------------------- retrieval mode
+
+MAP = render(title="Capability map", headers=["id", "parent", "level", "path", "definition"],
+             rows=[["L1", "-", "1", "Care", "Delivering care"],
+                   ["L2", "L1", "2", "Care > Triage", "Sorting by urgency"]],
+             meta={"Artifact": "capability-map", "Owner": "BA Guild"})
+
+
+def _publish_map(pub, tmp_path, **kw):
+    return pub.publish("capability-map", master_path=master_file(tmp_path, MAP, "map.md"),
+                       version="v1", kind="record", owner="x", record_type="capability",
+                       key_fields=["id", "parent", "level"], **kw)
+
+
+def test_an_artifact_that_declares_no_mode_gets_its_kind_s_default(tmp_path):
+    pub = publisher(tmp_path)
+    pub.publish("guardrail-mapping", master_path=master_file(tmp_path), version="v1",
+                kind="record", owner="x", record_type="risk-class", key_fields=["risk_class"])
+    assert [p for s, p in pub.log if "INSERT INTO ref_artifact " in s][0][-1] == "key"
+    pub = publisher(tmp_path)
+    pub.publish("tradeoffs", master_path=master_file(tmp_path, PROSE, "t.md"), version="v1",
+                kind="prose", owner="x")
+    assert [p for s, p in pub.log if "INSERT INTO ref_artifact " in s][0][-1] == "vector"
+
+
+def test_a_vector_mode_record_artifact_writes_one_passage_per_record_naming_it(tmp_path):
+    """The capability map is exact (children by parent, leaves by level) AND searchable. Both
+    forms come from the same derived records, and each passage carries its record's id so a
+    relevance hit resolves to the row an exact read would return."""
+    pub = publisher(tmp_path)
+    out = _publish_map(pub, tmp_path, retrieval="vector", text_fields=["path", "definition"])
+    record_ids = [p[2] for s, p in pub.log if "INSERT INTO ref_record" in s]
+    passages = [p for s, p in pub.log if "INSERT INTO ref_passage" in s]
+    assert len(record_ids) == 2 and len(passages) == 2
+    assert [p[-1] for p in passages] == record_ids, "each passage names its record"
+    assert passages[0][6] == "Care. Delivering care"
+    assert out["retrieval"] == "vector" and out["passages"] == 2
+    params = [p for s, p in pub.log if "ref_index_state" in s][0]
+    assert params[2] == 2 and params[3] == 2 and params[4] == "test-embed"
+
+
+def test_records_are_inserted_before_the_passages_that_reference_them(tmp_path):
+    pub = publisher(tmp_path)
+    _publish_map(pub, tmp_path, retrieval="vector")
+    statements = sql_of(pub)
+    last_record = max(i for i, s in enumerate(statements) if "INSERT INTO ref_record" in s)
+    first_passage = min(i for i, s in enumerate(statements) if "INSERT INTO ref_passage" in s)
+    assert last_record < first_passage
+
+
+def test_a_key_mode_record_artifact_writes_no_passage_and_needs_no_embedder(tmp_path):
+    pub = publisher(tmp_path, embedder=None)
+    out = _publish_map(pub, tmp_path)
+    assert not any("ref_passage" in s for s in sql_of(pub)) and out["passages"] == 0
+
+
+def test_a_vector_mode_record_artifact_without_an_embedder_refuses(tmp_path):
+    with pytest.raises(PublishError) as e:
+        _publish_map(publisher(tmp_path, embedder=None), tmp_path, retrieval="vector")
+    assert "REFERENCE_EMBED_MODEL" in str(e.value)
+
+
+def test_prose_declared_as_an_exact_read_refuses(tmp_path):
+    with pytest.raises(PublishError) as e:
+        publisher(tmp_path).publish("t", master_path=master_file(tmp_path, PROSE, "t.md"),
+                                    version="v1", kind="prose", owner="x", retrieval="key")
+    assert "prose" in str(e.value)
+
+
+def test_an_unknown_retrieval_mode_refuses_naming_the_three(tmp_path):
+    with pytest.raises(PublishError) as e:
+        _publish_map(publisher(tmp_path), tmp_path, retrieval="fuzzy")
+    assert "whole" in str(e.value) and "vector" in str(e.value)
+
+
+def test_a_re_publish_updates_the_artifact_s_declared_mode(tmp_path):
+    """The mode is the artifact's CURRENT declaration, not frozen with its first version."""
+    pub = publisher(tmp_path)
+    _publish_map(pub, tmp_path, retrieval="whole")
+    sql = [s for s, _ in pub.log if "INSERT INTO ref_artifact " in s][0]
+    assert "retrieval = EXCLUDED.retrieval" in sql
+
+
+def test_the_version_row_carries_the_mode_it_was_published_with(tmp_path):
+    """So a pin freezes the mode with the version, and a later re-publish under another mode
+    changes only what the catalogue says the artifact is NOW."""
+    pub = publisher(tmp_path)
+    _publish_map(pub, tmp_path, retrieval="vector")
+    sql, params = [(s, p) for s, p in pub.log if "INSERT INTO ref_artifact_version" in s][0]
+    assert "retrieval" in sql and params[-1] == "vector"

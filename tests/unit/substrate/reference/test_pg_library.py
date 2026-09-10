@@ -40,7 +40,7 @@ def resolve_row(**kw):
                title="Risk mapping", master_ref="art://x/m.md", master_sha256=DIGEST,
                agent_sha256="b" * 64, derived_from=DIGEST, manifest_sha256="c" * 64,
                signature=signed(), key_id="k1", signed_at=PUBLISHED, published_at=PUBLISHED,
-               ring=2, status="published")
+               ring=2, status="published", retrieval="key")
     row.update(kw)
     return tuple(row.values())
 
@@ -92,7 +92,8 @@ def test_trust_keys_parse_from_the_configured_string():
 
 def test_the_catalogue_maps_rows_to_heads():
     lib = library({"FROM ref_artifact a": [
-        ("guardrail-mapping", "record", "risk-class", "Risk mapping", "Agent Council", "v1")]})
+        ("guardrail-mapping", "record", "risk-class", "Risk mapping", "Agent Council", "v1",
+         "key")]})
     heads = lib.catalogue()
     assert heads[0].artifact_id == "guardrail-mapping"
     assert heads[0].record_type == "risk-class"
@@ -211,12 +212,12 @@ def test_a_lookup_can_name_the_artifact_it_means():
     on type alone returns both, interleaved, with different columns. The caller then indexes a
     column the other artifact does not have."""
     lib = library({"FROM ref_release r": [resolve_row()],
-                   "DISTINCT a.record_type": [("family",)]})
-    lib.lookup(_pinned(lib), record_type="family", key={}, run=RUN,
-               artifact_id="family-triggers")
+                   "DISTINCT a.record_type": [("risk-class",)]})
+    lib.lookup(_pinned(lib), record_type="risk-class", key={}, run=RUN,
+               artifact_id="guardrail-mapping")            # the one the pin holds
     sql, params = [(s, p) for s, p in _executed(lib) if "FROM ref_record r" in s][0]
     assert "r.artifact_id = %s" in sql
-    assert params[2] == params[3] == "family-triggers"
+    assert params[2] == params[3] == "guardrail-mapping"
 
 
 def test_a_lookup_that_names_no_artifact_still_spans_the_type():
@@ -242,13 +243,13 @@ def test_a_truncated_lookup_is_at_least_ORDERED():
 # ---------------------------------------------------------------- search fails closed
 
 def test_search_without_an_embedder_refuses():
-    lib = library({"FROM ref_release r": [resolve_row()]}, embedder=None)
+    lib = library({"FROM ref_release r": [resolve_row(retrieval="vector")]}, embedder=None)
     with pytest.raises(IndexUnavailable):
         lib.search(_pinned(lib), question="anything", run=RUN)
 
 
 def test_an_unindexed_version_refuses_rather_than_returning_nothing():
-    lib = library({"FROM ref_release r": [resolve_row()],
+    lib = library({"FROM ref_release r": [resolve_row(retrieval="vector")],
                    "FROM ref_index_state s": [("guardrail-mapping", "2026.09.1", 0,
                                                "test-embed", 8, None)]})
     with pytest.raises(IndexUnavailable) as e:
@@ -257,7 +258,7 @@ def test_an_unindexed_version_refuses_rather_than_returning_nothing():
 
 
 def test_an_index_built_with_another_model_refuses():
-    lib = library({"FROM ref_release r": [resolve_row()],
+    lib = library({"FROM ref_release r": [resolve_row(retrieval="vector")],
                    "FROM ref_index_state s": [("guardrail-mapping", "2026.09.1", 12,
                                                "some-other-model", 8, "2026-09-08")]})
     with pytest.raises(IndexUnavailable) as e:
@@ -266,7 +267,7 @@ def test_an_index_built_with_another_model_refuses():
 
 
 def test_an_index_of_another_width_refuses():
-    lib = library({"FROM ref_release r": [resolve_row()],
+    lib = library({"FROM ref_release r": [resolve_row(retrieval="vector")],
                    "FROM ref_index_state s": [("guardrail-mapping", "2026.09.1", 12,
                                                "test-embed", 1536, "2026-09-08")]})
     with pytest.raises(IndexUnavailable):
@@ -275,12 +276,12 @@ def test_an_index_of_another_width_refuses():
 
 def test_a_healthy_index_searches_and_cites_its_anchor():
     lib = library({
-        "FROM ref_release r": [resolve_row()],
+        "FROM ref_release r": [resolve_row(retrieval="vector")],
         "FROM ref_index_state s": [("guardrail-mapping", "2026.09.1", 12, "test-embed", 8,
                                     "2026-09-08")],
         "FROM ref_passage g": [("guardrail-mapping", "2026.09.1", "psg-1", "some text",
                                 ["Head", "Sub"], "Head > Sub", "Risk mapping", "art://x/m.md",
-                                "k1", 0.87)]})
+                                "k1", 0.87, None, None)]})
     out = lib.search(_pinned(lib), question="some text", run=RUN)
     assert out.passages[0].score == pytest.approx(0.87)
     assert out.citations[0].anchor == "Head > Sub"
@@ -288,7 +289,7 @@ def test_a_healthy_index_searches_and_cites_its_anchor():
 
 def test_the_query_is_embedded_as_a_query_not_a_document():
     embedder = HashEmbedder(model="test-embed", dim=8)
-    lib = library({"FROM ref_release r": [resolve_row()],
+    lib = library({"FROM ref_release r": [resolve_row(retrieval="vector")],
                    "FROM ref_index_state s": [("guardrail-mapping", "2026.09.1", 12,
                                                "test-embed", 8, "2026-09-08")]},
                   embedder=embedder)
@@ -380,3 +381,112 @@ def test_a_write_that_cannot_reach_the_store_refuses_the_same_way():
     from lab.core.reference.errors import CorpusUnreachable
     with pytest.raises(CorpusUnreachable):
         _broken(OSError("connection refused"))._write([("INSERT INTO ref_pin VALUES (1)", ())])
+
+
+# ---------------------------------------------------------------- retrieval mode
+
+def test_the_catalogue_and_the_pin_carry_each_artifact_s_declared_mode():
+    from lab.core.reference.model import Retrieval
+    lib = library({"FROM ref_artifact a": [("guardrail-mapping", "record", "risk-class",
+                                            "Risk mapping", "Council", "2026.09.1", "whole")],
+                   "FROM ref_release r": [resolve_row(retrieval="vector")]})
+    assert lib.catalogue()[0].retrieval is Retrieval.WHOLE
+    assert _pinned(lib).versions[0].retrieval is Retrieval.VECTOR
+
+
+def _two(retrieval_a="key", retrieval_b="vector"):
+    return [resolve_row(artifact_id="guardrail-mapping", retrieval=retrieval_a),
+            resolve_row(artifact_id="capability-map", retrieval=retrieval_b,
+                        signature=signed(artifact_id="capability-map"))]
+
+
+def _pinned_two(lib):
+    return lib.pin(["guardrail-mapping", "capability-map"])
+
+
+def test_a_whole_pin_search_covers_the_searchable_artifacts_and_skips_the_exact_ones():
+    """A pin usually holds both. Refusing because a KEY artifact has no index would make every
+    search fail the moment one register is pinned beside the map; the exact ones are simply not
+    what a relevance query is asked over."""
+    lib = library({"FROM ref_release r": _two(),
+                   "FROM ref_index_state s": [("capability-map", "2026.09.1", 40, "test-embed",
+                                               8, "2026-09-08")]})
+    lib.search(_pinned_two(lib), question="triage", run=RUN)
+    scoped = [p for s, p in _executed(lib) if "FROM ref_index_state s" in s][0]
+    assert scoped[1] == ["capability-map"], "the exact artifact is not in the searched set"
+
+
+def test_naming_an_exact_artifact_in_a_search_refuses_and_points_at_lookup():
+    from lab.core.reference.errors import NotSearchable
+    lib = library({"FROM ref_release r": _two()})
+    with pytest.raises(NotSearchable) as e:
+        lib.search(_pinned_two(lib), question="triage", run=RUN, artifact_ids=["guardrail-mapping"])
+    assert "reference_lookup" in str(e.value)
+
+
+def test_a_vector_artifact_with_no_index_state_row_at_all_refuses():
+    """Coverage, not just validity: a missing row would contribute zero hits and read as "the
+    corpus has nothing on this" — the all-clear CR-12 forbids."""
+    lib = library({"FROM ref_release r": _two()})            # no ref_index_state rows at all
+    with pytest.raises(IndexUnavailable) as e:
+        lib.search(_pinned_two(lib), question="triage", run=RUN)
+    assert "no index state" in str(e.value)
+
+
+def test_the_mode_a_pin_freezes_is_the_version_s_not_the_artifact_s_current_declaration():
+    """`ref_artifact_version` is append-only so a pin means something. Re-publishing the map as
+    `vector` while ring 2 still resolves the `key` version must not make every pin in that ring
+    report an index the old version never had."""
+    for sql in (PostgresReferenceLibrary._RESOLVE, PostgresReferenceLibrary._PIN_BY_ID):
+        assert "v.retrieval" in sql and "a.retrieval" not in sql
+    assert "a.retrieval" in PostgresReferenceLibrary._CATALOGUE, "the catalogue lists what it IS now"
+
+
+def test_a_whole_artifact_is_looked_up_in_full_whatever_the_limit():
+    """`whole` means the register is read complete; `LIMIT NULL` is how Postgres says so."""
+    lib = library({"FROM ref_release r": _two("whole", "vector"),
+                   "DISTINCT a.record_type": [("risk-class",)]})
+    lib.lookup(_pinned_two(lib), record_type="risk-class", key={}, run=RUN, limit=20,
+               artifact_id="guardrail-mapping")
+    params = [p for s, p in _executed(lib) if "FROM ref_record r" in s][0]
+    assert params[-1] is None
+    lib.lookup(_pinned_two(lib), record_type="risk-class", key={}, run=RUN, limit=20,
+               artifact_id="capability-map")
+    assert [p for s, p in _executed(lib) if "FROM ref_record r" in s][-1][-1] == 20
+
+
+def test_looking_up_an_artifact_the_pin_lacks_is_refused_by_name():
+    from lab.core.reference.errors import NotPinned
+    lib = library({"FROM ref_release r": _two(), "DISTINCT a.record_type": [("risk-class",)]})
+    with pytest.raises(NotPinned):
+        lib.lookup(_pinned_two(lib), record_type="risk-class", key={}, run=RUN,
+                   artifact_id="something-else")
+
+
+def test_a_pin_with_nothing_searchable_refuses_rather_than_answering_nothing():
+    lib = library({"FROM ref_release r": _two("key", "whole")})
+    with pytest.raises(IndexUnavailable) as e:
+        lib.search(_pinned_two(lib), question="triage", run=RUN)
+    assert "no artifact in this pin" in str(e.value)
+
+
+def test_a_searchable_artifact_whose_index_is_missing_still_refuses():
+    """Scoping the check to vector-mode artifacts must not relax it FOR them — CR-12 unchanged
+    where it matters."""
+    lib = library({"FROM ref_release r": _two(),
+                   "FROM ref_index_state s": [("capability-map", "2026.09.1", 0, "test-embed",
+                                               8, None)]})
+    with pytest.raises(IndexUnavailable):
+        lib.search(_pinned_two(lib), question="triage", run=RUN)
+
+
+def test_a_hit_over_a_record_artifact_names_the_record_and_its_key():
+    lib = library({"FROM ref_release r": _two(),
+                   "FROM ref_index_state s": [("capability-map", "2026.09.1", 40, "test-embed",
+                                               8, "2026-09-08")],
+                   "FROM ref_passage g": [("capability-map", "2026.09.1", "psg-1",
+                                           "Care > Triage. Sorting", ["id=L2"], "id=L2",
+                                           "Map", "art://x/m.md", "k1", 0.91, "rec-9",
+                                           {"id": "L2", "parent": "L1", "level": "2"})]})
+    hit = lib.search(_pinned_two(lib), question="triage", run=RUN).passages[0]
+    assert hit.record_id == "rec-9" and hit.key["parent"] == "L1"

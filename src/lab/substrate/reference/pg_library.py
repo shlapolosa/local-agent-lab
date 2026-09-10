@@ -42,6 +42,7 @@ from lab.core.reference.model import (
     Pin,
     Record,
     RecordResult,
+    Retrieval,
     RunRef,
 )
 from lab.platform import config
@@ -102,7 +103,7 @@ class PostgresReferenceLibrary:
     # ---------------------------------------------------------------- catalogue
 
     _CATALOGUE = """
-        SELECT a.artifact_id, a.kind, a.record_type, a.title, a.owner, r.version
+        SELECT a.artifact_id, a.kind, a.record_type, a.title, a.owner, r.version, a.retrieval
           FROM ref_artifact a
           JOIN ref_release r ON r.artifact_id = a.artifact_id AND r.ring = %s
          ORDER BY a.artifact_id"""
@@ -115,14 +116,15 @@ class PostgresReferenceLibrary:
                 "publish at least one artifact and release it to this ring; an empty catalogue is "
                 "indistinguishable from a library that is not there")
         return [ArtifactHead(artifact_id=r[0], kind=ArtifactKind(r[1]), record_type=r[2] or "",
-                             title=r[3], owner=r[4], version=r[5]) for r in rows]
+                             title=r[3], owner=r[4], version=r[5], retrieval=Retrieval(r[6]))
+                for r in rows]
 
     # ---------------------------------------------------------------- pin
 
     _RESOLVE = """
         SELECT v.artifact_id, v.version, a.kind, a.title, v.master_ref, v.master_sha256,
                v.agent_sha256, v.derived_from, v.manifest_sha256, v.signature, v.key_id,
-               v.signed_at, v.published_at, r.ring, v.status
+               v.signed_at, v.published_at, r.ring, v.status, v.retrieval
           FROM ref_release r
           JOIN ref_artifact_version v
             ON v.artifact_id = r.artifact_id AND v.version = r.version
@@ -146,7 +148,7 @@ class PostgresReferenceLibrary:
                 artifact_id=row[0], version=row[1], kind=ArtifactKind(row[2]), title=row[3],
                 master_ref=row[4], master_sha256=row[5], agent_sha256=row[6], derived_from=row[7],
                 signature_id=row[10], signed_at=str(row[11]), ring=row[13],
-                published_at=str(row[12])))
+                published_at=str(row[12]), retrieval=Retrieval(row[15])))
 
         started = _now()
         pin_id = f"pin-{uuid.uuid4().hex[:12]}"
@@ -184,7 +186,8 @@ class PostgresReferenceLibrary:
     _PIN_BY_ID = """
         SELECT p.pin_id, p.ring, p.pinned_at, p.expires_at,
                e.artifact_id, e.version, a.kind, a.title, v.master_ref, v.master_sha256,
-               v.agent_sha256, v.derived_from, v.key_id, v.signed_at, v.published_at
+               v.agent_sha256, v.derived_from, v.key_id, v.signed_at, v.published_at,
+               v.retrieval
           FROM ref_pin p
           JOIN ref_pin_entry e ON e.pin_id = p.pin_id
           JOIN ref_artifact a ON a.artifact_id = e.artifact_id
@@ -203,7 +206,7 @@ class PostgresReferenceLibrary:
                       artifact_id=r[4], version=r[5], kind=ArtifactKind(r[6]), title=r[7],
                       master_ref=r[8], master_sha256=r[9], agent_sha256=r[10], derived_from=r[11],
                       signature_id=r[12], signed_at=str(r[13]), ring=head[1],
-                      published_at=str(r[14])) for r in rows))
+                      published_at=str(r[14]), retrieval=Retrieval(r[15])) for r in rows))
         self._check_pin(pin)
         return pin
 
@@ -239,6 +242,11 @@ class PostgresReferenceLibrary:
         known = [r[0] for r in self._rows(self._TYPES, (self.ring,))]
         if record_type not in known:
             raise UnknownRecordType(record_type, sorted(known))
+        # A `whole` artifact is read in FULL: it declared itself a small complete register, and a
+        # limit that truncated it would drop a rule in exactly the way the mode exists to prevent.
+        # `LIMIT NULL` is Postgres for "no limit".
+        if artifact_id and pin.pinned(artifact_id).retrieval is Retrieval.WHOLE:
+            limit = None                                            # type: ignore[assignment]
 
         # `%s = '' OR r.artifact_id = %s` rather than two queries: an empty artifact_id keeps the
         # old whole-type behaviour for a caller that genuinely wants every artifact of a type.
@@ -267,13 +275,17 @@ class PostgresReferenceLibrary:
 
     _SEARCH = """
         SELECT g.artifact_id, g.version, g.passage_id, g.text, g.heading_path, g.anchor,
-               a.title, v.master_ref, v.key_id, 1 - (g.embedding <=> %s::vector) AS score
+               a.title, v.master_ref, v.key_id, 1 - (g.embedding <=> %s::vector) AS score,
+               g.record_id, rr.key
           FROM ref_passage g
           JOIN ref_pin_entry p
             ON p.artifact_id = g.artifact_id AND p.version = g.version AND p.pin_id = %s
           JOIN ref_artifact a ON a.artifact_id = g.artifact_id
           JOIN ref_artifact_version v
             ON v.artifact_id = g.artifact_id AND v.version = g.version
+          LEFT JOIN ref_record rr
+            ON rr.artifact_id = g.artifact_id AND rr.version = g.version
+           AND rr.record_id = g.record_id
          WHERE g.artifact_id = ANY(%s)
          ORDER BY g.embedding <=> %s::vector
          LIMIT %s"""
@@ -285,10 +297,15 @@ class PostgresReferenceLibrary:
             raise IndexUnavailable("(any)", pin.pin_id,
                                    "no embedder is configured, so a semantic query cannot be "
                                    "embedded at all")
-        wanted = list(artifact_ids) or [v.artifact_id for v in pin.versions]
+        wanted = pin.searchable(artifact_ids)
 
+        # COVERAGE as well as validity: a vector artifact with no index-state row at all (a partial
+        # publish, a deleted row) would otherwise contribute zero hits and read as "the corpus has
+        # nothing on this" — the all-clear this layer refuses everywhere else.
+        seen: set[str] = set()
         for row in self._rows(self._INDEX_STATE, (pin.pin_id, wanted)):
             artifact_id, version, passages, model, dim, completed = row
+            seen.add(artifact_id)
             if completed is None or not passages:
                 raise IndexUnavailable(artifact_id, version,
                                        "the version has no completed index")
@@ -297,6 +314,10 @@ class PostgresReferenceLibrary:
                     artifact_id, version,
                     f"indexed with {model!r}/{dim} but the query embeds with "
                     f"{self.embedder.model!r}/{self.embedder.dim}")
+        for artifact_id in wanted:
+            if artifact_id not in seen:
+                raise IndexUnavailable(artifact_id, pin.version_of(artifact_id).version,
+                                       "this version has no index state at all")
 
         vector = self.embedder.embed([question], purpose="query")[0]
         literal = "[" + ",".join(str(v) for v in vector) + "]"
@@ -308,7 +329,8 @@ class PostgresReferenceLibrary:
                                 signature_id=row[8], locator=row[2], master_ref=row[7],
                                 anchor=row[5])
             passages_out.append(Passage(passage_id=row[2], text=row[3], score=float(row[9]),
-                                        heading_path=tuple(row[4] or ()), citation=citation))
+                                        heading_path=tuple(row[4] or ()), citation=citation,
+                                        record_id=row[10] or "", key=dict(row[11] or {})))
             citations.append(citation)
         self._note(pin, run, "search", artifact_ids=wanted, locator=question[:120],
                    hit=bool(rows))

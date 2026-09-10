@@ -43,8 +43,6 @@ continuation-only process gets no submit route, for every caller, including the 
 """
 from __future__ import annotations
 
-import json
-
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -53,29 +51,11 @@ from lab.platform import config, workflows
 from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, Decision, ProcessSpec,
                                     speaker_candidates, speaker_prompts)
 from lab.substrate import approvals
+from lab.substrate.mcpserver import error_response as _error, json_body as _body
 
 __all__ = ["routes", "API_PREFIX"]
 
 API_PREFIX = "/api"
-
-
-def _error(status: int, message: str, **extra) -> JSONResponse:
-    """One error shape. A low-code flow shows the caller whatever it is handed, so the message has
-    to be the sentence a person needs — not a code they then have to look up."""
-    return JSONResponse({"error": message, **extra}, status_code=status)
-
-
-async def _body(request: Request) -> dict:
-    raw = await request.body()
-    if not raw:
-        return {}
-    try:
-        got = json.loads(raw)
-    except ValueError as e:
-        raise ValueError(f"the request body is not JSON: {e}") from e
-    if not isinstance(got, dict):
-        raise ValueError("the request body must be a JSON object")
-    return got
 
 
 def _submit_route(server, spec: ProcessSpec):

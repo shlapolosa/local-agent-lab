@@ -19,6 +19,7 @@ Two behaviours are the reason this is shared rather than copied:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -27,9 +28,10 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from lab.platform.contracts import ArtifactRef
+from lab.platform.webhook import get_json, post_json
 
 __all__ = ["auth_headers", "call", "call_tools", "call_tools_raw", "node_span",
-           "preflight", "ref_from", "resolve", "run_graph"]
+           "preflight", "preflight_stores", "ref_from", "resolve", "run_graph", "vector_search"]
 
 
 def resolve(exposed: Iterable[str], suffix: str) -> str:
@@ -98,6 +100,52 @@ async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable
             f"The deployed server is older than this workload — redeploy both from the same image "
             f"(`substrate images`). Refusing now costs nothing; finding out at the call costs the "
             f"whole run.")
+
+
+async def preflight_stores(gateway_url: str, headers: Mapping[str, str],
+                           required: Iterable[str], *, http=None) -> None:
+    """Refuse the run if the gateway does not register every relevance store it will search.
+
+    The same contract as `preflight` for tools, one level over: a store is registered in the
+    gateway (`vector_store_registry`) and granted per team, and a name the gateway does not list —
+    a renamed artifact, a stale config, a missing grant — should cost zero tokens, not a run. The
+    gateway's registry listing (`/vector_store/list`) answers with the stores THIS identity may
+    see, so a grant gap reads as a missing store here rather than as a 401 mid-run."""
+    wanted = [s for s in required if s]
+    if not wanted:
+        return
+    raw = await asyncio.to_thread(http or get_json,
+                                  f"{gateway_url.rstrip('/')}/vector_store/list?page_size=200",
+                                  headers=dict(headers or {}))
+    page = json.loads(raw)
+    data = page.get("data") or []
+    # One page, deliberately: a registry of two hundred stores is not this lab. But a store on a
+    # SECOND page must not read as "not registered", so a longer registry fails loudly here.
+    if int(page.get("total_count") or 0) > len(data):
+        raise RuntimeError(f"the gateway registers {page.get('total_count')} relevance stores, "
+                           f"more than one page; preflight cannot see them all")
+    listed = {str(v.get("vector_store_id", "")) for v in data}
+    missing = sorted(set(wanted) - listed)
+    if missing:
+        raise RuntimeError(
+            f"the gateway does not register the relevance store(s) {missing} for this identity — "
+            f"the vector_store_registry and this workload are from different versions, or the "
+            f"team is not granted them (object_permission.vector_stores). Registered: "
+            f"{sorted(listed)}")
+
+
+async def vector_search(gateway_url: str, headers: Mapping[str, str], store: str, query: str, *,
+                        filters: Mapping[str, Any], k: int = 8, http=None) -> list[dict]:
+    """ONE relevance query over a governed store, through the gateway.
+
+    `filters` is the run's identity — pin_id, run_id, process, field — which the corpus's façade
+    requires (400 without it) so a read through this door is attributed exactly like one through
+    the MCP tool. Returns the OpenAI page's `data`: each hit carries `content[0].text`, `score`,
+    and `attributes` with the `record_id` an exact read can follow."""
+    url = f"{gateway_url.rstrip('/')}/v1/vector_stores/{store}/search"
+    body = {"query": query, "max_num_results": int(k), "filters": dict(filters)}
+    raw = await asyncio.to_thread(http or post_json, url, body, headers=dict(headers or {}))
+    return list(json.loads(raw).get("data") or [])
 
 
 async def call_tools_raw(headers: Mapping[str, str], mcp_url: str, calls) -> list[Any]:

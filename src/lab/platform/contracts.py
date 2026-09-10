@@ -80,8 +80,9 @@ class ReferenceTools(ToolCatalogue):
 
     Two verbs because there are two problems. `lookup` is exact over records — a nearly-right
     predicate or price line is worse than a failed lookup, so a miss is a legitimate answer and a
-    near miss is reported separately from the records. `search` is semantic over prose and refuses
-    on a stale or differently-embedded index rather than ranking what it has (CR-12).
+    near miss is reported separately from the records. `search` is semantic over the artifacts
+    declared `vector` — prose, and record artifacts that also index, whose hits name the record —
+    and refuses on a stale or differently-embedded index rather than ranking what it has (CR-12).
 
     There is deliberately NO WRITE tuple. Publication is an operator CLI holding the signing key and
     the publisher DSN; the server runs as a reader role that the database itself refuses writes
@@ -100,6 +101,27 @@ class ReferenceTools(ToolCatalogue):
     #: question, not a derivation one. Granted separately, and never to a workload's own agents.
     AUDIT = (consumers,)
 
+
+
+class VectorStores:
+    """The relevance stores the gateway registers (`vector_store_registry`), one per vector-mode
+    reference artifact — the store id IS the artifact id.
+
+    A store is a GRANT unit: `object_permission.vector_stores` names stores, so one store per
+    artifact lets the screening team hold the capability map and nothing else. A caller searches
+    it through the gateway's OpenAI vector-store API, which reaches reference-mcp's façade over the
+    same `search` the MCP tool uses — under a pin, attributed, and refused on a stale index. This
+    catalogue and the yaml are held identical both ways by a parity test, exactly as tool
+    catalogues are; a store here that the gateway does not register would pass preflight and fail
+    the run.
+    """
+    CAPABILITY_MAP_HEALTHCARE = "capability-map-healthcare-provider-v2.0"
+    CAPABILITY_MAP_INSURANCE = "capability-map-insurance-v5.0"
+
+    @classmethod
+    def names(cls) -> frozenset[str]:
+        return frozenset(v for k, v in vars(cls).items()
+                         if not k.startswith("_") and isinstance(v, str))
 
 
 class DecisionTools(ToolCatalogue):
@@ -1455,7 +1477,7 @@ ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.nam
 
 __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EATools", "WorkflowTools",
            "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools", "DecisionTools", "ValuationTools",
-           "SERVERS", "ALL_TOOLS",
+           "VectorStores", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "check_answer",

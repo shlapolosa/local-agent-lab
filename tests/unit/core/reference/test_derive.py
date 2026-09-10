@@ -155,3 +155,52 @@ def test_the_digest_is_order_sensitive_across_entries():
     """Two artifacts holding the same rows in a different order are not the same artifact — a
     price sheet's line order is part of what was signed."""
     assert content_digest([{"a": 1}, {"b": 2}]) != content_digest([{"b": 2}, {"a": 1}])
+
+
+# ---------------------------------------------------------------- passages FROM records
+
+def _map_records():
+    from lab.core.reference.derive import records
+    return records("capability-map", [
+        {"id": "L1", "parent": "-", "level": "1", "label": "Care Delivery",
+         "path": "Care Delivery", "definition": "Delivering care to patients"},
+        {"id": "L2", "parent": "L1", "level": "2", "label": "Triage",
+         "path": "Care Delivery > Triage", "definition": "Sorting patients by urgency"},
+    ], key_fields=["id", "parent", "level"])
+
+
+def test_a_record_artifact_derives_one_passage_per_record():
+    """A vector-mode record artifact is searchable AND exact: every row becomes exactly one
+    passage that names the record it came from, so a semantic hit resolves to a real row."""
+    from lab.core.reference.derive import record_passages
+    out = record_passages("capability-map", _map_records(), text_fields=["path", "definition"])
+    assert [p.record_id for p in out] == [r.record_id for r in _map_records()]
+    assert out[1].text == "Care Delivery > Triage. Sorting patients by urgency"
+    assert [p.ordinal for p in out] == [0, 1]
+
+
+def test_a_record_passage_is_anchored_on_its_key_and_identified_by_its_record():
+    """The id follows the RECORD, not the text: a corrected definition keeps the passage's id, so a
+    citation into it keeps resolving across a re-publish — the same rule records themselves keep."""
+    from lab.core.reference.derive import record_passages
+    first = record_passages("capability-map", _map_records(), text_fields=["path", "definition"])
+    edited = record_passages("capability-map", [
+        r for r in _map_records()], text_fields=["path"])
+    assert [p.passage_id for p in first] == [p.passage_id for p in edited]
+    assert first[0].anchor == "id=L1 · parent=- · level=1"
+    assert first[0].passage_id != record_passages("other-map", _map_records(),
+                                                  text_fields=["path"])[0].passage_id
+
+
+def test_record_passages_default_to_every_non_empty_field_in_order():
+    from lab.core.reference.derive import record_passages
+    out = record_passages("capability-map", _map_records())
+    assert out[0].text.startswith("L1. -. 1. Care Delivery. Care Delivery. Delivering")
+
+
+def test_a_record_that_renders_no_text_refuses_rather_than_indexing_an_empty_passage():
+    from lab.core.reference.derive import DerivationError, record_passages, records
+    blank = records("m", [{"id": "x", "definition": ""}], key_fields=["id"])
+    with pytest.raises(DerivationError) as e:
+        record_passages("m", blank, text_fields=["definition"])
+    assert "no text" in str(e.value)

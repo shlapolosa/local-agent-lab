@@ -84,10 +84,19 @@ SUBMITTER_TOOLS = {
 }
 
 
-def _grants(tools):
+#: LiteLLM reads an ABSENT or EMPTY `vector_stores` grant as "every store" (verified in 1.98,
+#: `auth_checks._can_object_call_vector_stores`: None -> allowed, [] -> allowed). So "no stores"
+#: cannot be left unsaid; it has to be SPELLED as a list naming a store that does not exist. This
+#: sentinel is that spelling, and the grants test refuses an empty list for the same reason.
+NO_STORES = ("-",)
+
+
+def _grants(tools, stores=()):
     """The `object_permission` for a per-tool ACL. `mcp_servers` alone would grant EVERY tool on the
-    server, including ones added later, so the two always travel together."""
-    return {"mcp_servers": sorted(tools), "mcp_tool_permissions": tools}
+    server, including ones added later, so the two always travel together — and `vector_stores` is
+    ALWAYS written, because an omitted one is an open one."""
+    return {"mcp_servers": sorted(tools), "mcp_tool_permissions": tools,
+            "vector_stores": sorted(stores) or list(NO_STORES)}
 
 
 def _team(litellm, alias, tools, budget=5.0, models=("kimi-k3", "glm-flash")):

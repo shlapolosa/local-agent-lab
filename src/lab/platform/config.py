@@ -124,7 +124,10 @@ REFERENCE_RING_SOAK_S = int(_e("REFERENCE_RING_SOAK_S", "86400"))
 # LAB_ENV: a signature made with a key everyone with repo admin holds proves nothing.
 REFERENCE_TRUST_KEYS = _e("REFERENCE_TRUST_KEYS", "")
 REFERENCE_EMBED_MODEL = _e("REFERENCE_EMBED_MODEL", "")   # empty = semantic search is unavailable
-REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "1024"))
+# The served model's NATIVE width (text-embedding-3-large: 3072), never a truncation: exact cosine
+# over a few thousand passages makes width free, and one fewer thing to keep in step. A governance
+# test holds this default to the gateway's `output_vector_size` for the model.
+REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "3072"))
 REFERENCE_EMBED_KEY = _e("REFERENCE_EMBED_KEY", "")       # a VIRTUAL key; the upstream one is the gateway's
 # The PUBLISHER's three. They are read here because config is the one env reader, but no service is
 # granted them: `ROLE_ENV["reference-mcp"]` lists neither, so in a deployed service all three are

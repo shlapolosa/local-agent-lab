@@ -114,6 +114,7 @@ FAKE = {
     # gateway secrets
     "LITELLM_MASTER_KEY": "m", "LITELLM_MCP_CLIENT_TIMEOUT": "300", "LITELLM_MCP_TOOL_LISTING_TIMEOUT": "60",
     "DATABASE_URL": "pg", "OLLAMA_API_KEY": "ol", "ANTHROPIC_UPSTREAM_API_KEY": "an",
+    "OPENAI_UPSTREAM_API_KEY": "oa", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk",
     "MICROSOFT_CLIENT_ID": "mc", "MICROSOFT_CLIENT_SECRET": "ms", "MICROSOFT_TENANT": "mt",
     "PROXY_BASE_URL": "pb", "DEVELOPERS_TEAM_ID": "dt", "ENTRA_CLIENT_TO_KEY": "{}",
     "OTEL_EXPORTER": "otlp_http", "OTEL_ENDPOINT": "e", "OTEL_SERVICE_NAME": "litellm-gateway",
@@ -198,6 +199,7 @@ def test_gateway_receives_exactly_what_it_consumes():
     assert set(env) == {
         "LITELLM_MASTER_KEY", "LITELLM_MCP_CLIENT_TIMEOUT", "LITELLM_MCP_TOOL_LISTING_TIMEOUT",
         "DATABASE_URL", "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "MCP_SHARED_SECRET",
+        "OPENAI_UPSTREAM_API_KEY", "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "GRAPH_MCP_URL", "REDIS_URL",
         "OTEL_EXPORTER", "OTEL_ENDPOINT", "OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT",
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE", "ENTRA_CLIENT_TO_KEY", "DEVELOPERS_TEAM_ID",
@@ -530,3 +532,14 @@ def test_only_the_corpus_server_receives_the_reader_dsn():
         if role == "reference-mcp":
             continue
         assert "REFERENCE_DB_URL" not in allowed, role
+
+
+def test_the_gateway_is_pointed_at_the_corpus_facade_with_the_shared_secret():
+    """The vector_store_registry's provider reads PG_VECTOR_API_BASE / PG_VECTOR_API_KEY from the
+    gateway's process env (LiteLLM resolves no os.environ/ on that path). Derived here from the
+    reference-mcp address and MCP_SHARED_SECRET — never a second secret to rotate."""
+    env = railway.substrate_env("gateway", railway.SUBSTRATE["gateway"],
+                                {**FAKE, "MCP_SHARED_SECRET": "shh"})
+    assert env["PG_VECTOR_API_BASE"] == "http://reference-mcp.railway.internal:9700"
+    assert env["PG_VECTOR_API_KEY"] == "shh"
+    assert "/v1/" not in env["PG_VECTOR_API_BASE"], "an ORIGIN — the client appends the path"

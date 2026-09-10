@@ -162,6 +162,47 @@ MIGRATIONS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ref_consumption_reverse ON ref_consumption "
     "(artifact_id, version, consulted_at DESC)",
     "CREATE INDEX IF NOT EXISTS ref_consumption_run ON ref_consumption (run_id, field)",
+
+    # ---- added after fifty artifacts were already published: ALTERs, never a rewritten CREATE.
+    #
+    # `retrieval` is how a CONSUMER reads the artifact — whole / key / vector — declared on the
+    # artifact so no caller infers it from size (see `lab.core.reference.model.Retrieval`). Every
+    # existing artifact defaults to `key`, the exact read it has always had. Postgres has no
+    # `ADD CONSTRAINT IF NOT EXISTS`, so each constraint looks itself up in `pg_constraint` first;
+    # a second `init` must survive the first one's work.
+    # On the ARTIFACT (the current declaration, what the catalogue lists) AND on the VERSION (what
+    # a pin froze): `ref_artifact_version` is append-only so that a pin means something, and a mode
+    # only on the artifact row would be the one attribute of a pinned version a re-publish could
+    # rewrite — flipping a released `key` version to `vector` would fail every search under every
+    # pin in that ring until the index it never had was built.
+    "ALTER TABLE ref_artifact ADD COLUMN IF NOT EXISTS retrieval TEXT NOT NULL DEFAULT 'key'",
+    "ALTER TABLE ref_artifact_version ADD COLUMN IF NOT EXISTS retrieval TEXT NOT NULL "
+    "DEFAULT 'key'",
+    """DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ref_artifact_retrieval_check')
+          THEN ALTER TABLE ref_artifact ADD CONSTRAINT ref_artifact_retrieval_check
+               CHECK (retrieval IN ('whole','key','vector'));
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                          WHERE conname = 'ref_artifact_version_retrieval_check')
+          THEN ALTER TABLE ref_artifact_version ADD CONSTRAINT ref_artifact_version_retrieval_check
+               CHECK (retrieval IN ('whole','key','vector'));
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ref_artifact_prose_is_vector')
+          THEN ALTER TABLE ref_artifact ADD CONSTRAINT ref_artifact_prose_is_vector
+               CHECK (kind <> 'prose' OR retrieval = 'vector');
+          END IF;
+        END $$""",
+    # A passage derived FROM a record names it, so a semantic hit over a record artifact resolves
+    # to the exact row. NULL for prose passages; the composite FK is skipped on NULL (MATCH SIMPLE).
+    "ALTER TABLE ref_passage ADD COLUMN IF NOT EXISTS record_id TEXT",
+    """DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ref_passage_record_fk')
+          THEN ALTER TABLE ref_passage ADD CONSTRAINT ref_passage_record_fk
+               FOREIGN KEY (artifact_id, version, record_id)
+               REFERENCES ref_record (artifact_id, version, record_id) ON DELETE CASCADE;
+          END IF;
+        END $$""",
 )
 
 #: DR-03 as a GRANT rather than a convention. The server is configured with the reader role, so a

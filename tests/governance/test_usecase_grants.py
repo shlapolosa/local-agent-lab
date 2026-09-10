@@ -25,6 +25,7 @@ from lab.platform.contracts import (
     USE_CASE_INVESTMENT,
     USE_CASE_PROVISIONING,
     USE_CASE_SCREENING,
+    VectorStores,
     WorkflowTools,
 )
 
@@ -137,3 +138,20 @@ def test_no_identity_holds_a_collaboration_or_speech_tool(provisioning):
     for table in (provisioning.INTAKE_TOOLS, provisioning.DELIVERY_TOOLS,
                   provisioning.SUBMITTER_TOOLS):
         assert "collab_mcp" not in table and "speech_mcp" not in table
+
+
+# ---------------------------------------------------------------- relevance stores are a grant
+
+def test_a_team_s_store_grant_is_never_left_open(provisioning):
+    """LiteLLM reads an absent OR EMPTY `vector_stores` as every store. So the grant is always
+    written, and "none" is spelled as a store that does not exist rather than as `[]`."""
+    none = provisioning._grants({"reference_mcp": ["reference_pin"]})
+    assert none["vector_stores"] and none["vector_stores"] != []
+    assert not (set(none["vector_stores"]) & VectorStores.names()), "the sentinel is not a store"
+    some = provisioning._grants({}, stores=[VectorStores.CAPABILITY_MAP_HEALTHCARE])
+    assert some["vector_stores"] == [VectorStores.CAPABILITY_MAP_HEALTHCARE]
+
+
+def test_every_store_a_team_is_granted_is_one_the_gateway_registers(provisioning):
+    for name in ("INTAKE_STORES", "DELIVERY_STORES", "SUBMITTER_STORES"):
+        assert set(getattr(provisioning, name, ())) <= VectorStores.names(), name

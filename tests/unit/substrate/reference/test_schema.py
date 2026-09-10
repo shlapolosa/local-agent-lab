@@ -41,3 +41,40 @@ def test_no_approximate_index_is_created_over_the_embeddings():
     assert "hnsw" not in sql and "ivfflat" not in sql
     # ... but the scan must still be scoped to the pinned version rather than the whole table.
     assert "ref_passage_scope" in sql
+
+
+# ------------------------------------------------- retrieval mode and record-backed passages
+
+def test_the_retrieval_mode_is_a_column_added_idempotently_to_an_existing_corpus():
+    """The corpus already holds fifty artifacts; a mode they did not declare arrives as an ALTER
+    that a second `init` survives, defaulting every existing artifact to the exact read it has
+    always had."""
+    from lab.substrate.reference.schema import MIGRATIONS
+    alters = [s for s in MIGRATIONS if "ALTER TABLE ref_artifact " in s]
+    assert any("retrieval" in s and "IF NOT EXISTS" in s and "DEFAULT 'key'" in s for s in alters)
+    sql = " ".join(MIGRATIONS)
+    assert "'whole'" in sql and "'vector'" in sql, "the three modes are a CHECK, not a convention"
+    assert "kind <> 'prose' OR retrieval = 'vector'" in sql, "prose can only be searched"
+
+
+def test_a_passage_may_name_the_record_it_was_derived_from():
+    from lab.substrate.reference.schema import MIGRATIONS
+    assert any("ALTER TABLE ref_passage ADD COLUMN IF NOT EXISTS record_id" in s
+               for s in MIGRATIONS)
+    assert any("ref_passage_record_fk" in s and "REFERENCES ref_record" in s for s in MIGRATIONS)
+
+
+def test_every_constraint_added_after_the_fact_checks_for_itself_first():
+    """Postgres has no `ADD CONSTRAINT IF NOT EXISTS`, so each one is guarded by a lookup in
+    `pg_constraint` — the second `init` must not fail on the first one's work."""
+    from lab.substrate.reference.schema import MIGRATIONS
+    for statement in MIGRATIONS:
+        if "ADD CONSTRAINT" in statement:
+            assert "pg_constraint" in statement and "IF NOT EXISTS" in statement, statement
+
+
+def test_the_version_table_carries_the_mode_too_because_a_pin_freezes_versions():
+    from lab.substrate.reference.schema import MIGRATIONS
+    assert any("ALTER TABLE ref_artifact_version ADD COLUMN IF NOT EXISTS retrieval" in s
+               for s in MIGRATIONS)
+    assert "ref_artifact_version_retrieval_check" in " ".join(MIGRATIONS)

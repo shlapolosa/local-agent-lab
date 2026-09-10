@@ -29,9 +29,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from lab.core.reference.derive import content_digest, passages, records
+from lab.core.reference.derive import content_digest, passages, record_passages, records
 from lab.core.reference.manifest import manifest, public_key_of, sign, verify
 from lab.core.reference.master import parse as parse_master
+from lab.core.reference.model import ArtifactKind, Retrieval, default_retrieval
 from lab.core.reference.rings import RINGS, can_release
 from lab.platform import config
 from lab.substrate import artifacts as artifact_store
@@ -107,28 +108,47 @@ class Publisher:
 
     def publish(self, artifact_id: str, *, master_path: Path, version: str, kind: str,
                 owner: str, record_type: str = "", key_fields: Sequence[str] = (),
-                supersedes: str = "") -> dict:
-        """Hash the master, derive from it, sign, index, and mark published — in that order."""
+                supersedes: str = "", retrieval: str = "",
+                text_fields: Sequence[str] = ()) -> dict:
+        """Hash the master, derive from it, sign, index, and mark published — in that order.
+
+        `retrieval` is how a CONSUMER reads the artifact (`whole` / `key` / `vector`); empty means
+        the kind's default. A `vector` RECORD artifact derives BOTH forms from the same rows: the
+        records for exact reads and one passage per record for relevance, each passage naming its
+        record so a semantic hit resolves to the row an exact read would return. `text_fields`
+        names which columns make the passage (every non-empty one when unset)."""
         if kind not in ("record", "prose"):
             raise PublishError(f"kind must be 'record' or 'prose'; got {kind!r}")
         if kind == "record" and not (record_type and key_fields):
             raise PublishError("a record artifact needs a record_type and its natural key_fields — "
                                "without the key, a re-publish cannot keep a row's identity")
+        try:
+            mode = Retrieval(retrieval) if retrieval else default_retrieval(ArtifactKind(kind))
+        except ValueError as exc:
+            raise PublishError(f"retrieval must be one of {[str(m) for m in Retrieval]}; got "
+                               f"{retrieval!r}") from exc
+        if kind == "prose" and mode is not Retrieval.VECTOR:
+            raise PublishError(f"{artifact_id}: a prose artifact has no natural key, so it can "
+                               f"only be retrieved semantically — declare it 'vector'")
 
         raw = master_path.read_bytes()
         master_sha = _sha256(raw)
         master = parse_master(raw.decode("utf-8"))
 
         # Derived FROM the parsed master, so `derived_from` is a fact rather than a claim.
+        indexed: list[Any] = []
         if kind == "record":
             rows = [dict(zip(master.headers, row)) for row in master.rows]
             derived = records(artifact_id, rows, key_fields=list(key_fields))
             entries: list[Any] = [{"record_id": d.record_id, "key": d.key, "body": d.body}
                                   for d in derived]
+            if mode is Retrieval.VECTOR and derived:
+                indexed = record_passages(artifact_id, derived, text_fields=list(text_fields))
         else:
             derived = passages(artifact_id, master.prose or raw.decode("utf-8"))
             entries = [{"passage_id": d.passage_id, "anchor": d.anchor, "text": d.text}
                        for d in derived]
+            indexed = list(derived)
         if not derived:
             raise PublishError(f"{artifact_id}: the master derived nothing — an artifact that "
                                f"indexes to zero rows would pass any 'is it there' check")
@@ -149,20 +169,27 @@ class Publisher:
         agent_ref = store.put(f"{artifact_id}.json", agent_bytes, "application/json")
 
         statements: list[tuple[str, Sequence[Any]]] = [
-            ("INSERT INTO ref_artifact (artifact_id, kind, record_type, title, owner) "
-             "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (artifact_id) DO UPDATE "
-             "SET title = EXCLUDED.title, owner = EXCLUDED.owner",
-             (artifact_id, kind, record_type or None, master.title, owner)),
+            # The mode is the artifact's CURRENT declaration — updated on re-publish, not frozen
+            # with its first version — so an artifact that outgrows its prompt can become
+            # searchable without a new identity.
+            ("INSERT INTO ref_artifact (artifact_id, kind, record_type, title, owner, retrieval) "
+             "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (artifact_id) DO UPDATE "
+             "SET title = EXCLUDED.title, owner = EXCLUDED.owner, "
+             "retrieval = EXCLUDED.retrieval",
+             (artifact_id, kind, record_type or None, master.title, owner, str(mode))),
             ("INSERT INTO ref_artifact_version (artifact_id, version, status, master_ref, "
              "master_sha256, agent_ref, agent_sha256, derived_from, manifest_sha256, signature, "
-             "key_id, signed_at, published_at, supersedes) "
-             "VALUES (%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+             "key_id, signed_at, published_at, supersedes, retrieval) "
+             "VALUES (%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
              (artifact_id, version, master_ref, master_sha, agent_ref, agent_sha, master_sha,
-              digest, signature, self.key_id, published_at, published_at, supersedes or None)),
+              digest, signature, self.key_id, published_at, published_at, supersedes or None,
+              str(mode))),
         ]
-        statements += (self._record_rows(artifact_id, version, record_type, derived)
-                       if kind == "record"
-                       else self._passage_rows(artifact_id, version, derived))
+        # Records BEFORE the passages that reference them (`ref_passage_record_fk`).
+        if kind == "record":
+            statements += self._record_rows(artifact_id, version, record_type, derived)
+        if indexed:
+            statements += self._passage_rows(artifact_id, version, indexed)
 
         # The one transaction that makes it servable — index state and status together, or neither.
         statements.append((
@@ -173,9 +200,9 @@ class Publisher:
             "embed_dim = EXCLUDED.embed_dim, completed_at = EXCLUDED.completed_at",
             (artifact_id, version,
              len(derived) if kind == "record" else 0,
-             0 if kind == "record" else len(derived),
-             self.embedder.model if (kind == "prose" and self.embedder) else None,
-             self.embedder.dim if (kind == "prose" and self.embedder) else None,
+             len(indexed),
+             self.embedder.model if indexed else None,
+             self.embedder.dim if indexed else None,
              _now())))
         statements.append(("UPDATE ref_artifact_version SET status = 'published' "
                            "WHERE artifact_id = %s AND version = %s", (artifact_id, version)))
@@ -183,7 +210,8 @@ class Publisher:
         # The manifest is returned, not just written: an operator publishing a governed artifact
         # should be able to see exactly what was signed without reading it back out of the database.
         return {"artifact_id": artifact_id, "version": version, "kind": kind,
-                "entries": len(derived), "master_ref": master_ref, "agent_ref": agent_ref,
+                "retrieval": str(mode), "entries": len(derived), "passages": len(indexed),
+                "master_ref": master_ref, "agent_ref": agent_ref,
                 "signature_id": self.key_id, "signature": signature,
                 "manifest": {"master_sha256": master_sha, "agent_sha256": agent_sha,
                              "derived_from": master_sha, "content_digest": digest,
@@ -198,16 +226,16 @@ class Publisher:
     def _passage_rows(self, artifact_id, version, derived):
         if self.embedder is None:
             raise PublishError(
-                f"{artifact_id} is a prose artifact and no embedder is configured. Publishing it "
-                f"unindexed would create a version that reference_search must refuse — set "
-                f"REFERENCE_EMBED_MODEL, or publish the record artifacts only for now.")
+                f"{artifact_id} is retrieved semantically and no embedder is configured. "
+                f"Publishing it unindexed would create a version that reference_search must "
+                f"refuse — set REFERENCE_EMBED_MODEL, or declare the artifact 'key' for now.")
         vectors = self.embedder.embed([d.text for d in derived], purpose="document")
         return [("INSERT INTO ref_passage (artifact_id, version, passage_id, ordinal, "
-                 "heading_path, anchor, text, tokens, embed_model, embed_dim, embedding) "
-                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                 "heading_path, anchor, text, tokens, embed_model, embed_dim, embedding, "
+                 "record_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                  (artifact_id, version, d.passage_id, d.ordinal, list(d.heading_path), d.anchor,
                   d.text, len(d.text.split()), self.embedder.model, self.embedder.dim,
-                  "[" + ",".join(str(v) for v in vec) + "]"))
+                  "[" + ",".join(str(v) for v in vec) + "]", d.record_id or None))
                 for d, vec in zip(derived, vectors)]
 
     # ---------------------------------------------------------------- release
@@ -315,6 +343,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     pub.add_argument("--record-type", default="")
     pub.add_argument("--key-fields", default="", help="comma-separated natural key")
     pub.add_argument("--supersedes", default="")
+    pub.add_argument("--retrieval", choices=[str(m) for m in Retrieval], default="",
+                     help="how a consumer reads it: whole | key | vector (default: the kind's)")
+    pub.add_argument("--text-fields", default="",
+                     help="vector-mode record artifacts: the columns that make each passage")
 
     rel = sub.add_parser("release", help="move a version to a ring, subject to the soak")
     rel.add_argument("artifact_id")
@@ -337,7 +369,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.artifact_id, master_path=args.master, version=args.version, kind=args.kind,
             owner=args.owner, record_type=args.record_type,
             key_fields=[f for f in args.key_fields.split(",") if f],
-            supersedes=args.supersedes)
+            supersedes=args.supersedes, retrieval=args.retrieval,
+            text_fields=[f for f in args.text_fields.split(",") if f])
         print(json.dumps(out, indent=2))
     elif args.command == "release":
         print(json.dumps(publisher.release(args.artifact_id, args.version, ring=args.ring,

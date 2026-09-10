@@ -37,10 +37,12 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
 from typing import Any
 
 from fastmcp import FastMCP
 from opentelemetry import trace
+from starlette.responses import JSONResponse
 
 from lab.platform import config
 from lab.substrate import container as _container
@@ -110,6 +112,27 @@ class LabServer:
         serve(self.mcp, self.service, self.port, path=self.path, routes=routes)
 
 
+def error_response(status: int, message: str, **extra) -> JSONResponse:
+    """One error shape for every plain-HTTP ingress beside /mcp. A low-code flow — or LiteLLM
+    relaying a vector-store search — shows the caller whatever it is handed, so the message has to
+    be the sentence a person needs, not a code they then look up."""
+    return JSONResponse({"error": message, **extra}, status_code=status)
+
+
+async def json_body(request) -> dict:
+    """The request body as a JSON object; a ValueError says what was wrong with it."""
+    raw = await request.body()
+    if not raw:
+        return {}
+    try:
+        got = json.loads(raw)
+    except ValueError as e:
+        raise ValueError(f"the request body is not JSON: {e}") from e
+    if not isinstance(got, dict):
+        raise ValueError("the request body must be a JSON object")
+    return got
+
+
 def app_for(mcp, *, path: str = "/mcp", routes=()):
     """The ASGI app for a FastMCP server with the lab's middleware chain applied.
 
@@ -143,4 +166,4 @@ def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = 
                 log_level=log_level)
 
 
-__all__ = ["LabServer", "span", "serve", "app_for", "LOOPBACK"]
+__all__ = ["LabServer", "span", "serve", "app_for", "LOOPBACK", "error_response", "json_body"]

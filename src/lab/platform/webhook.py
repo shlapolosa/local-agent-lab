@@ -1,4 +1,4 @@
-"""The lab's one outbound JSON POST.
+"""The lab's outbound JSON calls — one POST, one GET — over the standard library.
 
 CLAUDE.md states an exception to gateway-only egress: a channel — and now the meeting notifier —
 posts DIRECTLY to a fixed configured URL, carrying counts, ids and links and no model content. An
@@ -34,5 +34,15 @@ def post_json(url: str, payload: dict, *, headers: dict | None = None,
     # still UTF-8 encoded — `json.dumps` escapes non-ASCII by default, so Arabic survives either way.
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **(headers or {})})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode()
+
+
+def get_json(url: str, *, headers: dict | None = None, timeout: int = TIMEOUT_S) -> str:
+    """GET and return the body as text. The same thinness as `post_json`: the caller owns what a
+    failure means. Exists for the one read a workload makes that is not a tool call — asking the
+    gateway which relevance stores it registers, before a run spends anything."""
+    req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json",
+                                                             **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode()

@@ -26,7 +26,7 @@ from lab.core.semantic.ids import content_id
 
 __all__ = [
     "DerivationError", "DerivedPassage", "DerivedRecord",
-    "chunk", "content_digest", "passages", "records",
+    "chunk", "content_digest", "passages", "record_passages", "records",
 ]
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
@@ -44,6 +44,7 @@ class DerivedPassage:
     heading_path: tuple[str, ...]
     ordinal: int
     passage_id: str = ""
+    record_id: str = ""            # set when the passage IS a record, rendered for relevance
 
     @property
     def anchor(self) -> str:
@@ -163,6 +164,31 @@ def records(artifact_id: str, rows: Sequence[Mapping[str, Any]], *,
                 f"choose between them, and returning either silently is worse than failing")
         seen[record_id] = row
         out.append(DerivedRecord(record_id=record_id, key=key, body=row))
+    return out
+
+
+def record_passages(artifact_id: str, derived: Sequence[DerivedRecord], *,
+                    text_fields: Sequence[str] = ()) -> list[DerivedPassage]:
+    """One passage per record, for a record artifact that is ALSO retrieved by relevance.
+
+    The text is the named fields joined in order (every non-empty field when none are named), the
+    anchor is the natural key rendered, and the id follows the RECORD rather than the text — so a
+    corrected definition keeps the passage's id and a citation into it keeps resolving, exactly as
+    the record's own id does. A row that renders to nothing refuses: an empty passage is
+    indistinguishable from a thorough index that happened to hold little."""
+    out: list[DerivedPassage] = []
+    for ordinal, record in enumerate(derived):
+        fields = list(text_fields) or [k for k, v in record.body.items() if str(v or "").strip()]
+        text = ". ".join(str(record.body.get(f, "")).strip() for f in fields
+                         if str(record.body.get(f, "")).strip())
+        if not text:
+            raise DerivationError(f"{artifact_id}: record {record.record_id} renders no text from "
+                                  f"{fields}; a passage with nothing in it would index as if it "
+                                  f"said something")
+        anchor = " · ".join(f"{k}={v}" for k, v in record.key.items())
+        out.append(DerivedPassage(text=text, heading_path=(anchor,), ordinal=ordinal,
+                                  passage_id=content_id("psg-", artifact_id, record.record_id),
+                                  record_id=record.record_id))
     return out
 
 

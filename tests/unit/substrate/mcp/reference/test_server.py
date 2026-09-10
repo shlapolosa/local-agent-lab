@@ -171,3 +171,56 @@ def test_no_span_attribute_carries_an_artifact_s_text_or_a_caller_s_words(librar
     # The rule is about an art:// REF or a file NAME as a value — not the "reference." prefix every
     # key here legitimately carries, which a substring check would flag forever.
     assert not any(k.endswith(("_ref", "_name", ".ref", ".name")) for k in recorded), recorded
+
+
+# ---------------------------------------------------------------- retrieval mode is told, not guessed
+
+def test_the_catalogue_and_the_pin_tell_a_caller_how_each_artifact_is_read(library):
+    """A caller reads an artifact the way its head says — whole, by key, or by search — and never
+    infers it from size. The pin carries it too, because the pin is what a run actually holds."""
+    library.artifacts["guardrail-mapping"].retrieval = "whole"
+    by_id = {a["artifact_id"]: a["retrieval"] for a in S.reference_catalogue()["artifacts"]}
+    assert by_id == {"guardrail-mapping": "whole", "tradeoff-catalogue": "vector"}
+    pinned = {v["artifact_id"]: v["retrieval"] for v in S.reference_pin()["versions"]}
+    assert pinned == by_id
+
+
+def test_a_hit_over_a_record_artifact_names_the_record_it_resolves_to(library):
+    from fixtures.reference import SeededArtifact
+    library.artifacts["capability-map"] = SeededArtifact(
+        artifact_id="capability-map", kind=ArtifactKind.RECORD, title="Map",
+        record_type="capability", retrieval="vector",
+        records=[{"record_id": "rec-9", "id": "L2", "parent": "L1", "level": "2"}],
+        passages=[{"passage_id": "psg-9", "text": "care triage sorting", "record_id": "rec-9",
+                   "key": {"id": "L2", "parent": "L1", "level": "2"}}])
+    pin = S.reference_pin()["pin_id"]
+    out = S.reference_search(pin_id=pin, question="triage", artifact_ids=["capability-map"],
+                             **ATTRIBUTION)
+    hit = out["passages"][0]
+    assert hit["record_id"] == "rec-9" and hit["key"]["parent"] == "L1"
+    assert S.reference_record(pin_id=pin, artifact_id="capability-map", record_id="rec-9",
+                              **ATTRIBUTION)["record"]["body"]["id"] == "L2"
+
+
+def test_searching_an_exact_artifact_by_name_is_refused_as_a_sentence(library):
+    pin = S.reference_pin()["pin_id"]
+    with pytest.raises(ToolError) as e:
+        S.reference_search(pin_id=pin, question="anything", artifact_ids=["guardrail-mapping"],
+                           **ATTRIBUTION)
+    assert "reference_lookup" in str(e.value)
+
+
+def test_a_lookup_can_name_the_one_artifact_it_means(library):
+    """A record type is a classification two artifacts may share; naming the artifact is how a
+    caller avoids indexing a column the other one does not have."""
+    from fixtures.reference import SeededArtifact
+    library.artifacts["other-mapping"] = SeededArtifact(
+        artifact_id="other-mapping", kind=ArtifactKind.RECORD, title="Other",
+        record_type="risk-class", records=[{"record_id": "rec-o", "risk_class": "E2", "x": 1}])
+    pin = S.reference_pin()["pin_id"]
+    both = S.reference_lookup(pin_id=pin, record_type="risk-class", key={"risk_class": "E2"},
+                              **ATTRIBUTION)
+    one = S.reference_lookup(pin_id=pin, record_type="risk-class", key={"risk_class": "E2"},
+                             artifact_id="guardrail-mapping", **ATTRIBUTION)
+    assert both["matched"] == 2 and one["matched"] == 1
+    assert one["records"][0]["artifact_id"] == "guardrail-mapping"

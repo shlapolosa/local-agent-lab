@@ -16,8 +16,8 @@ operator. Collapsing them sends whoever is on call to the wrong place.
 from __future__ import annotations
 
 __all__ = [
-    "ArtifactUnverified", "CorpusUnreachable", "IndexUnavailable", "PinExpired",
-    "ReferenceError", "ReferenceUnavailable", "UnknownRecordType",
+    "ArtifactUnverified", "CorpusUnreachable", "IndexUnavailable", "NotPinned", "NotSearchable",
+    "PinExpired", "ReferenceError", "ReferenceUnavailable", "UnknownRecordType",
 ]
 
 
@@ -66,6 +66,33 @@ class IndexUnavailable(ReferenceError):
         super().__init__(_sentence(
             f"the index for {artifact_id!r} at {version} cannot be searched: {reason}",
             "re-index this version; a partial answer here is worse than none"))
+
+
+class NotPinned(ReferenceError):
+    """A read named an artifact the run's pin does not hold — a CALLER error, not an index one.
+
+    Reading it anyway would be a read outside the pin, which is exactly what a pin exists to make
+    inexpressible: two reads in one run could straddle a release."""
+
+    def __init__(self, artifact_id: str, pin_id: str, held: list[str]) -> None:
+        self.artifact_id, self.pin_id = artifact_id, pin_id
+        super().__init__(_sentence(
+            f"{artifact_id!r} is not in pin {pin_id}, which holds {sorted(held)}",
+            "pin the artifact before reading it; a read outside the pin could straddle a release"))
+
+
+class NotSearchable(ReferenceError):
+    """A relevance query named an artifact declared for EXACT retrieval.
+
+    Not an index problem — there is no index, by declaration. A ranked answer over a nine-row
+    register is the nearly-right predicate the exact side of the corpus exists to prevent."""
+
+    def __init__(self, artifact_id: str, version: str, retrieval: str) -> None:
+        self.artifact_id, self.version = artifact_id, version
+        super().__init__(_sentence(
+            f"{artifact_id!r} at {version} is declared {retrieval!s} — an exact artifact with no "
+            f"semantic index",
+            "read it with reference_lookup"))
 
 
 class ArtifactUnverified(ReferenceError):

@@ -225,6 +225,10 @@ ROLE_ENV = {
         "LITELLM_*",                               # master key, LITELLM_MCP_CLIENT_TIMEOUT / TOOL_LISTING_TIMEOUT (litellm env)
         "DATABASE_URL",                            # key/team/spend store (litellm)
         "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
+        "OPENAI_UPSTREAM_API_KEY",                 # ... the corpus's embedding model (text-embedding-3-large)
+        "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",  # the vector_store_registry's provider reads THESE from the
+                                                   # process env (LiteLLM resolves no os.environ/ on that path):
+                                                   # reference-mcp's origin + MCP_SHARED_SECRET, set by substrate_env()
         "MCP_SHARED_SECRET",                       # litellm-config.yaml mcp_servers authentication_token
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL",   # mcp_servers url (set by configure(), private DNS)
         "GRAPH_MCP_URL", "SPEECH_MCP_URL",         # ... incl. the collab_mcp and speech_mcp aliases' services
@@ -674,6 +678,10 @@ def substrate_env(name, spec, base_env) -> dict:
     env["VALUATION_MCP_URL"] = "http://valuation-mcp.railway.internal:9900/mcp"
     env["WORKFLOW_API_URL"] = "http://workflow-frontdoor.railway.internal:9400/api"
     env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
+    # The relevance stores' provider (litellm-config.yaml vector_store_registry): an ORIGIN — the
+    # client appends /v1/vector_stores/<id>/search — and the bearer reference-mcp expects.
+    env["PG_VECTOR_API_BASE"] = "http://reference-mcp.railway.internal:9700"
+    env["PG_VECTOR_API_KEY"] = env.get("MCP_SHARED_SECRET", "")
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))
     return env

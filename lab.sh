@@ -30,7 +30,11 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
          REFERENCE_MCP_URL="${REFERENCE_MCP_URL:-http://127.0.0.1:9700/mcp}" \
          DECISION_MCP_URL="${DECISION_MCP_URL:-http://127.0.0.1:9800/mcp}" \
          VALUATION_MCP_URL="${VALUATION_MCP_URL:-http://127.0.0.1:9900/mcp}" \
-         WORKFLOW_API_URL="${WORKFLOW_API_URL:-http://127.0.0.1:9400/api}"; }
+         WORKFLOW_API_URL="${WORKFLOW_API_URL:-http://127.0.0.1:9400/api}"
+  # the gateway's vector_store_registry reaches reference-mcp's façade through the provider's own
+  # env names (LiteLLM resolves no os.environ/ there): the server's ORIGIN and its bearer
+  export PG_VECTOR_API_BASE="${PG_VECTOR_API_BASE:-http://127.0.0.1:9700}" \
+         PG_VECTOR_API_KEY="${PG_VECTOR_API_KEY:-${MCP_SHARED_SECRET:-}}"; }
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }

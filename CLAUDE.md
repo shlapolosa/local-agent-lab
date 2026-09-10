@@ -1000,6 +1000,55 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
 - Requests carry the OTel `trace_id` of the run that produced the model, so a reviewer can
   open the exact trace from the review app.
 
+## Reference Corpus (`reference-mcp` :9700 — the governed artifacts every derivation reads)
+
+**The corpus IS Postgres** (Neon, `ref_*` tables, `src/lab/substrate/reference/schema.py`): signed
+versions (`ref_artifact_version`, Ed25519, `CHECK derived_from = master_sha256`), released per ring
+(`ref_release`), records by natural key (`ref_record`, JSONB) and passages with pgvector
+(`ref_passage`, undimensioned column, exact cosine, **no ANN index by design**), read ONLY under a
+pin (`ref_pin`) with every read written to `ref_consumption` inside the call (FR-44). The server runs
+as `lab_reference_reader` (SELECT + INSERT on pin/consumption only — DR-03 as a GRANT); publishing is
+the operator CLI `python -m lab.substrate.reference.publish` holding the signing seed
+(`var/run/reference_signing_key`, NEVER `.env`/`LAB_ENV`) and the publisher DSN. **Deterministic data
+in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory or Redis.**
+
+- **Retrieval mode is DATA on the artifact** (`ref_artifact.retrieval`, `lab.core.reference.model.
+  Retrieval`): `whole` (a small complete register — read every record, never "the relevant rows"),
+  `key` (exact by natural key), `vector` (also indexed; a RECORD artifact can be both — the capability
+  map is exact by `parent`/`level` AND searchable). Undeclared = the kind's default (prose ⇒ vector).
+  The catalogue and the pin tell a caller the mode; **a consumer reads the way it is told and never
+  infers it from size** — baseline artifacts grow, and the consumer must not be what changes when
+  they do. A `vector` record artifact publishes one passage per record (`derive.record_passages`,
+  `ref_passage.record_id` → the row), so a relevance hit resolves to the exact record.
+- **Search is scoped by declared mode** (`pg_library._searchable`): a whole-pin search covers the
+  vector-mode artifacts and skips the exact ones; NAMING an exact artifact refuses ("read it with
+  reference_lookup"); naming one not in the pin refuses; a vector artifact with no completed index
+  still refuses (CR-12 — an empty list is the most dangerous return value in this layer).
+- **Relevance retrieval goes THROUGH LiteLLM**: `config/litellm-config.yaml` `vector_store_registry`
+  registers one store per vector-mode artifact (**store id = artifact id**, catalogue
+  `lab.platform.contracts.VectorStores`, two-way parity test `tests/governance/test_vector_stores.py`)
+  with provider `pg_vector` — an HTTP client, NOT a Postgres client — pointed at reference-mcp's
+  **OpenAI vector-store façade** (`lab.substrate.mcp.reference.vectorstore`, `POST
+  /v1/vector_stores/<id>/search`, mounted beside `/mcp` via `LabServer.serve(routes=)`, behind the same
+  bearer). It is a second TRANSPORT over the one `pg_library.search`, not a second implementation:
+  `filters` MUST carry `pin_id/run_id/process/field` (400 otherwise) so a read through the gateway is
+  attributed exactly like one through the tool. A team is granted stores with
+  `object_permission.vector_stores` — **LiteLLM reads an absent OR EMPTY list as "every store"**, so
+  `provision_usecase_agents._grants` always writes it and spells "none" as the sentinel `["-"]`.
+  `file_search` injection stays OFF (no pin travels with it). **No credential in the yaml**: LiteLLM
+  1.98 resolves no `os.environ/` on this path (verified in `vector_stores/main.py`), so the provider's
+  own `PG_VECTOR_API_BASE` (reference-mcp's ORIGIN) / `PG_VECTOR_API_KEY` (= `MCP_SHARED_SECRET`) are
+  set in the gateway's PROCESS env by `lab.sh` and `deploy/railway.py substrate_env`. Workloads call
+  `lab.workloads.gateway.vector_search` and preflight with `preflight_stores` (`/vector_store/list`),
+  the same zero-token contract as `REQUIRED_TOOLS`.
+- **Embedding** is `text-embedding-3-large` on the gateway (`OPENAI_UPSTREAM_API_KEY`, injected like
+  the Anthropic one; OpenRouter serves NO embedding models — verified) at its native width
+  (`REFERENCE_EMBED_DIM=3072`, held equal to the model's `output_vector_size` by a governance test).
+  The corpus embeds with a VIRTUAL key, `REFERENCE_EMBED_KEY`, minted by
+  `scripts/provision_reference_embedder.py` (team `reference-corpus`, that one model, zero tools).
+  `REFERENCE_EMBED_MODEL` unset ⇒ every search refuses `IndexUnavailable` and publishing a vector
+  artifact refuses — fail closed, never an empty answer.
+
 ## Observability (Foundry observability analogue; traces double as the audit trail)
 
 **Jaeger v2 runs on Railway** (project `elegant-peace`, service `local-agent-lab`, image

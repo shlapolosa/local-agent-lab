@@ -33,7 +33,9 @@ from lab.core.reference.model import (
     Pin,
     Record,
     RecordResult,
+    Retrieval,
     RunRef,
+    default_retrieval,
 )
 
 __all__ = ["FakeReferenceLibrary", "SeededArtifact"]
@@ -57,6 +59,11 @@ class SeededArtifact:
     indexed: bool = True
     verified: bool = True
     embed_model: str = "test-embed"
+    retrieval: str = ""                 # "" = the kind's default, exactly as the real adapter
+
+    def __post_init__(self) -> None:
+        self.retrieval = str(Retrieval(self.retrieval) if self.retrieval
+                             else default_retrieval(self.kind))
 
 
 class FakeReferenceLibrary:
@@ -81,7 +88,8 @@ class FakeReferenceLibrary:
         if not visible:
             raise ReferenceUnavailable("(any)", self.ring,
                                        "publish and release at least one artifact to this ring")
-        return [ArtifactHead(a.artifact_id, a.kind, a.title, a.owner, a.version, a.record_type)
+        return [ArtifactHead(a.artifact_id, a.kind, a.title, a.owner, a.version, a.record_type,
+                             Retrieval(a.retrieval))
                 for a in visible]
 
     def _version(self, artifact: SeededArtifact) -> ArtifactVersion:
@@ -91,7 +99,8 @@ class FakeReferenceLibrary:
             title=artifact.title, master_ref=f"art://{artifact.artifact_id}/master.md",
             master_sha256=digest, agent_sha256=f"{artifact.artifact_id}-agent",
             derived_from=digest, signature_id="k1", signed_at=_now().isoformat(),
-            ring=artifact.ring, published_at=_now().isoformat())
+            ring=artifact.ring, published_at=_now().isoformat(),
+            retrieval=Retrieval(artifact.retrieval))
 
     def pin(self, artifact_ids=()) -> Pin:
         wanted = list(artifact_ids) or [a.artifact_id for a in self._visible()]
@@ -143,6 +152,8 @@ class FakeReferenceLibrary:
         # `artifact_id` narrows exactly as the real adapter does — a record type is a
         # classification, and two artifacts may publish the same one honestly. A double that
         # ignored it would let a caller pass the wrong artifact and never find out.
+        if artifact_id and pin.pinned(artifact_id).retrieval is Retrieval.WHOLE:
+            limit = len(self.artifacts[artifact_id].records) or 1     # read in FULL, as declared
         matching = [a for a in self._visible()
                     if a.record_type == record_type
                     and (not artifact_id or a.artifact_id == artifact_id)]
@@ -170,8 +181,7 @@ class FakeReferenceLibrary:
     def search(self, pin: Pin, *, question: str, run: RunRef, artifact_ids=(), k: int = 5
                ) -> PassageResult:
         self._check_pin(pin)
-        wanted = list(artifact_ids) or [a.artifact_id for a in self._visible()
-                                        if a.kind is ArtifactKind.PROSE]
+        wanted = pin.searchable(artifact_ids)          # the corpus's rule, the pin's one copy
         scored: list[tuple[float, Passage]] = []
         for artifact_id in wanted:
             artifact = self.artifacts[artifact_id]
@@ -192,7 +202,8 @@ class FakeReferenceLibrary:
                     scored.append((overlap, Passage(
                         passage_id=row["passage_id"], text=row["text"], score=float(overlap),
                         heading_path=tuple(row.get("heading_path", ())),
-                        citation=self._citation(artifact, row["passage_id"], anchor))))
+                        citation=self._citation(artifact, row["passage_id"], anchor),
+                        record_id=row.get("record_id", ""), key=dict(row.get("key", {})))))
             self._record(run, artifact, "search", question[:40], bool(scored))
         best = [p for _, p in sorted(scored, key=lambda pair: -pair[0])][:k]
         return PassageResult(passages=tuple(best), citations=tuple(p.citation for p in best))

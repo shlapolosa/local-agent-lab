@@ -99,7 +99,6 @@ services:
       REFERENCE_RING: ${REFERENCE_RING:-2}
       REFERENCE_TRUST_KEYS: ${REFERENCE_TRUST_KEYS:-}   # PUBLIC keys; the signing seed stays with the operator
       REFERENCE_EMBED_MODEL: ${REFERENCE_EMBED_MODEL:-}   # empty = semantic search refuses, exact lookup works
-      REFERENCE_EMBED_DIM: ${REFERENCE_EMBED_DIM:-1024}
       REFERENCE_EMBED_KEY: ${REFERENCE_EMBED_KEY:-}       # a VIRTUAL key — the upstream one is the gateway's
 
   decision-mcp:               # the CAFÉ derivations (gateway alias decision_mcp) — internal only.
@@ -140,6 +139,10 @@ services:
       <<: *env
       BIND_HOST: 0.0.0.0
       GATEWAY_URL: http://gateway:4000
+      # the vector_store_registry's provider reads THESE (LiteLLM resolves no os.environ/ there):
+      # reference-mcp's ORIGIN on this network, and the bearer it expects
+      PG_VECTOR_API_BASE: http://reference-mcp:9700
+      PG_VECTOR_API_KEY: ${MCP_SHARED_SECRET:-}
       ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
       SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
       STORAGE_MCP_URL: http://storage-mcp:9300/mcp
