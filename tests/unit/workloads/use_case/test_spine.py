@@ -1041,7 +1041,9 @@ def test_a_corpus_with_no_projection_declared_is_passed_through_untouched():
 def test_a_corpus_over_the_prompt_budget_is_unavailable_rather_than_partial():
     """A step that silently receives half a corpus answers confidently from half a corpus."""
     from lab.workloads.use_case_screening import workflow as W
-    assert W.MAX_CORPUS_BYTES > 0
+    # The healthcare map's `leaves` projection measured 168,707 bytes (10 Sep 2026); below that the
+    # configured matcher silently becomes drill on every run, which is what the harness ranked last.
+    assert W.MAX_CORPUS_BYTES >= 170_000
     src = W.__doc__ or ""
     assert "depth" in open(W.__file__).read()
 

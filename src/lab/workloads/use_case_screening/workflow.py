@@ -91,7 +91,13 @@ def required_stores() -> tuple[str, ...]:
 #: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
 #: unavailable with its size, rather than sent — a step that silently receives half a corpus
 #: answers confidently from half a corpus.
-MAX_CORPUS_BYTES = 120_000
+#:
+#: Sized by MEASUREMENT (10 Sep 2026): the healthcare map's `leaves` projection is 168,707 bytes
+#: (~42k tokens, well inside kimi-k3's window), and the harness ranked `leaves` first on both cases
+#: (F1 0.41/0.56 vs drill ~0.39/0.47, vector 0.24/0.41). At the old 120,000 the configured matcher
+#: fell back to drill on EVERY cloud run, silently — `coverage.resolve` is arithmetic, and the
+#: arithmetic said no. Raise this only with a measurement; lower it and the fallback returns.
+MAX_CORPUS_BYTES = 200_000
 
 
 
