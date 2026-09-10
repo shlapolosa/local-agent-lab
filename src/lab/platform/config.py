@@ -37,6 +37,10 @@ VAR_DIR = Path(_e("LAB_VAR_DIR") or REPO_ROOT / "var")     # logs/ run/ artifact
 
 # --- where things are (URLs as seen by the CALLER) ---
 GATEWAY_URL      = _e("GATEWAY_URL", "http://127.0.0.1:4000")           # LiteLLM, for agents/clients
+#: The internet-reachable gateway, when there is one. Separate from GATEWAY_URL deliberately: a
+#: caller OUTSIDE this machine — a Power Automate flow, a CI job publishing agent cards — cannot
+#: reach 127.0.0.1, and defaulting to it is a silent no-op rather than an error.
+PUBLIC_GATEWAY_URL = _e("PUBLIC_GATEWAY_URL", "")
 GATEWAY_MCP_URL  = _e("GATEWAY_MCP_URL", GATEWAY_URL.rstrip("/") + "/mcp/")
 ADOIT_MCP_URL    = _e("ADOIT_MCP_URL", "http://127.0.0.1:9100/mcp")     # as seen by the gateway
 SEMANTIC_MCP_URL = _e("SEMANTIC_MCP_URL", "http://127.0.0.1:9200/mcp")
@@ -198,6 +202,20 @@ COLLAB_PROVIDER = _e("COLLAB_PROVIDER", "graph")       # THE default lives here,
 # the app's permissions are the ceiling for every caller and per-caller narrowing is done at the
 # gateway with per-team tool permissions.
 ENTRA_TENANT_ID = _e("ENTRA_TENANT_ID", "")           # shared with the gateway's JWT validation
+ENTRA_GATEWAY_AUDIENCE = _e("ENTRA_GATEWAY_AUDIENCE", "")   # api://… — the scope an agent asks for
+#: Entra app id -> virtual key, the mapping the gateway turns a validated JWT into a key with. Empty
+#: is a real answer: a deployment where no agent has a registration yet still runs on durable keys.
+ENTRA_CLIENT_TO_KEY = _mapping("ENTRA_CLIENT_TO_KEY")
+
+# --- where an agent's A2A card is published; unset = nowhere, and it says so ---
+# The card itself is portable (the A2A spec, with the Entra identity in `securitySchemes` — the same
+# block APIM's validate-jwt checks). Only the DESTINATION is platform-specific, so it is the one
+# thing configured: `litellm` today, `none`/unset to publish nothing at all, an APIM or static-file
+# adapter later. THE default lives here, nowhere else.
+AGENT_REGISTRY = _e("AGENT_REGISTRY", "")
+#: The admin credential that publication needs. Deliberately absent from `container.CONFIG_KEYS`, so
+#: it can never reach a workload — publication runs in CI, where this key already lives.
+LITELLM_MASTER_KEY = _e("LITELLM_MASTER_KEY", "")
 GRAPH_BASE_URL = _e("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0")
 GRAPH_AUTH_MODE = _e("GRAPH_AUTH_MODE", "app")        # app (client credentials) | static (a token) | none
 GRAPH_CLIENT_ID = _e("GRAPH_CLIENT_ID")               # the app registration holding the Graph grants

@@ -193,3 +193,22 @@ jobs:
           # what each container SAYS it is, which a tag cannot tell you — a tag that moves under a
           # service that never restarted leaves it serving the previous build
           python deploy/railway.py substrate versions
+
+      # The third leg of the identity claim. A virtual key says what an agent may spend and reach;
+      # an Entra app registration says who it IS; the card is what makes either DISCOVERABLE. The
+      # first two are provisioned by a human against a live tenant, but the card describes what the
+      # CODE is — its name, its model, the processes it serves — so it must follow the code, not a
+      # memory. Published here rather than at service start because `POST /v1/agents` is an admin
+      # write (an agent's own key gets 403), and an agent that could register agents could register
+      # a more privileged one.
+      #
+      # AGENT_REGISTRY is a default, not a decision: `.env` is sourced after it, so a deploy profile
+      # naming a different destination — or none — wins. Without LAB_ENV there is no master key and
+      # nothing to publish to, so a fork skips it.
+      - name: publish the agent cards
+        env:
+          AGENT_REGISTRY: litellm
+        run: |
+          if [ ! -s .env ]; then echo "::notice::no deploy profile — agent cards not published"; exit 0; fi
+          set -a && . ./.env && set +a
+          python scripts/register_agents.py --public

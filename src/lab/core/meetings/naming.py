@@ -20,16 +20,15 @@ Pure: dicts and dataclasses in, dicts and strings out. No I/O, no gateway, no st
 """
 from __future__ import annotations
 
-import copy
 import re
 
 from lab.core.meetings.model import Speakers
 
 __all__ = ["transcript_for_people", "named_minutes"]
 
-#: Where the model is told to write a speaker label. Read from the schema's own descriptions rather
-#: than guessed: `decisions[].decided_by` (a list), `actions[].owner`, `evidence[].speaker`.
-_ONE = ("owner", "speaker")
+#: The one field whose value is a LIST of speakers (`decisions[].decided_by`). It is named not to
+#: decide where substitution happens — that is everywhere — but because a list of people needs
+#: de-duplicating once two labels turn out to be one person.
 _MANY = ("decided_by",)
 
 
@@ -69,48 +68,47 @@ def transcript_for_people(segments, speakers: Speakers) -> str:
 def named_minutes(minutes, speakers: Speakers) -> dict:
     """The minutes with every speaker label replaced by the person a human identified.
 
-    A DEEP COPY, always: the labelled minutes are the audit artifact and the key the semantic model
-    is built on, so this must not rewrite them under their own readers.
+    EVERYWHERE, not in the fields the schema names. The schema puts a label in three places
+    (`decisions[].decided_by`, `actions[].owner`, `evidence[].speaker`) and substituting only those
+    plus the summary was measured live 9 Sep 2026 to leave this behind, in a field nobody had thought
+    of: `concepts[].definition` — "The outstanding items being tracked from previous work; speaker_0
+    recalled only two remained". Two of three lanes leaked it. The model writes prose wherever the
+    schema allows prose, and it refers to speakers there by the only name it was given, so the rule
+    has to be about the LABEL rather than about the field it sits in.
 
-    Labels are substituted longest-first. `speaker_0` is a prefix of `speaker_01`, so replacing in
-    declaration order turns the latter into "<name of speaker_0>1" — a silent corruption that names
-    the wrong person, which is worse than leaving the label. A label nobody identified is left
-    exactly as it is: `gate` already refuses minutes that name one, and if that guard is ever wrong,
-    a reader is better served by one un-named label than by no minutes at all.
+    Substituting every string also subsumes the structured fields: a value that IS a label is
+    replaced whole, and a sentence that merely mentions one is rewritten in place, by one rule.
+
+    Longest-first: `speaker_0` is a prefix of `speaker_01`, so replacing in declaration order turns
+    the latter into "<name of speaker_0>1" — a silent corruption that names the WRONG person, which
+    is worse than leaving the label. A label nobody identified is left exactly as it is: `gate`
+    already refuses minutes that name one, and if that guard is ever wrong, a reader is better served
+    by one un-named label than by no minutes at all.
+
+    Returns a NEW structure throughout: the labelled minutes are the audit artifact and the key the
+    semantic model is built on, so this must never rewrite them under their own readers.
     """
-    out = copy.deepcopy(minutes) if isinstance(minutes, dict) else {}
+    if not isinstance(minutes, dict):
+        return {}
     names = _name_of(speakers)
     if not names:
-        return out
+        return {k: v for k, v in minutes.items()}
+    pattern = re.compile("|".join(re.escape(l) for l in sorted(names, key=len, reverse=True)))
 
-    def one(value):
-        return names.get(str(value), value)
-
-    def many(values):
-        seen, kept = set(), []
-        for v in values or ():                # a person named twice reads as two people agreeing
-            name = one(v)
-            if name not in seen:
-                seen.add(name)
-                kept.append(name)
-        return kept
-
-    def walk(node):
+    def rewrite(node):
+        if isinstance(node, str):
+            return pattern.sub(lambda m: names[m.group(0)], node)
         if isinstance(node, list):
-            for item in node:
-                walk(item)
-        elif isinstance(node, dict):
+            return [rewrite(x) for x in node]
+        if isinstance(node, dict):
+            out = {}
             for key, value in node.items():
-                if key in _ONE and isinstance(value, str):
-                    node[key] = one(value)
-                elif key in _MANY and isinstance(value, list):
-                    node[key] = many(value)
-                else:
-                    walk(value)
+                named = rewrite(value)
+                if key in _MANY and isinstance(named, list):
+                    # a person named twice reads as two people agreeing with each other
+                    named = list(dict.fromkeys(named))
+                out[key] = named
+            return out
+        return node
 
-    walk(out)
-    # ...and the free text, which is the part anybody actually reads
-    if isinstance(out.get("summary"), str) and out["summary"]:
-        pattern = re.compile("|".join(re.escape(l) for l in sorted(names, key=len, reverse=True)))
-        out["summary"] = pattern.sub(lambda m: names[m.group(0)], out["summary"])
-    return out
+    return rewrite(minutes)

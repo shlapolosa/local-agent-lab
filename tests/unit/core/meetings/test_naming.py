@@ -144,3 +144,47 @@ def test_a_label_nobody_identified_is_left_alone_rather_than_guessed():
 @pytest.mark.parametrize("bad", [None, {}, {"summary": ""}])
 def test_it_survives_minutes_that_are_missing_the_parts_it_names(bad):
     assert isinstance(named_minutes(bad, MAP), dict)
+
+
+def test_a_label_in_free_text_the_schema_never_named_is_still_replaced():
+    """The leak the first version shipped with, measured live 9 Sep 2026 on two of three lanes.
+
+    The schema puts a speaker label in exactly three places, so the first `named_minutes` handled
+    those plus `summary`. The model writes PROSE wherever the schema allows prose, and in that prose
+    it refers to speakers by the only name it was ever given — so `concepts[].definition` came back
+    reading "The outstanding items being tracked from previous work; speaker_0 recalled only two
+    remained", in a delivered file, after a human had said who speaker_0 was.
+
+    The rule is about the LABEL, not about the field it happens to sit in.
+    """
+    m = {"summary": "SPEAKER_00 opened.",
+         "concepts": [{"id": "c1", "label": "open items",
+                       "definition": "Items being tracked; SPEAKER_00 recalled only two remained.",
+                       "evidence": [{"speaker": "SPEAKER_00", "quote": "two left"}]}],
+         "decisions": [{"id": "d1", "statement": "SPEAKER_01 will close them", "decided_by": [],
+                        "concerns": ["c1"]}],
+         "actions": [{"id": "a1", "commitment": "SPEAKER_01 sends the list", "owner": "SPEAKER_01",
+                      "concerns": ["c1"]}],
+         "keywords": ["open items"]}
+    out = named_minutes(m, MAP)
+
+    import json
+    assert "SPEAKER_" not in json.dumps(out), "a label survived somewhere in the delivered minutes"
+    assert out["concepts"][0]["definition"].startswith("Items being tracked; maria.rossi recalled")
+    assert out["decisions"][0]["statement"] == "a vendor engineer will close them"
+    assert out["actions"][0]["commitment"] == "a vendor engineer sends the list"
+    # ...and the parts that are not speakers are untouched
+    assert out["concepts"][0]["label"] == "open items" and out["keywords"] == ["open items"]
+
+
+def test_nothing_that_merely_looks_structural_is_rewritten():
+    """Substituting everywhere must not mean substituting anything else. Only the exact labels a
+    human answered for are replaced — ids, concept labels and quoted words stay as they were."""
+    m = {"summary": "SPEAKER_00 spoke about SPEAKER training and c1.",
+         "concepts": [{"id": "SPEAKER_00_c1", "label": "SPEAKER training"}],
+         "decisions": [], "actions": [], "keywords": ["SPEAKER"]}
+    out = named_minutes(m, MAP)
+    assert out["summary"] == "maria.rossi spoke about SPEAKER training and c1."
+    assert out["concepts"][0]["label"] == "SPEAKER training"   # not a label anybody answered for
+    assert out["keywords"] == ["SPEAKER"]
+    assert out["concepts"][0]["id"] == "maria.rossi_c1"        # it DOES contain one, honestly

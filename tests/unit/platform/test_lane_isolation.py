@@ -90,3 +90,25 @@ def test_only_the_lanes_that_delivered_are_announced_and_each_names_its_own_file
     assert meeting_notifier.announcement(state("elevenlabs", WorkflowStatus.FAILED, ())) is None
     # ...and so does a lane that ran but delivered nothing: there is no link to offer
     assert meeting_notifier.announcement(state("munsit", WorkflowStatus.DONE, ())) is None
+
+
+def test_a_single_submit_acknowledges_the_provider_it_actually_runs():
+    """The acknowledgement must describe the run, or it is worse than saying nothing.
+
+    Measured live 9 Sep 2026: `meeting_to_transcript_submit` with `provider: "elevenlabs"` answered
+    `lanes: [{"provider": ""}]` while the run correctly used elevenlabs — the caller was told its
+    choice had been dropped. That reads exactly like the lane defect this file exists for, where the
+    provider really WAS dropped, so a reader checking the acknowledgement could not tell a working
+    run from a broken one. A field that lies in the safe case teaches people to ignore it in the
+    unsafe one.
+    """
+    r = FakeRedis()
+    named = workflows.submit_lanes(PROC, {**RECORDING, "provider": "elevenlabs"}, "cli", client=r)
+    assert len(named) == 1
+    assert named[0]["provider"] == "elevenlabs", "the acknowledgement dropped the caller's choice"
+    assert workflows.status(named[0]["request_id"], client=r)["inputs"]["provider"] == "elevenlabs"
+
+    # ...and a submission that named none still says none, rather than inventing a default
+    plain = workflows.submit_lanes(contracts.VISIO_TO_ARCHIMATE.name,
+                                   {"diagram": "art://d/x.vsdx"}, "cli", client=r)
+    assert plain[0]["provider"] == ""

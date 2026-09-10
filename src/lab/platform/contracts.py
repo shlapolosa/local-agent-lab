@@ -1273,6 +1273,169 @@ USE_CASE_PROVISIONING = ProcessSpec(
 )
 
 
+# ----------------------------------------------------------------------------- the agents themselves
+# The third leg of the identity claim. A virtual key says what an agent may SPEND and reach; an Entra
+# app registration says who it IS to the tenant; and an A2A card is what makes either discoverable to
+# anyone who did not write the code. The first two have existed for months and the third never did —
+# `GET /v1/agents` returned an empty list, so the registry pane showed nothing and "one key to one
+# registration to one card" was a claim the deployment could not support.
+#
+# Declared here, beside PROCESSES, for the reason PROCESSES is here: both tiers read it, and a
+# registry that lives in a provisioning script is a registry no test can check.
+
+
+@dataclass(frozen=True)
+class AgentSpec:
+    """One agent, declared ONCE: who it is, which identity it authenticates as, and what it does.
+
+    `prefix` is the environment prefix `lab.workloads.identity.agent_headers` already uses — the same
+    stem behind `<PREFIX>_CLIENT_ID` / `_CLIENT_SECRET` / `_KEY`. Naming it here rather than inventing
+    a second identifier is what lets a test assert that every agent this lab RUNS is an agent it also
+    PUBLISHES, and vice versa.
+
+    `processes` is PLURAL because the mapping already is: `usecase-agent` serves screening and design,
+    `usecase-delivery-agent` serves investment and provisioning. A singular field would have been
+    wrong on the day it was written.
+
+    `model` is "" for a tool-only identity. `meeting-agent` authenticates the transcription workload's
+    tool calls and holds no model at all — every step of that process is deterministic — and a card
+    must be able to say so rather than invent one.
+    """
+
+    name: str                            # the card name AND the agent_name a registry reconciles on
+    prefix: str                          # the env prefix `agent_headers` reads
+    description: str                     # DECLARED, never scraped: these cards are published publicly
+    skills: tuple[str, ...]
+    model: str = ""                      # "" = a tool-only identity, deliberately
+    processes: tuple[str, ...] = ()      # the ProcessSpec names it serves; may be several
+
+    def card(self, gateway_url: str, tenant_id: str = "", audience: str = "",
+             *, client_id: str = "") -> dict:
+        """This agent as an A2A AgentCard.
+
+        PURE — no tenant is contacted and no credential is read; everything arrives as an argument, so
+        the card a test renders is the card CI publishes.
+
+        The `url` is the gateway's MCP front door and NOT `/a2a/<id>/message/send`. Nothing is
+        listening there: this lab's agents are in-process workflow nodes and the workflow mediates
+        between them deliberately, so advertising a callable endpoint would advertise a failure. The
+        shared front door is also what keeps the card honest for an agent serving several processes —
+        one address, the same whichever one it is acting in.
+
+        The Entra registration travels as `securitySchemes`, A2A's own field, in the OAuth2
+        client-credentials shape `agent_headers` actually authenticates with — which is also what
+        APIM's `validate-jwt` checks, so this block migrates unchanged. Only the client ID, which is
+        an identifier; the client SECRET and the virtual key are credentials and appear nowhere on a
+        card. Omitted entirely when no registration exists, because ten of these identities are
+        provisioned only when an operator runs the script against a live tenant, and discovery must
+        degrade the way `identity.credential_for` already does rather than refuse.
+        """
+        card: dict[str, Any] = {
+            "protocolVersion": A2A_PROTOCOL_VERSION,
+            "name": self.name,
+            "description": self.description,
+            "url": gateway_url.rstrip("/") + "/mcp",
+            "version": AGENT_CARD_VERSION,
+            "provider": {"organization": AGENT_ORGANISATION, "url": gateway_url.rstrip("/")},
+            "capabilities": {"streaming": False, "pushNotifications": False,
+                             "stateTransitionHistory": False},
+            "defaultInputModes": ["text/plain"],
+            "defaultOutputModes": ["text/plain"],
+            "skills": [{"id": s, "name": s.replace("_", " "),
+                        "description": self.description,
+                        "tags": list(self.processes)} for s in self.skills],
+        }
+        if client_id and tenant_id and audience:
+            scope = f"{audience}/.default"
+            card["securitySchemes"] = {"entra": {
+                "type": "oauth2",
+                "description": f"Entra client credentials for {self.name} ({client_id}).",
+                "flows": {"clientCredentials": {
+                    "tokenUrl": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+                    "scopes": {scope: "Call the governed gateway as this agent."}}}}}
+            card["security"] = [{"entra": [scope]}]
+        return card
+
+
+#: The A2A spec version these cards declare, and the lab's own version for them. Both are stated
+#: rather than derived: a card is a published artifact, and a reader needs to know which spec it obeys.
+A2A_PROTOCOL_VERSION = "0.3.0"
+AGENT_CARD_VERSION = "1.0.0"
+AGENT_ORGANISATION = "local-agent-lab"
+
+
+#: Every agent the lab runs. Adding one is a line here and a line in its provisioning script — kept
+#: honest in both directions by tests/governance/test_agent_registry_parity.py.
+AGENTS: tuple[AgentSpec, ...] = (
+    AgentSpec(name="ea-modeling-agent", prefix="EA_AGENT",
+              description="Models enterprise architecture and stages it for a human to import.",
+              skills=("archimate_modelling",), model="gpt-oss-120b"),
+    AgentSpec(name="ba-agent", prefix="BA_AGENT",
+              description="Reads a diagram and its requirements into a described system.",
+              skills=("diagram_reading",), model="kimi-k3",
+              processes=("visio_to_archimate",)),
+    AgentSpec(name="architect-agent", prefix="ARCHITECT_AGENT",
+              description="Turns a described system into a legal ArchiMate model.",
+              skills=("archimate_modelling",), model="kimi-k3",
+              processes=("visio_to_archimate",)),
+    AgentSpec(name="meeting-agent", prefix="MEETING_AGENT",
+              description="Fetches a meeting recording and has it transcribed and diarized.",
+              skills=("transcription",),                       # tool-only: every step deterministic
+              processes=("meeting_to_transcript",)),
+    AgentSpec(name="minutes-agent", prefix="MINUTES_AGENT",
+              description="Turns an attributed transcript into gated minutes and a concept model.",
+              skills=("minutes",), model="kimi-k3",
+              processes=("transcript_to_minutes",)),
+    AgentSpec(name="usecase-agent", prefix="USECASE_AGENT",
+              description="Screens a submitted use case and designs it.",
+              skills=("use_case_screening", "use_case_design"), model="kimi-k3",
+              processes=("use_case_screening", "use_case_design")),
+    AgentSpec(name="usecase-delivery-agent", prefix="USECASE_DELIVERY",
+              description="Values a designed use case and provisions its delivery artifacts.",
+              skills=("use_case_investment", "use_case_provisioning"), model="kimi-k3",
+              processes=("use_case_investment", "use_case_provisioning")),
+
+    # The ten CAFE bounded contexts. One registration, one key, one card each — because spend
+    # attributes per identity, so "the risk officer costs four times what the cost engineer does" is
+    # a fact somebody can read rather than infer, and a wrong answer is attributable to the context
+    # that gave it rather than to "the use-case workload". `processes` here mirrors which steps each
+    # context OWNS in `lab.workloads.usecase.steps`; the parity test is what keeps the two agreeing,
+    # since this tier may not import a workload to derive it.
+    AgentSpec(name="usecase-business-analyst", prefix="USECASE_BA",
+              description="Frames a submitted use case and maps the workflow it implies.",
+              skills=("use_case_framing",), model="kimi-k3", processes=("use_case_screening",)),
+    AgentSpec(name="usecase-business-architect", prefix="USECASE_BUSARCH",
+              description="Identifies the business elements a use case touches and maps its coverage.",
+              skills=("capability_mapping",), model="kimi-k3", processes=("use_case_screening",)),
+    AgentSpec(name="usecase-application-architect", prefix="USECASE_APPARCH",
+              description="Matches a use case to the applications that would realise it.",
+              skills=("realisation_matching",), model="kimi-k3", processes=("use_case_screening",)),
+    AgentSpec(name="usecase-risk-officer", prefix="USECASE_RISK",
+              description="Bands a use case for criticality and states its exposure facets.",
+              skills=("criticality_banding",), model="kimi-k3",
+              processes=("use_case_screening", "use_case_design")),
+    AgentSpec(name="usecase-product-owner", prefix="USECASE_PO",
+              description="States the quality attributes, assertions and delivery artifacts a use case needs.",
+              skills=("quality_attributes",), model="kimi-k3",
+              processes=("use_case_screening", "use_case_design")),
+    AgentSpec(name="usecase-data-architect", prefix="USECASE_DATA",
+              description="States the ontology delta a use case implies and the contracts of its sources.",
+              skills=("ontology_delta",), model="kimi-k3", processes=("use_case_screening",)),
+    AgentSpec(name="usecase-solution-architect", prefix="USECASE_SOLARCH",
+              description="Decides what must be deterministic and selects the components.",
+              skills=("component_selection",), model="kimi-k3", processes=("use_case_design",)),
+    AgentSpec(name="usecase-technology-architect", prefix="USECASE_TECHARCH",
+              description="States the build surface a designed use case requires.",
+              skills=("build_surface",), model="kimi-k3", processes=("use_case_design",)),
+    AgentSpec(name="usecase-cost-engineer", prefix="USECASE_COST",
+              description="States the cost inputs a use case's investment case is valued on.",
+              skills=("cost_inputs",), model="kimi-k3", processes=("use_case_design",)),
+    AgentSpec(name="usecase-value-analyst", prefix="USECASE_VALUE",
+              description="States the benefit inputs a use case's investment case is valued on.",
+              skills=("benefit_inputs",), model="kimi-k3", processes=("use_case_design",)),
+)
+
+
 PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
                                                          TRANSCRIPT_TO_MINUTES,
                                                          USE_CASE_SCREENING, USE_CASE_DESIGN,
@@ -1299,4 +1462,5 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "Continuation", "continuation_of",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE",
-           "MEETING_TO_TRANSCRIPT", "TRANSCRIPT_TO_MINUTES"]
+           "MEETING_TO_TRANSCRIPT", "TRANSCRIPT_TO_MINUTES",
+           "AgentSpec", "AGENTS", "A2A_PROTOCOL_VERSION", "AGENT_CARD_VERSION", "AGENT_ORGANISATION"]
