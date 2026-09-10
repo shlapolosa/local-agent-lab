@@ -15,6 +15,16 @@ import re
 import pytest
 
 from fixtures.workflow import Router, run_spine, spine
+from lab.workloads.usecase import coverage
+
+SCHEME = "healthcare-provider-v2.0"
+_proj = lambda rows: rows
+
+
+def _drill(h, d):
+    """The drill over whatever candidates this working set was given."""
+    return coverage.drill(h.cfg, d, d.available.get("capabilities") or [],
+                          scheme=SCHEME, project=_proj)
 from lab.core.usecase import seed as _seed
 from lab.platform.contracts import (
     PROCESSES,
@@ -976,7 +986,8 @@ def test_the_drill_starts_from_the_top_level_only():
     """The fetched corpus is the 42 top-level capabilities. Everything below is fetched by the
     drill, as the level above decides it is worth looking at — so the starting prompt is small and
     stays small, however large the published map grows."""
-    from lab.workloads.use_case_screening.workflow import CORPORA, DEEPEST_LEVEL
+    from lab.workloads.usecase.coverage import DEEPEST_LEVEL
+    from lab.workloads.use_case_screening.workflow import CORPORA
     assert CORPORA["capabilities"][1]["depth"] == 0
     assert DEEPEST_LEVEL == 3
 
@@ -984,18 +995,18 @@ def test_the_drill_starts_from_the_top_level_only():
 # ------------------------------------------------- L3 capability matching, without embeddings
 
 def test_only_the_branches_that_matched_are_refetched():
-    from lab.workloads.use_case_screening.workflow import MAX_REFINED_BRANCHES, matched_labels
+    from lab.workloads.usecase.coverage import MAX_BRANCHES, matched_labels
     coverage = {"matched": [{"function": "triage", "capability_label": "Patient Management"},
                             {"function": "notify", "capability_label": "Patient Management"},
                             {"function": "record", "capability_label": "Clinical Documentation"}]}
     assert matched_labels(coverage) == ["Patient Management", "Clinical Documentation"]
     many = {"matched": [{"capability_label": f"C{i}"} for i in range(50)]}
-    assert len(matched_labels(many)) == MAX_REFINED_BRANCHES, \
+    assert len(matched_labels(many)) == MAX_BRANCHES, \
         "a map that matched fifty branches is not a map; refetching all of them rebuilds the corpus"
 
 
 def test_a_coverage_map_that_matched_nothing_is_not_refined():
-    from lab.workloads.use_case_screening.workflow import matched_labels
+    from lab.workloads.usecase.coverage import matched_labels
     assert matched_labels({"matched": []}) == []
     assert matched_labels({}) == []
 
@@ -1036,7 +1047,7 @@ def test_the_drill_matches_l1_then_l2_within_those_then_l3():
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(*answers)}
         d = _Derivation(h, candidates=[_level("c1", "Patient Management", 1),
                                        _level("c2", "Scheduling", 1)])
-        out = asyncio.run(W.drill_coverage(h.cfg, d))
+        out = asyncio.run(coverage.drill(h.cfg, d, d.available['capabilities'], scheme=SCHEME, project=_proj))
 
     assert out["capability_depth"] == 3, "the drill must reach the leaves"
     trail = out["coverage_trail"]
@@ -1061,7 +1072,7 @@ def test_every_level_is_kept_not_just_the_last():
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")),
             _covers(_match("triage", "c1a", "Referral Triage")))}
-        out = asyncio.run(W.drill_coverage(h.cfg, _Derivation(
+        out = asyncio.run(_drill(h, _Derivation(
             h, candidates=[_level("c1", "Patient Management", 1)])))
     assert [t["matched"][0]["capability_label"] for t in out["coverage_trail"]] == [
         "Patient Management", "Referral Triage"]
@@ -1072,7 +1083,7 @@ def test_a_level_that_matches_nothing_stops_the_drill_and_keeps_what_answered():
     with spine(W, _screening_router(**{SemanticTools.concepts: []})) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(), _covers(_match("x", "c9", "Never reached")))}
-        out = asyncio.run(W.drill_coverage(h.cfg, _Derivation(
+        out = asyncio.run(_drill(h, _Derivation(
             h, candidates=[_level("c1", "Patient Management", 1)])))
     assert out["capability_depth"] == 1
     assert len(out["coverage_trail"]) == 1, "no matches at L1 means there is no L2 to look in"
@@ -1085,7 +1096,7 @@ def test_a_branch_that_will_not_fetch_leaves_the_level_above_standing():
     with spine(W, router) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")))}
-        out = asyncio.run(W.drill_coverage(h.cfg, _Derivation(
+        out = asyncio.run(_drill(h, _Derivation(
             h, candidates=[_level("c1", "Patient Management", 1)])))
     assert out["capability_depth"] == 1 and len(out["coverage_trail"]) == 1
 
@@ -1096,7 +1107,7 @@ def test_the_parent_is_not_offered_back_as_its_own_child():
     from lab.workloads.use_case_screening import workflow as W
     children = [_level("c1", "Patient Management", 1), _level("c1a", "Referral Triage", 2, "c1")]
     with spine(W, _screening_router(**{SemanticTools.concepts: children})) as h:
-        out = asyncio.run(W._children_of(h.cfg, ["Patient Management"], 2))
+        out = asyncio.run(coverage._children_of(h.cfg, SCHEME, ["Patient Management"], 2, _proj))
     assert [c["label"] for c in out] == ["Referral Triage"]
 
 
@@ -1117,7 +1128,7 @@ def test_a_match_that_named_only_an_id_still_resolves_its_branch():
     """`capability_label` is optional and `capability_id` is required, because an id is what a
     lookup can check and a label is what a model can approximate. So the label comes from the
     corpus — asking the agent to repeat one it read is asking it to typo a subtree fetch."""
-    from lab.workloads.use_case_screening.workflow import matched_labels
+    from lab.workloads.usecase.coverage import matched_labels
     corpus = [{"id": "c1", "label": "Patient Management"}, {"id": "c2", "label": "Scheduling"}]
     coverage = {"matched": [{"function": "triage", "capability_id": "c2", "confidence": "lookup"}]}
     assert matched_labels(coverage, corpus) == ["Scheduling"]
@@ -1132,7 +1143,7 @@ def test_a_use_case_that_matched_at_l1_but_not_at_l3_is_still_a_match():
     seven L1 capabilities and eleven L2s, but no L3 leaf, arrived at the design half as "matched
     nothing" — so the drill could reject a use case the single-pass version passed."""
     from lab.workloads.use_case_design.workflow import feasibility_evidence
-    from lab.workloads.use_case_screening.workflow import composed
+    from lab.workloads.usecase.coverage import composed
 
     trail = [{"level": 1, "candidates": 42, **_covers(_match("triage", "c1", "Patient Management"))},
              {"level": 2, "candidates": 12, **_covers(_match("triage", "c1a", "Referral Triage"))},
@@ -1148,7 +1159,7 @@ def test_a_use_case_that_matched_at_l1_but_not_at_l3_is_still_a_match():
 def test_the_coverage_gaps_come_from_the_level_where_the_map_means_the_map():
     """At L3 `functions_without_capability` means "found no relevant leaf under the branches we
     opened" — a different statement wearing the same name."""
-    from lab.workloads.use_case_screening.workflow import composed
+    from lab.workloads.usecase.coverage import composed
     l1 = _covers(_match("triage", "c1", "Patient Management"))
     l1["functions_without_capability"] = ["billing"]
     l3 = _covers(_match("triage", "c1a1", "Urgency Assessment"))
@@ -1174,7 +1185,7 @@ def test_a_gate_failure_deep_in_the_drill_keeps_the_levels_that_passed():
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")), bad, bad, bad)}
         d = _Derivation(h, candidates=[_level("c1", "Patient Management", 1)])
-        out = asyncio.run(W.drill_coverage(h.cfg, d))
+        out = asyncio.run(coverage.drill(h.cfg, d, d.available['capabilities'], scheme=SCHEME, project=_proj))
 
     assert out["capability_depth"] == 1, "the L1 level stands"
     assert d.derived["coverage_map"]["matched"][0]["capability_label"] == "Patient Management"
@@ -1194,7 +1205,7 @@ def test_the_drill_does_not_leave_the_last_level_s_leaves_under_the_map_s_name()
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")))}
         d = _Derivation(h, candidates=list(top))
-        asyncio.run(W.drill_coverage(h.cfg, d))
+        asyncio.run(coverage.drill(h.cfg, d, d.available['capabilities'], scheme=SCHEME, project=_proj))
     assert d.available["capabilities"] == top
 
 
@@ -1203,7 +1214,7 @@ def test_the_coverage_map_is_one_row_per_function_not_one_per_level():
     Management, then Initiative Definition, then Initiative Identification is ONE answer at three
     resolutions. Concatenating them turned 14 functions into 40 rows with one capability repeated
     eleven times, which is a list of everything the drill looked at rather than a coverage map."""
-    from lab.workloads.use_case_screening.workflow import composed
+    from lab.workloads.usecase.coverage import composed
     trail = [
         {"level": 1, "candidates": 42, **_covers(_match("submit", "c1", "Initiative Management"),
                                                  _match("cost", "c9", "Investment Management"))},
@@ -1222,7 +1233,7 @@ def test_a_function_that_stops_early_keeps_the_level_it_reached():
     """It found nothing relevant below, which is not the same as matching nothing — and
     `capability_matched` reads this field."""
     from lab.workloads.use_case_design.workflow import feasibility_evidence
-    from lab.workloads.use_case_screening.workflow import composed
+    from lab.workloads.usecase.coverage import composed
     trail = [
         {"level": 1, "candidates": 42, **_covers(_match("check", "c2", "Information Management"))},
         {"level": 2, "candidates": 8, **_covers()},          # nothing relevant one level down

@@ -28,9 +28,9 @@ from lab.platform.contracts import (
     StorageTools,
 )
 from lab.workloads import gateway
+from lab.workloads.usecase import coverage
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.gates import GateFailed
-from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
+from lab.workloads.usecase.steps import SCREENING_STEPS
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
@@ -72,13 +72,6 @@ PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent")}
 #: answers confidently from half a corpus.
 MAX_CORPUS_BYTES = 120_000
 
-#: How many branches one level may open into the next. A bound rather than a guess: a coverage map
-#: that matched thirty branches is not a coverage map, and following them all would rebuild the
-#: whole corpus one subtree at a time.
-MAX_REFINED_BRANCHES = 8
-
-#: The deepest level the drill goes to. L3 is where the published map's leaves are.
-DEEPEST_LEVEL = 3
 
 
 def project(name: str, corpus):
@@ -128,144 +121,16 @@ def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=N
 
 
 
-def matched_labels(coverage: dict, corpus=None) -> list[str]:
-    """The capability branches a coverage map actually matched, in order, de-duplicated.
+async def match_capabilities(cfg, d) -> dict:
+    """Step 5, by whichever capability matcher this deployment runs.
 
-    `capability_label` is OPTIONAL in the schema — a match is required to name the capability's ID,
-    because an id is what a lookup can check and a label is what a model can approximate. So the
-    label is resolved from the CORPUS by that id where the match did not carry one: the mapping is
-    already in hand, and asking the agent to repeat a label it read is asking it to introduce a
-    typo into a subtree fetch."""
-    by_id = {str(c.get("id")): str(c.get("label") or "") for c in (corpus or [])
-             if isinstance(c, dict)}
-    seen: list[str] = []
-    for match in (coverage or {}).get("matched") or []:
-        label = str(match.get("capability_label")
-                    or by_id.get(str(match.get("capability_id")), "")).strip()
-        if label and label not in seen:
-            seen.append(label)
-    return seen[:MAX_REFINED_BRANCHES]
-
-
-def composed(trail: list[dict]) -> dict:
-    """One coverage map out of the levels the drill walked.
-
-    The deepest pass alone is NOT the answer, and reading it as one is a live defect: `matched`
-    would hold only the L3 leaves, so a use case that matched seven L1 capabilities and eleven L2s
-    but no L3 leaf reports `matched: []` — and `feasibility_evidence` reads exactly that field to
-    decide `capability_matched`, whose false is step 16's REJECT rule. The drill would then reject
-    a use case the single-pass version passed.
-
-    So `matched` is every level's matches, each tagged with the level it was made at. The two
-    coverage-gap fields come from the FIRST pass, because that is the only level where "the map"
-    means the map: at L3 `functions_without_capability` means "found no relevant leaf under the
-    branches we opened", which is a different statement wearing the same name. The heat map comes
-    from L1 for the same reason — it is the position step 16's rule was written about.
-    """
-    first = trail[0]
-    # ONE row per function: the DEEPEST capability it resolved to, with the path it took.
-    #
-    # Concatenating the levels was wrong and it showed: 14 functions produced 40 rows, and
-    # "Initiative Management" appeared eleven times. A deeper level REFINES the shallower one for
-    # the same function — `submit use case` resolving to Initiative Management, then Initiative
-    # Definition, then Initiative Identification is one answer at three resolutions, not three
-    # answers. Treating refinement as addition turns a coverage map into a list of everything the
-    # drill looked at, which is exactly what a coverage map is supposed to summarise.
-    #
-    # The DEEPEST rather than the last level, because the two differ: a function may resolve at L1
-    # and find nothing relevant below it, and it must keep its L1 match — that function still has
-    # a capability, and `feasibility_evidence` reads this field to decide `capability_matched`.
-    deepest: dict[str, dict] = {}
-    path: dict[str, list[str]] = {}
-    for entry in trail:
-        for match in entry.get("matched") or []:
-            function = str(match.get("function", ""))
-            label = str(match.get("capability_label") or "")
-            if label and label not in path.setdefault(function, []):
-                path[function].append(label)
-            if entry["level"] >= deepest.get(function, {}).get("level", 0):
-                deepest[function] = dict(match, level=entry["level"])
-    return {**{k: v for k, v in first.items() if k not in ("level", "candidates", "matched")},
-            "matched": [dict(m, path=path.get(f, [])) for f, m in deepest.items()]}
-
-
-async def _children_of(cfg, labels, level: int) -> list[dict]:
-    """The concepts one level BELOW each of these, and nothing else.
-
-    `semantic_concepts(root_label=X, depth=1)` returns X and its children, so the parent is
-    filtered out by level — a candidate set that contained the thing already matched would invite
-    the next pass to match it again and call that progress."""
-    out: list[dict] = []
-    for label in labels:
-        try:
-            got = await gateway.call(cfg, SemanticTools.concepts,
-                                     {"scheme": CORPORA["capabilities"][1]["scheme"],
-                                      "root_label": label, "depth": 1})
-        except Exception:                                # noqa: BLE001 — a branch is best effort
-            continue
-        out += [c for c in project("capabilities", got) or [] if c.get("level") == level]
-    return out
-
-
-async def drill_coverage(cfg, d) -> dict:
-    """Step 5, level by level: which L1 capabilities match, then which L2 WITHIN those, then L3.
-
-    The map is a tree of 1,666 concepts and will not go in a prompt — but no LEVEL of it is large.
-    The top is 42 concepts; the children of eight matched branches are a few dozen. So each pass
-    sees a small, relevant candidate set, and what it selects decides what the next pass is even
-    shown.
-
-    **The split is the point.** Walking the tree is deterministic — given the matches, the children
-    to fetch next are not a matter of opinion. Deciding which of those children this use case
-    actually touches is NOT deterministic, and could not be: it is a judgement about relevance and
-    impact, which is exactly the work an agent is here to do and exactly the work a gate should
-    check rather than replace. Fetch is `[D]`, selection is `[A]`, and each level is gated before
-    it is allowed to decide the next one.
-
-    Every level is KEPT, not just the last. "Which L1s matched, then which L2s within those" is the
-    reasoning a reviewer has to be able to follow, and a final L3 list alone cannot be checked —
-    a leaf under a branch nobody should have opened looks exactly like a leaf under one they should.
-
-    Best effort throughout: a level that yields no candidates, no matches, or a failed fetch stops
-    the drill and leaves the deepest level that DID answer standing, with the depth recorded.
-    """
-    step = step_for("5")
-    if (cfg.get("agents") or {}).get(step.key) is None:
-        return {}
-
-    trail: list[dict] = []
-    candidates = list(d.available.get("capabilities") or [])
-    for level in range(1, DEEPEST_LEVEL + 1):
-        if not candidates:
-            break
-        try:
-            # The candidate set is passed for THIS call rather than written onto the working set:
-            # after the drill, `available["capabilities"]` would otherwise hold the last level's
-            # handful of leaves under the name of the published map.
-            if not await d.run_step(cfg, step, label=f"match capabilities (L{level})",
-                                    context={"capabilities": candidates}):
-                break
-        except GateFailed as refused:
-            # A deeper pass is MORE likely to fail its gate, not less, and losing the run would
-            # throw away every level that already passed — plus every other step in a 700-second
-            # run. The drill stops where it stopped and says so.
-            d.defer("5", f"match capabilities stopped at L{level}: {refused}")
-            break
-        coverage = dict(d.derived.get("coverage_map") or {})
-        trail.append({"level": level, "candidates": len(candidates), **coverage})
-        labels = matched_labels(coverage, candidates)
-        if not labels or level == DEEPEST_LEVEL:
-            break
-        candidates = await _children_of(cfg, labels, level + 1)
-
-    if not trail:
-        return {}
-    # NO step number here. `record(..., "5")` clears step 5's pending marker — including the one
-    # the gate-failure branch above has just written, which would erase the only statement that the
-    # drill stopped early. The per-level `run_step` already cleared the seeded marker for any level
-    # that passed, so there is nothing left for this call to clear.
-    d.record("coverage_map", composed(trail))
-    return {"capability_depth": trail[-1]["level"], "coverage_trail": trail}
+    Both live in `lab.workloads.usecase.coverage` with the evidence for choosing between them. The
+    corpus is passed in rather than fetched there, because which corpus a run reads is this
+    workload's decision and how it is matched is not."""
+    return await coverage.match(
+        cfg, d, d.available.get("capabilities") or [],
+        name=config.COVERAGE_MATCHER, scheme=CORPORA["capabilities"][1]["scheme"],
+        project=lambda rows: project("capabilities", rows), budget=MAX_CORPUS_BYTES)
 
 
 def build_workflow(cfg):
@@ -370,12 +235,11 @@ def build_workflow(cfg):
                            pending=dict(PENDING_STEPS))
             for step in SCREENING_STEPS:
                 if step.key == "coverage_map":
-                    # Run by the drill instead: one pass per level of the capability map, each
-                    # deciding what the next one is shown. The keys are spelled out rather than
-                    # merged from the return, so what this executor adds to the state is readable
-                    # here — `test_workflow_state_keys` reads exactly this and would otherwise have
-                    # no way to tell a written key from a typo.
-                    drilled = await drill_coverage(cfg, d)
+                    # Run by the configured matcher, not by this loop. The keys are spelled
+                    # out rather than merged from the return, so what this executor adds to the
+                    # state is readable here — `test_workflow_state_keys` reads exactly this and
+                    # would otherwise have no way to tell a written key from a typo.
+                    drilled = await match_capabilities(cfg, d)
                     # 0 and [], not None: the drill returns nothing when the coverage agent is
                     # unwired or its corpus was unavailable, and those are exactly the runs where a
                     # reader most needs the record to say how deep the match went.

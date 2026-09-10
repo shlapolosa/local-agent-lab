@@ -94,6 +94,11 @@ VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
 #: rather than routing a real funding decision by a threshold this lab invented.
 DELEGATION_AUTHORITY = _rows("DELEGATION_AUTHORITY")
 
+#: Which capability matcher step 5 runs. `leaves` measured 0.88 precision against the drill's 0.17
+#: on a blind-adjudicated referral-triage case; the drill remains the fallback for a corpus whose
+#: leaves will not fit in one prompt. See `lab.workloads.usecase.coverage`.
+COVERAGE_MATCHER = _e("COVERAGE_MATCHER", "leaves")
+
 #: Finance's reference VALUES, which `seed/benefit_drivers.json` says are held in their own
 #: registries and are not published with the framework. They live beside the price sheet — on
 #: valuation-mcp, the server finance owns — rather than being passed in by every caller. Unset
