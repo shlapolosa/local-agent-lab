@@ -100,8 +100,12 @@ def parse(path, name, title):
         for c in info:
             c["related"] = [by_label[x.lower()] for x in related[c["id"]] if x.lower() in by_label]
         concepts += info
+    # A path on disk, or an open file-like (the corpus publisher reads a workbook from the private
+    # store and never writes it to disk) — the source name follows whichever it was.
+    source = os.path.basename(path) if isinstance(path, (str, os.PathLike)) \
+        else getattr(path, "name", None) or "workbook"
     return SkosScheme(name=name, base=f"urn:lab:semantic:ref:{name}#", title=title, concepts=concepts,
-                      source=os.path.basename(path))
+                      source=source)
 
 
 KNOWN = {  # filename stem -> (scheme name, title)

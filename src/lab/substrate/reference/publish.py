@@ -31,8 +31,10 @@ from typing import Any, Callable, Sequence
 
 from lab.core.reference.derive import content_digest, passages, record_passages, records
 from lab.core.reference.manifest import manifest, public_key_of, sign, verify
+from lab.core.reference.master import Master
 from lab.core.reference.master import parse as parse_master
 from lab.core.reference.model import ArtifactKind, Retrieval, default_retrieval
+from lab.core.reference.workbook import capability_table
 from lab.core.reference.rings import RINGS, can_release
 from lab.platform import config
 from lab.substrate import artifacts as artifact_store
@@ -106,17 +108,23 @@ class Publisher:
 
     # ---------------------------------------------------------------- publish
 
-    def publish(self, artifact_id: str, *, master_path: Path, version: str, kind: str,
-                owner: str, record_type: str = "", key_fields: Sequence[str] = (),
+    def publish(self, artifact_id: str, *, master_path: Path | None = None, version: str,
+                kind: str, owner: str, record_type: str = "", key_fields: Sequence[str] = (),
                 supersedes: str = "", retrieval: str = "",
-                text_fields: Sequence[str] = ()) -> dict:
+                text_fields: Sequence[str] = (), master_ref: str = "",
+                master_format: str = "markdown", scheme: str = "") -> dict:
         """Hash the master, derive from it, sign, index, and mark published — in that order.
 
         `retrieval` is how a CONSUMER reads the artifact (`whole` / `key` / `vector`); empty means
         the kind's default. A `vector` RECORD artifact derives BOTH forms from the same rows: the
         records for exact reads and one passage per record for relevance, each passage naming its
         record so a semantic hit resolves to the row an exact read would return. `text_fields`
-        names which columns make the passage (every non-empty one when unset)."""
+        names which columns make the passage (every non-empty one when unset).
+
+        The master is a markdown file on disk (`master_path`) or bytes already in the private
+        artifact store (`master_ref`, kept as the citation's `master_ref` rather than re-stored).
+        `master_format="workbook"` reads a licensed capability workbook (`scheme` names it) through
+        the semantic layer's own parser — nothing derived from it is ever a file in this repo."""
         if kind not in ("record", "prose"):
             raise PublishError(f"kind must be 'record' or 'prose'; got {kind!r}")
         if kind == "record" and not (record_type and key_fields):
@@ -131,9 +139,12 @@ class Publisher:
             raise PublishError(f"{artifact_id}: a prose artifact has no natural key, so it can "
                                f"only be retrieved semantically — declare it 'vector'")
 
-        raw = master_path.read_bytes()
+        store = self.store or artifact_store.store()
+        if bool(master_path) == bool(master_ref):
+            raise PublishError("a master is a path OR a store reference, exactly one")
+        raw = store.get(master_ref) if master_ref else master_path.read_bytes()  # type: ignore[union-attr]
         master_sha = _sha256(raw)
-        master = parse_master(raw.decode("utf-8"))
+        master = self._parse(raw, master_format, artifact_id=artifact_id, scheme=scheme)
 
         # Derived FROM the parsed master, so `derived_from` is a fact rather than a claim.
         indexed: list[Any] = []
@@ -164,8 +175,9 @@ class Publisher:
                         published_at=published_at, key_id=self.key_id)
         signature = sign(body, self.signing_key)
 
-        store = self.store or artifact_store.store()
-        master_ref = store.put(f"{artifact_id}.md", raw, "text/markdown")
+        # A master already in the store keeps its ref: the citation opens the SAME bytes the
+        # publisher hashed, and a second copy of a licensed workbook is one more thing to govern.
+        master_ref = master_ref or store.put(f"{artifact_id}.md", raw, "text/markdown")
         agent_ref = store.put(f"{artifact_id}.json", agent_bytes, "application/json")
 
         statements: list[tuple[str, Sequence[Any]]] = [
@@ -216,6 +228,19 @@ class Publisher:
                 "manifest": {"master_sha256": master_sha, "agent_sha256": agent_sha,
                              "derived_from": master_sha, "content_digest": digest,
                              "published_at": published_at}}
+
+    @staticmethod
+    def _parse(raw: bytes, master_format: str, *, artifact_id: str, scheme: str) -> Master:
+        if master_format == "markdown":
+            return parse_master(raw.decode("utf-8"))
+        if master_format == "workbook":
+            if not scheme:
+                raise PublishError(f"{artifact_id}: a workbook master needs the scheme it publishes "
+                                   f"(--scheme), which names the ids the semantic layer already "
+                                   f"uses for these capabilities")
+            return capability_table(raw, scheme=scheme, title=artifact_id)
+        raise PublishError(f"master_format must be 'markdown' or 'workbook'; got "
+                           f"{master_format!r}")
 
     def _record_rows(self, artifact_id, version, record_type, derived):
         return [("INSERT INTO ref_record (artifact_id, version, record_id, record_type, key, body) "
@@ -336,7 +361,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     pub = sub.add_parser("publish", help="publish one artifact version from its master")
     pub.add_argument("artifact_id")
-    pub.add_argument("--master", type=Path, required=True)
+    pub.add_argument("--master", type=Path, default=None, help="a markdown master on disk")
+    pub.add_argument("--master-ref", default="",
+                     help="or its art:// ref in the private store (a licensed workbook lives ONLY there)")
+    pub.add_argument("--master-format", choices=("markdown", "workbook"), default="markdown")
+    pub.add_argument("--scheme", default="", help="workbook masters: the scheme name (ids follow it)")
     pub.add_argument("--version", required=True)
     pub.add_argument("--kind", choices=("record", "prose"), required=True)
     pub.add_argument("--owner", required=True)
@@ -370,7 +399,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             owner=args.owner, record_type=args.record_type,
             key_fields=[f for f in args.key_fields.split(",") if f],
             supersedes=args.supersedes, retrieval=args.retrieval,
-            text_fields=[f for f in args.text_fields.split(",") if f])
+            text_fields=[f for f in args.text_fields.split(",") if f],
+            master_ref=args.master_ref, master_format=args.master_format, scheme=args.scheme)
         print(json.dumps(out, indent=2))
     elif args.command == "release":
         print(json.dumps(publisher.release(args.artifact_id, args.version, ring=args.ring,

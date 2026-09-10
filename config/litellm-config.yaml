@@ -202,32 +202,23 @@ router_settings:                      # Redis: shared state for rate limits, bud
     claude/glm-flash: {model: glm-flash, hidden: false}
     claude/auto: {model: auto, hidden: false}
 
-# RELEVANCE RETRIEVAL over the governed corpus — one store per vector-mode reference artifact, the
-# store id being the artifact id, so a team's `object_permission.vector_stores` grants it ONE map
-# and not the corpus. Callers use the OpenAI vector-store API through this gateway
-# (`POST /v1/vector_stores/<id>/search`), metered and ACL'd like any tool; the `pg_vector` provider
-# is an HTTP client, and what it talks to is reference-mcp's façade (lab.substrate.mcp.reference.
-# vectorstore) over the SAME `pg_library.search` the MCP tool uses — pins, signatures and the
-# consumption trail included. `filters` MUST carry the run's pin_id / run_id / process / field, or
-# the façade answers 400: a read through this door is attributed exactly like one through the tool.
-# NO api_base / api_key HERE, deliberately: LiteLLM does not resolve `os.environ/` on this path
-# (verified in 1.98: `vector_stores/main.py` builds GenericLiteLLMParams verbatim), so the provider's
-# own fallbacks PG_VECTOR_API_BASE / PG_VECTOR_API_KEY are set in the gateway's PROCESS environment
-# (lab.sh locally, deploy/railway.py substrate_env in the cloud) from the reference-mcp origin and
-# MCP_SHARED_SECRET. `file_search` tool injection stays OFF (no vector_store_pre_call_hook): it
-# carries no pin and reads only the last user message. lab.platform.contracts.VectorStores is the
-# catalogue; a two-way parity test keeps this list and it identical.
-vector_store_registry:
-  - vector_store_name: capability-map-healthcare-provider-v2.0
-    litellm_params:
-      vector_store_id: capability-map-healthcare-provider-v2.0
-      custom_llm_provider: pg_vector
-      vector_store_description: BA Guild Healthcare Provider capability map v2.0 (L1-L3 with path), read under a pin
-  - vector_store_name: capability-map-insurance-v5.0
-    litellm_params:
-      vector_store_id: capability-map-insurance-v5.0
-      custom_llm_provider: pg_vector
-      vector_store_description: BA Guild Insurance capability map v5.0 (L1-L3 with path), read under a pin
+# RELEVANCE RETRIEVAL over the governed corpus goes through this gateway's VECTOR STORES — one per
+# vector-mode reference artifact, the store id being the artifact id, so a team's
+# `object_permission.vector_stores` grants it ONE map and not the corpus. They are NOT declared here.
+# A `vector_store_registry:` block loads into memory at start, but with a database configured the
+# database is the source of truth and the list endpoint DELETES any in-memory store it does not find
+# there (verified live, 1.98: the block loaded, one `GET /vector_store/list` later the registry held
+# zero stores and a search fell through to OpenAI's own vector-store API). So the stores live in the
+# gateway's database like teams and keys do, reconciled on every deploy by
+# scripts/register_vector_stores.py from lab.platform.contracts.VectorStores — the one declaration.
+# Their provider is `pg_vector`, an HTTP client, pointed at reference-mcp's OpenAI-shaped façade
+# (lab.substrate.mcp.reference.vectorstore) over the SAME `pg_library.search` the MCP tool uses —
+# pins, signatures and the consumption trail included; `filters` MUST carry the run's
+# pin_id/run_id/process/field or the façade answers 400. NO credential is stored with a store:
+# LiteLLM resolves no `os.environ/` on this path, so the provider's own PG_VECTOR_API_BASE /
+# PG_VECTOR_API_KEY are set in the gateway's PROCESS environment (lab.sh locally, deploy/railway.py
+# substrate_env in the cloud) from the reference-mcp origin and MCP_SHARED_SECRET. `file_search`
+# tool injection stays OFF (no vector_store_pre_call_hook): it carries no pin.
 
 general_settings:
   # WITHOUT THIS, AGENTS ARE WRITTEN TO POSTGRES AND NEVER READ BACK. Root-caused in LiteLLM's own

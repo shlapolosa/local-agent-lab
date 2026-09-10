@@ -1024,23 +1024,26 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   vector-mode artifacts and skips the exact ones; NAMING an exact artifact refuses ("read it with
   reference_lookup"); naming one not in the pin refuses; a vector artifact with no completed index
   still refuses (CR-12 — an empty list is the most dangerous return value in this layer).
-- **Relevance retrieval goes THROUGH LiteLLM**: `config/litellm-config.yaml` `vector_store_registry`
-  registers one store per vector-mode artifact (**store id = artifact id**, catalogue
-  `lab.platform.contracts.VectorStores`, two-way parity test `tests/governance/test_vector_stores.py`)
-  with provider `pg_vector` — an HTTP client, NOT a Postgres client — pointed at reference-mcp's
-  **OpenAI vector-store façade** (`lab.substrate.mcp.reference.vectorstore`, `POST
+- **Relevance retrieval goes THROUGH LiteLLM**: one VECTOR STORE per vector-mode artifact (**store
+  id = artifact id**, so a team is granted ONE map), declared in `lab.platform.contracts.VectorStores`
+  and reconciled into the gateway's DATABASE on every push by `scripts/register_vector_stores.py`
+  (CD step after `verify`). **Not a yaml `vector_store_registry`**: that loads into memory, and with
+  a database configured the list endpoint DELETES any in-memory store the database lacks — verified
+  live, the block loaded and one `GET /vector_store/list` later a search fell through to OpenAI's
+  own vector-store API. Provider `pg_vector` is an HTTP client, NOT a Postgres client, pointed at
+  reference-mcp's **OpenAI vector-store façade** (`lab.substrate.mcp.reference.vectorstore`, `POST
   /v1/vector_stores/<id>/search`, mounted beside `/mcp` via `LabServer.serve(routes=)`, behind the same
   bearer). It is a second TRANSPORT over the one `pg_library.search`, not a second implementation:
   `filters` MUST carry `pin_id/run_id/process/field` (400 otherwise) so a read through the gateway is
   attributed exactly like one through the tool. A team is granted stores with
   `object_permission.vector_stores` — **LiteLLM reads an absent OR EMPTY list as "every store"**, so
   `provision_usecase_agents._grants` always writes it and spells "none" as the sentinel `["-"]`.
-  `file_search` injection stays OFF (no pin travels with it). **No credential in the yaml**: LiteLLM
+  `file_search` injection stays OFF (no pin travels with it). **No credential on the store**: LiteLLM
   1.98 resolves no `os.environ/` on this path (verified in `vector_stores/main.py`), so the provider's
   own `PG_VECTOR_API_BASE` (reference-mcp's ORIGIN) / `PG_VECTOR_API_KEY` (= `MCP_SHARED_SECRET`) are
-  set in the gateway's PROCESS env by `lab.sh` and `deploy/railway.py substrate_env`. Workloads call
-  `lab.workloads.gateway.vector_search` and preflight with `preflight_stores` (`/vector_store/list`),
-  the same zero-token contract as `REQUIRED_TOOLS`.
+  set in the gateway's PROCESS env by `lab.sh`, `deploy/railway.py substrate_env` and compose.
+  Workloads call `lab.workloads.gateway.vector_search` and preflight with `preflight_stores`
+  (`/vector_store/list`), the same zero-token contract as `REQUIRED_TOOLS`.
 - **Embedding** is `text-embedding-3-large` on the gateway (`OPENAI_UPSTREAM_API_KEY`, injected like
   the Anthropic one; OpenRouter serves NO embedding models — verified) at its native width
   (`REFERENCE_EMBED_DIM=3072`, held equal to the model's `output_vector_size` by a governance test).

@@ -205,6 +205,15 @@ jobs:
       # AGENT_REGISTRY is a default, not a decision: `.env` is sourced after it, so a deploy profile
       # naming a different destination — or none — wins. Without LAB_ENV there is no master key and
       # nothing to publish to, so a fork skips it.
+      # The relevance stores are registry objects like teams and keys (a yaml block is deleted
+      # from memory by the list endpoint under a database — see the script), so they are
+      # reconciled here, where the master key already lives, on every push.
+      - name: register the relevance stores
+        run: |
+          if [ ! -s .env ]; then echo "::notice::no deploy profile — stores not registered"; exit 0; fi
+          set -a && . ./.env && set +a
+          python scripts/register_vector_stores.py
+
       - name: publish the agent cards
         env:
           AGENT_REGISTRY: litellm

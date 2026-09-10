@@ -41,27 +41,34 @@ def _allowed(patterns, name) -> bool:
     return any(name == p or (p.endswith("*") and name.startswith(p[:-1])) for p in patterns)
 
 
-# ---------------------------------------------------------------- parity, both ways
+# ---------------------------------------------------------------- one declaration
 
-def test_the_registry_and_the_contract_name_exactly_the_same_stores():
-    """The one place exactness IS the contract: a store the workload names must be registered, and
-    a registered store must be in the catalogue a grant is spelled from."""
-    registered = {e["litellm_params"]["vector_store_id"]
-                  for e in _config().get("vector_store_registry") or []}
-    assert registered == VectorStores.names()
-    assert registered, "the registry exists to be non-empty"
+def test_the_yaml_declares_no_stores_because_a_database_deletes_them():
+    """`vector_store_registry` loads into memory and the list endpoint removes any store the
+    database does not hold (verified live). A block here would be a decoy that passes review and
+    disappears at the first `GET /vector_store/list`."""
+    assert "vector_store_registry" not in _config()
+    assert VectorStores.names(), "the contract is the declaration, and it is non-empty"
 
 
-def test_every_store_is_the_corpus_facade_and_carries_no_credential():
-    """`pg_vector` is the OpenAI-compatible HTTP provider that reference-mcp's façade satisfies.
-    api_base / api_key are NOT in the yaml on purpose: they come from PG_VECTOR_API_BASE /
-    PG_VECTOR_API_KEY in the gateway's process env, which is the only place LiteLLM reads them."""
-    for entry in _config()["vector_store_registry"]:
-        params = entry["litellm_params"]
-        assert params["custom_llm_provider"] == "pg_vector", entry
-        assert "api_key" not in params and "api_base" not in params, \
-            f"{params['vector_store_id']}: a literal here would be sent as-is"
-        assert entry["vector_store_name"] == params["vector_store_id"]
+def test_the_registration_script_reconciles_exactly_the_contract():
+    """What CD writes into the gateway is derived from `VectorStores` at run time — nothing to
+    drift from — and carries neither a credential nor an api_base."""
+    spec = importlib.util.spec_from_file_location(
+        "register_vector_stores", ROOT / "scripts" / "register_vector_stores.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    import io
+    import contextlib
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert module.main(["--dry-run"]) == 0
+    declared = {e["vector_store_id"]: e for e in __import__("json").loads(out.getvalue())}
+    assert set(declared) == VectorStores.names()
+    for entry in declared.values():
+        assert entry["custom_llm_provider"] == VectorStores.PROVIDER
+        assert entry["litellm_params"] == {}, "no credential, no api_base — the env carries them"
+        assert entry["vector_store_description"]
 
 
 def test_the_gateway_role_is_handed_what_the_stores_read_from_its_environment(railway):

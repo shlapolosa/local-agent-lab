@@ -111,17 +111,29 @@ class VectorStores:
     artifact lets the screening team hold the capability map and nothing else. A caller searches
     it through the gateway's OpenAI vector-store API, which reaches reference-mcp's façade over the
     same `search` the MCP tool uses — under a pin, attributed, and refused on a stale index. This
-    catalogue and the yaml are held identical both ways by a parity test, exactly as tool
-    catalogues are; a store here that the gateway does not register would pass preflight and fail
-    the run.
+    catalogue is the ONE declaration: `scripts/register_vector_stores.py` reconciles the gateway's
+    database to it on every deploy (a yaml `vector_store_registry` is deleted from memory by the
+    list endpoint whenever a database is configured — verified), and a store here that the gateway
+    does not register fails that step loudly rather than a run twenty minutes in.
     """
     CAPABILITY_MAP_HEALTHCARE = "capability-map-healthcare-provider-v2.0"
     CAPABILITY_MAP_INSURANCE = "capability-map-insurance-v5.0"
 
+    #: What a person sees in the gateway UI beside the id.
+    DESCRIPTION = {
+        CAPABILITY_MAP_HEALTHCARE: "BA Guild Healthcare Provider capability map v2.0 (L1-L3 with "
+                                   "path), read under a pin through reference-mcp",
+        CAPABILITY_MAP_INSURANCE: "BA Guild Insurance capability map v5.0 (L1-L3 with path), read "
+                                  "under a pin through reference-mcp",
+    }
+    #: The LiteLLM provider every store is served by: the OpenAI-compatible HTTP client that
+    #: reference-mcp's façade satisfies.
+    PROVIDER = "pg_vector"
+
     @classmethod
     def names(cls) -> frozenset[str]:
         return frozenset(v for k, v in vars(cls).items()
-                         if not k.startswith("_") and isinstance(v, str))
+                         if not k.startswith("_") and k not in ("PROVIDER",) and isinstance(v, str))
 
 
 class DecisionTools(ToolCatalogue):

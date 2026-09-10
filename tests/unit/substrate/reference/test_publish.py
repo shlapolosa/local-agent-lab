@@ -455,3 +455,63 @@ def test_the_version_row_carries_the_mode_it_was_published_with(tmp_path):
     _publish_map(pub, tmp_path, retrieval="vector")
     sql, params = [(s, p) for s, p in pub.log if "INSERT INTO ref_artifact_version" in s][0]
     assert "retrieval" in sql and params[-1] == "vector"
+
+
+# ---------------------------------------------------------------- a workbook master, by reference
+
+def test_a_workbook_in_the_store_publishes_by_ref_and_keeps_that_ref_as_the_master(tmp_path):
+    """The licensed workbook lives ONLY in the private store. It is read from there, hashed,
+    derived through the semantic layer's parser, and the citation opens the same bytes — the
+    publisher stores no second copy of it."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "wbfixture", Path(__file__).resolve().parents[2] / "core" / "reference" / "test_workbook.py")
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+
+    class RefStore(FakeStore):
+        def get(self, ref): return fixture.workbook()
+
+    store = RefStore()
+    pub = publisher(tmp_path, store=store)
+    out = pub.publish("capability-map-test", master_ref="art://abc/test.xlsx",
+                      master_format="workbook", scheme="test-scheme", version="v1",
+                      kind="record", owner="BA Guild", record_type="capability",
+                      key_fields=["id", "parent", "level"], retrieval="vector",
+                      text_fields=["path", "definition"])
+    assert out["entries"] == 5 and out["passages"] == 5
+    assert out["master_ref"] == "art://abc/test.xlsx"
+    assert [c[0] for c in store.put_calls] == ["capability-map-test.json"], "no second workbook"
+    keys = [json.loads(p[4]) for s, p in pub.log if "INSERT INTO ref_record" in s]
+    assert all(set(k) == {"id", "parent", "level"} for k in keys)
+    assert sum(1 for k in keys if k["parent"] == "-") == 2, "two roots"
+    passage = [p for s, p in pub.log if "INSERT INTO ref_passage" in s][2]
+    assert passage[6] == "Care Delivery > Triage > Urgent triage. The urgent path"
+
+
+def test_a_workbook_master_needs_its_scheme(tmp_path):
+    class RefStore(FakeStore):
+        def get(self, ref): return b"not read"
+    with pytest.raises(PublishError) as e:
+        publisher(tmp_path, store=RefStore()).publish(
+            "m", master_ref="art://x/y.xlsx", master_format="workbook", version="v1",
+            kind="record", owner="x", record_type="capability", key_fields=["id"])
+    assert "--scheme" in str(e.value)
+
+
+def test_a_master_is_a_path_or_a_ref_exactly_one(tmp_path):
+    with pytest.raises(PublishError):
+        publisher(tmp_path).publish("m", version="v1", kind="record", owner="x",
+                                    record_type="t", key_fields=["a"])
+    with pytest.raises(PublishError):
+        publisher(tmp_path).publish("m", master_path=master_file(tmp_path),
+                                    master_ref="art://x/y", version="v1", kind="record",
+                                    owner="x", record_type="t", key_fields=["a"])
+
+
+def test_an_unknown_master_format_refuses(tmp_path):
+    with pytest.raises(PublishError):
+        publisher(tmp_path).publish("m", master_path=master_file(tmp_path), master_format="pdf",
+                                    version="v1", kind="record", owner="x", record_type="t",
+                                    key_fields=["a"])
