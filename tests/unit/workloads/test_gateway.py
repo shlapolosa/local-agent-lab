@@ -122,3 +122,20 @@ def test_preflight_passes_when_every_store_is_registered_and_asks_nothing_when_n
     asyncio.run(gateway.preflight_stores("http://gw:4000", {}, ["capability-map-a"], http=http))
     asyncio.run(gateway.preflight_stores("http://gw:4000", {}, [], http=http))
     assert len(http.calls) == 1
+
+
+def test_run_graph_preflights_the_stores_a_run_will_search(monkeypatch):
+    """The same zero-token contract as tools: a store the gateway does not register for this
+    identity refuses the run before any model is called."""
+    monkeypatch.setattr(gateway, "Client", _client([_Tool("srv-x", ("a",))]))
+    seen = []
+
+    async def stores(url, headers, required, *, http=None):
+        seen.append((url, list(required)))
+        raise RuntimeError("not registered")
+    monkeypatch.setattr(gateway, "preflight_stores", stores)
+    cfg = {"mcp_url": "http://x/mcp", "headers": {}, "gateway_url": "http://gw"}
+    with pytest.raises(RuntimeError):
+        asyncio.run(gateway.run_graph(cfg, lambda c: None, {}, what="w", required=["x"],
+                                      required_stores=["capability-map-a"]))
+    assert seen == [("http://gw", ["capability-map-a"])]

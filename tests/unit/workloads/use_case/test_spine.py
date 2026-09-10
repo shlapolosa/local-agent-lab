@@ -22,10 +22,25 @@ SCHEME = "healthcare-provider-v2.0"
 _proj = lambda rows: rows
 
 
-def _drill(h, d):
+def _kids(tree: dict):
+    """The `children` seam as the corpus serves it: rows BELOW each parent id, recording what was
+    asked. A parent row in the answer (as a semantic tool once returned) is filtered by level."""
+    asked: list = []
+
+    async def children(ids, level):
+        asked.extend(ids)
+        out = []
+        for ident in ids:
+            out += tree.get(ident, [])
+        return out
+    children.asked = asked
+    return children
+
+
+def _drill(h, d, children=None):
     """The drill over whatever candidates this working set was given."""
     return coverage.drill(h.cfg, d, d.available.get("capabilities") or [],
-                          scheme=SCHEME, project=_proj)
+                          children=children or _kids({}), project=_proj)
 from lab.core.usecase import seed as _seed
 from lab.core.usecase import predicates as _predicates
 from lab.platform.contracts import (
@@ -992,8 +1007,8 @@ def test_the_drill_starts_from_the_top_level_only():
     drill, as the level above decides it is worth looking at — so the starting prompt is small and
     stays small, however large the published map grows."""
     from lab.workloads.usecase.coverage import DEEPEST_LEVEL
-    from lab.workloads.use_case_screening.workflow import CORPORA
-    assert CORPORA["capabilities"][1]["depth"] == 0
+    from lab.workloads.use_case_screening import workflow as W
+    assert W.FETCHED_LEVELS == (1, DEEPEST_LEVEL), "the top level up front; the rest as the drill asks"
     assert DEEPEST_LEVEL == 3
 
 
@@ -1038,30 +1053,25 @@ def test_the_drill_matches_l1_then_l2_within_those_then_l3():
     even shown."""
     from lab.workloads.use_case_screening import workflow as W
 
-    children = {"Patient Management": [_level("c1", "Patient Management", 1),
-                                       _level("c1a", "Referral Triage", 2, "c1"),
-                                       _level("c1b", "Admissions", 2, "c1")],
-                "Referral Triage": [_level("c1a", "Referral Triage", 2),
-                                    _level("c1a1", "Urgency Assessment", 3, "c1a")]}
-    router = _screening_router(**{
-        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
+    kids = _kids({"c1": [_level("c1a", "Referral Triage", 2, "c1"),
+                         _level("c1b", "Admissions", 2, "c1")],
+                  "c1a": [_level("c1a1", "Urgency Assessment", 3, "c1a")]})
     answers = [_covers(_match("triage", "c1", "Patient Management")),
                _covers(_match("triage", "c1a", "Referral Triage")),
                _covers(_match("triage", "c1a1", "Urgency Assessment"))]
-    with spine(W, router) as h:
+    with spine(W, _screening_router()) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(*answers)}
         d = _Derivation(h, candidates=[_level("c1", "Patient Management", 1),
                                        _level("c2", "Scheduling", 1)])
-        out = asyncio.run(coverage.drill(h.cfg, d, d.available['capabilities'], scheme=SCHEME, project=_proj))
+        out = asyncio.run(_drill(h, d, kids))
 
     assert out["capability_depth"] == 3, "the drill must reach the leaves"
     trail = out["coverage_trail"]
     assert [t["level"] for t in trail] == [1, 2, 3]
     # Each level was shown ONLY what the level above selected.
     assert trail[0]["candidates"] == 2 and trail[1]["candidates"] == 2 and trail[2]["candidates"] == 1
-    asked = [c[1].get("root_label") for c in h.router.calls if c[0] == SemanticTools.concepts]
-    assert asked == ["Patient Management", "Referral Triage"], asked
-    assert "Scheduling" not in asked, "a branch nobody matched must never be opened"
+    assert kids.asked == ["c1", "c1a"], kids.asked
+    assert "c2" not in kids.asked, "a branch nobody matched must never be opened"
 
 
 def test_every_level_is_kept_not_just_the_last():
@@ -1069,23 +1079,20 @@ def test_every_level_is_kept_not_just_the_last():
     L3 list alone cannot be checked: a leaf under a branch nobody should have opened looks exactly
     like a leaf under one they should."""
     from lab.workloads.use_case_screening import workflow as W
-    children = {"Patient Management": [_level("c1", "Patient Management", 1),
-                                       _level("c1a", "Referral Triage", 2, "c1")]}
-    router = _screening_router(**{
-        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
-    with spine(W, router) as h:
+    kids = _kids({"c1": [_level("c1a", "Referral Triage", 2, "c1")]})
+    with spine(W, _screening_router()) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")),
             _covers(_match("triage", "c1a", "Referral Triage")))}
         out = asyncio.run(_drill(h, _Derivation(
-            h, candidates=[_level("c1", "Patient Management", 1)])))
+            h, candidates=[_level("c1", "Patient Management", 1)]), kids))
     assert [t["matched"][0]["capability_label"] for t in out["coverage_trail"]] == [
         "Patient Management", "Referral Triage"]
 
 
 def test_a_level_that_matches_nothing_stops_the_drill_and_keeps_what_answered():
     from lab.workloads.use_case_screening import workflow as W
-    with spine(W, _screening_router(**{SemanticTools.concepts: []})) as h:
+    with spine(W, _screening_router()) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(), _covers(_match("x", "c9", "Never reached")))}
         out = asyncio.run(_drill(h, _Derivation(
@@ -1097,22 +1104,23 @@ def test_a_level_that_matches_nothing_stops_the_drill_and_keeps_what_answered():
 def test_a_branch_that_will_not_fetch_leaves_the_level_above_standing():
     """A drill that fails must not lose the answer the level above already produced."""
     from lab.workloads.use_case_screening import workflow as W
-    router = _screening_router(**{SemanticTools.concepts: RuntimeError("scheme unavailable")})
-    with spine(W, router) as h:
+    async def refusing(ids, level):
+        raise RuntimeError("corpus unavailable")
+    with spine(W, _screening_router()) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")))}
         out = asyncio.run(_drill(h, _Derivation(
-            h, candidates=[_level("c1", "Patient Management", 1)])))
+            h, candidates=[_level("c1", "Patient Management", 1)]), refusing))
     assert out["capability_depth"] == 1 and len(out["coverage_trail"]) == 1
 
 
 def test_the_parent_is_not_offered_back_as_its_own_child():
-    """`concepts(root_label=X, depth=1)` returns X AND its children. A candidate set containing the
-    thing already matched invites the next pass to match it again and call that progress."""
-    from lab.workloads.use_case_screening import workflow as W
-    children = [_level("c1", "Patient Management", 1), _level("c1a", "Referral Triage", 2, "c1")]
-    with spine(W, _screening_router(**{SemanticTools.concepts: children})) as h:
-        out = asyncio.run(coverage._children_of(h.cfg, SCHEME, ["Patient Management"], 2, _proj))
+    """A children read that also returns the parent (as a semantic tool once did) must not offer
+    it back: a candidate set containing the thing already matched invites the next pass to match
+    it again and call that progress."""
+    kids = _kids({"c1": [_level("c1", "Patient Management", 1),
+                         _level("c1a", "Referral Triage", 2, "c1")]})
+    out = asyncio.run(coverage._children_of(kids, ["c1"], 2, _proj))
     assert [c["label"] for c in out] == ["Referral Triage"]
 
 
@@ -1179,18 +1187,15 @@ def test_a_gate_failure_deep_in_the_drill_keeps_the_levels_that_passed():
     """A deeper pass is MORE likely to fail its gate, not less — and losing the run would throw
     away every level that already passed, plus every other step in a 700-second run."""
     from lab.workloads.use_case_screening import workflow as W
-    children = {"Patient Management": [_level("c1", "Patient Management", 1),
-                                       _level("c1a", "Referral Triage", 2, "c1")]}
-    router = _screening_router(**{
-        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
-    with spine(W, router) as h:
+    kids = _kids({"c1": [_level("c1a", "Referral Triage", 2, "c1")]})
+    with spine(W, _screening_router()) as h:
         # The L2 answer omits `heat_map`, which its gate requires whenever anything matched.
         bad = {"matched": [_match("triage", "c1a", "Referral Triage")],
                "functions_without_capability": [], "capabilities_without_function": []}
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")), bad, bad, bad)}
         d = _Derivation(h, candidates=[_level("c1", "Patient Management", 1)])
-        out = asyncio.run(coverage.drill(h.cfg, d, d.available['capabilities'], scheme=SCHEME, project=_proj))
+        out = asyncio.run(_drill(h, d, kids))
 
     assert out["capability_depth"] == 1, "the L1 level stands"
     assert d.derived["coverage_map"]["matched"][0]["capability_label"] == "Patient Management"
@@ -1201,16 +1206,13 @@ def test_the_drill_does_not_leave_the_last_level_s_leaves_under_the_map_s_name()
     """After the drill, `available["capabilities"]` must still be the corpus it was given — not a
     handful of leaves wearing the published map's name."""
     from lab.workloads.use_case_screening import workflow as W
-    children = {"Patient Management": [_level("c1", "Patient Management", 1),
-                                       _level("c1a", "Referral Triage", 2, "c1")]}
-    router = _screening_router(**{
-        SemanticTools.concepts: lambda args: children.get(args.get("root_label"), [])})
+    kids = _kids({"c1": [_level("c1a", "Referral Triage", 2, "c1")]})
     top = [_level("c1", "Patient Management", 1), _level("c2", "Scheduling", 1)]
-    with spine(W, router) as h:
+    with spine(W, _screening_router()) as h:
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
             _covers(_match("triage", "c1", "Patient Management")))}
         d = _Derivation(h, candidates=list(top))
-        asyncio.run(coverage.drill(h.cfg, d, d.available['capabilities'], scheme=SCHEME, project=_proj))
+        asyncio.run(_drill(h, d, kids))
     assert d.available["capabilities"] == top
 
 
@@ -1297,3 +1299,24 @@ def test_the_design_package_says_what_moved_since_the_screening_run_cited_it():
     assert package["pin_id"] == "pin-test"
     assert package["version_drift"] == [{"artifact_id": "guardrails", "before": "v0.26",
                                            "after": "v0.27"}]
+
+
+def test_the_screening_run_reads_the_map_s_top_level_and_leaves_from_the_corpus_under_its_pin():
+    """No semantic tool any more: the map is rows of the governed corpus, a version cited, and
+    every read is attributed to the coverage map."""
+    from lab.workloads.use_case_screening import workflow as W
+    with spine(W, _screening_router()) as h:
+        run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
+    reads = h.router.called("reference_lookup")
+    assert {r["key"].get("level") for r in reads} >= {"1", "3"}
+    assert all(r["artifact_id"] == W.CAPABILITY_MAP and r["pin_id"] == "pin-test" for r in reads)
+    assert all(r["field"] == "coverage_map" for r in reads)
+    assert not h.router.called(SemanticTools.concepts)
+
+
+def test_a_map_the_corpus_cannot_serve_is_named_as_unavailable_not_silently_absent():
+    from lab.workloads.use_case_screening import workflow as W
+    with spine(W, _screening_router(**{"reference_lookup": RuntimeError("corpus down")})) as h:
+        run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
+    record = h.router.called(SemanticTools.store_spec)[-1]["spec"]
+    assert "corpus down" in record["corpora_unavailable"]["capabilities"]

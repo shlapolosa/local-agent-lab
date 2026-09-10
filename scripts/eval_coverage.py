@@ -42,8 +42,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab.core.semantic.service import SemanticService          # noqa: E402
+from lab.platform.contracts import VectorStores                # noqa: E402
+from lab.workloads import gateway                              # noqa: E402
 from lab.workloads.usecase import agents as A                  # noqa: E402
-from lab.workloads.usecase import coverage                     # noqa: E402
+from lab.workloads.usecase import coverage, reference          # noqa: E402
 from lab.workloads.usecase.derivation import Derivation        # noqa: E402
 from lab.workloads.usecase.gates import GateFailed             # noqa: E402
 from lab.workloads.usecase.steps import step_for               # noqa: E402
@@ -70,6 +72,32 @@ async def derive_elements(cfg, submission: str) -> dict:
     return d.derived["elements"]
 
 
+def children_of(corpus: list[dict]):
+    """The drill's `children` seam over the LOCAL tree — the same rows the corpus would serve."""
+    by_parent: dict = {}
+    for c in corpus:
+        by_parent.setdefault(c.get("parent"), []).append(c)
+
+    async def children(ids, level):
+        return [c for i in ids for c in by_parent.get(i, [])]
+    return children
+
+
+def search_of(cfg, scheme: str):
+    """The `vector` seam: the map's store THROUGH THE GATEWAY under a pin — the same path a run
+    takes, so what the harness scores is what a run gets."""
+    store = VectorStores.for_scheme(scheme)
+    pinned: dict = {}
+
+    async def search(query, k):
+        if not pinned:
+            pinned.update(await reference.pin(cfg, [store]))
+        return await gateway.vector_search(
+            cfg["gateway_url"], cfg["headers"], store, query, k=k,
+            filters={"pin_id": pinned["pin_id"], **reference.attribution(cfg, "coverage_map")})
+    return search
+
+
 async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set, float, str]:
     """One matcher over one case: the capabilities it returned, the seconds it took, and why it
     stopped if it did."""
@@ -77,7 +105,8 @@ async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set
     started = time.time()
     note = ""
     try:
-        await coverage.MATCHERS[matcher](cfg, d, corpus, scheme=scheme, project=lambda r: r)
+        await coverage.MATCHERS[matcher](cfg, d, corpus, children=children_of(corpus),
+                                         search=search_of(cfg, scheme), project=lambda r: r)
     except GateFailed as refused:
         note = f"gate: {refused}"
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
@@ -142,10 +171,12 @@ async def main() -> int:
 
     gateway_url = os.environ.get("EVAL_GATEWAY") or os.environ.get("GATEWAY_URL",
                                                                    "http://127.0.0.1:4000")
-    cfg = {"agents": agents_for(gateway_url,
-                                os.environ.get("USECASE_AGENT_MODEL", "kimi-k3"),
-                                os.environ["USECASE_AGENT_KEY"],
-                                step_for("3"), step_for("4"), step_for("5"))}
+    credential = os.environ["USECASE_AGENT_KEY"]
+    cfg = {"agents": agents_for(gateway_url, os.environ.get("USECASE_AGENT_MODEL", "kimi-k3"),
+                                credential, step_for("3"), step_for("4"), step_for("5")),
+           # what the `vector` matcher needs to reach the store the way a run does
+           "headers": gateway.auth_headers(credential), "gateway_url": gateway_url,
+           "mcp_url": gateway_url.rstrip("/") + "/mcp/", "run_id": "eval", "process": "eval"}
     corpus = corpus_for(args.scheme, os.environ.get(
         "REFERENCE_MODELS_DIR", str(Path.home() / "Development/local-agent-lab/var/reference-sources")))
     print(f"corpus: {len(corpus)} concepts | gateway: {gateway_url}")

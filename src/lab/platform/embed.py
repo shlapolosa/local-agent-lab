@@ -25,7 +25,12 @@ __all__ = ["DEFAULT_BATCH", "EmbedError", "Embedder", "GatewayEmbedder", "PURPOS
 #: the same kind costs recall in a way that looks like a bad corpus rather than a bad call.
 PURPOSES = {"document": "search_document", "query": "search_query"}
 
-DEFAULT_BATCH = 64
+#: Texts per call, and how long one call may take. Measured 10 Sep 2026 against the substrate's
+#: own CPU embedder: a 64-text batch of capability rows outran the 60 s default and the publish
+#: died on `TimeoutError` a thousand rows in. Smaller batches, and a timeout sized for a model
+#: that runs without a GPU — an index build is an operator step, and waiting is the right answer.
+DEFAULT_BATCH = 32
+DEFAULT_TIMEOUT_S = 300
 
 
 class EmbedError(RuntimeError):
@@ -52,12 +57,13 @@ class GatewayEmbedder:
 
     def __init__(self, *, base_url: str, credential: str, model: str, dim: int,
                  http: Callable[..., str] | None = None,
-                 batch_size: int = DEFAULT_BATCH) -> None:
+                 batch_size: int = DEFAULT_BATCH, timeout: int = DEFAULT_TIMEOUT_S) -> None:
         self.base_url = base_url.rstrip("/")
         self.credential = credential
         self.model = model
         self.dim = int(dim)
         self.batch_size = max(1, int(batch_size))
+        self.timeout = int(timeout)
         self._http = http or _http
 
     def embed(self, texts: Sequence[str], *, purpose: str) -> list[list[float]]:
@@ -80,7 +86,7 @@ class GatewayEmbedder:
             {"model": self.model, "input": chunk, "input_type": input_type},
             {"Authorization": f"Bearer {self.credential}",
              "Content-Type": "application/json"},
-            None)
+            self.timeout)
         return _vectors(body, expected=len(chunk), dim=self.dim, model=self.model)
 
 

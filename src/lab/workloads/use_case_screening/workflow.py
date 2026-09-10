@@ -45,18 +45,23 @@ PROCESS = USE_CASE_SCREENING.name
 #: cost of a whole run.
 REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec,
                   (ApprovalTools.ask, ("subject", "prompt", "items", "process")),
-                  ReferenceTools.pin)
+                  ReferenceTools.pin, (ReferenceTools.lookup, ("pin_id", "artifact_id")))
 
-#: The reference corpora the exercises read, and the tool that serves each. NOT preflighted: a
+#: The reference corpora served by a TOOL, and the tool that serves each. NOT preflighted: a
 #: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a
 #: named gap — refusing the whole run would give a deployment missing one grant nothing at all.
 CORPORA = {
-    # DEPTH 0 — the 42 top-level capabilities and nothing else. The match then DRILLS: see
-    # `drill_coverage`. The whole map is 1,666 concepts and will not go in a prompt, but no level
-    # of it is large, so the map is walked rather than searched.
-    "capabilities": (SemanticTools.concepts, {"scheme": "healthcare-provider-v2.0", "depth": 0}),
     "ontology": (SemanticTools.ontologies, {}),
 }
+
+#: The capability map is read from the GOVERNED corpus under this run's pin, not from a tool: the
+#: scheme names the artifact (= the gateway's relevance store), and what is fetched up front is
+#: the top level (the drill's first candidates) and the leaves (what `leaves` reads whole, and
+#: what the drill fallback measures) — `id, parent, level, label, path`, a version cited.
+SCHEME = "healthcare-provider-v2.0"
+CAPABILITY_MAP = VectorStores.for_scheme(SCHEME)
+MAP_RECORD_TYPE = "capability"
+FETCHED_LEVELS = (1, coverage.DEEPEST_LEVEL)
 
 #: Fields a corpus record contributes to a PROMPT, by corpus. Everything else is dropped before the
 #: message is built.
@@ -67,11 +72,14 @@ CORPORA = {
 #: tokens. Measured, on a live run that sat on step 5 for fifty-three minutes without failing —
 #: which is the worst way for a size problem to present, because a hang looks like slowness and
 #: slowness looks like patience.
-PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent")}
+PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent", "path")}
 
-#: What this run pins: the capability map its coverage match reads. Pinned even while the match
-#: still walks the semantic scheme, so the versions a design run compares against exist.
-REFERENCE_ARTIFACTS = (VectorStores.for_scheme(CORPORA["capabilities"][1]["scheme"]),)
+#: What this run pins: the capability map its coverage match reads.
+REFERENCE_ARTIFACTS = (CAPABILITY_MAP,)
+
+#: The relevance store the `vector` matcher searches — preflighted like a tool, for zero tokens,
+#: only when that matcher is the one configured.
+REQUIRED_STORES = (CAPABILITY_MAP,) if config.COVERAGE_MATCHER == "vector" else ()
 
 #: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
 #: unavailable with its size, rather than sent — a step that silently receives half a corpus
@@ -113,27 +121,65 @@ PROMPT = ("Confirm the criticality class derived for this use case. It sets the 
           "derivation found, and say why: an override is how the framework learns it is mis-tuned.")
 
 
-def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=None,
-             root_ctx=None, run_id=""):
+def make_cfg(*, credential="", mcp_url="", gateway_url="", traceparent="", agents=None,
+             tracer=None, root_ctx=None, run_id=""):
     """The ONE config contract. Nothing below reads the environment.
 
     `agents` maps a step key to its agent. A step with no entry is SKIPPED and stays in
     `pending_steps` — which is how this workload ran before any agent existed and how a deployment
     missing one model still produces a partial, honest record instead of failing."""
     return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
+            "gateway_url": gateway_url or config.GATEWAY_URL,
             "credential": credential, "agents": dict(agents or {}), "tracer": tracer,
             "root_ctx": root_ctx, "run_id": run_id, "process": PROCESS}
 
 
-async def match_capabilities(cfg, d) -> dict:
+def _map_rows(rows) -> list[dict]:
+    """Corpus rows as the matchers read them: a level is a number and a root has no parent."""
+    out = []
+    for row in rows:
+        try:
+            level = int(row.get("level", 0))
+        except (TypeError, ValueError):
+            continue
+        out.append({**row, "level": level,
+                    "parent": None if row.get("parent") in ("-", "", None) else row["parent"]})
+    return out
+
+
+async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
+    """The map's top level and its leaves, under the pin, attributed to the coverage map."""
+    rows: list[dict] = []
+    for level in FETCHED_LEVELS:
+        rows += await reference.records(cfg, pin_id, CAPABILITY_MAP, record_type=MAP_RECORD_TYPE,
+                                        key={"level": str(level)}, field="coverage_map")
+    return _map_rows(rows)
+
+
+async def match_capabilities(cfg, d, pin_id: str) -> dict:
     """Step 5, by whichever capability matcher this deployment runs.
 
-    Both live in `lab.workloads.usecase.coverage` with the evidence for choosing between them. The
-    corpus is passed in rather than fetched there, because which corpus a run reads is this
-    workload's decision and how it is matched is not."""
+    The strategies live in `lab.workloads.usecase.coverage` with the evidence for choosing between
+    them. The corpus and the two seams are supplied HERE — which artifact a run reads, and that it
+    reads it under this pin attributed to this field, is the workload's decision; how the map is
+    matched is not."""
+    async def children(ids, level):
+        found: list[dict] = []
+        for ident in ids:
+            found += await reference.records(cfg, pin_id, CAPABILITY_MAP,
+                                             record_type=MAP_RECORD_TYPE,
+                                             key={"parent": ident, "level": str(level)},
+                                             field="coverage_map")
+        return _map_rows(found)
+
+    async def search(query, k):
+        return await gateway.vector_search(
+            cfg["gateway_url"], cfg["headers"], CAPABILITY_MAP, query, k=k,
+            filters={"pin_id": pin_id, **reference.attribution(cfg, "coverage_map")})
+
     return await coverage.match(
         cfg, d, d.available.get("capabilities") or [],
-        name=config.COVERAGE_MATCHER, scheme=CORPORA["capabilities"][1]["scheme"],
+        name=config.COVERAGE_MATCHER, children=children, search=search,
         project=lambda rows: project("capabilities", rows), budget=MAX_CORPUS_BYTES)
 
 
@@ -199,6 +245,17 @@ def build_workflow(cfg):
             pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS)
             fetched: dict = {}
             missing: dict = dict(UNAVAILABLE)
+            # The map, from the corpus under the pin. Not size-checked here: a matcher decides
+            # what of it goes into a prompt (`coverage.resolve` measures the leaves), so the
+            # working set is not the prompt.
+            try:
+                rows = await fetch_capabilities(cfg, pinned["pin_id"])
+                if rows:
+                    fetched["capabilities"] = rows
+                else:
+                    missing["capabilities"] = "the pinned map served no rows"
+            except Exception as exc:                         # noqa: BLE001 — a corpus is optional
+                missing["capabilities"] = f"{type(exc).__name__}: {exc}"[:200]
             for name, (tool, args) in CORPORA.items():
                 try:
                     got = project(name, await gateway.call(cfg, tool, dict(args)))
@@ -246,7 +303,7 @@ def build_workflow(cfg):
                     # out rather than merged from the return, so what this executor adds to the
                     # state is readable here — `test_workflow_state_keys` reads exactly this and
                     # would otherwise have no way to tell a written key from a typo.
-                    drilled = await match_capabilities(cfg, d)
+                    drilled = await match_capabilities(cfg, d, state["pin_id"])
                     # 0 and [], not None: the drill returns nothing when the coverage agent is
                     # unwired or its corpus was unavailable, and those are exactly the runs where a
                     # reader most needs the record to say how deep the match went.
@@ -328,4 +385,4 @@ async def run_workflow(cfg, inputs: dict) -> dict:
     in particular was paid for once by a cloud failure and should not exist per
     workload, because the copy that will lack it is the next one."""
     return await gateway.run_graph(cfg, build_workflow, inputs, what="screening",
-                                   required=REQUIRED_TOOLS)
+                                   required=REQUIRED_TOOLS, required_stores=REQUIRED_STORES)

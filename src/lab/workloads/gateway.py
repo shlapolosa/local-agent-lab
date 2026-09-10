@@ -210,13 +210,17 @@ async def call(cfg: Mapping[str, Any], suffix: str, args: Mapping[str, Any]) -> 
 
 
 async def run_graph(cfg: Mapping[str, Any], build, inputs: Mapping[str, Any], *, what: str,
-                    required: Iterable[Any]) -> dict:
+                    required: Iterable[Any], required_stores: Iterable[str] = ()) -> dict:
     """Preflight, publish the graph to the run board, run it, and return the one output.
 
     The preflight is the part that must not be forgotten: it lists the gateway's tools and refuses
     a run whose contract is not exposed, for zero tokens, rather than dying twenty minutes in on a
-    tool a version-skewed gateway no longer has."""
+    tool a version-skewed gateway no longer has. `required_stores` are the relevance stores the
+    run will search, checked the same way."""
     await preflight(cfg["mcp_url"], cfg["headers"], required)
+    stores = [s for s in required_stores if s]
+    if stores:
+        await preflight_stores(cfg.get("gateway_url") or "", cfg["headers"], stores)
     workflow = build(cfg)
     if cfg.get("run_id"):
         from lab.platform import runlog

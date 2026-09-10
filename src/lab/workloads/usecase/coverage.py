@@ -31,18 +31,32 @@ fit is not a corpus it can answer over. The drill is what a map too large for on
 Neither is comprehensive yet: on that same case both missed Partner Referral Management, Schedule
 Management and the patient/medication branch entirely. That is why this is a registry with a
 harness rather than a decision already taken.
+
+**`vector`** is the third: one relevance query per behavioural element against the map's store
+(through the gateway — registered, granted, metered, attributed to the derived field), the hits
+unioned into a candidate set, and ONE pass of step 5 over that set exactly as `leaves` does. It
+sends a few dozen candidates rather than a thousand, and a candidate arrives because it is near
+the use case rather than because it exists. Whether that recovers what the other two miss is the
+harness's question.
+
+The map reaches every strategy the same way now: rows of the GOVERNED corpus under the run's pin
+(`id, parent, level, label, path`), so a match cites a version. `children` and `search` are seams
+the caller supplies — which corpus a run reads is the workload's decision; how it is matched is not.
 """
 from __future__ import annotations
 
 import json
 from typing import Any, Callable, Mapping
 
-from lab.platform.contracts import SemanticTools
-from lab.workloads import gateway
 from lab.workloads.usecase.gates import GateFailed
 from lab.workloads.usecase.steps import step_for
 
-__all__ = ["MATCHERS", "composed", "leaves_for", "match", "matched_labels", "resolve"]
+__all__ = ["MATCHERS", "VECTOR_HITS", "candidates_from_hits", "composed", "leaves_for", "match",
+           "matched_ids", "matched_labels", "queries_for", "resolve"]
+
+#: How many hits one behavioural element's relevance query brings back. Twelve, so the union over a
+#: dozen elements is a few dozen candidates — enough to disagree with, not enough to be a corpus.
+VECTOR_HITS = 12
 
 #: How many branches one level may open into the next (drill only). A coverage map that matched
 #: thirty branches is not a coverage map, and following them all would rebuild the whole corpus one
@@ -69,6 +83,16 @@ def matched_labels(coverage: Mapping[str, Any], corpus=None) -> list[str]:
                     or by_id.get(str(match_.get("capability_id")), "")).strip()
         if label and label not in seen:
             seen.append(label)
+    return seen[:MAX_BRANCHES]
+
+
+def matched_ids(coverage: Mapping[str, Any]) -> list[str]:
+    """The capability IDS a coverage map matched — what a child lookup is keyed on."""
+    seen: list[str] = []
+    for match_ in (coverage or {}).get("matched") or []:
+        ident = str(match_.get("capability_id") or "").strip()
+        if ident and ident not in seen:
+            seen.append(ident)
     return seen[:MAX_BRANCHES]
 
 
@@ -109,6 +133,10 @@ def leaves_for(corpus: list[dict], deepest: int = DEEPEST_LEVEL) -> list[dict]:
     by_id = {c["id"]: c for c in concepts if c.get("id")}
 
     def path_of(concept):
+        # A corpus row carries its path already (the workbook publisher writes it); a concept list
+        # from the semantic layer does not, and it is rebuilt from the parents present.
+        if concept.get("path"):
+            return str(concept["path"])
         out, cur = [], concept
         while cur:
             out.append(str(cur.get("label", "")))
@@ -124,24 +152,21 @@ def leaves_for(corpus: list[dict], deepest: int = DEEPEST_LEVEL) -> list[dict]:
             if c.get("level") == deepest and c.get("id") and c.get("label")]
 
 
-async def _children_of(cfg, scheme: str, labels, level: int, project) -> list[dict]:
+async def _children_of(children, ids, level: int, project) -> list[dict]:
     """The concepts one level BELOW each of these, and nothing else.
 
-    `semantic_concepts(root_label=X, depth=1)` returns X and its children, so the parent is filtered
-    out by level — a candidate set containing the thing already matched invites the next pass to
-    match it again and call that progress."""
-    out: list[dict] = []
-    for label in labels:
-        try:
-            got = await gateway.call(cfg, SemanticTools.concepts,
-                                     {"scheme": scheme, "root_label": label, "depth": 1})
-        except Exception:                                # noqa: BLE001 — a branch is best effort
-            continue
-        out += [c for c in project(got) or [] if c.get("level") == level]
-    return out
+    `children(ids, level)` is the caller's — a corpus read by parent under the run's pin — and a
+    branch that cannot be fetched is skipped rather than failing the level: a candidate set
+    containing the thing already matched invites the next pass to match it again and call that
+    progress, so the parent is filtered out by level as well."""
+    try:
+        got = await children(list(ids), level)
+    except Exception:                                    # noqa: BLE001 — a branch is best effort
+        return []
+    return [c for c in project(got) or [] if c.get("level") == level]
 
 
-async def drill(cfg, d, corpus, *, scheme: str, project) -> dict:
+async def drill(cfg, d, corpus, *, children, project, **_) -> dict:
     """Level by level: which L1 capabilities match, then which L2 within those, then L3.
 
     Walking the tree is deterministic — given the matches, the children to fetch next are not a
@@ -170,10 +195,10 @@ async def drill(cfg, d, corpus, *, scheme: str, project) -> dict:
             break
         found = dict(d.derived.get("coverage_map") or {})
         trail.append({"level": level, "candidates": len(candidates), **found})
-        labels = matched_labels(found, candidates)
-        if not labels or level == DEEPEST_LEVEL:
+        ids = matched_ids(found)
+        if not ids or level == DEEPEST_LEVEL:
             break
-        candidates = await _children_of(cfg, scheme, labels, level + 1, project)
+        candidates = await _children_of(children, ids, level + 1, project)
 
     if not trail:
         return {}
@@ -183,20 +208,13 @@ async def drill(cfg, d, corpus, *, scheme: str, project) -> dict:
     return {"capability_depth": trail[-1]["level"], "coverage_trail": trail}
 
 
-async def leaves(cfg, d, corpus, *, scheme: str, project) -> dict:
-    """One pass over every leaf, each carrying its path.
-
-    No branch is ever closed, which is the whole difference: the drill's L1 decision is the
-    highest-stakes one it makes and it makes it with the least information — 42 bare labels, no
-    idea what lives underneath. "Is Work Management relevant?" is nearly unanswerable; "is
-    Submission Validation relevant?" is obvious. The meaning is in the leaf.
-    """
-    step = step_for("5")
-    candidates = leaves_for(corpus)
+async def _one_pass(cfg, d, candidates: list[dict], *, label: str) -> dict:
+    """ONE pass of step 5 over a candidate set that already carries its paths — what `leaves` and
+    `vector` share. A gate failure defers the step by name rather than losing the run."""
     if not candidates:
         return {}
     try:
-        if not await d.run_step(cfg, step, label=f"match capabilities ({len(candidates)} leaves)",
+        if not await d.run_step(cfg, step_for("5"), label=label,
                                 context={"capabilities": candidates}):
             return {}
     except GateFailed as refused:
@@ -207,9 +225,82 @@ async def leaves(cfg, d, corpus, *, scheme: str, project) -> dict:
             "coverage_trail": [{"level": DEEPEST_LEVEL, "candidates": len(candidates), **found}]}
 
 
+async def leaves(cfg, d, corpus, **_) -> dict:
+    """One pass over every leaf, each carrying its path.
+
+    No branch is ever closed, which is the whole difference: the drill's L1 decision is the
+    highest-stakes one it makes and it makes it with the least information — 42 bare labels, no
+    idea what lives underneath. "Is Work Management relevant?" is nearly unanswerable; "is
+    Submission Validation relevant?" is obvious. The meaning is in the leaf.
+    """
+    candidates = leaves_for(corpus)
+    return await _one_pass(cfg, d, candidates,
+                           label=f"match capabilities ({len(candidates)} leaves)")
+
+
+def queries_for(elements: Mapping[str, Any] | None) -> list[str]:
+    """One relevance query per BEHAVIOURAL element — the functions the use case performs are what a
+    capability map classifies; its actors and its data are not."""
+    out: list[str] = []
+    names: set[str] = set()
+    for element in (elements or {}).get("behavioural") or []:
+        if not isinstance(element, dict):
+            continue
+        parts = [str(element.get(k) or "").strip() for k in ("name", "verb", "object")]
+        if not parts[0] or parts[0].lower() in names:       # one query per element, by NAME
+            continue
+        names.add(parts[0].lower())
+        out.append(" — ".join(p for p in (parts[0], " ".join(x for x in parts[1:] if x)) if p))
+    return out
+
+
+def candidates_from_hits(hits) -> list[dict]:
+    """Relevance hits as the candidate rows step 5 reads: `{id, label, path}`, de-duplicated,
+    first-seen order. A hit over the map is RECORD-backed — its `key` carries the id — and its
+    text is `path. definition`, which is where the label and the path come from."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for hit in hits or []:
+        attrs = (hit or {}).get("attributes") or {}
+        try:
+            key = json.loads(attrs.get("key") or "{}")
+        except ValueError:
+            key = {}
+        ident = str(key.get("id") or attrs.get("record_id") or "").strip()
+        text = " ".join(c.get("text", "") for c in (hit.get("content") or [])
+                        if isinstance(c, dict))
+        path = text.split(". ", 1)[0].strip()
+        if not ident or ident in seen or not path:
+            continue
+        seen.add(ident)
+        out.append({"id": ident, "label": path.rsplit(" > ", 1)[-1], "path": path})
+    return out
+
+
+async def vector(cfg, d, corpus, *, search, **_) -> dict:
+    """One relevance query per behavioural element, the hits unioned, one pass of step 5 over the
+    union. `search(query, k)` is the caller's — the map's store through the gateway, under the
+    run's pin, attributed to this field."""
+    queries = queries_for(d.available.get("elements"))
+    if not queries:
+        d.defer("5", "match capabilities — needs the behavioural elements from step 4")
+        return {}
+    hits: list = []
+    for query in queries:
+        try:
+            hits += await search(query, VECTOR_HITS)
+        except Exception as exc:                          # noqa: BLE001 — one query, not the run
+            d.defer("5", f"match capabilities: the relevance search refused — {exc}")
+            return {}
+    candidates = candidates_from_hits(hits)
+    return await _one_pass(cfg, d, candidates,
+                           label=f"match capabilities ({len(candidates)} candidates from "
+                                 f"{len(queries)} queries)")
+
+
 #: The strategies, by name. Adding one is a line here and nothing else — which is what lets a
 #: harness run them all over the same inputs and a deployment choose on evidence.
-MATCHERS: dict[str, Callable] = {"drill": drill, "leaves": leaves}
+MATCHERS: dict[str, Callable] = {"drill": drill, "leaves": leaves, "vector": vector}
 
 
 def resolve(name: str, corpus, budget: int) -> Callable:
@@ -229,6 +320,8 @@ def resolve(name: str, corpus, budget: int) -> Callable:
     return matcher
 
 
-async def match(cfg, d, corpus, *, name: str, scheme: str, project, budget: int) -> dict:
-    """Step 5, by whichever strategy this deployment runs."""
-    return await resolve(name, corpus, budget)(cfg, d, corpus, scheme=scheme, project=project)
+async def match(cfg, d, corpus, *, name: str, children, search, project, budget: int) -> dict:
+    """Step 5, by whichever strategy this deployment runs. Every strategy is handed every seam and
+    takes what it needs — the registry stays one line per strategy."""
+    return await resolve(name, corpus, budget)(cfg, d, corpus, children=children, search=search,
+                                               project=project)

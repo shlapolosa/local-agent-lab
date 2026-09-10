@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lab.platform.contracts import (ApprovalTools, DecisionTools, ReferenceTools,  # noqa: E402
                                     SemanticTools, StorageTools, USE_CASE_SCREENING,
-                                    ValuationTools, WorkflowTools)
+                                    ValuationTools, VectorStores, WorkflowTools)
 from lab.workloads.usecase.identity import PREFIX_FOR  # noqa: E402
 
 
@@ -52,8 +52,10 @@ INTAKE_TOOLS = {
     # `store_spec` is how a workload with no store credential persists anything at all; the other
     # two are for loading a derived model into the semantic layer. `concepts` and `ontologies` are
     # the CORPORA the screening exercises read.
-    SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.concepts,
-                           SemanticTools.ontologies, SemanticTools.describe],
+    # `ontologies` is the corpus step 9 reads; the capability map is no longer a semantic tool —
+    # it is read from the governed corpus under the run's pin, and searched through a store.
+    SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.ontologies,
+                           SemanticTools.describe],
     # The deterministic derivations. Read-only, and the whole catalogue: a run that could compute
     # its exposure but not its obligations would produce a design package with a hole in it.
     DecisionTools.SERVER: sorted(DecisionTools.names()),
@@ -91,6 +93,14 @@ SUBMITTER_TOOLS = {
 NO_STORES = ("-",)
 
 
+#: The relevance stores each team may search — a GRANT unit, like a tool (see `_grants`). The
+#: intake team matches capabilities against the maps; the delivery and submitter identities search
+#: nothing and are spelled as such, because an empty grant is an open one.
+INTAKE_STORES = [VectorStores.CAPABILITY_MAP_HEALTHCARE, VectorStores.CAPABILITY_MAP_INSURANCE]
+DELIVERY_STORES: list[str] = []
+SUBMITTER_STORES: list[str] = []
+
+
 def _grants(tools, stores=()):
     """The `object_permission` for a per-tool ACL. `mcp_servers` alone would grant EVERY tool on the
     server, including ones added later, so the two always travel together — and `vector_stores` is
@@ -99,14 +109,14 @@ def _grants(tools, stores=()):
             "vector_stores": sorted(stores) or list(NO_STORES)}
 
 
-def _team(litellm, alias, tools, budget=5.0, models=("kimi-k3", "glm-flash")):
+def _team(litellm, alias, tools, stores=(), budget=5.0, models=("kimi-k3", "glm-flash")):
     return litellm("/team/new", {
         "team_alias": alias, "max_budget": budget, "budget_duration": "30d",
-        "models": list(models), "object_permission": _grants(tools),
+        "models": list(models), "object_permission": _grants(tools, stores),
     })["team_id"]
 
 
-def _reconcile(litellm, team_id, alias, tools):
+def _reconcile(litellm, team_id, alias, tools, stores=()):
     """Make an EXISTING team's grants match the table above.
 
     Never merely reused: the tables are the declaration and this is what applies them. The meeting
@@ -114,7 +124,7 @@ def _reconcile(litellm, team_id, alias, tools):
     old ACL because its id was already in `.env`, and the workload failed at its last step having
     produced correct minutes, while provisioning printed "Grants written" and had written nothing.
     """
-    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools)})
+    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools, stores)})
     return team_id
 
 
@@ -165,15 +175,16 @@ def main() -> int:
     intake_id, intake_secret = ensure_agent("usecase-agent", [], gw_sp)
     delivery_id, delivery_secret = ensure_agent("usecase-delivery-agent", [], gw_sp)
 
-    def team(env_key, alias, tools, **kw):
+    def team(env_key, alias, tools, stores, **kw):
         existing = os.environ.get(env_key)
-        return (_reconcile(litellm, existing, alias, tools) if existing
-                else _team(litellm, alias, tools, **kw))
+        return (_reconcile(litellm, existing, alias, tools, stores) if existing
+                else _team(litellm, alias, tools, stores, **kw))
 
-    intake_team = team("USECASE_TEAM_ID", "usecase-intake", INTAKE_TOOLS)
-    delivery_team = team("USECASE_DELIVERY_TEAM_ID", "usecase-delivery", DELIVERY_TOOLS)
+    intake_team = team("USECASE_TEAM_ID", "usecase-intake", INTAKE_TOOLS, INTAKE_STORES)
+    delivery_team = team("USECASE_DELIVERY_TEAM_ID", "usecase-delivery", DELIVERY_TOOLS,
+                         DELIVERY_STORES)
     submitter_team = team("USECASE_SUBMITTER_TEAM_ID", "usecase-submitter", SUBMITTER_TOOLS,
-                          budget=1.0, models=())
+                          SUBMITTER_STORES, budget=1.0, models=())
 
     patch = {"USECASE_TEAM_ID": intake_team,
              "USECASE_DELIVERY_TEAM_ID": delivery_team,
@@ -208,11 +219,13 @@ def main() -> int:
 
     _patch_env(patch)
     print("\nGrants written:")
-    for alias, tools in (("usecase-intake", INTAKE_TOOLS), ("usecase-delivery", DELIVERY_TOOLS),
-                         ("usecase-submitter", SUBMITTER_TOOLS)):
+    for alias, tools, stores in (("usecase-intake", INTAKE_TOOLS, INTAKE_STORES),
+                                 ("usecase-delivery", DELIVERY_TOOLS, DELIVERY_STORES),
+                                 ("usecase-submitter", SUBMITTER_TOOLS, SUBMITTER_STORES)):
         print(f"  {alias}")
         for server, granted in sorted(tools.items()):
             print(f"    {server}: {', '.join(sorted(granted))}")
+        print(f"    vector stores: {', '.join(stores) or '(none)'}")
     print(f"\n{len(SERVICE_PREFIXES)} bounded contexts provisioned in {intake_team}:")
     for service, prefix in sorted(SERVICE_PREFIXES.items()):
         print(f"  {service:24} {prefix}_CLIENT_ID / {prefix}_KEY")

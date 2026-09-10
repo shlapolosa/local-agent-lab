@@ -138,3 +138,15 @@ def test_a_duplicate_index_refuses_rather_than_last_one_winning():
                                     {"index": 0, "embedding": [1.0] * 4}]})
     with pytest.raises(EmbedError):
         embedder(http).embed(["a", "b"], purpose="document")
+
+
+def test_a_batch_is_given_the_time_a_cpu_embedder_needs_and_is_not_too_large():
+    """Measured: a 64-text batch outran the 60 s default on the substrate's own embedder and the
+    publish died a thousand rows in. The timeout travels with every call."""
+    http = FakeHttp()
+    e = embedder(http)
+    e.embed(["a"] * 70, purpose="document")
+    assert http.calls[0]["url"].endswith("/v1/embeddings")
+    assert len(http.calls) == 3 and len(http.calls[0]["payload"]["input"]) == 32
+    from lab.platform.embed import DEFAULT_TIMEOUT_S
+    assert DEFAULT_TIMEOUT_S >= 120
