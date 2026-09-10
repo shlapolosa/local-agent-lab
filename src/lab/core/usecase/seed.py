@@ -16,28 +16,9 @@ from functools import lru_cache
 from typing import Any, Iterable, Mapping
 from pathlib import Path
 
-__all__ = ["SEED_DIR", "NAMED_CONDITIONS", "artifact", "guardrails", "live_guardrails", "names"]
+__all__ = ["SEED_DIR", "artifact", "guardrails", "live_guardrails", "names"]
 
 SEED_DIR = Path(__file__).parent / "seed"
-
-#: Prose terms in the published predicates that a facet vector cannot answer, so the CALLER must.
-#: Step 19 knows what a step invokes, reads and delegates to; the facet schema does not record it.
-#: Declared here rather than discovered, so a new condition arriving with a framework release is a
-#: visible change rather than a guardrail that silently stops firing — the test that compares this
-#: set against the corpus is what makes that true.
-NAMED_CONDITIONS = frozenset({
-    "step invokes any registered tool",
-    "the step runs without an interactive user at trigger time",
-    "step executes generated or supplied code",
-    "step reads any grounding source",
-    "the step delegates to another agent",
-    "step invokes a downstream service",
-    "the step reasons over or emits a named concept",
-    "the step can conclude that nothing is wrong",
-    "step reads any grounding source, tool output or agent response — any content the enterprise "
-    "did not author",
-})
-
 
 @lru_cache(maxsize=None)
 def artifact(name: str) -> dict:

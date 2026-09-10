@@ -20,13 +20,33 @@ and it is invisible — the run completes, the control set is short, and nothing
 circuiting is still honest where the unknown cannot change the answer (`False ∧ unknown` is False),
 and only there.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-__all__ = [
+#: Prose terms in the published predicates that a facet vector cannot answer, so the CALLER must.
+#: Step 19 knows what a step invokes, reads and delegates to; the facet schema does not record it.
+#: Declared here — beside the predicate parser they are a property of — rather than discovered, so
+#: a new condition arriving with a framework release is a visible change rather than a guardrail
+#: that silently stops firing; the test comparing this set against the corpus is what makes that
+#: true. A RULE, not seed data: it must survive the seed's retirement as a runtime read.
+NAMED_CONDITIONS = frozenset({
+    "step invokes any registered tool",
+    "the step runs without an interactive user at trigger time",
+    "step executes generated or supplied code",
+    "step reads any grounding source",
+    "the step delegates to another agent",
+    "step invokes a downstream service",
+    "the step reasons over or emits a named concept",
+    "the step can conclude that nothing is wrong",
+    "step reads any grounding source, tool output or agent response — any content the enterprise "
+    "did not author",
+})
+
+__all__ = ["NAMED_CONDITIONS",
     "FIELDS", "Predicate", "PredicateError", "PredicateSyntaxError", "UnknownCondition",
     "UnknownField", "parse", "normalise_value",
 ]

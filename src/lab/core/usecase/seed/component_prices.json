@@ -1,0 +1,255 @@
+{
+  "prices": [
+    {
+      "component": "cmp-967db4e8ad",
+      "variant": "developer",
+      "component_name": "APIM — AI Gateway",
+      "zone": "gw",
+      "unit": "Instance",
+      "opex_low": 175.0,
+      "opex_expected": 175.0,
+      "opex_high": 175.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "API Management (Developer)",
+      "note": "Shared gateway; scales to Standard for production"
+    },
+    {
+      "component": "cmp-f560d81190",
+      "variant": "container-registry-basic",
+      "component_name": "Compute hosts",
+      "zone": "plat",
+      "unit": "Instance",
+      "opex_low": 20.0,
+      "opex_expected": 20.0,
+      "opex_high": 20.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "Container Registry (Basic)",
+      "note": "Shared with the platform"
+    },
+    {
+      "component": "cmp-f560d81190",
+      "variant": "container-apps",
+      "component_name": "Compute hosts",
+      "zone": "plat",
+      "unit": "vCPU-hour and memory-hour",
+      "opex_low": 100.0,
+      "opex_expected": 250.0,
+      "opex_high": 400.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "runs_per_month",
+      "expected_at": 5000,
+      "high_at": 50000,
+      "source_line": "Container Apps",
+      "note": "Scales to zero when idle"
+    },
+    {
+      "component": "cmp-5ebda000ea",
+      "variant": "hub-and-project",
+      "component_name": "Foundry agents",
+      "zone": "cog",
+      "unit": "Fixed plus per-run",
+      "opex_low": 180.0,
+      "opex_expected": 180.0,
+      "opex_high": 180.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "AI Foundry hub and project",
+      "note": "Hosts the agents"
+    },
+    {
+      "component": "cmp-bd9ee43705",
+      "variant": "frontier-provisioned",
+      "component_name": "Foundry model catalog",
+      "zone": "mod",
+      "unit": "PTU per month",
+      "opex_low": 9200.0,
+      "opex_expected": 9200.0,
+      "opex_high": 9200.0,
+      "capex_once": "",
+      "envelope_in": [
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "Azure OpenAI — frontier model, provisioned",
+      "note": "Provisioned when steady; consumption when bursty"
+    },
+    {
+      "component": "cmp-bd9ee43705",
+      "variant": "small-consumption",
+      "component_name": "Foundry model catalog",
+      "zone": "mod",
+      "unit": "Per 1K tokens",
+      "opex_low": 500.0,
+      "opex_expected": 1250.0,
+      "opex_high": 2000.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected"
+      ],
+      "volume_driver": "runs_per_month",
+      "expected_at": 5000,
+      "high_at": 50000,
+      "source_line": "Azure OpenAI — smaller models",
+      "note": "Depends on call and token volume from the workflow graph"
+    },
+    {
+      "component": "cmp-bd9ee43705",
+      "variant": "embeddings-consumption",
+      "component_name": "Foundry model catalog",
+      "zone": "mod",
+      "unit": "Per 1K tokens",
+      "opex_low": 50.0,
+      "opex_expected": 125.0,
+      "opex_high": 200.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "records",
+      "expected_at": 100000,
+      "high_at": 1000000,
+      "source_line": "Azure OpenAI — embeddings",
+      "note": "Retrieval indexing"
+    },
+    {
+      "component": "cmp-e2eb6b87f6",
+      "variant": "basic",
+      "component_name": "Azure AI Search",
+      "zone": "knw",
+      "unit": "Instance",
+      "opex_low": 275.0,
+      "opex_expected": 275.0,
+      "opex_high": 275.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "AI Search (Basic)",
+      "note": "Registry and retrieval index"
+    },
+    {
+      "component": "cmp-6b2726fb06",
+      "variant": "standard",
+      "component_name": "Key Vault",
+      "zone": "ident",
+      "unit": "Per 10K operations",
+      "opex_low": 20.0,
+      "opex_expected": 20.0,
+      "opex_high": 20.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "Key Vault",
+      "note": "Secrets and customer-managed keys"
+    },
+    {
+      "component": "cmp-ad7e4cd271",
+      "variant": "ingest",
+      "component_name": "App Insights",
+      "zone": "obs",
+      "unit": "Per GB ingest",
+      "opex_low": 100.0,
+      "opex_expected": 250.0,
+      "opex_high": 400.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "runs_per_month",
+      "expected_at": 5000,
+      "high_at": 50000,
+      "source_line": "Application Insights and Log Analytics",
+      "note": "Traces, metrics and audit"
+    },
+    {
+      "component": "cmp-bb7cd41d32",
+      "variant": "m365-included",
+      "component_name": "SharePoint",
+      "zone": "data",
+      "unit": "M365 licensing",
+      "opex_low": 0.0,
+      "opex_expected": 0.0,
+      "opex_high": 0.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "none",
+      "expected_at": 0,
+      "high_at": 0,
+      "source_line": "SharePoint and Graph",
+      "note": "State and documents"
+    },
+    {
+      "component": "cmp-6c71a39bbd",
+      "variant": "message-pack",
+      "component_name": "Copilot Studio engine",
+      "zone": "cog",
+      "unit": "Per-message pack",
+      "opex_low": 700.0,
+      "opex_expected": 700.0,
+      "opex_high": 700.0,
+      "capex_once": "",
+      "envelope_in": [
+        "low",
+        "expected",
+        "high"
+      ],
+      "volume_driver": "runs_per_month",
+      "expected_at": 5000,
+      "high_at": 50000,
+      "source_line": "Conversational front door",
+      "note": "Only where a conversational channel is used"
+    }
+  ],
+  "_source": "price_sheet.json (Intake_Agent_Requirements_v2_7.docx Annexure F) joined to reference_architecture.json by scripts/seed_components.py",
+  "_caveat": "opex_low/opex_expected/opex_high, unit and note are the reference price sheet's own figures, illustrative of the STRUCTURE. variant, envelope_in, volume_driver, expected_at, high_at and the component mapping are this lab's structural placeholders — Finance's to replace in the corpus, not the sheet's. capex_once is not in the sheet: a design that needs it gets requires_input, never a guess. A line is volume-driven exactly when volume_driver is not none."
+}

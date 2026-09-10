@@ -9,6 +9,7 @@ complete.
 import pytest
 
 from lab.core.usecase import seed
+from lab.core.usecase import predicates
 from lab.core.usecase.model import Step, Workflow
 from lab.core.usecase.obligations import (
     ObligationError,
@@ -19,7 +20,7 @@ from lab.core.usecase.obligations import (
     triggered_for,
 )
 
-ANSWERS = {c: False for c in seed.NAMED_CONDITIONS}
+ANSWERS = {c: False for c in predicates.NAMED_CONDITIONS}
 
 
 def s(step_id="s1", **kw):

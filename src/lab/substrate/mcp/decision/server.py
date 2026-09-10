@@ -45,27 +45,6 @@ RULES = {
 }
 
 
-def from_corpus(records) -> list[dict]:
-    """Corpus records as the DOMAIN's rows — the mapper, and where correctness lives.
-
-    A master is a table, so everything in it is text; the domain reads lists and nested objects.
-    `cells.decode` is the inverse of the `cells.encode` that WROTE those bytes, which is the whole
-    reason the pair lives in one module: this used to reverse only one of encode's two conversions,
-    so a family's nested `variant` reached `compose` as a string and it indexed a string as a dict.
-
-    Two rules stay here because they are about the STORE rather than the encoding:
-
-    * the bookkeeping `record_id` is dropped — it is the store's name for the row, not the row;
-    * an EMPTY cell is dropped entirely rather than kept as `""`. Every family gets a `topology`
-      column because ONE family has a topology, and `families_for` asks whether that key is None —
-      kept as "", the other thirteen would look topology-restricted and vanish from every
-      composition, silently, and only under a pin.
-    """
-    return [{k: cells.decode(v, k) for k, v in record.body.items()
-             if k != "record_id" and v not in ("", None)}
-            for record in records]
-
-
 def _workflow(payload: dict) -> Workflow:
     """The step facet vectors as typed objects. A malformed vector fails HERE, naming the step and
     the facet, rather than silently failing to match a predicate two derivations later."""
@@ -116,7 +95,7 @@ def _rules(pin_id: str, run_id: str, process: str, field: str,
             # derivation indexed a column the other artifact does not have.
             result = library.lookup(pin, artifact_id=artifact_id, record_type=record_type,
                                     key={}, run=run, limit=500)
-            found[key] = from_corpus(result.records)
+            found[key] = cells.rows(result.records)
         return found, {"kind": "governed corpus", "pin_id": pin.pin_id,
                        "versions": [{"artifact_id": v.artifact_id, "version": v.version}
                                     for v in pin.versions]}

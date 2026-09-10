@@ -10,10 +10,11 @@ is the one asserting a family is ABSENT.
 import pytest
 
 from lab.core.usecase import seed
+from lab.core.usecase import predicates
 from lab.core.usecase.composition import CompositionError, compose, families_for
 from lab.core.usecase.model import Step, Workflow
 
-ANSWERS = {c: False for c in seed.NAMED_CONDITIONS}
+ANSWERS = {c: False for c in predicates.NAMED_CONDITIONS}
 
 
 def s(step_id="s1", **kw):
@@ -164,7 +165,7 @@ def test_a_family_predicate_reads_the_step_s_own_answers():
 
     # Every published condition answered — anything less is refused, by design, so a fixture that
     # answered only the one under test would be testing the refusal instead.
-    no = {c: False for c in seed.NAMED_CONDITIONS}
+    no = {c: False for c in predicates.NAMED_CONDITIONS}
     grounding = Step(id="n1", activity="retrieve", determinism="D1", effect="none",
                      conditions={**no, "step reads any grounding source": True})
     plain = Step(id="n2", activity="commit", determinism="D0", effect="record write",

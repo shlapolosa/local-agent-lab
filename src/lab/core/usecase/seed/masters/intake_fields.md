@@ -1,7 +1,7 @@
 # Intake fields
 
 **Artifact:** intake_fields
-**Source:** Intake_Agent_Requirements_v2_7.docx
+**Source:** Intake_Agent_Requirements_v2_7.docx + the Volume assumptions row, this lab's own addition (scripts/seed_components.py)
 **Rendered:** generated from the source above by scripts/extract_cafe_seed.py
 
 | Field group | Fields | Used by |
@@ -13,3 +13,4 @@
 | Data maturity | Whether the underlying data is fully digital | Driver 1 Year-1 discount |
 | Investment | Budget bucket or vendor quote | Build cost |
 | Urgency | Required-by date or urgency band | Roadmap section |
+| Volume assumptions | Runs per month, users, records (Finance-owned) | Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess |

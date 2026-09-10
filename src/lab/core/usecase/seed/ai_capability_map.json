@@ -8,6 +8,9 @@
       "alternative": "Incumbent platform reporting / SLA engine, declared as a boundary interface with a named owner",
       "sources": [
         "S23"
+      ],
+      "components": [
+        "cmp-ad7e4cd271"
       ]
     },
     {
@@ -20,6 +23,10 @@
         "S6",
         "S8",
         "S2"
+      ],
+      "components": [
+        "cmp-aeadf1eec9",
+        "cmp-aa1d470734"
       ]
     },
     {
@@ -30,6 +37,9 @@
       "alternative": "Any harness supporting per-step recall targets and regression gating",
       "sources": [
         "S3"
+      ],
+      "components": [
+        "cmp-3d0221ca2e"
       ]
     },
     {
@@ -41,6 +51,10 @@
       "sources": [
         "S10",
         "S13"
+      ],
+      "components": [
+        "cmp-478c3d8b94",
+        "cmp-24a7eea78f"
       ]
     },
     {
@@ -52,6 +66,10 @@
       "sources": [
         "S8",
         "S23"
+      ],
+      "components": [
+        "cmp-80346290a1",
+        "cmp-ad7e4cd271"
       ]
     },
     {
@@ -63,6 +81,9 @@
       "sources": [
         "S10",
         "S8"
+      ],
+      "components": [
+        "cmp-80346290a1"
       ]
     },
     {
@@ -73,6 +94,9 @@
       "alternative": "n8n, Camunda",
       "sources": [
         "S8"
+      ],
+      "components": [
+        "cmp-aa1d470734"
       ]
     },
     {
@@ -84,6 +108,9 @@
       "sources": [
         "S8",
         "S12"
+      ],
+      "components": [
+        "cmp-80346290a1"
       ]
     },
     {
@@ -94,6 +121,9 @@
       "alternative": "Stardog, GraphDB, Neo4j",
       "sources": [
         "S10"
+      ],
+      "components": [
+        "cmp-478c3d8b94"
       ]
     },
     {
@@ -104,6 +134,9 @@
       "alternative": "Collibra, Alation",
       "sources": [
         "S13"
+      ],
+      "components": [
+        "cmp-24a7eea78f"
       ]
     },
     {
@@ -114,6 +147,9 @@
       "alternative": "Profisee, Reltio",
       "sources": [
         "S8"
+      ],
+      "components": [
+        "cmp-80346290a1"
       ]
     },
     {
@@ -124,6 +160,9 @@
       "alternative": "GraphDB time, custom",
       "sources": [
         "S10"
+      ],
+      "components": [
+        "cmp-478c3d8b94"
       ]
     },
     {
@@ -134,6 +173,9 @@
       "alternative": "PostGIS, GeoSPARQL",
       "sources": [
         "S10"
+      ],
+      "components": [
+        "cmp-478c3d8b94"
       ]
     },
     {
@@ -144,6 +186,9 @@
       "alternative": "Custom stream analytics",
       "sources": [
         "S10"
+      ],
+      "components": [
+        "cmp-478c3d8b94"
       ]
     },
     {
@@ -154,6 +199,9 @@
       "alternative": "LlamaIndex, custom RAG",
       "sources": [
         "S9"
+      ],
+      "components": [
+        "cmp-356d2c0c79"
       ]
     },
     {
@@ -164,6 +212,9 @@
       "alternative": "Glean, Coveo",
       "sources": [
         "S7"
+      ],
+      "components": [
+        "cmp-32f3ba0461"
       ]
     },
     {
@@ -174,6 +225,9 @@
       "alternative": "Pinecone, Weaviate, Qdrant",
       "sources": [
         "S9"
+      ],
+      "components": [
+        "cmp-e2eb6b87f6"
       ]
     },
     {
@@ -184,6 +238,10 @@
       "alternative": "S3 + custom indexers",
       "sources": [
         "S9"
+      ],
+      "components": [
+        "cmp-a4e0fc557b",
+        "cmp-bb7cd41d32"
       ]
     },
     {
@@ -195,6 +253,9 @@
       "sources": [
         "S9",
         "S12"
+      ],
+      "components": [
+        "cmp-356d2c0c79"
       ]
     },
     {
@@ -206,6 +267,10 @@
       "sources": [
         "S12",
         "S8"
+      ],
+      "components": [
+        "cmp-356d2c0c79",
+        "cmp-9b2ff06ba9"
       ]
     },
     {
@@ -216,6 +281,11 @@
       "alternative": "—",
       "sources": [
         "S1"
+      ],
+      "components": [
+        "cmp-a9c03320dd",
+        "cmp-bbc8ece486",
+        "cmp-6c71a39bbd"
       ]
     },
     {
@@ -226,6 +296,9 @@
       "alternative": "LangGraph + own infra",
       "sources": [
         "S3"
+      ],
+      "components": [
+        "cmp-aeadf1eec9"
       ]
     },
     {
@@ -236,6 +309,9 @@
       "alternative": "LangGraph, CrewAI",
       "sources": [
         "S6"
+      ],
+      "components": [
+        "cmp-aeadf1eec9"
       ]
     },
     {
@@ -246,6 +322,9 @@
       "alternative": "Bot Framework v4",
       "sources": [
         "S2"
+      ],
+      "components": [
+        "cmp-5cf110edd7"
       ]
     },
     {
@@ -257,6 +336,10 @@
       "sources": [
         "S5",
         "S30"
+      ],
+      "components": [
+        "cmp-d217dd5b1b",
+        "cmp-2e97fd6b66"
       ]
     },
     {
@@ -268,6 +351,9 @@
       "sources": [
         "S30",
         "S31"
+      ],
+      "components": [
+        "cmp-2e97fd6b66"
       ]
     },
     {
@@ -279,6 +365,9 @@
       "sources": [
         "S6",
         "S2"
+      ],
+      "components": [
+        "cmp-1c5c3eaa1e"
       ]
     },
     {
@@ -290,6 +379,9 @@
       "sources": [
         "S3",
         "S11"
+      ],
+      "components": [
+        "cmp-3d0221ca2e"
       ]
     },
     {
@@ -301,6 +393,10 @@
       "sources": [
         "S25",
         "S27"
+      ],
+      "components": [
+        "cmp-bdda5f32b1",
+        "cmp-bd9ee43705"
       ]
     },
     {
@@ -311,6 +407,11 @@
       "alternative": "HuggingFace TGI",
       "sources": [
         "S3"
+      ],
+      "components": [
+        "cmp-f560d81190",
+        "cmp-525072e4ab",
+        "cmp-bd9ee43705"
       ]
     },
     {
@@ -321,6 +422,9 @@
       "alternative": "Logic Apps",
       "sources": [
         "S8"
+      ],
+      "components": [
+        "cmp-aa1d470734"
       ]
     },
     {
@@ -331,7 +435,8 @@
       "alternative": "—",
       "sources": [
         "S8"
-      ]
+      ],
+      "components": []
     },
     {
       "domain": "Application",
@@ -341,6 +446,9 @@
       "alternative": "UiPath, Blue Prism",
       "sources": [
         "S8"
+      ],
+      "components": [
+        "cmp-aa1d470734"
       ]
     },
     {
@@ -351,6 +459,9 @@
       "alternative": "SQL Database",
       "sources": [
         "S8"
+      ],
+      "components": [
+        "cmp-80346290a1"
       ]
     },
     {
@@ -361,6 +472,9 @@
       "alternative": "Delta Lake on S3",
       "sources": [
         "S10"
+      ],
+      "components": [
+        "cmp-a4e0fc557b"
       ]
     },
     {
@@ -371,6 +485,9 @@
       "alternative": "DataHub, OpenMetadata",
       "sources": [
         "S13"
+      ],
+      "components": [
+        "cmp-24a7eea78f"
       ]
     },
     {
@@ -381,6 +498,9 @@
       "alternative": "DynamoDB",
       "sources": [
         "S3"
+      ],
+      "components": [
+        "cmp-4a273d4fb4"
       ]
     },
     {
@@ -391,7 +511,8 @@
       "alternative": "Memcached",
       "sources": [
         "S3"
-      ]
+      ],
+      "components": []
     },
     {
       "domain": "Technology",
@@ -401,6 +522,9 @@
       "alternative": "Cloudflare, Akamai",
       "sources": [
         "S17"
+      ],
+      "components": [
+        "cmp-0627c94e41"
       ]
     },
     {
@@ -412,6 +536,9 @@
       "sources": [
         "S25",
         "S27"
+      ],
+      "components": [
+        "cmp-967db4e8ad"
       ]
     },
     {
@@ -422,6 +549,9 @@
       "alternative": "Kafka",
       "sources": [
         "S3"
+      ],
+      "components": [
+        "cmp-9c2fb48665"
       ]
     },
     {
@@ -433,6 +563,9 @@
       "sources": [
         "S19",
         "S22"
+      ],
+      "components": [
+        "cmp-c4e17a8741"
       ]
     },
     {
@@ -443,6 +576,10 @@
       "alternative": "Splunk",
       "sources": [
         "—"
+      ],
+      "components": [
+        "cmp-e897ae4e0e",
+        "cmp-8d11d4f751"
       ]
     },
     {
@@ -454,6 +591,9 @@
       "sources": [
         "S2",
         "S14"
+      ],
+      "components": [
+        "cmp-5cf110edd7"
       ]
     },
     {
@@ -464,6 +604,9 @@
       "alternative": "AKS + own controllers",
       "sources": [
         "S3"
+      ],
+      "components": [
+        "cmp-f560d81190"
       ]
     },
     {
@@ -475,6 +618,10 @@
       "sources": [
         "S32",
         "S30"
+      ],
+      "components": [
+        "cmp-adcfb4323e",
+        "cmp-f560d81190"
       ]
     },
     {
@@ -485,6 +632,10 @@
       "alternative": "Okta + workload federation",
       "sources": [
         "S5"
+      ],
+      "components": [
+        "cmp-b53c07acc7",
+        "cmp-6b2726fb06"
       ]
     },
     {
@@ -496,6 +647,10 @@
       "sources": [
         "S3",
         "S5"
+      ],
+      "components": [
+        "cmp-c21bb9ac9b",
+        "cmp-ad7e4cd271"
       ]
     },
     {
@@ -506,6 +661,9 @@
       "alternative": "Self-managed Kubernetes",
       "sources": [
         "S23"
+      ],
+      "components": [
+        "cmp-f560d81190"
       ]
     },
     {
@@ -517,6 +675,9 @@
       "sources": [
         "S16",
         "S17"
+      ],
+      "components": [
+        "cmp-b7ef1e4759"
       ]
     },
     {
@@ -528,6 +689,9 @@
       "sources": [
         "S18",
         "S19"
+      ],
+      "components": [
+        "cmp-424a9c13f5"
       ]
     },
     {
@@ -540,6 +704,9 @@
         "S24",
         "S25",
         "S27"
+      ],
+      "components": [
+        "cmp-f620c48a83"
       ]
     },
     {
@@ -551,6 +718,9 @@
       "sources": [
         "S24",
         "S26"
+      ],
+      "components": [
+        "cmp-424a9c13f5"
       ]
     },
     {
@@ -561,6 +731,9 @@
       "alternative": "—",
       "sources": [
         "S28"
+      ],
+      "components": [
+        "cmp-5ebda000ea"
       ]
     },
     {
@@ -572,6 +745,9 @@
       "sources": [
         "S30",
         "S31"
+      ],
+      "components": [
+        "cmp-2e97fd6b66"
       ]
     },
     {
@@ -582,6 +758,9 @@
       "alternative": "Custom hooks + OPA",
       "sources": [
         "S29"
+      ],
+      "components": [
+        "cmp-03cb07d13f"
       ]
     },
     {
@@ -592,6 +771,9 @@
       "alternative": "—",
       "sources": [
         "S20"
+      ],
+      "components": [
+        "cmp-b4fa47e277"
       ]
     },
     {
@@ -602,6 +784,9 @@
       "alternative": "—",
       "sources": [
         "S21"
+      ],
+      "components": [
+        "cmp-b4fa47e277"
       ]
     },
     {
@@ -612,6 +797,9 @@
       "alternative": "—",
       "sources": [
         "S22"
+      ],
+      "components": [
+        "cmp-424a9c13f5"
       ]
     },
     {
@@ -622,6 +810,10 @@
       "alternative": "—",
       "sources": [
         "S23"
+      ],
+      "components": [
+        "cmp-b4fa47e277",
+        "cmp-f560d81190"
       ]
     },
     {
@@ -632,7 +824,8 @@
       "alternative": "Twilio · FCM / APNs",
       "sources": [
         "—"
-      ]
+      ],
+      "components": []
     },
     {
       "domain": "Boundary",
@@ -642,7 +835,8 @@
       "alternative": "Kafka · Event Hubs (as infra)",
       "sources": [
         "—"
-      ]
+      ],
+      "components": []
     },
     {
       "domain": "Boundary",
@@ -652,7 +846,8 @@
       "alternative": "Iridium · Starlink",
       "sources": [
         "—"
-      ]
+      ],
+      "components": []
     }
   ],
   "_source": "CAFE_Artifacts_Visualisation_v0_25.html"

@@ -9,6 +9,7 @@ the rejection is asserted by its SUBJECT rather than its wording.
 import pytest
 
 from lab.core.usecase import seed
+from lab.core.usecase import predicates
 from lab.workloads.usecase.steps import BUSINESS_CASE_SECTIONS, step_for
 
 from fixtures.usecase_answers import (ASSERTIONS, BENEFIT_INPUTS, BUILD_SURFACE, COMPONENTS,
@@ -86,7 +87,7 @@ def test_a_facet_vector_that_decides_its_own_exposure_is_refused():
 
 def test_a_step_leaving_a_published_condition_unanswered_is_refused():
     step = dict(FACETS["steps"][0])
-    step["conditions"] = {c: False for c in list(seed.NAMED_CONDITIONS)[:-1]}
+    step["conditions"] = {c: False for c in list(predicates.NAMED_CONDITIONS)[:-1]}
     rejects("17", {"steps": [step]}, "unanswered")
 
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-__all__ = ["LIST_SEP", "decode", "encode"]
+__all__ = ["LIST_SEP", "decode", "encode", "rows"]
 
 #: How a list is joined into one cell. Semicolon because the values that travel this way —
 #: identifiers like `T4` or `G07` — never contain one, so the split cannot lose a value.
@@ -35,7 +35,13 @@ LIST_SEP = "; "
 #: It lives HERE, beside the encoder, rather than beside a reader: it is a property of the
 #: artifacts, and a second consumer that re-derived it would drift from the first.
 #: Only what the DOMAIN reads as a list. Kept short deliberately — see `decode`.
-LIST_COLUMNS = frozenset({"topology", "guardrails", "archetypes", "families"})
+LIST_COLUMNS = frozenset({"topology", "guardrails", "archetypes", "families",
+                          "components",        # a capability's realising component ids
+                          "envelope_in",       # a price variant's admissible QA envelopes
+                          "sources", "src",    # a row's source-register citations
+                          "fail"})             # an archetype's failure modes
+#: A test walks every seed file and asserts every column that is EVER a list is declared above —
+#: the three names after `envelope_in` were found that way, three behind by hand.
 
 
 def encode(value: Any) -> str:
@@ -79,3 +85,19 @@ def decode(text: Any, name: str = "") -> Any:
     if name in LIST_COLUMNS:
         return [part.strip() for part in body.split(";") if part.strip()]
     return text
+
+
+def rows(records) -> list[dict]:
+    """Corpus records as the DOMAIN's rows — `decode` applied to every cell, plus two rules that are
+    about the STORE rather than the encoding.
+
+    The bookkeeping `record_id` is dropped: it is the store's name for the row, not the row. And an
+    EMPTY cell is dropped rather than kept as `""` — every family gets a `topology` column because
+    ONE family has a topology, and `families_for` asks whether that key is None; kept as "", the
+    other thirteen would look topology-restricted and vanish from every composition, silently, and
+    only under a pin. Here, beside the decoder, because decision, valuation and the workloads all
+    read the corpus and a second copy of this would drift from the first.
+    """
+    return [{k: decode(v, k) for k, v in record.body.items()
+             if k != "record_id" and v not in ("", None)}
+            for record in records]

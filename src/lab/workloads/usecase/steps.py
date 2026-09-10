@@ -257,13 +257,10 @@ def _determinism(out: dict) -> list[str]:
     return bad[:5]
 
 
-#: What the published guardrail predicates ask that a facet vector cannot answer. Read from the
-#: corpus rather than restated, so a new guardrail's condition becomes required the moment it is
-#: published rather than the next time somebody remembers this list.
-try:
-    from lab.core.usecase.seed import NAMED_CONDITIONS
-except ImportError:                                        # pragma: no cover - the seed is packaged
-    NAMED_CONDITIONS: frozenset[str] = frozenset()
+#: What the published guardrail predicates ask that a facet vector cannot answer — declared beside
+#: the predicate parser, and compared against the corpus by a test, so a new guardrail's condition
+#: becomes required the moment it is published rather than the next time somebody remembers this.
+from lab.core.usecase.predicates import NAMED_CONDITIONS
 
 
 def _facet_vectors(out: dict) -> list[str]:

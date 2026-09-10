@@ -6,13 +6,14 @@ smallest answer that satisfies its rule, so removing any one field is a meaningf
 than a shape error.
 """
 from lab.core.usecase import seed
+from lab.core.usecase import predicates
 
 __all__ = ["ANSWERED", "ASSERTIONS", "BENEFIT_INPUTS", "BUILD_SURFACE", "COMPONENTS",
            "COST_INPUTS", "DELIVERY", "DETERMINISM", "FACETS", "without"]
 
 #: Every prose condition the published guardrails ask, answered. A facet vector that leaves one out
 #: is refused, so an answer without them is not a step-17 answer at all.
-ANSWERED = {c: False for c in seed.NAMED_CONDITIONS}
+ANSWERED = {c: False for c in predicates.NAMED_CONDITIONS}
 
 
 def without(row: dict, field: str) -> dict:

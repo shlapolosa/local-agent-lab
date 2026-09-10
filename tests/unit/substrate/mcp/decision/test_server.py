@@ -12,10 +12,12 @@ from fastmcp.exceptions import ToolError
 from fixtures.reference import FakeReferenceLibrary, SeededArtifact
 from lab.core.reference.model import ArtifactKind
 from lab.core.usecase import seed
+from lab.core.usecase import predicates
 from lab.platform.contracts import DecisionTools
+from lab.core.reference import cells
 from lab.substrate.mcp.decision import server as S
 
-ANSWERS = {c: False for c in seed.NAMED_CONDITIONS}
+ANSWERS = {c: False for c in predicates.NAMED_CONDITIONS}
 
 COMMIT = {"id": "s1", "activity": "commit", "determinism": "D0", "effect": "record write"}
 INTERPRET = {"id": "s0", "activity": "interpret", "determinism": "D2", "effect": "none",
@@ -268,7 +270,7 @@ class _Rec:
 def test_the_mapper_gives_the_domain_the_shape_it_reads():
     """A master is a table, so everything in it is text. The domain reads lists. This is the
     adapter's mapper, and every one of these three conversions was a live failure first."""
-    rows = S.from_corpus([_Rec({"record_id": "r1", "id": "F14", "name": "Delegation",
+    rows = cells.rows([_Rec({"record_id": "r1", "id": "F14", "name": "Delegation",
                                 "predicate": "", "topology": "T4; T3",
                                 "guardrails": "G07"})])
     # `guardrails` is a declared list column, so a single value still comes back as a list — the
@@ -281,14 +283,14 @@ def test_an_empty_cell_is_dropped_rather_than_kept_as_an_empty_string():
     """The subtle one. Every family gets a `topology` column because ONE family has a topology, and
     `families_for` asks whether that key is None. Kept as "", the other thirteen would look
     topology-restricted and vanish from every composition — silently, and only under a pin."""
-    rows = S.from_corpus([_Rec({"record_id": "r1", "id": "F2", "topology": "",
+    rows = cells.rows([_Rec({"record_id": "r1", "id": "F2", "topology": "",
                                 "predicate": "step.determinism ≥ D1"})])
     assert "topology" not in rows[0]
     assert rows[0]["predicate"] == "step.determinism ≥ D1"
 
 
 def test_the_store_s_own_id_is_not_part_of_the_row():
-    assert "record_id" not in S.from_corpus([_Rec({"record_id": "r1", "id": "G01"})])[0]
+    assert "record_id" not in cells.rows([_Rec({"record_id": "r1", "id": "G01"})])[0]
 
 
 def test_a_retired_guardrail_from_the_corpus_never_enters_a_control_set():
@@ -328,7 +330,7 @@ def test_a_committed_master_round_trips_into_the_shape_the_domain_reads():
     checked that the second is the inverse of the first — so a nested `variant` reached the domain
     as a string and `compose` indexed a string as a dict, on the common case of more than one
     grounding source."""
-    rows = S.from_corpus(_records_from_master("family_triggers", "family"))
+    rows = cells.rows(_records_from_master("family_triggers", "family"))
     by_id = {r["id"]: r for r in rows}
 
     f1 = by_id["F1"]
@@ -348,7 +350,7 @@ def test_the_corpus_and_the_seed_derive_the_same_families():
     from lab.core.usecase.model import Step, Workflow
 
     workflow = Workflow(steps=(Step(**INTERPRET), Step(**COMMIT)), criticality="business-critical")
-    families = S.from_corpus(_records_from_master("family_triggers", "family"))
+    families = cells.rows(_records_from_master("family_triggers", "family"))
     from_corpus = composition.families_for(workflow, topology="T2", conditions=ANSWERS,
                                            families=families)
     from_seed = composition.families_for(workflow, topology="T2", conditions=ANSWERS)

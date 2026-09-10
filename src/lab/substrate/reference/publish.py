@@ -112,7 +112,7 @@ class Publisher:
                 kind: str, owner: str, record_type: str = "", key_fields: Sequence[str] = (),
                 supersedes: str = "", retrieval: str = "",
                 text_fields: Sequence[str] = (), master_ref: str = "",
-                master_format: str = "markdown", scheme: str = "") -> dict:
+                master_format: str = "markdown", scheme: str = "", title: str = "") -> dict:
         """Hash the master, derive from it, sign, index, and mark published — in that order.
 
         `retrieval` is how a CONSUMER reads the artifact (`whole` / `key` / `vector`); empty means
@@ -144,7 +144,8 @@ class Publisher:
             raise PublishError("a master is a path OR a store reference, exactly one")
         raw = store.get(master_ref) if master_ref else master_path.read_bytes()  # type: ignore[union-attr]
         master_sha = _sha256(raw)
-        master = self._parse(raw, master_format, artifact_id=artifact_id, scheme=scheme)
+        master = self._parse(raw, master_format, artifact_id=artifact_id, scheme=scheme,
+                             title=title)
 
         # Derived FROM the parsed master, so `derived_from` is a fact rather than a claim.
         indexed: list[Any] = []
@@ -230,7 +231,8 @@ class Publisher:
                              "published_at": published_at}}
 
     @staticmethod
-    def _parse(raw: bytes, master_format: str, *, artifact_id: str, scheme: str) -> Master:
+    def _parse(raw: bytes, master_format: str, *, artifact_id: str, scheme: str,
+               title: str = "") -> Master:
         if master_format == "markdown":
             return parse_master(raw.decode("utf-8"))
         if master_format == "workbook":
@@ -238,7 +240,7 @@ class Publisher:
                 raise PublishError(f"{artifact_id}: a workbook master needs the scheme it publishes "
                                    f"(--scheme), which names the ids the semantic layer already "
                                    f"uses for these capabilities")
-            return capability_table(raw, scheme=scheme, title=artifact_id)
+            return capability_table(raw, scheme=scheme, title=title or artifact_id)
         raise PublishError(f"master_format must be 'markdown' or 'workbook'; got "
                            f"{master_format!r}")
 
@@ -366,6 +368,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                      help="or its art:// ref in the private store (a licensed workbook lives ONLY there)")
     pub.add_argument("--master-format", choices=("markdown", "workbook"), default="markdown")
     pub.add_argument("--scheme", default="", help="workbook masters: the scheme name (ids follow it)")
+    pub.add_argument("--title", default="", help="workbook masters: the document title a citation opens")
     pub.add_argument("--version", required=True)
     pub.add_argument("--kind", choices=("record", "prose"), required=True)
     pub.add_argument("--owner", required=True)
@@ -400,7 +403,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             key_fields=[f for f in args.key_fields.split(",") if f],
             supersedes=args.supersedes, retrieval=args.retrieval,
             text_fields=[f for f in args.text_fields.split(",") if f],
-            master_ref=args.master_ref, master_format=args.master_format, scheme=args.scheme)
+            master_ref=args.master_ref, master_format=args.master_format, scheme=args.scheme,
+            title=args.title)
         print(json.dumps(out, indent=2))
     elif args.command == "release":
         print(json.dumps(publisher.release(args.artifact_id, args.version, ring=args.ring,

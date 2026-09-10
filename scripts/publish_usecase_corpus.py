@@ -17,6 +17,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from lab.core.semantic.reference.baguild import KNOWN            # noqa: E402  stem -> (scheme, title)
+from lab.platform import config                                    # noqa: E402
+from lab.platform.contracts import VectorStores                    # noqa: E402
 MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: The corpus version this script publishes. BUMP IT whenever a master's bytes change — the
 #: masters are the signed input, and re-publishing changed content under an unchanged version is
@@ -24,7 +29,7 @@ MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: corpus whose artifacts drift apart in version cannot be pinned coherently, and the one time an
 #: artifact was corrected on its own (v0.25.1) the next corpus-wide run silently RE-RELEASED the
 #: older v0.25 over it, because that is the version this script releases.
-VERSION = "v0.26"
+VERSION = "v0.27"
 
 #: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
 #: and differs from the file stem where a consumer already spells it differently.
@@ -54,7 +59,13 @@ ARTIFACTS = {
     # dropped because where a zone is drawn is not part of the architecture.
     "reference-architecture": ("archetype", "id", "architecture governance"),
     "reference-architecture-zones": ("zone", "id", "architecture governance"),
-    "reference-architecture-components": ("component", "zone,name", "architecture governance"),
+    # Keyed by the ID a design selects and a price line names (scripts/seed_components.py), so
+    # the cited identity and the exact lookup agree; zone and name stay as columns.
+    "reference-architecture-components": ("component", "id", "architecture governance"),
+    # Deterministic cost: the price catalogue keyed by the component each line prices and the
+    # variant it is bought as (opex three-point, envelope, volume band); see
+    # scripts/seed_components.py for how it is derived from the price sheet.
+    "component-prices": ("component-price", "component,variant", "finance"),
     "reference-architecture-detail": ("archetype-detail", "id", "architecture governance"),
     "reference-architecture-topologies": ("topology", "id", "architecture governance"),
     "reference-architecture-topology-archetypes": ("topology-archetype", "id",
@@ -104,6 +115,30 @@ ARTIFACTS = {
 }
 
 
+#: How a CONSUMER reads each artifact — `whole` for the small complete registers a step reads in
+#: full (a limit that truncated the facet schema would drop a rule), `key` for everything else.
+#: Declared here because this script is the corpus's publication of record; the publisher freezes
+#: it on the version.
+RETRIEVAL = {
+    "determinism-criteria": "whole", "facet-schema": "whole", "facet-schema-defaults": "whole",
+    "facet-schema-readers": "whole", "surface-enforceability": "whole",
+    "reference-architecture-components": "whole", "intake-fields": "whole",
+    "capability-domains": "whole", "criticality-taxonomy": "whole", "readiness-gates": "whole",
+}
+
+#: The licensed capability WORKBOOKS — never a file in this repository. The artifact id IS the
+#: gateway's store id (`contracts.VectorStores`, the one declaration) and the scheme name and title
+#: are the semantic layer's own (`baguild.KNOWN`), so a corpus row, a scheme concept and a store
+#: agree on identity. The `art://` ref comes from REFERENCE_MODELS_REFS — the same refs
+#: semantic-mcp materialises — so this table carries no store path.
+WORKBOOKS = {
+    VectorStores.CAPABILITY_MAP_HEALTHCARE: "healthcare-provider-v2.0",
+    VectorStores.CAPABILITY_MAP_INSURANCE: "insurance-v5.0",
+}
+assert set(WORKBOOKS) == VectorStores.names(), "a store the corpus does not publish, or the reverse"
+assert set(WORKBOOKS.values()) <= set(KNOWN), "a workbook stem the semantic layer does not know"
+
+
 def master_for(artifact_id: str) -> Path:
     return MASTERS / f"{artifact_id.replace('-', '_')}.md"
 
@@ -140,22 +175,41 @@ def main() -> int:
     missing = sorted(a for a in ARTIFACTS if not master_for(a).exists())
     extra = sorted(p.stem.replace("_", "-") for p in MASTERS.glob("*.md")
                    if p.stem.replace("_", "-") not in ARTIFACTS)
-    if missing or extra:
+    stray = sorted(set(RETRIEVAL) - set(ARTIFACTS))
+    if missing or extra or stray:
         # Loud, because the failure mode is silent: an unpublished artifact makes every lookup
-        # against it return nothing, which downstream reads as "the corpus says there are none".
-        print(f"masters missing for {missing}; masters with no entry here: {extra}")
+        # against it return nothing, which downstream reads as "the corpus says there are none" —
+        # and a misspelt RETRIEVAL key publishes a register as `key`, truncating it at the limit.
+        print(f"masters missing for {missing}; masters with no entry here: {extra}; "
+              f"RETRIEVAL names no artifact: {stray}")
         return 1
 
     have = already_published()
-    deferred: list[str] = []
-    unreleased: list[str] = []
+    deferred: dict[str, str] = {}                         # artifact -> why it is not in this run
     published = released = skipped = 0
-    for artifact_id, (record_type, key, owner) in sorted(ARTIFACTS.items()):
+    refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_MODELS_REFS}
+    everything = {**{a: ("markdown",) + spec for a, spec in ARTIFACTS.items()},
+                  **{a: ("workbook", "capability", "id,parent,level", "BA Guild") for a in WORKBOOKS}}
+    for artifact_id, (fmt, record_type, key, owner) in sorted(everything.items()):
         if artifact_id in have:
             skipped += 1
         else:
             kind = "record" if record_type else "prose"
-            code, out = run("publish", artifact_id, "--master", str(master_for(artifact_id)),
+            if fmt == "workbook":
+                stem = WORKBOOKS[artifact_id]
+                scheme, title = KNOWN[stem]
+                if f"{stem}.xlsx" not in refs:
+                    deferred[artifact_id] = f"REFERENCE_MODELS_REFS carries no {stem}.xlsx"
+                    print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
+                    continue
+                source = ["--master-ref", refs[f"{stem}.xlsx"], "--master-format", "workbook",
+                          "--scheme", scheme, "--title", title, "--retrieval", "vector",
+                          "--text-fields", "path,definition"]
+            else:
+                source = ["--master", str(master_for(artifact_id))]
+                if artifact_id in RETRIEVAL:
+                    source += ["--retrieval", RETRIEVAL[artifact_id]]
+            code, out = run("publish", artifact_id, *source,
                             "--version", VERSION, "--kind", kind,
                             "--record-type", record_type, "--key-fields", key, "--owner", owner)
             if code and "no embedder is configured" in out:
@@ -164,8 +218,8 @@ def main() -> int:
                 # first. It becomes publishable the day REFERENCE_EMBED_MODEL is set, and until
                 # then it is DEFERRED and named — an artifact silently absent from the corpus is
                 # read downstream as "the corpus says there is none".
-                deferred.append(artifact_id)
-                print(f"  {artifact_id:38} deferred — prose, and no embedder is configured")
+                deferred[artifact_id] = "retrieved semantically, and no embedder is configured"
+                print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
                 continue
             if code:
                 print(f"FAILED {artifact_id}: {out.strip().splitlines()[-1]}")
@@ -182,11 +236,8 @@ def main() -> int:
         print(f"  {artifact_id:38} {record_type or 'prose'}")
     print(f"\n{published} published, {skipped} already at {VERSION}, "
           f"{released} released to ring {args.ring}")
-    if deferred:
-        print(f"deferred until an embedder is configured: {deferred}")
-    if unreleased:
-        print(f"FAILED to release: {unreleased}")
-        return 1
+    for artifact_id, why in deferred.items():
+        print(f"deferred {artifact_id}: {why}")
     return 0
 
 

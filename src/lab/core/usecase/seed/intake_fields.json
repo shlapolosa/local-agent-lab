@@ -40,8 +40,13 @@
         "Urgency",
         "Required-by date or urgency band",
         "Roadmap section"
+      ],
+      [
+        "Volume assumptions",
+        "Runs per month, users, records (Finance-owned)",
+        "Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess"
       ]
     ]
   },
-  "_source": "Intake_Agent_Requirements_v2_7.docx"
+  "_source": "Intake_Agent_Requirements_v2_7.docx + the Volume assumptions row, this lab's own addition (scripts/seed_components.py)"
 }

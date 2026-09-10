@@ -26,6 +26,7 @@ def _drill(h, d):
     return coverage.drill(h.cfg, d, d.available.get("capabilities") or [],
                           scheme=SCHEME, project=_proj)
 from lab.core.usecase import seed as _seed
+from lab.core.usecase import predicates as _predicates
 from lab.platform.contracts import (
     PROCESSES,
     USE_CASE_DESIGN,
@@ -181,7 +182,7 @@ def test_the_span_records_that_a_submitter_was_supplied_never_who():
 #: the evidence rather than flipping a flag.
 #: Every prose condition the published guardrails ask, answered. A facet vector that left one out
 #: is refused by the gate, so a fixture that omitted them would not be a real step-17 answer.
-ANSWERED = {c: False for c in _seed.NAMED_CONDITIONS}
+ANSWERED = {c: False for c in _predicates.NAMED_CONDITIONS}
 
 READY = {"coverage_map": {"matched": True,
                           "heat_map": {"commodity": False, "mature": False, "meets_target": False,
@@ -947,7 +948,7 @@ def test_the_conditions_ride_on_the_step_and_reach_the_derivation():
     from lab.workloads.use_case_design.workflow import _workflow_payload
     payload = _workflow_payload({"criticality": {"criticality_class": "routine"}},
                                 {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
-    assert all(set(s["conditions"]) == set(_seed.NAMED_CONDITIONS) for s in payload["steps"])
+    assert all(set(s["conditions"]) == set(_predicates.NAMED_CONDITIONS) for s in payload["steps"])
 
 
 # ------------------------------------------------- what a live screening run found at step 5

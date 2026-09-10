@@ -11,6 +11,7 @@ much more about refusing loudly than about returning False.
 import pytest
 
 from lab.core.usecase import seed
+from lab.core.usecase import predicates
 from lab.core.usecase.predicates import (
     Predicate,
     PredicateError,
@@ -181,7 +182,7 @@ def test_every_named_condition_the_corpus_uses_is_declared():
     """A named condition nobody can answer is a guardrail that can never fire. Whatever the
     registry ends up containing, it must cover the whole published corpus."""
     needed = {c for g in seed.live_guardrails() for c in parse(g["pred"]).conditions()}
-    assert needed <= seed.NAMED_CONDITIONS, sorted(needed - seed.NAMED_CONDITIONS)
+    assert needed <= predicates.NAMED_CONDITIONS, sorted(needed - predicates.NAMED_CONDITIONS)
 
 
 def test_ordering_a_value_that_has_no_order_refuses_instead_of_comparing_strings():

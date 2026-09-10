@@ -134,3 +134,27 @@ def test_compose_points_the_gateway_at_the_facade_with_the_shared_secret():
     env = _compose()["services"]["gateway"]["environment"]
     assert env["PG_VECTOR_API_BASE"] == "http://reference-mcp:9700"
     assert "MCP_SHARED_SECRET" in str(env["PG_VECTOR_API_KEY"])
+
+
+# ---------------------------------------------------------------- the workbooks
+
+def test_the_corpus_publishes_exactly_the_stores_the_gateway_registers():
+    """Three declarations collapse to one: the publish script's WORKBOOKS is keyed by the store
+    catalogue and asserts it at import, so a store with no artifact — or the reverse — cannot load."""
+    spec = importlib.util.spec_from_file_location(
+        "publish_usecase_corpus", ROOT / "scripts" / "publish_usecase_corpus.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert set(module.WORKBOOKS) == VectorStores.names()
+
+
+def test_no_licensed_workbook_is_tracked_by_git():
+    """The repository is public and the BA Guild models are licensed: a workbook travels by
+    `art://` ref through the private store and is never a file here. (The ADOIT object-import
+    template is a bundled tenant file, not a licensed model, and stays.)"""
+    import subprocess
+    from lab.core.semantic.reference.baguild import KNOWN
+    tracked = subprocess.run(["git", "ls-files", "*.xlsx", "**/*.xlsx"], cwd=ROOT,
+                             capture_output=True, text=True).stdout.split()
+    licensed = [f for f in tracked if Path(f).stem in KNOWN or "reference-sources" in f]
+    assert licensed == [], licensed

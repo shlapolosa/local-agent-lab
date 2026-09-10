@@ -22,6 +22,10 @@ Usage:
 `--crosscheck` re-reads the docx annexures and compares the row counts and identifiers it can
 match. A divergence is a real finding — the two are supposed to be the same artifacts at the same
 version (the docx's G12 reads "RETIRED v0.25") — so it is reported and exits non-zero.
+
+RUN scripts/seed_components.py AFTERWARDS. It mints the component ids, links the capability map to
+them and derives the price catalogue — none of which is in the framework HTML — and the invariant
+tests under tests/unit/core/usecase fail until it has run.
 """
 from __future__ import annotations
 
@@ -371,6 +375,7 @@ TITLES: dict[str, str] = {
     "guardrail_mapping": "Risk class to guardrail mapping",
     "reference_architecture": "Reference architecture model",
     "tradeoff_catalogue": "Tradeoff catalogue", "price_sheet": "Reference price sheet",
+    "component_prices": "Component price catalogue",
     "component_families": "Component families", "surface_enforceability": "Surface enforceability",
     "quality_attributes": "Quality attribute patterns", "process_steps": "Process steps",
     "input_artifacts": "Input artifacts", "output_artifacts": "Output artifacts",
@@ -389,7 +394,9 @@ TITLES: dict[str, str] = {
 
 #: Columns for a section whose source rows are positional lists — the JS carries the order and not
 #: the names, so the names are declared here once rather than guessed per reader.
-ROW_COLUMNS = {"components": ("zone", "name", "detail", "archetypes")}
+# `id` first: minted by scripts/seed_components.py as content_id("cmp-", zone, name), so a
+# component is something a design can SELECT by identity (G04) and a price line can be keyed on.
+ROW_COLUMNS = {"components": ("id", "zone", "name", "detail", "archetypes")}
 
 #: Keys that describe where a thing is DRAWN rather than what it is. Dropped from every rendered
 #: master: a zone's fill colour is not part of the reference architecture, and carrying it into a
