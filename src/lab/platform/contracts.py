@@ -135,6 +135,17 @@ class VectorStores:
         return frozenset(v for k, v in vars(cls).items()
                          if not k.startswith("_") and k not in ("PROVIDER",) and isinstance(v, str))
 
+    @classmethod
+    def for_scheme(cls, scheme: str) -> str:
+        """The store (= the corpus artifact) that holds a semantic scheme's capability map. The id
+        is `capability-map-<scheme>` by construction, and a scheme with no store refuses here rather
+        than at a search that would read as "the map has nothing on this"."""
+        store = f"capability-map-{scheme}"
+        if store not in cls.names():
+            raise ValueError(f"no relevance store holds the capability map for scheme {scheme!r}; "
+                             f"the stores are {sorted(cls.names())}")
+        return store
+
 
 class DecisionTools(ToolCatalogue):
     """decision-mcp — the CAFÉ derivations that are DETERMINISTIC, as governed tools.
@@ -148,6 +159,11 @@ class DecisionTools(ToolCatalogue):
     All read-only derivations. No READ/WRITE split, because there is nothing here to split.
     """
     SERVER = "decision_mcp"
+    #: The corpus artifacts the derivations read, so a workload can PIN exactly them before the
+    #: first call: a derivation whose pin lacks one refuses (never answers from the image), and a
+    #: pin of the whole corpus would put fifty unread versions in the run's consumption trail.
+    #: decision-mcp's own RULES table is held equal to this by a test.
+    READS = ("guardrails", "guardrail-mapping", "family-triggers")
     readiness = "decision_readiness"          # step 14 — the four M0 gates
     feasibility = "decision_feasibility"      # step 16 — proceed / reject / integration
     exposure = "decision_exposure"            # step 18 — exposure and influence per step
@@ -167,6 +183,8 @@ class ValuationTools(ToolCatalogue):
     split to make.
     """
     SERVER = "valuation_mcp"
+    #: The finance artifact the cost derivation reads under a pin (see DecisionTools.READS).
+    READS = ("component-prices",)
     cost = "valuation_cost"                   # step 23 — the cost model over the reference sheet
     benefit = "valuation_benefit"             # step 24 — the drivers, the summary, the verdict
 

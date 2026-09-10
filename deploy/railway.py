@@ -209,7 +209,7 @@ def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
     whose settings have since been removed from `.env`, instead of orphaning it."""
     table = substrate_services(base_env)
     chans = [n for n in CHANNELS if n in table or n in (ids or {})]
-    return [REDIS_NAME] + list(SUBSTRATE) + chans + [JAEGER_NAME]
+    return [REDIS_NAME, EMBED_NAME] + list(SUBSTRATE) + chans + [JAEGER_NAME]
 
 # --- per-role environment ALLOWLIST (least privilege; review B-H2) ---
 # A service receives ONLY the `.env` keys (after `# CLOUD:` override + $VAR expansion, plus the
@@ -225,7 +225,7 @@ ROLE_ENV = {
         "LITELLM_*",                               # master key, LITELLM_MCP_CLIENT_TIMEOUT / TOOL_LISTING_TIMEOUT (litellm env)
         "DATABASE_URL",                            # key/team/spend store (litellm)
         "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
-        "OPENAI_UPSTREAM_API_KEY",                 # ... the corpus's embedding model (text-embedding-3-large)
+        "EMBED_URL",                               # ... the corpus's embedding model, the substrate's own (set by substrate_env)
         "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",  # the vector_store_registry's provider reads THESE from the
                                                    # process env (LiteLLM resolves no os.environ/ on that path):
                                                    # reference-mcp's origin + MCP_SHARED_SECRET, set by substrate_env()
@@ -383,6 +383,7 @@ ROLE_ENV = {
     ],
     # image services built from nothing in this repo: they get NO .env keys at all
     "redis": [],
+    "embedder": [],                                # the embedding model: an image, no env, no secret
     "jaeger": [],
 }
 
@@ -563,6 +564,21 @@ REDIS_IMAGE = "redis:7-alpine"
 # no. appendonly + the /data volume let the approval streams survive a restart.
 REDIS_CMD = "redis-server --bind 0.0.0.0 :: --protected-mode no --appendonly yes --dir /data"
 
+# --- the corpus's embedding model: the substrate's OWN, beside Redis (10 Sep 2026) ---
+# Ollama Cloud, OpenRouter and Anthropic serve no embedding model and the OpenAI account had no
+# credit, so the model the reference corpus indexes and searches with runs HERE: an Ollama image,
+# internal only (no domain, no credential — the private network is the trust boundary, as for
+# Redis), ~300 MB resident, the pulled weights on a volume so a restart does not re-download. The
+# gateway's model_list points at it through EMBED_URL, so switching to a vendor later is that one
+# entry and this service, never a workload. `[::]`: Railway private DNS is IPv6-only. The pull runs
+# at every start and is a no-op against the volume; `sh -c` because a start command is exec'd
+# without a shell (gotcha (1) in CLAUDE.md).
+EMBED_NAME = "embedder"
+EMBED_IMAGE = "ollama/ollama:0.34.0"
+EMBED_MODEL = "nomic-embed-text"
+EMBED_CMD = (f"sh -c 'OLLAMA_HOST=[::]:11434 OLLAMA_KEEP_ALIVE=-1 ollama serve & sleep 5; "
+             f"ollama pull {EMBED_MODEL}; wait'")
+
 
 def ensure_image_service(name, image):
     existing = services()
@@ -600,6 +616,20 @@ def ensure_redis():
         print(f"  {REDIS_NAME:13} volume attached at /data")
     deploy(sid, latest=False)                                  # image service: no repo commit to fetch
     print(f"  {REDIS_NAME:13} deploying ({REDIS_CMD.split()[0]} dual-stack bind, appendonly)")
+    return sid
+
+
+def ensure_embedder():
+    sid, created = ensure_image_service(EMBED_NAME, EMBED_IMAGE)
+    print(f"  {EMBED_NAME:13} {'created' if created else 'exists '} {sid[:8]}  ({EMBED_IMAGE})")
+    gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
+        'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
+        {"s": sid, "e": ENV, "in": {"source": {"image": EMBED_IMAGE}, "startCommand": EMBED_CMD,
+                                    "healthcheckPath": "", "restartPolicyType": "ALWAYS"}})
+    if ensure_volume(sid, "/root/.ollama"):
+        print(f"  {EMBED_NAME:13} volume attached at /root/.ollama")
+    deploy(sid, latest=False)
+    print(f"  {EMBED_NAME:13} deploying ({EMBED_MODEL}, dual-stack bind, weights on the volume)")
     return sid
 
 
@@ -682,6 +712,7 @@ def substrate_env(name, spec, base_env) -> dict:
     # client appends /v1/vector_stores/<id>/search — and the bearer reference-mcp expects.
     env["PG_VECTOR_API_BASE"] = "http://reference-mcp.railway.internal:9700"
     env["PG_VECTOR_API_KEY"] = env.get("MCP_SHARED_SECRET", "")
+    env["EMBED_URL"] = f"http://{EMBED_NAME}.railway.internal:11434"   # the gateway's embedding model
     env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))
     return env
@@ -811,7 +842,8 @@ def release(wait_s: int = 600):
     then fails on its first call.
     """
     ids = services()
-    names = [n for n in substrate_names(deploy_profile(), ids) if n not in (REDIS_NAME, JAEGER_NAME)]
+    names = [n for n in substrate_names(deploy_profile(), ids)
+             if n not in (REDIS_NAME, EMBED_NAME, JAEGER_NAME)]
     names += [w["service"] for w in WORKLOADS.values()]
     print(f"releasing {IMAGE}")
     rolled, missing = [], []
@@ -938,6 +970,7 @@ def substrate_up():
         if name not in table:
             print(f"  {name:13} skipped  (not configured: {', '.join(CHANNELS[name]['requires'])})")
     ensure_redis()                                         # first: gateway/MCP/review depend on it
+    ensure_embedder()                                      # the gateway's embedding model
     for name, spec in table.items():
         sid, created = ensure_service(name)
         print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
@@ -959,7 +992,7 @@ def substrate_env_report():
     must actually configure the services, still reads it strictly)."""
     base = deploy_profile()
     print(f"substrate env allowlist (from .env, `# CLOUD:` profile; {len(base)} keys in the pool)")
-    for name in (REDIS_NAME, JAEGER_NAME):
+    for name in (REDIS_NAME, EMBED_NAME, JAEGER_NAME):
         _print_env_keys("jaeger" if name == JAEGER_NAME else name, {})
     for name, spec in substrate_services(base).items():
         _print_env_keys(name, substrate_env(name, spec, base))

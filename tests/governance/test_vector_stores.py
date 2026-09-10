@@ -100,7 +100,16 @@ def test_every_model_credential_is_an_environment_reference_the_gateway_role_rec
     env name the cloud gateway is never handed resolves to nothing and every call fails."""
     allowed = railway.ROLE_ENV["gateway"]
     for model in _config()["model_list"]:
-        key = model["litellm_params"].get("api_key", "")
+        params = model["litellm_params"]
+        key, base = params.get("api_key", ""), params.get("api_base", "")
+        if not key:
+            # A model on the PRIVATE network (the substrate's own embedder) authenticates like
+            # Redis does — not at all — but its address must still be an env reference the
+            # gateway receives, or it resolves to nothing and every call fails.
+            assert base.startswith("os.environ/"), f"{model['model_name']} has no key and no env address"
+            assert _allowed(allowed, base.removeprefix("os.environ/")), \
+                f"{model['model_name']}: {base} never reaches the cloud gateway"
+            continue
         assert key.startswith("os.environ/"), f"{model['model_name']} carries a literal credential"
         assert _allowed(allowed, key.removeprefix("os.environ/")), \
             f"{model['model_name']}: {key} never reaches the cloud gateway"
@@ -113,8 +122,8 @@ def test_the_corpus_embeds_with_the_one_served_embedding_model_at_its_native_wid
     models = _embedding_models()
     assert len(models) == 1, "one embedding model is served; a second needs REFERENCE_EMBED_MODEL"
     assert models[0]["model_info"]["output_vector_size"] == config.REFERENCE_EMBED_DIM
-    assert models[0]["litellm_params"]["model"].startswith("openai/"), \
-        "OpenRouter serves no embedding models (verified); the upstream is OpenAI direct"
+    assert models[0]["litellm_params"]["model"].startswith("ollama/"), \
+        "the corpus embeds with the substrate's own model — no vendor serves one this lab can use"
 
 
 # ---------------------------------------------------------------- compose is not a third answer

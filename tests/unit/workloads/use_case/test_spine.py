@@ -14,6 +14,7 @@ import re
 
 import pytest
 
+from fixtures.usecase_corpus import tools as corpus_tools
 from fixtures.workflow import Router, run_spine, spine
 from lab.workloads.usecase import coverage
 
@@ -93,6 +94,7 @@ def _screening_router(**extra):
                    SemanticTools.store_spec: {"spec_ref": "art://s1/spec.json"},
                    ApprovalTools.ask: {"request_id": "apr-1", "status": "pending",
                                        "review_app": "http://review/apr-1"},
+                   **corpus_tools(),
                    **extra}, full=True)
 
 
@@ -193,15 +195,17 @@ READY = {"coverage_map": {"matched": True,
          "realisation_match": {"existing": False}}
 
 
-def _design_router(readiness="pass", verdict="proceed", failed=()):
-    return Router({SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
+def _design_router(readiness="pass", verdict="proceed", failed=(), **extra):
+    return Router({**corpus_tools(),
+                   SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
                    StorageTools.read_artifact: dict(READY),
                    DecisionTools.readiness: {"verdict": readiness, "failed": list(failed),
                                              "conditions": {}},
                    DecisionTools.feasibility: {"verdict": verdict, "rule": "a rule fired",
                                                "halts": verdict != "proceed"},
                    ApprovalTools.ask: {"request_id": "apr-2", "status": "pending",
-                                       "review_app": "http://review/apr-2"}}, full=True)
+                                       "review_app": "http://review/apr-2"},
+                   **extra}, full=True)
 
 
 def _design_inputs(**kw):
@@ -571,7 +575,7 @@ ANSWERS = {
 
 
 def _screening_with_agents(**extra):
-    router = Router({StorageTools.read_document: "Referrals wait eleven days.",
+    router = Router({**corpus_tools(), StorageTools.read_document: "Referrals wait eleven days.",
                      SemanticTools.store_spec: {"spec_ref": "art://s1/spec.json"},
                      SemanticTools.concepts: {"concepts": [{"id": "c1", "label": "Referral"}]},
                      SemanticTools.ontologies: {"vocabularies": ["archimate-3.1"]},
@@ -677,7 +681,7 @@ DESIGN_ANSWERS = {
 def _design_chain_router(**extra):
     # The full evidence set: step 21 reads the quality attributes, so a router carrying only what
     # the gate needs would leave it pending and make the chain test quieter than it looks.
-    return Router({SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
+    return Router({**corpus_tools(), SemanticTools.store_spec: {"spec_ref": "art://d1/design.json"},
                    StorageTools.read_artifact: dict(READY) | {
                        "quality_attributes": {"attributes": [{"name": "latency"}]},
                        "frame": {"problem": "referral triage takes too long"}},
@@ -1243,3 +1247,53 @@ def test_a_function_that_stops_early_keeps_the_level_it_reached():
     shallow = coverage["matched"][0]
     assert shallow["capability_label"] == "Information Management" and shallow["level"] == 1
     assert feasibility_evidence({"coverage_map": coverage})["capability_matched"] is True
+
+
+# ---------------------------------------------------------------- every run reads under a pin
+
+def test_the_screening_run_pins_its_map_and_the_record_carries_the_versions_it_cited():
+    from lab.workloads.use_case_screening import workflow as W
+    with spine(W, _screening_router()) as h:
+        run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
+    pinned = h.router.called("reference_pin")
+    assert pinned == [{"artifact_ids": list(W.REFERENCE_ARTIFACTS)}], "exactly the map, once"
+    record = h.router.called(SemanticTools.store_spec)[-1]["spec"]
+    assert record["pin_id"] == "pin-test"
+    assert {v["artifact_id"] for v in record["pinned_versions"]} == set(W.REFERENCE_ARTIFACTS)
+
+
+def test_the_design_run_pins_first_and_derives_every_obligation_under_that_pin():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_router()) as h:
+        run_spine(W, h, _design_inputs())
+    calls = [c[0] for c in h.router.calls]
+    assert calls.index("reference_pin") < calls.index(DecisionTools.readiness)
+    assert h.router.called("reference_pin") == [{"artifact_ids": list(W.REFERENCE_ARTIFACTS)}]
+    for tool in (DecisionTools.obligations, DecisionTools.composition):
+        for call in h.router.called(tool):
+            assert call["pin_id"] == "pin-test" and call["process"] == W.PROCESS
+            assert call["field"] and call["run_id"]
+
+
+def test_the_pin_carries_what_the_derivations_read_on_the_run_s_behalf():
+    """A derivation whose pin lacks an artifact refuses rather than answering from the image, so
+    the run's pin must hold what decision-mcp and valuation-mcp read — and nothing more."""
+    from lab.workloads.use_case_design import workflow as W
+    assert set(DecisionTools.READS) | set(ValuationTools.READS) <= set(W.REFERENCE_ARTIFACTS)
+    assert set(W.REFERENCE_ARTIFACTS) == (set(DecisionTools.READS) | set(ValuationTools.READS)
+                                          | {a for a, _ in W.CORPORA.values()})
+
+
+def test_the_design_package_says_what_moved_since_the_screening_run_cited_it():
+    """Recorded, not blocked on: the approval can wait days and the corpus may cut a release in
+    between. The package states per artifact "screened at, designed at"."""
+    from lab.workloads.use_case_design import workflow as W
+    screening = {**READY, "pinned_versions": [{"artifact_id": "guardrails", "version": "v0.26"},
+                                                  {"artifact_id": "facet-schema", "version": "v0.27"}]}
+    with spine(W, _design_router(**{StorageTools.read_artifact: screening})) as h:
+        run_spine(W, h, _design_inputs())
+    package = [c for c in h.router.called(SemanticTools.store_spec)
+               if c["name"] == "design.package.json"][-1]["spec"]
+    assert package["pin_id"] == "pin-test"
+    assert package["version_drift"] == [{"artifact_id": "guardrails", "before": "v0.26",
+                                           "after": "v0.27"}]

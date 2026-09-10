@@ -30,6 +30,7 @@ from lab.core.usecase import composition, exposure, gates, obligations
 from lab.core.usecase.model import Step, Workflow
 from lab.core.usecase.predicates import PredicateError
 from lab.platform import config
+from lab.platform.contracts import DecisionTools
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "decision-mcp"
@@ -60,11 +61,18 @@ def _workflow(payload: dict) -> Workflow:
 
 def _rules(pin_id: str, run_id: str, process: str, field: str,
            needs: tuple[str, ...] = ()) -> tuple[dict, dict]:
-    """(rules, provenance). Empty rules mean "use the local seed", said plainly in the provenance."""
+    """(rules, provenance) — from the governed corpus, under the caller's pin, or not at all.
+
+    There is no packaged fallback any more. One answered here for as long as the corpus was
+    unpublished, and it was honest about itself ("local seed") — but a derivation that can answer
+    from the image is a derivation that changes when the image does, which is the property the
+    corpus exists to remove. A caller with no pin is told how to get one."""
     if not pin_id:
-        return {}, {"kind": "local seed",
-                    "note": "the packaged copy of the published artifacts; pass a pin_id from "
-                            "reference_pin to derive against the governed corpus instead"}
+        raise ToolError(
+            "a derivation reads the governed corpus under a pin: call reference_pin for "
+            f"{list(DecisionTools.READS)} first and pass its pin_id (with run_id, process and the "
+            "derived field), so the rules this answer obeyed are the released ones and are "
+            "recorded against the field")
     library = server.reference()
     try:
         pin = library.pin_by_id(pin_id)

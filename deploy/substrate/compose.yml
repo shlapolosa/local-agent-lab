@@ -45,8 +45,16 @@ networks:
 
 volumes:
   redis-data: {}               # approval streams + limiter state survive a restart
+  ollama-models: {}            # the pulled embedding model survives a restart
 
 services:
+  embedder:                    # the corpus's embedding model — the substrate's own, internal only
+    image: ollama/ollama:0.34.0
+    command: ["sh", "-c", "ollama serve & sleep 5 && ollama pull nomic-embed-text && wait"]
+    environment: { OLLAMA_HOST: "[::]:11434" }
+    volumes: [ollama-models:/root/.ollama]
+    restart: unless-stopped
+    networks: [substrate]
   redis:                       # substrate Redis: limiter/budget/router state + the approval streams
     # Lives IN the substrate (not Redis Cloud) since Sep 2026: LiteLLM opens two 50-connection
     # pools + pub/sub subscribers per gateway, which blew Redis Cloud's 30-client free-tier cap,
@@ -143,6 +151,7 @@ services:
       # reference-mcp's ORIGIN on this network, and the bearer it expects
       PG_VECTOR_API_BASE: http://reference-mcp:9700
       PG_VECTOR_API_KEY: ${MCP_SHARED_SECRET:-}
+      EMBED_URL: http://embedder:11434
       ADOIT_MCP_URL: http://adoit-mcp:9100/mcp
       SEMANTIC_MCP_URL: http://semantic-mcp:9200/mcp
       STORAGE_MCP_URL: http://storage-mcp:9300/mcp

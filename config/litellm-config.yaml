@@ -93,20 +93,22 @@ model_list:
       input_cost_per_token: 0.00000005
       output_cost_per_token: 0.00000020
 
-  # --- the reference corpus's EMBEDDING model (upstream credential injected by the gateway) ---
-  # reference-mcp and the publisher embed THROUGH the gateway with a virtual key (REFERENCE_EMBED_KEY);
-  # the OpenAI credential lives here and nowhere else, exactly like the Anthropic one above.
-  # `output_vector_size` is the model's native width and REFERENCE_EMBED_DIM must equal it — a query
-  # embedded at another width cannot be compared with the index (a governance test holds the two
-  # together). OpenRouter serves no embedding models at all (verified Sep 2026), hence OpenAI direct.
-  - model_name: text-embedding-3-large
+  # --- the reference corpus's EMBEDDING model: the substrate's OWN, over the private network ---
+  # reference-mcp and the publisher embed THROUGH the gateway with a virtual key (REFERENCE_EMBED_KEY).
+  # The model runs in the `embedder` substrate service (deploy/railway.py: an Ollama image with a
+  # volume, ~300 MB, internal only) — chosen over a vendor API on 10 Sep 2026 because Ollama Cloud,
+  # OpenRouter and Anthropic serve no embedding model and the OpenAI account had no credit; a
+  # provider change is this one entry plus EMBED_URL. No api_key: nothing on the private network
+  # authenticates, the same as Redis. `output_vector_size` is the model's native width and
+  # REFERENCE_EMBED_DIM must equal it (a governance test holds the two together).
+  - model_name: nomic-embed-text
     litellm_params:
-      model: openai/text-embedding-3-large
-      api_key: os.environ/OPENAI_UPSTREAM_API_KEY
-      input_cost_per_token: 0.00000013
+      model: ollama/nomic-embed-text
+      api_base: os.environ/EMBED_URL
+      input_cost_per_token: 0.00000001
     model_info:
       mode: embedding
-      output_vector_size: 3072
+      output_vector_size: 768
 
 mcp_servers:                          # addresses + trust come from the environment (cloud shape)
   ea_mcp:                             # the EA-repository PORT, vendor-neutral by design: swapping ADOIT

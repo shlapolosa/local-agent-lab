@@ -26,7 +26,7 @@ from typing import Any, Mapping
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.platform import config
-from lab.platform.contracts import (
+from lab.platform.contracts import (ReferenceTools, 
     USE_CASE_DESIGN,
     USE_CASE_INVESTMENT,
     ApprovalTools,
@@ -37,6 +37,7 @@ from lab.platform.contracts import (
     ValuationTools,
 )
 from lab.workloads import gateway
+from lab.workloads.usecase import reference
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import step_for
 
@@ -47,19 +48,32 @@ REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec,
                   # ...with the arguments, not just the name — see the screening workload.
                   (ApprovalTools.ask, ("subject", "prompt", "items", "process")),
                   DecisionTools.readiness, DecisionTools.feasibility,
-                  DecisionTools.exposure, DecisionTools.obligations,
-                  DecisionTools.composition,
-                  ValuationTools.cost, ValuationTools.benefit)
+                  DecisionTools.exposure,
+                  # ...and the pin they derive under: a decision server older than this
+                  # workload would refuse `pin_id` at the call, twenty minutes in.
+                  (DecisionTools.obligations, ("workflow", "pin_id", "run_id", "process", "field")),
+                  (DecisionTools.composition, ("workflow", "pin_id", "run_id", "process", "field")),
+                  ValuationTools.cost, ValuationTools.benefit,
+                  ReferenceTools.pin, (ReferenceTools.lookup, ("pin_id", "artifact_id")))
 
-#: The reference corpora the design exercises read. Same contract as the screening side:
-#: best effort, and a step whose corpus is absent is not run.
+#: The reference corpora the design exercises read, as CONTEXT key -> (artifact, record type),
+#: read under this run's pin. Same contract as the screening side: best effort, and a step whose
+#: corpus is absent is deferred, not run on nothing.
 CORPORA = {
-    "determinism_criteria": ("determinism_criteria", "criteria"),
-    "facet_schema": ("facet_schema", "facets"),
-    "surface_enforceability": ("surface_enforceability", "matrix"),
-    "ai_capability_map": ("ai_capability_map", "capabilities"),
-    "price_sheet": ("price_sheet", "lines"),
+    "determinism_criteria": ("determinism-criteria", "criterion"),
+    "facet_schema": ("facet-schema", "facet"),
+    "surface_enforceability": ("surface-enforceability", "obligation"),
+    "ai_capability_map": ("ai-capability-map", "capability"),
+    "component_catalogue": ("reference-architecture-components", "component"),
+    "component_prices": ("component-prices", "component-price"),
 }
+
+#: Everything this run pins: what its own steps read, plus what the governed derivations read on
+#: its behalf — a derivation whose pin lacks an artifact refuses rather than answering from the
+#: image, so the pin has to carry them, and it has to carry NOTHING else.
+REFERENCE_ARTIFACTS = tuple(dict.fromkeys(
+    [artifact for artifact, _ in CORPORA.values()] + list(DecisionTools.READS)
+    + list(ValuationTools.READS)))
 
 #: Everything steps 17-25 would produce. Named here because "no partial design package" is only
 #: checkable against a list of what a package HAS — a test that guessed would pass on a typo.
@@ -92,9 +106,7 @@ def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=N
     in `pending_steps` rather than failing the run."""
     return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "credential": credential, "agents": dict(agents or {}), "tracer": tracer,
-            "root_ctx": root_ctx, "run_id": run_id}
-
-
+            "root_ctx": root_ctx, "run_id": run_id, "process": PROCESS}
 
 
 def gate_evidence(screening: dict, criticality: dict) -> dict:
@@ -141,20 +153,23 @@ def _criticality(state: dict) -> str:
     return given
 
 
-def _corpora() -> dict:
-    """The published rules these exercises read, from the packaged seed.
+async def _corpora(cfg, pin_id: str) -> dict:
+    """The published artifacts these exercises read, under this run's pin.
 
-    Read locally rather than through `reference_lookup` because they are the SAME artifacts a pin
-    would serve and the corpus is not yet published — the derivations already say which source they
-    used, and doing the same here would be a second, quieter claim. When the corpus is published
-    this becomes a pinned read and the provenance travels with it."""
-    from lab.core.usecase import seed
+    Each is read in FULL (the server lifts the limit for an artifact declared `whole`; the others
+    are small catalogues) and recorded against the context key it feeds, so the reverse index says
+    which design read which version of the facet schema. An artifact the read cannot serve is left
+    out, and the step that needs it is deferred by name — never run on an empty corpus."""
     out = {}
-    for key, (artifact, section) in CORPORA.items():
+    for key, (artifact, record_type) in CORPORA.items():
         try:
-            out[key] = seed.artifact(artifact)[section]
-        except (FileNotFoundError, KeyError):
+            got = await reference.records(cfg, pin_id, artifact, record_type=record_type, field=key)
+        except Exception as exc:                            # noqa: BLE001 — a corpus is optional
+            runlog.update(cfg["run_id"], **{f"corpus_{key}": f"unavailable: {exc}"[:200]}) \
+                if cfg.get("run_id") else None
             continue
+        if got:
+            out[key] = got
     return out
 
 
@@ -180,20 +195,21 @@ def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
     return {"steps": steps, "criticality": _criticality(state)}
 
 
-async def _risk_and_obligations(cfg, payload: dict, d: Derivation) -> None:
+async def _risk_and_obligations(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
     """Steps 18 and 19 — exposure and influence from the facets, then the control set from those
     classes. Both refused without a facet vector: a control set derived for an empty workflow is
-    valid, empty, and completely wrong."""
+    valid, empty, and completely wrong. The obligations are derived UNDER THE PIN, attributed to
+    the field they become."""
     if not payload["steps"]:
         d.defer("18", "derive exposure and influence — needs a facet vector per step")
         d.defer("19", "evaluate obligations — needs a facet vector per step")
         return
     d.record("risk", await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
-    d.record("obligations", await gateway.call(cfg, DecisionTools.obligations,
-                                               {"workflow": payload}))
+    d.record("obligations", await gateway.call(cfg, DecisionTools.obligations, {
+        "workflow": payload, "pin_id": pin_id, **reference.attribution(cfg, "obligations")}))
 
 
-async def _compose(cfg, payload: dict, d: Derivation) -> None:
+async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
     """Step 22. Its topology comes from step 20, because that is where the question "who owns
     control flow at runtime" is actually answered."""
     topology = (d.derived.get("build_surface") or {}).get("topology", "")
@@ -202,8 +218,8 @@ async def _compose(cfg, payload: dict, d: Derivation) -> None:
         return
     d.record("composition", await gateway.call(cfg, DecisionTools.composition, {
         "workflow": payload, "topology": topology,
-        "obligations_required": list((d.derived.get("obligations") or {}).get("guardrails") or ())
-    }), "22")
+        "obligations_required": list((d.derived.get("obligations") or {}).get("guardrails") or ()),
+        "pin_id": pin_id, **reference.attribution(cfg, "composition")}), "22")
 
 
 def design_version(derived: Mapping[str, Any]) -> str:
@@ -282,6 +298,11 @@ def build_workflow(cfg):
         with gateway.node_span(cfg, "readiness"):
             raw = await gateway.call(cfg, StorageTools.read_artifact, {"ref": state["screening_ref"]})
             screening = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+            # The pin comes FIRST: every derivation below reads under it, and the versions it
+            # froze are compared with the ones the screening run cited — recorded, not blocked
+            # on, because a routine corpus release must not stall every in-flight case.
+            pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS,
+                                         previous=screening.get("pinned_versions") or ())
             d = Derivation(available={**{k: v for k, v in screening.items() if v},
                                       "criticality": dict(state.get("criticality") or {})})
             await _agent_step(cfg, "13", d)
@@ -289,6 +310,9 @@ def build_workflow(cfg):
                 "gates_evidenced": gate_evidence(screening, state.get("criticality") or {}),
                 "criticality": _criticality(state)})
             state = state | {"screening": screening, "readiness": verdict["verdict"],
+                             "pin_id": pinned["pin_id"],
+                             "pinned_versions": pinned["versions"],
+                             "version_drift": pinned["drift"],
                              "derived": d.derived, "pending": d.pending,
                              "readiness_failed": list(verdict.get("failed") or ()),
                              "halted": verdict["verdict"] == "fail",
@@ -302,7 +326,7 @@ def build_workflow(cfg):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
-            d = Derivation(available={**_corpora(),
+            d = Derivation(available={**await _corpora(cfg, state["pin_id"]),
                                       **{k: v for k, v in state["screening"].items() if v}},
                            derived=dict(state.get("derived") or {}),
                            pending=dict(state.get("pending") or {}))
@@ -338,7 +362,8 @@ def build_workflow(cfg):
 
             screening = state["screening"]
             d = Derivation(
-                available={**_corpora(), **{k: v for k, v in screening.items() if v},
+                available={**await _corpora(cfg, state["pin_id"]),
+                           **{k: v for k, v in screening.items() if v},
                            "criticality": dict(state.get("criticality") or {}),
                            "determinism": state.get("determinism") or {},
                            **(state.get("derived") or {})},
@@ -347,10 +372,11 @@ def build_workflow(cfg):
 
             await _agent_step(cfg, "17", d)              # the facet vector per step
             payload = _workflow_payload(state, d.derived)
-            await _risk_and_obligations(cfg, payload, d)  # 18 exposure/influence, 19 the controls
+            pin_id = state["pin_id"]
+            await _risk_and_obligations(cfg, payload, d, pin_id)  # 18 exposure/influence, 19 controls
             await _agent_step(cfg, "20", d)              # the build surface, against those controls
             await _agent_step(cfg, "21", d)              # the components, against those controls
-            await _compose(cfg, payload, d)              # 22 the composition
+            await _compose(cfg, payload, d, pin_id)      # 22 the composition
             await _agent_step(cfg, "23", d)              # what the design costs
             await _agent_step(cfg, "24", d)              # what evidences the benefit
             await _valuation(cfg, d, state)              # 23/24 arithmetic, by the governed service
@@ -358,7 +384,13 @@ def build_workflow(cfg):
 
             package = d.package(submission_ref=state["submission_ref"],
                                 screening_ref=state["screening_ref"],
-                                criticality=dict(state.get("criticality") or {}))
+                                criticality=dict(state.get("criticality") or {}),
+                                # What this design read, and what moved since the screening run
+                                # cited it — so "screened at v0.26, designed at v0.27" is in the
+                                # package a reviewer opens, per artifact.
+                                pin_id=state["pin_id"],
+                                pinned_versions=state["pinned_versions"],
+                                version_drift=state["version_drift"])
             stored = await gateway.call(cfg, SemanticTools.store_spec,
                                         {"spec": package, "name": "design.package.json"})
             # The recommendation is step 24's verdict where there is one. While the valuation is

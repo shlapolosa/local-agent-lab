@@ -18,7 +18,7 @@ import json
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.platform import config
-from lab.platform.contracts import (
+from lab.platform.contracts import (ReferenceTools, VectorStores, 
     USE_CASE_DESIGN,
     USE_CASE_SCREENING,
     ApprovalTools,
@@ -29,6 +29,7 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import coverage
+from lab.workloads.usecase import reference
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import SCREENING_STEPS
 
@@ -43,7 +44,8 @@ PROCESS = USE_CASE_SCREENING.name
 #: can still reject the call when the deployed server is older than the workload — measured, at the
 #: cost of a whole run.
 REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec,
-                  (ApprovalTools.ask, ("subject", "prompt", "items", "process")))
+                  (ApprovalTools.ask, ("subject", "prompt", "items", "process")),
+                  ReferenceTools.pin)
 
 #: The reference corpora the exercises read, and the tool that serves each. NOT preflighted: a
 #: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a
@@ -66,6 +68,10 @@ CORPORA = {
 #: which is the worst way for a size problem to present, because a hang looks like slowness and
 #: slowness looks like patience.
 PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent")}
+
+#: What this run pins: the capability map its coverage match reads. Pinned even while the match
+#: still walks the semantic scheme, so the versions a design run compares against exist.
+REFERENCE_ARTIFACTS = (VectorStores.for_scheme(CORPORA["capabilities"][1]["scheme"]),)
 
 #: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
 #: unavailable with its size, rather than sent — a step that silently receives half a corpus
@@ -116,9 +122,7 @@ def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=N
     missing one model still produces a partial, honest record instead of failing."""
     return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "credential": credential, "agents": dict(agents or {}), "tracer": tracer,
-            "root_ctx": root_ctx, "run_id": run_id}
-
-
+            "root_ctx": root_ctx, "run_id": run_id, "process": PROCESS}
 
 
 async def match_capabilities(cfg, d) -> dict:
@@ -192,6 +196,7 @@ def build_workflow(cfg):
         indistinguishable from one grounded in a real map. What could not be read is named, and the
         steps that needed it stay pending."""
         with gateway.node_span(cfg, "corpora"):
+            pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS)
             fetched: dict = {}
             missing: dict = dict(UNAVAILABLE)
             for name, (tool, args) in CORPORA.items():
@@ -216,7 +221,9 @@ def build_workflow(cfg):
                     missing[name] = "the corpus was served but is empty"
             # Said in the record, not just in a comment: a reader must be able to tell that the
             # coverage map is L1 without going and reading this module.
-            state = state | {"corpora": fetched, "corpora_unavailable": missing}
+            state = state | {"corpora": fetched, "corpora_unavailable": missing,
+                             "pin_id": pinned["pin_id"],
+                             "pinned_versions": pinned["versions"]}
         await ctx.send_message(state)
 
     @executor(id="derive")
@@ -258,6 +265,9 @@ def build_workflow(cfg):
                          # nobody should have opened looks exactly like a leaf under one they should.
                          "capability_depth": state.get("capability_depth"),
                          "coverage_trail": state.get("coverage_trail"),
+                         # The versions this screening cited, for the design run to compare.
+                         "pin_id": state["pin_id"],
+                         "pinned_versions": state["pinned_versions"],
                          "submission_ref": state["submission_record_ref"], **derived}
             stored = await gateway.call(cfg, SemanticTools.store_spec,
                                  {"spec": screening, "name": "screening.json"})

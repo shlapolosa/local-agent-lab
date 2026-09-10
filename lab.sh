@@ -34,7 +34,8 @@ load_env() { need .env "create it from the keys listed in CLAUDE.md"; set -a; so
   # the gateway's vector_store_registry reaches reference-mcp's façade through the provider's own
   # env names (LiteLLM resolves no os.environ/ there): the server's ORIGIN and its bearer
   export PG_VECTOR_API_BASE="${PG_VECTOR_API_BASE:-http://127.0.0.1:9700}" \
-         PG_VECTOR_API_KEY="${PG_VECTOR_API_KEY:-${MCP_SHARED_SECRET:-}}"; }
+         PG_VECTOR_API_KEY="${PG_VECTOR_API_KEY:-${MCP_SHARED_SECRET:-}}" \
+         EMBED_URL="${EMBED_URL:-http://127.0.0.1:11434}"; }   # a local Ollama, if one is running
 wait_http() { # url, grep-pattern, seconds
   for i in $(seq 1 "$3"); do curl -s --max-time 3 "$1" | /usr/bin/grep -q "$2" && return 0; sleep 1; done; return 1; }
 alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }

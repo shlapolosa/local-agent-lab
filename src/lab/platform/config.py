@@ -50,6 +50,7 @@ WORKFLOW_API_URL = _e("WORKFLOW_API_URL", "http://127.0.0.1:9400/api")  # ... an
 GRAPH_MCP_URL    = _e("GRAPH_MCP_URL", "http://127.0.0.1:9500/mcp")     # the COLLABORATION port (alias collab_mcp)
 SPEECH_MCP_URL   = _e("SPEECH_MCP_URL", "http://127.0.0.1:9600/mcp")    # the SPEECH port (alias speech_mcp)
 REFERENCE_MCP_URL = _e("REFERENCE_MCP_URL", "http://127.0.0.1:9700/mcp")  # the governed CORPUS (alias reference_mcp)
+EMBED_URL = _e("EMBED_URL", "http://127.0.0.1:11434")   # the substrate's embedding model (Ollama API); the gateway's model_list points here
 DECISION_MCP_URL = _e("DECISION_MCP_URL", "http://127.0.0.1:9800/mcp")    # the CAFÉ derivations (alias decision_mcp)
 VALUATION_MCP_URL = _e("VALUATION_MCP_URL", "http://127.0.0.1:9900/mcp")  # cost and benefit (alias valuation_mcp)
 REVIEW_APP_URL   = _e("REVIEW_APP_URL", "http://127.0.0.1:8501")        # for humans (tool results, Telegram)
@@ -124,10 +125,10 @@ REFERENCE_RING_SOAK_S = int(_e("REFERENCE_RING_SOAK_S", "86400"))
 # LAB_ENV: a signature made with a key everyone with repo admin holds proves nothing.
 REFERENCE_TRUST_KEYS = _e("REFERENCE_TRUST_KEYS", "")
 REFERENCE_EMBED_MODEL = _e("REFERENCE_EMBED_MODEL", "")   # empty = semantic search is unavailable
-# The served model's NATIVE width (text-embedding-3-large: 3072), never a truncation: exact cosine
-# over a few thousand passages makes width free, and one fewer thing to keep in step. A governance
-# test holds this default to the gateway's `output_vector_size` for the model.
-REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "3072"))
+# The served model's NATIVE width (nomic-embed-text: 768), never a truncation: exact cosine over a
+# few thousand passages makes width free, and one fewer thing to keep in step. A governance test
+# holds this default to the gateway's `output_vector_size` for the model.
+REFERENCE_EMBED_DIM = int(_e("REFERENCE_EMBED_DIM", "768"))
 REFERENCE_EMBED_KEY = _e("REFERENCE_EMBED_KEY", "")       # a VIRTUAL key; the upstream one is the gateway's
 # The PUBLISHER's three. They are read here because config is the one env reader, but no service is
 # granted them: `ROLE_ENV["reference-mcp"]` lists neither, so in a deployed service all three are

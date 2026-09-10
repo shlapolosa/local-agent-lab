@@ -114,7 +114,7 @@ FAKE = {
     # gateway secrets
     "LITELLM_MASTER_KEY": "m", "LITELLM_MCP_CLIENT_TIMEOUT": "300", "LITELLM_MCP_TOOL_LISTING_TIMEOUT": "60",
     "DATABASE_URL": "pg", "OLLAMA_API_KEY": "ol", "ANTHROPIC_UPSTREAM_API_KEY": "an",
-    "OPENAI_UPSTREAM_API_KEY": "oa", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk",
+    "EMBED_URL": "emb", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk",
     "MICROSOFT_CLIENT_ID": "mc", "MICROSOFT_CLIENT_SECRET": "ms", "MICROSOFT_TENANT": "mt",
     "PROXY_BASE_URL": "pb", "DEVELOPERS_TEAM_ID": "dt", "ENTRA_CLIENT_TO_KEY": "{}",
     "OTEL_EXPORTER": "otlp_http", "OTEL_ENDPOINT": "e", "OTEL_SERVICE_NAME": "litellm-gateway",
@@ -199,7 +199,7 @@ def test_gateway_receives_exactly_what_it_consumes():
     assert set(env) == {
         "LITELLM_MASTER_KEY", "LITELLM_MCP_CLIENT_TIMEOUT", "LITELLM_MCP_TOOL_LISTING_TIMEOUT",
         "DATABASE_URL", "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "MCP_SHARED_SECRET",
-        "OPENAI_UPSTREAM_API_KEY", "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",
+        "EMBED_URL", "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",
         "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "GRAPH_MCP_URL", "REDIS_URL",
         "OTEL_EXPORTER", "OTEL_ENDPOINT", "OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT",
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE", "ENTRA_CLIENT_TO_KEY", "DEVELOPERS_TEAM_ID",
@@ -322,9 +322,9 @@ def test_a_channel_is_a_substrate_service_only_while_it_is_configured():
         assert not spec.get("s3")
     # deploy order + what down/status walk: redis first, jaeger last, a channel in between when it is
     # configured OR still deployed (settings removed from .env must not orphan a running service)
-    assert railway.substrate_names({}) == ["redis"] + list(railway.SUBSTRATE) + ["local-agent-lab"]
+    assert railway.substrate_names({}) == ["redis", "embedder"] + list(railway.SUBSTRATE) + ["local-agent-lab"]
     assert railway.substrate_names({}, {"teams": "svc-teams"}) == \
-        ["redis"] + list(railway.SUBSTRATE) + ["teams", "local-agent-lab"]
+        ["redis", "embedder"] + list(railway.SUBSTRATE) + ["teams", "local-agent-lab"]
     assert railway.substrate_names(FAKE)[-3:] == ["telegram", "teams", "local-agent-lab"]
 
 
@@ -389,8 +389,9 @@ def test_no_role_receives_management_or_unknown_keys():
         for k in ("ENTRA_GATEWAY_APP_ID", "DEV_CLIENT_ID", "VISIO_TEAM_ID", "ARCHIMATE_SKILL_ID",
                   "VISIO_READER_SKILL_ID", "EA_AGENT_KEY", "EA_AGENT_CLIENT_SECRET"):
             assert k not in env, (role, k)
-    assert railway.env_for_role("redis", FAKE) == {} and railway.env_for_role("jaeger", FAKE) == {}
-    assert set(railway.ROLE_ENV) >= set(railway.SUBSTRATE) | {"workload", "redis", "jaeger"}
+    for third_party in ("redis", "jaeger", "embedder"):
+        assert railway.env_for_role(third_party, FAKE) == {}, third_party
+    assert set(railway.ROLE_ENV) >= set(railway.SUBSTRATE) | {"workload", "redis", "jaeger", "embedder"}
 
 
 def test_unknown_role_rejected():
@@ -543,3 +544,14 @@ def test_the_gateway_is_pointed_at_the_corpus_facade_with_the_shared_secret():
     assert env["PG_VECTOR_API_BASE"] == "http://reference-mcp.railway.internal:9700"
     assert env["PG_VECTOR_API_KEY"] == "shh"
     assert "/v1/" not in env["PG_VECTOR_API_BASE"], "an ORIGIN — the client appends the path"
+
+
+def test_the_gateway_reaches_the_substrate_s_own_embedder_over_the_private_network():
+    """The embedding model is a third-party image service beside Redis: internal only, no
+    credential, and the gateway's model_list resolves its address from EMBED_URL."""
+    env = railway.substrate_env("gateway", railway.SUBSTRATE["gateway"], FAKE)
+    assert env["EMBED_URL"] == "http://embedder.railway.internal:11434"
+    assert railway.EMBED_NAME == "embedder" and railway.EMBED_IMAGE.startswith("ollama/ollama:")
+    assert "[::]" in railway.EMBED_CMD, "Railway private DNS is IPv6-only: the model must bind ::"
+    assert railway.EMBED_MODEL in railway.EMBED_CMD, "the model is pulled at start, onto the volume"
+    assert railway.EMBED_NAME in railway.substrate_names(FAKE)

@@ -27,7 +27,7 @@ import railway  # noqa: E402
 # Provisioned differently on Railway (a managed image service and a volume) but ordinary containers
 # here, so they are in compose and not in SUBSTRATE. Named rather than skipped, so adding a third
 # third-party dependency is a deliberate edit.
-THIRD_PARTY = {"redis", "jaeger"}
+THIRD_PARTY = {"redis", "jaeger", "embedder"}   # images the lab runs, not builds
 
 
 @pytest.fixture(scope="module")

@@ -35,14 +35,14 @@ def _railway():
 
 def test_compose_carries_every_railway_substrate_service():
     rw = _railway()
-    compose, railway = _compose_services(), set(rw.SUBSTRATE) | set(rw.CHANNELS) | {"redis", "jaeger"}
+    compose, railway = _compose_services(), set(rw.SUBSTRATE) | set(rw.CHANNELS) | {"redis", "jaeger", "embedder"}
     missing = railway - compose
     assert not missing, f"deploy/substrate/compose.yml has drifted — add: {sorted(missing)}"
 
 
 def test_compose_adds_nothing_railway_does_not_deploy():
     rw = _railway()
-    compose, railway = _compose_services(), set(rw.SUBSTRATE) | set(rw.CHANNELS) | {"redis", "jaeger"}
+    compose, railway = _compose_services(), set(rw.SUBSTRATE) | set(rw.CHANNELS) | {"redis", "jaeger", "embedder"}
     extra = compose - railway
     assert not extra, f"compose.yml deploys services railway.py does not: {sorted(extra)}"
 

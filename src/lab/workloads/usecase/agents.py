@@ -48,11 +48,11 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     "facet_vectors": ("workflow_graph", "determinism", "facet_schema"),
     "build_surface": ("obligations", "realisation_match", "surface_enforceability"),
     "component_selection": ("obligations", "quality_attributes", "realisation_match",
-                            "ai_capability_map", "build_surface"),
+                            "ai_capability_map", "component_catalogue", "build_surface"),
     # The valuation half. The cost engineer reads the COMPOSED design and the sheet it must spell
     # its services from; the value analyst reads the submission the figures have to come from and
     # never the cost, because a benefit sized to clear a known investment is not evidence.
-    "cost_inputs": ("composition", "build_surface", "component_selection", "price_sheet"),
+    "cost_inputs": ("composition", "build_surface", "component_selection", "component_prices"),
     "benefit_inputs": ("frame", "workflow_graph", "quality_attributes", "criticality"),
     # Step 25 is the only step that reads nearly everything, and legitimately: it is not deciding
     # anything, it is writing down what was already decided. The one thing it must NOT invent is a

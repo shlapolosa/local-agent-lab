@@ -96,8 +96,12 @@ def rows(records) -> list[dict]:
     ONE family has a topology, and `families_for` asks whether that key is None; kept as "", the
     other thirteen would look topology-restricted and vanish from every composition, silently, and
     only under a pin. Here, beside the decoder, because decision, valuation and the workloads all
-    read the corpus and a second copy of this would drift from the first.
+    read the corpus and a second copy of this would drift from the first. A record is the adapter's
+    `Record` (with a `.body`) or the MCP tool's dict (with a `"body"`) — a workload sees the second.
     """
-    return [{k: decode(v, k) for k, v in record.body.items()
-             if k != "record_id" and v not in ("", None)}
-            for record in records]
+    out = []
+    for record in records:
+        body = record.body if hasattr(record, "body") else record.get("body", record)
+        out.append({k: decode(v, k) for k, v in body.items()
+                    if k != "record_id" and v not in ("", None)})
+    return out

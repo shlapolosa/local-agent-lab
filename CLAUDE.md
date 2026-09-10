@@ -1044,13 +1044,26 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   set in the gateway's PROCESS env by `lab.sh`, `deploy/railway.py substrate_env` and compose.
   Workloads call `lab.workloads.gateway.vector_search` and preflight with `preflight_stores`
   (`/vector_store/list`), the same zero-token contract as `REQUIRED_TOOLS`.
-- **Embedding** is `text-embedding-3-large` on the gateway (`OPENAI_UPSTREAM_API_KEY`, injected like
-  the Anthropic one; OpenRouter serves NO embedding models — verified) at its native width
-  (`REFERENCE_EMBED_DIM=3072`, held equal to the model's `output_vector_size` by a governance test).
-  The corpus embeds with a VIRTUAL key, `REFERENCE_EMBED_KEY`, minted by
-  `scripts/provision_reference_embedder.py` (team `reference-corpus`, that one model, zero tools).
-  `REFERENCE_EMBED_MODEL` unset ⇒ every search refuses `IndexUnavailable` and publishing a vector
-  artifact refuses — fail closed, never an empty answer.
+- **Embedding is the substrate's OWN model** — service `embedder` (`deploy/railway.py ensure_embedder`:
+  `ollama/ollama` image, `nomic-embed-text`, weights on a `/root/.ollama` volume, bound `[::]`, no
+  domain, no credential — the private network is the trust boundary, as for Redis; `EMBED_URL` is set
+  per tier by `substrate_env`/`lab.sh`/compose). Decided 10 Sep 2026 after the alternatives were
+  tried: Ollama Cloud, OpenRouter and Anthropic serve NO embedding model (listed live) and the OpenAI
+  account answered `credit_balance_exhausted` on the first call. The gateway's `model_list` entry
+  `nomic-embed-text` (`ollama/…`, `api_base: os.environ/EMBED_URL`) is the ONE place a vendor
+  change lands; `REFERENCE_EMBED_DIM=768` is held equal to its `output_vector_size` by a governance
+  test. The corpus embeds with a VIRTUAL key, `REFERENCE_EMBED_KEY` (team `reference-corpus`, that
+  one model, zero tools; `scripts/provision_reference_embedder.py` mints it once and reconciles the
+  allowed model after). `REFERENCE_EMBED_MODEL` unset ⇒ every search refuses and publishing a vector
+  artifact defers by name — fail closed, never an empty answer.
+- **Every workload PINS before its first derivation** (`lab.workloads.usecase.reference`): exactly
+  its `REFERENCE_ARTIFACTS` — what its own steps read plus `DecisionTools.READS` /
+  `ValuationTools.READS`, the artifacts the governed derivations read on its behalf (decision-mcp
+  REFUSES without a pin; there is no packaged fallback any more). The pin id, the frozen versions and
+  the DRIFT ride the run board, the screening record and the design package: the design run re-pins
+  (the approval can wait days) and states "screened at v0.26, designed at v0.27" per artifact —
+  recorded, never blocked on (user decision). Reads are attributed to the DERIVED FIELD
+  (`reference.attribution`), and `cells.rows` is the one corpus-to-domain mapper.
 
 ## Observability (Foundry observability analogue; traces double as the audit trail)
 

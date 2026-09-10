@@ -347,9 +347,15 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     assert calls[4][1]["in"] == {"projectId": "proj-fake", "environmentId": "env-fake",
                                  "serviceId": "svc-redis", "mountPath": "/data"}
     assert calls[5][1] == {"s": "svc-redis", "e": "env-fake"} and "latestCommit" not in calls[5][2]
+    # 1b) the embedder next: the same shape as Redis — image, dual-stack bind, volume for the weights
+    embed = [c[1]["in"] for c in fake.ops("serviceCreate")][1]
+    assert embed == {"projectId": "proj-fake", "name": rw.EMBED_NAME, "source": {"image": rw.EMBED_IMAGE}}
+    assert any(c[1]["in"] == {"projectId": "proj-fake", "environmentId": "env-fake",
+                               "serviceId": "svc-embedder", "mountPath": "/root/.ollama"}
+               for c in fake.ops("volumeCreate"))
     # 2) each substrate service, in table order: create from the ONE prebuilt image, vars, instance
     #    update, [domain], deploy
-    created = [c[1]["in"] for c in fake.ops("serviceCreate")][1:]
+    created = [c[1]["in"] for c in fake.ops("serviceCreate")][2:]
     assert [c["name"] for c in created] == list(rw.SUBSTRATE)
     assert all(c["source"] == {"image": rw.IMAGE} and "branch" not in c for c in created)   # image mode
     upserts = {c[1]["in"]["serviceId"]: c[1]["in"] for c in fake.ops("variableCollectionUpsert")}
@@ -400,7 +406,8 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
                        {"environmentId": "env-fake", "serviceId": "svc-review", "targetPort": 8501}]
     # image mode: nothing fetches a commit (every service pulls the same prebuilt tag)
     deploys = [(c[1]["s"], "latestCommit:true" in c[2]) for c in fake.ops("serviceInstanceDeploy")]
-    assert deploys == [("svc-redis", False)] + [(f"svc-{n}", False) for n in rw.SUBSTRATE]
+    assert deploys == ([("svc-redis", False), ("svc-embedder", False)]
+                           + [(f"svc-{n}", False) for n in rw.SUBSTRATE])
     # per-service order: vars before instance update before deploy
     seq = [c[0] for c in calls if c[0].endswith(("Upsert", "Update", "Create", "Deploy"))
            and (c[1].get("s") == "svc-gateway" or c[1].get("in", {}).get("serviceId") == "svc-gateway")]
@@ -494,7 +501,8 @@ def test_workload_up_uses_the_same_image(monkeypatch):
 def test_substrate_up_existing_project_is_idempotent_and_redeploys_jaeger():
     fake = FakeRailway(services=_project(*all_substrate()), status={"svc-jaeger": "CRASHED"},
                        domains={"svc-gateway": "gw.example", "svc-review": "rv.example"},
-                       volumes=[("svc-redis", "/data")], errors={"serviceDomainCreate": "Domain already exists"})
+                       volumes=[("svc-redis", "/data"), ("svc-embedder", "/root/.ollama")],
+                       errors={"serviceDomainCreate": "Domain already exists"})
     with railway(fake) as out:
         rw.substrate_up()
     text = out.getvalue()
@@ -507,7 +515,8 @@ def test_substrate_up_existing_project_is_idempotent_and_redeploys_jaeger():
     assert "gateway  https://gw.example" in text and "review   https://rv.example" in text
     # a different domain error is reported, not hidden; a healthy jaeger is left alone
     fake = FakeRailway(services=_project(*all_substrate()), status={"svc-jaeger": "SUCCESS"},
-                       volumes=[("svc-redis", "/data")], errors={"serviceDomainCreate": "quota exceeded"})
+                       volumes=[("svc-redis", "/data"), ("svc-embedder", "/root/.ollama")],
+                       errors={"serviceDomainCreate": "quota exceeded"})
     with railway(fake) as out:
         rw.substrate_up()
     text = out.getvalue()

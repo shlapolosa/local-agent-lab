@@ -48,7 +48,10 @@ def main() -> int:
         print(f"team {TEAM_ALIAS} created ({team_id})")
 
     if os.environ.get("REFERENCE_EMBED_KEY"):
-        print("REFERENCE_EMBED_KEY already set — kept (reissuing would orphan the deployed one)")
+        # Kept, and RECONCILED: the model it may call follows REFERENCE_EMBED_MODEL, so switching
+        # the embedding upstream is a config change and not a new credential to distribute.
+        litellm("/key/update", {"key": os.environ["REFERENCE_EMBED_KEY"], "models": [model]})
+        print(f"REFERENCE_EMBED_KEY already set — kept, allowed {model}")
     else:
         key = litellm("/key/generate", {
             "key_alias": KEY_ALIAS, "team_id": team_id, "models": [model],

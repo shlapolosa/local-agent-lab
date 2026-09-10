@@ -18,7 +18,6 @@ RATCHET = {
     "core/usecase/composition.py",            # default-argument fallback to the packaged families
     "core/usecase/obligations.py",            # default-argument fallback to the packaged guardrails
     "substrate/review/app.py",                # the Submit form's intake fields
-    "workloads/use_case_design/workflow.py",  # the five design-side artifacts pasted into prompts
 }
 
 READS = {"artifact", "guardrails", "live_guardrails", "names"}

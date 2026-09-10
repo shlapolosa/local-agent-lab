@@ -17,6 +17,30 @@ from lab.platform.contracts import DecisionTools
 from lab.core.reference import cells
 from lab.substrate.mcp.decision import server as S
 
+
+# ---------------------------------------------------------------- every derivation runs under a pin
+
+_PIN: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def governed_pin():
+    """The rule artifacts, as the corpus serves them, pinned for every test. There is no seed
+    fallback: a derivation with no pin refuses, so the default for a test is a pin — the same
+    shape a workload gives the server."""
+    from fixtures.usecase_corpus import seeded
+    from lab.platform.contracts import DecisionTools
+    library = FakeReferenceLibrary([seeded(a) for a in DecisionTools.READS])
+    with S.server.container.reference.override(library):
+        pin = library.pin()
+        _PIN.clear()
+        _PIN.update(pin_id=pin.pin_id, run_id="wfr-t", process="use_case_design", field="test")
+        yield library
+
+
+def pinned(**over) -> dict:
+    return {**_PIN, **over}
+
 ANSWERS = {c: False for c in predicates.NAMED_CONDITIONS}
 
 COMMIT = {"id": "s1", "activity": "commit", "determinism": "D0", "effect": "record write"}
@@ -112,7 +136,7 @@ def test_a_workflow_with_no_steps_refuses():
 # ---------------------------------------------------------------- step 19
 
 def test_obligations_returns_a_control_set_and_the_commit_invariant():
-    out = S.decision_obligations(wf(COMMIT), conditions=ANSWERS)
+    out = S.decision_obligations(wf(COMMIT), conditions=ANSWERS, **pinned())
     assert out["guardrails"]
     assert out["commit_invariant_holds"] is True
     assert out["by_step"]["s1"]
@@ -123,7 +147,7 @@ def test_a_commit_invariant_breach_is_reported_rather_than_raised():
     that shows why."""
     loose = {"id": "s1", "activity": "commit", "effect": "external communication",
              "authorisation": "autonomous"}
-    out = S.decision_obligations(wf(INTERPRET, loose), conditions=ANSWERS)
+    out = S.decision_obligations(wf(INTERPRET, loose), conditions=ANSWERS, **pinned())
     assert out["commit_invariant_holds"] is False
     assert out["violations"][0]["step"] == "s1"
 
@@ -132,34 +156,34 @@ def test_an_unanswered_condition_refuses_rather_than_producing_a_short_set():
     """The failure this exists for: a control set that is quietly one guardrail short looks exactly
     like a correct one at review."""
     with pytest.raises(ToolError) as e:
-        S.decision_obligations(wf(COMMIT), conditions={})
+        S.decision_obligations(wf(COMMIT), conditions={}, **pinned())
     assert "condition" in str(e.value).lower()
 
 
 # ---------------------------------------------------------------- step 22
 
 def test_composition_derives_the_families_the_steps_call_for():
-    out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS)
+    out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS, **pinned())
     assert "F4" in out["families"]          # an effect of record write or above
     assert out["enforcement"]["F4"]
 
 
 def test_a_family_no_step_calls_for_is_absent():
     """"A composition carrying a family no step calls for is over-built" — absence is a result."""
-    out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS)
+    out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS, **pinned())
     assert "F14" not in out["families"]     # delegation is T4 only
     assert "F12" not in out["families"]     # nothing egresses and nothing sensitive is read
 
 
 def test_an_obligation_with_nowhere_to_land_is_named():
     out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS,
-                                 obligations_required=["G02", "G99"])
+                                 obligations_required=["G02", "G99"], **pinned())
     assert out["unbound"] == ["G99"]
 
 
 def test_an_unpublished_topology_refuses():
     with pytest.raises(ToolError):
-        S.decision_composition(wf(COMMIT), topology="T9", conditions=ANSWERS)
+        S.decision_composition(wf(COMMIT), topology="T9", conditions=ANSWERS, **pinned())
 
 
 # ---------------------------------------------------------------- where the rules came from
@@ -167,10 +191,25 @@ def test_an_unpublished_topology_refuses():
 def test_every_derivation_says_which_rules_it_used():
     """The one thing that must never be silent. An ungoverned answer and a governed one are
     otherwise indistinguishable in a design package."""
-    for out in (S.decision_obligations(wf(COMMIT), conditions=ANSWERS),
-                S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS)):
-        assert out["rules_source"]["kind"] == "local seed"
-        assert "pin_id" in out["rules_source"]["note"]
+    for out in (S.decision_obligations(wf(COMMIT), conditions=ANSWERS, **pinned()),
+                S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS, **pinned())):
+        assert out["rules_source"]["kind"] == "governed corpus"
+        assert out["rules_source"]["pin_id"] == pinned()["pin_id"]
+
+
+def test_a_derivation_with_no_pin_refuses_and_says_how_to_get_one():
+    """No packaged fallback: an answer from the image changes when the image does, which is the
+    property the corpus exists to remove."""
+    with pytest.raises(ToolError) as e:
+        S.decision_obligations(wf(COMMIT), conditions=ANSWERS)
+    assert "reference_pin" in str(e.value) and "guardrails" in str(e.value)
+
+
+def test_the_rules_table_reads_exactly_what_the_contract_says_it_reads():
+    """A workload pins `DecisionTools.READS` before its first call; a rule artifact read here and
+    not declared there is a refusal twenty minutes into a run."""
+    from lab.platform.contracts import DecisionTools
+    assert {artifact for artifact, _ in S.RULES.values()} == set(DecisionTools.READS)
 
 
 def governed_mapping():
@@ -252,8 +291,8 @@ def test_no_span_attribute_carries_a_rule_or_a_step_s_words(monkeypatch):
 
     monkeypatch.setattr(S, "span", lambda: Span())
     S.decision_exposure(wf(INTERPRET, COMMIT))
-    S.decision_obligations(wf(COMMIT), conditions=ANSWERS)
-    S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS)
+    S.decision_obligations(wf(COMMIT), conditions=ANSWERS, **pinned())
+    S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS, **pinned())
     S.decision_readiness({"A": True, "B": True, "C": True, "D": True})
 
     assert recorded, "the tools record nothing, so this would pass vacuously"
