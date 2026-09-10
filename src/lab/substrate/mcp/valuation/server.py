@@ -62,15 +62,16 @@ def _driver(driver: benefit.Driver) -> dict:
 
 
 @server.tool()
-def valuation_cost(component_ids: list[str], envelope: str = "expected",
+def valuation_cost(component_ids: list[str], criticality: str = "routine",
                    volume: dict | None = None, build_amount: float = 0.0,
                    build_provenance: str = "", design_version: str = "", pin_id: str = "",
                    run_id: str = "", process: str = "", field: str = "") -> dict:
     """Step 23 — the cost model for a composed design: a JOIN, not an estimate.
 
     `component_ids` are the catalogue ids step 21 selected (G04: a design admits components by
-    identity); `envelope` follows the confirmed criticality class; `volume` is what intake
-    captured (`runs_per_month`, `users`, `records`). Every catalogue variant the envelope may buy
+    identity); `criticality` is the confirmed class, and which ENVELOPE it buys at is derived
+    HERE, by the governed service (`cost.envelope_for`) — the workload never chooses one;
+    `volume` is what intake captured (`runs_per_month`, `users`, `records`). Every catalogue variant the envelope may buy
     is priced, positioned in its band by the captured volume — a driven line with no captured
     volume is EXCLUDED and named, never guessed; a component with no line at this envelope is a
     gap flag, never a proxy price. Priced against the component-price catalogue at the caller's
@@ -95,6 +96,7 @@ def valuation_cost(component_ids: list[str], envelope: str = "expected",
     sheet_version = next((v["version"] for v in provenance["versions"]
                           if v["artifact_id"] == RULES["component_prices"][0]), "")
     try:
+        envelope = cost.envelope_for(criticality)
         model = cost.cost_model(list(component_ids or ()), cost.catalogue(rules["component_prices"]),
                                 envelope=envelope, volume=dict(volume or {}), build=built,
                                 design_version=design_version, sheet_version=sheet_version)

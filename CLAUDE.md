@@ -1064,6 +1064,14 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   (the approval can wait days) and states "screened at v0.26, designed at v0.27" per artifact —
   recorded, never blocked on (user decision). Reads are attributed to the DERIVED FIELD
   (`reference.attribution`), and `cells.rows` is the one corpus-to-domain mapper.
+- **Stated exception to gateway-only egress, the third**: decision-mcp, valuation-mcp and the review
+  app read the corpus by calling reference-mcp DIRECTLY — substrate to substrate, on the private
+  network, bearer-authenticated with `MCP_SHARED_SECRET`, `REFERENCE_PROVIDER=mcp`
+  (`lab.substrate.reference.mcp_library`, the reference port over reference-mcp's tools). Bounds: a
+  substrate server reading published rules under a pin, no model content, no caller credential, and
+  every read still lands in `ref_consumption`. What it forgoes is the gateway's metering and span
+  for those reads; routing them through the gateway would mean a virtual key per substrate server —
+  deliberately not done yet, recorded here so the rule erodes by decision and not by accident.
 - **The capability map is read from the corpus, searched through a store, matched three ways.**
   Screening pins its map (`VectorStores.for_scheme(SCHEME)` = the artifact id), fetches L1 and L3
   rows under the pin (`id, parent, level, label, path`) and hands the matchers two SEAMS —

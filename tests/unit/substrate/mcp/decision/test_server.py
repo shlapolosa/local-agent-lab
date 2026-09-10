@@ -12,6 +12,11 @@ from fastmcp.exceptions import ToolError
 from fixtures.reference import FakeReferenceLibrary, SeededArtifact
 from lab.core.reference.model import ArtifactKind
 from lab.core.usecase import seed
+
+#: The governed rows, as a run would pin them — the domain no longer reads the image.
+GUARDRAILS = seed.guardrails()
+MAPPING = seed.artifact("guardrail_mapping")["mandatory_by_class"]["rows"]
+FAMILIES = seed.artifact("family_triggers")["families"]
 from lab.core.usecase import predicates
 from lab.platform.contracts import DecisionTools
 from lab.core.reference import cells
@@ -342,8 +347,8 @@ def test_a_retired_guardrail_from_the_corpus_never_enters_a_control_set():
     assert {"G11", "G12"} <= {g["id"] for g in published}
 
     workflow = Workflow(steps=(Step(**INTERPRET), Step(**COMMIT)), criticality="routine")
-    with_corpus = obligations.derive(workflow, conditions=ANSWERS, guardrails=published)
-    with_seed = obligations.derive(workflow, conditions=ANSWERS)
+    with_corpus = obligations.derive(workflow, conditions=ANSWERS, guardrails=published, mapping_rows=MAPPING)
+    with_seed = obligations.derive(workflow, conditions=ANSWERS, guardrails=GUARDRAILS, mapping_rows=MAPPING)
     assert not ({"G11", "G12"} & with_corpus.guardrails())
     assert with_corpus.guardrails() == with_seed.guardrails()
 
@@ -392,7 +397,8 @@ def test_the_corpus_and_the_seed_derive_the_same_families():
     families = cells.rows(_records_from_master("family_triggers", "family"))
     from_corpus = composition.families_for(workflow, topology="T2", conditions=ANSWERS,
                                            families=families)
-    from_seed = composition.families_for(workflow, topology="T2", conditions=ANSWERS)
+    from_seed = composition.families_for(workflow, topology="T2", conditions=ANSWERS,
+                                         families=FAMILIES)
     assert from_corpus == from_seed, sorted(from_corpus ^ from_seed)
 
 

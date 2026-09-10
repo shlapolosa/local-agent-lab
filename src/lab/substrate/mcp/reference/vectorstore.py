@@ -38,6 +38,7 @@ from lab.core.reference.errors import (
     ReferenceError,
     ReferenceUnavailable,
 )
+from lab.core.reference.derive import split_record_passage
 from lab.core.reference.model import RunRef
 from lab.substrate.mcpserver import error_response, json_body, span
 
@@ -64,12 +65,17 @@ def _hit(p: Any) -> dict:
     """One OpenAI `vector_store.search_result`. `file_id` is the passage, `filename` the
     HUMAN-readable signed master (what a person opens — DR-02 at the point of use), and the
     attributes carry what a caller needs to follow a hit with an exact read."""
+    # A record-backed hit names the PATH its passage opens with (the map's disambiguator) and
+    # the leaf label, so a caller reads them as attributes rather than re-splitting the text
+    # with knowledge of how the index was written.
+    path = split_record_passage(p.text)[0] if p.record_id else ""
     return {"file_id": p.passage_id, "filename": p.citation.master_ref, "score": p.score,
             "content": [{"type": "text", "text": p.text}],
             "attributes": {"artifact_id": p.citation.artifact_id, "version": p.citation.version,
                            "signature_id": p.citation.signature_id, "record_id": p.record_id,
                            "key": json.dumps(dict(p.key), sort_keys=True) if p.key else "",
-                           "anchor": p.citation.anchor}}
+                           "anchor": p.citation.anchor, "path": path,
+                           "label": path.rsplit(" > ", 1)[-1] if path else ""}}
 
 
 def _search_route(server, max_hits: int):

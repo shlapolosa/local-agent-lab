@@ -10,6 +10,9 @@ is the one asserting a family is ABSENT.
 import pytest
 
 from lab.core.usecase import seed
+
+#: The governed rows, as a run would pin them — the domain no longer reads the image.
+FAMILIES = seed.artifact("family_triggers")["families"]
 from lab.core.usecase import predicates
 from lab.core.usecase.composition import CompositionError, compose, families_for
 from lab.core.usecase.model import Step, Workflow
@@ -31,68 +34,68 @@ def wf(*steps, criticality="routine"):
 # ---------------------------------------------------------------- always-on families
 
 def test_the_always_families_are_present_for_any_workflow():
-    present = families_for(wf(), topology="T2", conditions=ANSWERS)
+    present = families_for(wf(), topology="T2", conditions=ANSWERS, families=FAMILIES)
     assert {"F6", "F7", "F8"} <= present
 
 
 # ---------------------------------------------------------------- derived families
 
 def test_inference_appears_only_when_a_step_is_d1_or_above():
-    assert "F2" not in families_for(wf(s(determinism="D0")), topology="T2", conditions=ANSWERS)
-    assert "F2" in families_for(wf(s(determinism="D1")), topology="T2", conditions=ANSWERS)
+    assert "F2" not in families_for(wf(s(determinism="D0")), topology="T2", conditions=ANSWERS, families=FAMILIES)
+    assert "F2" in families_for(wf(s(determinism="D1")), topology="T2", conditions=ANSWERS, families=FAMILIES)
 
 
 def test_action_and_transaction_appears_at_record_write_or_above():
-    assert "F4" not in families_for(wf(s(effect="advisory")), topology="T2", conditions=ANSWERS)
-    assert "F4" in families_for(wf(s(effect="record write")), topology="T2", conditions=ANSWERS)
+    assert "F4" not in families_for(wf(s(effect="advisory")), topology="T2", conditions=ANSWERS, families=FAMILIES)
+    assert "F4" in families_for(wf(s(effect="record write")), topology="T2", conditions=ANSWERS, families=FAMILIES)
 
 
 def test_release_control_appears_only_at_cohort_scale_or_wider():
     assert "F13" not in families_for(wf(s(blast_radius="single subject")),
-                                     topology="T2", conditions=ANSWERS)
-    assert "F13" in families_for(wf(s(blast_radius="cohort")), topology="T2", conditions=ANSWERS)
+                                     topology="T2", conditions=ANSWERS, families=FAMILIES)
+    assert "F13" in families_for(wf(s(blast_radius="cohort")), topology="T2", conditions=ANSWERS, families=FAMILIES)
 
 
 def test_a_family_is_present_if_ANY_step_calls_for_it():
     """The set is the union over the whole workflow, not a property of one step."""
     quiet, loud = s("s1", determinism="D0"), s("s2", determinism="D2")
-    assert "F2" in families_for(wf(quiet, loud), topology="T2", conditions=ANSWERS)
+    assert "F2" in families_for(wf(quiet, loud), topology="T2", conditions=ANSWERS, families=FAMILIES)
 
 
 def test_egress_control_is_absent_when_nothing_leaves_and_nothing_sensitive_is_read():
     assert "F12" not in families_for(wf(s(effect="record write", sensitivity="internal")),
-                                     topology="T2", conditions=ANSWERS)
+                                     topology="T2", conditions=ANSWERS, families=FAMILIES)
 
 
 def test_egress_control_appears_when_a_step_reads_restricted_data():
     assert "F12" in families_for(wf(s(sensitivity="restricted")),
-                                 topology="T2", conditions=ANSWERS)
+                                 topology="T2", conditions=ANSWERS, families=FAMILIES)
 
 
 # ---------------------------------------------------------------- topology-gated families
 
 def test_delegation_is_present_only_in_the_delegated_topology():
-    assert "F14" not in families_for(wf(), topology="T2", conditions=ANSWERS)
-    assert "F14" in families_for(wf(), topology="T4", conditions=ANSWERS)
+    assert "F14" not in families_for(wf(), topology="T2", conditions=ANSWERS, families=FAMILIES)
+    assert "F14" in families_for(wf(), topology="T4", conditions=ANSWERS, families=FAMILIES)
 
 
 def test_an_unpublished_topology_refuses():
     with pytest.raises(CompositionError):
-        families_for(wf(), topology="T9", conditions=ANSWERS)
+        families_for(wf(), topology="T9", conditions=ANSWERS, families=FAMILIES)
 
 
 # ---------------------------------------------------------------- the F1 federated variant
 
 def test_grounding_is_federated_only_when_sources_exceed_one():
     reading = {"step reads any grounding source": True}
-    one = compose(wf(), topology="T2", conditions={**ANSWERS, **reading}, grounding_sources=1)
-    many = compose(wf(), topology="T2", conditions={**ANSWERS, **reading}, grounding_sources=4)
+    one = compose(wf(), topology="T2", conditions={**ANSWERS, **reading}, grounding_sources=1, families=FAMILIES)
+    many = compose(wf(), topology="T2", conditions={**ANSWERS, **reading}, grounding_sources=4, families=FAMILIES)
     assert one.variants.get("F1") is None
     assert many.variants.get("F1") == "federated"
 
 
 def test_the_federated_variant_needs_the_family_first():
-    out = compose(wf(), topology="T2", conditions=ANSWERS, grounding_sources=4)
+    out = compose(wf(), topology="T2", conditions=ANSWERS, grounding_sources=4, families=FAMILIES)
     assert "F1" not in out.families
     assert "F1" not in out.variants
 
@@ -100,15 +103,15 @@ def test_the_federated_variant_needs_the_family_first():
 # ---------------------------------------------------------------- modifiers
 
 def test_criticality_travels_into_the_composition_as_a_modifier():
-    out = compose(wf(criticality="safety-of-life"), topology="T2", conditions=ANSWERS)
+    out = compose(wf(criticality="safety-of-life"), topology="T2", conditions=ANSWERS, families=FAMILIES)
     assert out.modifiers["criticality"] == "safety-of-life"
 
 
 def test_the_human_position_modifier_is_read_from_the_authorisations_present():
     in_loop = compose(wf(s(activity="commit", authorisation="per-action human")),
-                      topology="T2", conditions=ANSWERS)
+                      topology="T2", conditions=ANSWERS, families=FAMILIES)
     out_of_loop = compose(wf(s(activity="commit", authorisation="autonomous")),
-                          topology="T2", conditions=ANSWERS)
+                          topology="T2", conditions=ANSWERS, families=FAMILIES)
     assert in_loop.modifiers["human_position"] == "in-loop"
     assert out_of_loop.modifiers["human_position"] == "out-of-loop"
 
@@ -116,7 +119,7 @@ def test_the_human_position_modifier_is_read_from_the_authorisations_present():
 # ---------------------------------------------------------------- enforcement points (move 5)
 
 def test_every_family_present_names_the_guardrails_it_enforces():
-    out = compose(wf(s(effect="record write")), topology="T2", conditions=ANSWERS)
+    out = compose(wf(s(effect="record write")), topology="T2", conditions=ANSWERS, families=FAMILIES)
     assert out.enforcement["F4"], "F4 binds G02 and G23"
     assert set(out.enforcement) == set(out.families)
 
@@ -125,14 +128,14 @@ def test_an_obligation_with_nowhere_to_land_is_reported_not_dropped():
     """Q5.3: every obligation resolves to a named enforcement point, or STOP. An unbound
     obligation that vanished from the composition is the failure this reports."""
     out = compose(wf(s(effect="record write")), topology="T2", conditions=ANSWERS,
-                  obligations={"G02", "G23", "G99"})
+                  obligations={"G02", "G23", "G99"}, families=FAMILIES)
     assert "G99" in out.unbound
     assert "G02" not in out.unbound
 
 
 def test_a_composition_with_every_obligation_bound_reports_none_unbound():
     out = compose(wf(s(effect="record write")), topology="T2", conditions=ANSWERS,
-                  obligations={"G02"})
+                  obligations={"G02"}, families=FAMILIES)
     assert out.unbound == frozenset()
 
 
@@ -172,10 +175,10 @@ def test_a_family_predicate_reads_the_step_s_own_answers():
                  conditions=no)
 
     families = families_for(Workflow(steps=(grounding, plain), criticality="routine"),
-                            topology="T2", conditions={})
+                            topology="T2", conditions={}, families=FAMILIES)
     assert "F1" in families, "the step that answered TRUE must switch its family on"
 
     # ... and a workflow where nobody reads a source does not get it.
     quiet = families_for(Workflow(steps=(plain,), criticality="routine"),
-                         topology="T2", conditions={})
+                         topology="T2", conditions={}, families=FAMILIES)
     assert "F1" not in quiet

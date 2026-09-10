@@ -114,7 +114,7 @@ FAKE = {
     # gateway secrets
     "LITELLM_MASTER_KEY": "m", "LITELLM_MCP_CLIENT_TIMEOUT": "300", "LITELLM_MCP_TOOL_LISTING_TIMEOUT": "60",
     "DATABASE_URL": "pg", "OLLAMA_API_KEY": "ol", "ANTHROPIC_UPSTREAM_API_KEY": "an",
-    "EMBED_URL": "emb", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk",
+    "EMBED_URL": "emb", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk", "REFERENCE_RING": "x", "REFERENCE_MCP_URL": "x", "REFERENCE_PROVIDER": "x",
     "MICROSOFT_CLIENT_ID": "mc", "MICROSOFT_CLIENT_SECRET": "ms", "MICROSOFT_TENANT": "mt",
     "PROXY_BASE_URL": "pb", "DEVELOPERS_TEAM_ID": "dt", "ENTRA_CLIENT_TO_KEY": "{}",
     "OTEL_EXPORTER": "otlp_http", "OTEL_ENDPOINT": "e", "OTEL_SERVICE_NAME": "litellm-gateway",
@@ -200,7 +200,8 @@ def test_gateway_receives_exactly_what_it_consumes():
         "LITELLM_MASTER_KEY", "LITELLM_MCP_CLIENT_TIMEOUT", "LITELLM_MCP_TOOL_LISTING_TIMEOUT",
         "DATABASE_URL", "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "MCP_SHARED_SECRET",
         "EMBED_URL", "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",
-        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "GRAPH_MCP_URL", "REDIS_URL",
+        "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "GRAPH_MCP_URL", "REFERENCE_MCP_URL",
+        "REDIS_URL",
         "OTEL_EXPORTER", "OTEL_ENDPOINT", "OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT",
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE", "ENTRA_CLIENT_TO_KEY", "DEVELOPERS_TEAM_ID",
         "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_TENANT", "PROXY_BASE_URL",
@@ -267,7 +268,8 @@ def test_storage_mcp_and_review_s3_gating():
                             "BA_MAX_DOC_CHARS", "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not (set(railway.env_for_role("storage-mcp", FAKE, s3=False)) & s3)   # flag off -> none
     rv = railway.env_for_role("review", FAKE, s3=True)
-    assert set(rv) == s3 | {"REVIEW_APP_PASSWORD", "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "JAEGER_UI_URL"}
+    assert set(rv) == s3 | {"REVIEW_APP_PASSWORD", "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "JAEGER_UI_URL",
+                            "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET"}
     assert "RAILWAY_BUCKET_ID" not in rv
     # the SUBSTRATE table itself: only services flagged s3 can ever see the bucket credentials
     for name, spec in railway.SUBSTRATE.items():
@@ -560,8 +562,10 @@ def test_the_gateway_reaches_the_substrate_s_own_embedder_over_the_private_netwo
 def test_the_derivation_servers_read_the_corpus_through_reference_mcp_and_hold_no_dsn():
     """A pure derivation holds no reader credential; its provider is `mcp`, its address the corpus
     server's, its bearer the substrate's shared secret."""
-    for role in ("decision-mcp", "valuation-mcp"):
+    for role in ("decision-mcp", "valuation-mcp", "review"):
         env = railway.substrate_env(role, railway.SUBSTRATE[role], FAKE)
         assert env["REFERENCE_PROVIDER"] == "mcp", role
         assert env["REFERENCE_MCP_URL"].startswith("http://reference-mcp.railway.internal")
-        assert "REFERENCE_DB_URL" not in env and "DATABASE_URL" not in env, role
+        assert "REFERENCE_DB_URL" not in env, role
+        if role != "review":                       # review holds the LiteLLM DSN for artifacts, not the corpus
+            assert "DATABASE_URL" not in env, role

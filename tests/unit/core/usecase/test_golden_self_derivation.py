@@ -24,6 +24,13 @@ the end, which assert what is NOT derivable rather than pretending it is.
 """
 import pytest
 
+from lab.core.usecase import seed
+
+#: The governed rows, as a run would pin them — the domain no longer reads the image.
+GUARDRAILS = seed.guardrails()
+MAPPING = seed.artifact("guardrail_mapping")["mandatory_by_class"]["rows"]
+FAMILIES = seed.artifact("family_triggers")["families"]
+
 from lab.core.usecase import composition, seed
 from lab.core.usecase.exposure import derive as derive_risk
 from lab.core.usecase.model import Step, Workflow
@@ -148,14 +155,14 @@ def test_the_asymmetry_is_visible_step_by_step(risk):
 # ---------------------------------------------------------------- the control set
 
 def test_the_control_set_is_drawn_from_the_published_guardrails(workflow):
-    out = derive_obligations(workflow, conditions=CONDITIONS)
+    out = derive_obligations(workflow, conditions=CONDITIONS, guardrails=GUARDRAILS, mapping_rows=MAPPING)
     published = {g["id"] for g in seed.live_guardrails()}
     assert out.guardrails() <= published
     assert len(out.guardrails()) >= 12, sorted(out.guardrails())
 
 
 def test_no_retired_guardrail_ever_enters_the_control_set(workflow):
-    out = derive_obligations(workflow, conditions=CONDITIONS)
+    out = derive_obligations(workflow, conditions=CONDITIONS, guardrails=GUARDRAILS, mapping_rows=MAPPING)
     assert not (out.guardrails() & {"G11", "G12"})
 
 
@@ -163,7 +170,7 @@ def test_the_influence_three_guardrails_are_all_present(workflow):
     """I3 mandates them, and they are what §4 calls out as the controls the two most influential
     services need: an evaluation harness, a recall target, and an independently monitored outcome
     assertion."""
-    out = derive_obligations(workflow, conditions=CONDITIONS)
+    out = derive_obligations(workflow, conditions=CONDITIONS, guardrails=GUARDRAILS, mapping_rows=MAPPING)
     assert {"G18", "G19"} <= out.guardrails()
 
 
@@ -179,7 +186,7 @@ def test_the_human_confirmation_guardrail_does_not_apply_at_this_exposure_class(
     reference for every E2 or E3 use case this system will assess, which is most of the ones worth
     building.
     """
-    out = derive_obligations(workflow, conditions=CONDITIONS)
+    out = derive_obligations(workflow, conditions=CONDITIONS, guardrails=GUARDRAILS, mapping_rows=MAPPING)
     assert "G09" not in out.guardrails()
     assert all(s.effect in ("none", "record write") for s in workflow), \
         "the reason G09 stays out is the effect classes, so assert them rather than the outcome"
@@ -190,7 +197,7 @@ def test_the_commit_invariant_holds_for_this_solution(workflow):
     deterministic service, and every one of them sits behind architect review". That is exactly
     what the invariant tests, so it must hold — if it did not, the solution would be describing a
     design it does not have."""
-    out = derive_obligations(workflow, conditions=CONDITIONS)
+    out = derive_obligations(workflow, conditions=CONDITIONS, guardrails=GUARDRAILS, mapping_rows=MAPPING)
     assert out.commit_invariant_holds, [v.reason for v in out.violations]
 
 
@@ -199,7 +206,7 @@ def test_the_commit_invariant_holds_for_this_solution(workflow):
 @pytest.fixture(scope="module")
 def composed(workflow):
     return composition.compose(workflow, topology="T2", conditions=CONDITIONS,
-                               grounding_sources=4)
+                               grounding_sources=4, families=FAMILIES)
 
 
 def test_the_topology_is_agent_orchestrated(composed):

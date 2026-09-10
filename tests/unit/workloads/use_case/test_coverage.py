@@ -112,7 +112,8 @@ def test_a_query_is_made_per_behavioural_element_and_never_per_actor_or_datum():
 def test_hits_become_candidates_by_record_id_de_duplicated_with_label_and_path():
     """A hit over the map is record-backed: its key carries the id, its text is `path. definition`."""
     hit = lambda ident, path: {"content": [{"type": "text", "text": f"{path}. A definition. With dots"}],
-                               "attributes": {"key": f'{{"id": "{ident}", "parent": "p", "level": "3"}}'}}
+                               "attributes": {"key": f'{{"id": "{ident}", "parent": "p", "level": "3"}}',
+                                              "path": path, "label": path.rsplit(" > ", 1)[-1]}}
     out = coverage.candidates_from_hits([hit("x", "A > B > C"), hit("y", "A > D"), hit("x", "A > B > C"),
                                          {"content": [], "attributes": {}}])
     assert out == [{"id": "x", "label": "C", "path": "A > B > C"},
@@ -149,7 +150,7 @@ def _search_of(hits_by_query):
 def test_the_vector_matcher_unions_the_hits_and_runs_one_pass_over_them():
     import asyncio
     hit = lambda ident, path: {"content": [{"type": "text", "text": f"{path}. def"}],
-                               "attributes": {"key": f'{{"id": "{ident}"}}'}}
+                               "attributes": {"key": f'{{"id": "{ident}"}}', "path": path}}
     search = _search_of({"Triage referral": [hit("a", "X > A"), hit("b", "X > B")],
                          "Book slot": [hit("b", "X > B"), hit("c", "Y > C")]})
     d = _Working(elements={"behavioural": [{"name": "Triage referral"}, {"name": "Book slot"}]},

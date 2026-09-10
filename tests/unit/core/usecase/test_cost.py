@@ -51,7 +51,9 @@ def test_a_catalogue_row_becomes_numbers_once_and_a_list_column_is_read_either_w
 
 
 @pytest.mark.parametrize("bad", [row(opex_expected="two hundred"), row(envelope_in=["huge"]),
-                                 row(volume_driver="tokens"), row(component="")])
+                                 row(volume_driver="tokens"), row(component=""),
+                                 row(expected_at="0", high_at="0"),      # driven, no bands
+                                 row(expected_at="9000", high_at="100")])
 def test_a_malformed_row_refuses_the_catalogue_rather_than_costing_around_it(bad):
     with pytest.raises(CostError):
         catalogue([bad])
@@ -80,8 +82,23 @@ def test_volume_is_read_from_the_intake_group_a_person_filled_in():
     intake = {"Volume assumptions": {"value": "about 5,000 runs a month for 40 users; 120000 records"},
               "Investment": {"value": "budget bucket AED 250k"}}
     assert volume_from_intake(intake) == {"runs_per_month": 5000.0, "users": 40.0, "records": 120000.0}
-    assert volume_from_intake({"Volume assumptions": {"value": "users: 12"}}) == {"users": 12.0}
+    assert volume_from_intake({"Scale and demand": {"value": "users: 12"}}) == {"users": 12.0}, \
+        "a renamed group must not switch cost off"
     assert volume_from_intake({}) == {} and volume_from_intake(None) == {}
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("about 5k users and 12,000 runs a month", {"users": 5000.0, "runs_per_month": 12000.0}),
+    ("roughly 1.5k records processed weekly", {"records": 1500.0}),
+    ("2,000 runs per day", {"runs_per_month": 60000.0}),
+    ("40 users, each making 20 requests a day", {"users": 40.0, "runs_per_month": 600.0}),
+    ("we operate 12 clinics; users of the system are nurses", {}),
+    ("1.2m records, 300 runs / week", {"records": 1200000.0, "runs_per_month": 1299.0}),
+])
+def test_volume_reads_the_way_a_business_person_writes_it(text, expected):
+    """`k` multiplies, a period normalises to the month, and a number never pairs with a word
+    across a clause — every one of these was a silent thousand-fold or thirty-fold error."""
+    assert volume_from_intake({"Volume": {"value": text}}) == expected
 
 
 # ---------------------------------------------------------------- positioning

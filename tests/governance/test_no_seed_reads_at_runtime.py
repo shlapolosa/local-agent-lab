@@ -3,8 +3,8 @@
 Every runtime READ of the seed (`seed.artifact(...)`, `seed.guardrails()`, `seed.live_guardrails()`)
 is a place where a run can answer from the image instead of the governed corpus while still
 claiming the corpus, and where changing an artifact means building a new image. Counted by CALL
-SITE across the whole package, not by import in two tiers: `valuation-mcp` never imports the seed
-and still prices every run from it, through `lab.core.usecase.cost.price_lines`. The set below is
+SITE across the whole package, not by import in two tiers: valuation-mcp once priced every run
+from the image without importing the seed, through a core helper that read it. The set below is
 what is left; it may only shrink. When it is empty, the seed's only reader is the publisher.
 """
 import ast
@@ -13,10 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2] / "src" / "lab"
 
 #: The runtime readers still to be moved onto the corpus (Phase 3 of the reference-layer plan).
-RATCHET = {
-    "core/usecase/composition.py",            # default-argument fallback to the packaged families
-    "core/usecase/obligations.py",            # default-argument fallback to the packaged guardrails
-}
+RATCHET: set[str] = set()    # EMPTY since 10 Sep 2026: the seed's only reader is the publisher
 
 READS = {"artifact", "guardrails", "live_guardrails", "names"}
 

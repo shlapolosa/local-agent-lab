@@ -25,8 +25,10 @@ from typing import Any, Mapping
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
-from lab.platform import config
-from lab.platform.contracts import (ReferenceTools, 
+from lab.core.usecase import cost
+from lab.platform import config, runlog
+from lab.platform.contracts import (
+    ReferenceTools,
     USE_CASE_DESIGN,
     USE_CASE_INVESTMENT,
     ApprovalTools,
@@ -37,7 +39,6 @@ from lab.platform.contracts import (ReferenceTools,
     ValuationTools,
 )
 from lab.workloads import gateway
-from lab.core.usecase import cost
 from lab.workloads.usecase import reference
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import step_for
@@ -54,7 +55,7 @@ REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec,
                   # workload would refuse `pin_id` at the call, twenty minutes in.
                   (DecisionTools.obligations, ("workflow", "pin_id", "run_id", "process", "field")),
                   (DecisionTools.composition, ("workflow", "pin_id", "run_id", "process", "field")),
-                  (ValuationTools.cost, ("component_ids", "envelope", "volume", "pin_id")),
+                  (ValuationTools.cost, ("component_ids", "criticality", "volume", "pin_id")),
                   ValuationTools.benefit,
                   ReferenceTools.pin, (ReferenceTools.lookup, ("pin_id", "artifact_id")))
 
@@ -166,8 +167,8 @@ async def _corpora(cfg, pin_id: str) -> dict:
         try:
             got = await reference.records(cfg, pin_id, artifact, record_type=record_type, field=key)
         except Exception as exc:                            # noqa: BLE001 — a corpus is optional
-            runlog.update(cfg["run_id"], **{f"corpus_{key}": f"unavailable: {exc}"[:200]}) \
-                if cfg.get("run_id") else None
+            if cfg.get("run_id"):
+                runlog.update(cfg["run_id"], **{f"corpus_{key}": f"unavailable: {exc}"[:200]})
             continue
         if got:
             out[key] = got
@@ -260,7 +261,9 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
         inputs = d.derived.get("cost_inputs") or {}
         d.record("cost", await gateway.call(cfg, ValuationTools.cost, {
             "component_ids": component_ids,
-            "envelope": cost.envelope_for(_criticality(state)),
+            # The confirmed CLASS travels, not an envelope: which envelope a class buys at is the
+            # governed service's rule (and, next, the criticality taxonomy's own column).
+            "criticality": _criticality(state),
             "volume": cost.volume_from_intake(state.get("intake") or {}),
             "build_amount": float(inputs.get("build_amount") or 0.0),
             "build_provenance": inputs.get("build_provenance") or "",
@@ -309,9 +312,11 @@ def build_workflow(cfg):
             record = await gateway.call(cfg, StorageTools.read_artifact,
                                         {"ref": state["submission_ref"]})
             record = record if isinstance(record, dict) else json.loads(record or "{}")
-            # The pin comes FIRST: every derivation below reads under it, and the versions it
-            # froze are compared with the ones the screening run cited — recorded, not blocked
-            # on, because a routine corpus release must not stall every in-flight case.
+            # The pin comes FIRST and is FAIL-CLOSED — without it there is no reproducible run
+            # (preflight already proved the grant, for zero tokens). An individual corpus below
+            # is best-effort: the step that needs it defers by name. The versions the pin froze
+            # are compared with the ones the screening run cited — recorded, not blocked on,
+            # because a routine corpus release must not stall every in-flight case.
             pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS,
                                          previous=screening.get("pinned_versions") or ())
             d = Derivation(available={**{k: v for k, v in screening.items() if v},

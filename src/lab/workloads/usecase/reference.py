@@ -73,4 +73,10 @@ async def records(cfg: Mapping[str, Any], pin_id: str, artifact_id: str, *, reco
     out = _payload(await gateway.call(cfg, ReferenceTools.lookup, {
         "pin_id": pin_id, "artifact_id": artifact_id, "record_type": record_type,
         "key": dict(key or {}), "limit": limit, **attribution(cfg, field)}))
-    return rows(out.get("records") or [])
+    records_ = out.get("records") or []
+    # A read the server had to cut at the limit is refused, not matched over: the surviving
+    # subset is ordered by a content hash, so nothing downstream could tell it was partial.
+    if len(records_) >= limit:
+        raise RuntimeError(f"{artifact_id}: the read hit the {limit}-row limit for {dict(key or {})} "
+                           f"— the artifact outgrew this reader; raise the limit or page")
+    return rows(records_)

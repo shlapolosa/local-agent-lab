@@ -872,7 +872,7 @@ def test_the_cost_is_a_join_on_what_step_21_selected_under_the_pin():
         run_spine(W, h, _design_inputs())
     sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.cost][0]
     assert sent["component_ids"] == [MODEL_CATALOG]
-    assert sent["envelope"] == "expected", "business-critical buys at the expected envelope"
+    assert sent["criticality"] == "business-critical", "the class travels; the envelope is the service's rule"
     assert sent["pin_id"] == "pin-test" and sent["field"] == "cost"
     assert sent["volume"] == {} and sent["build_provenance"] == ""
 
@@ -951,7 +951,7 @@ def test_the_facet_vectors_the_agents_produce_actually_derive_a_control_set():
                                 {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
     workflow = DomainWorkflow(steps=tuple(DomainStep(**s) for s in payload["steps"]),
                               criticality=payload["criticality"])
-    out = obligations.derive(workflow, conditions={})
+    out = obligations.derive(workflow, conditions={}, guardrails=_seed.guardrails(), mapping_rows=_seed.artifact('guardrail_mapping')['mandatory_by_class']['rows'])
     assert out.guardrails(), "a control set that is empty is not a derivation"
 
 
@@ -964,7 +964,7 @@ def test_a_step_whose_conditions_are_unanswered_refuses_rather_than_deriving_a_s
         steps=(DomainStep(id="n1", activity="interpret", determinism="D2", effect="none"),),
         criticality="business-critical")
     with pytest.raises(Exception) as e:
-        obligations.derive(workflow, conditions={})
+        obligations.derive(workflow, conditions={}, guardrails=_seed.guardrails(), mapping_rows=_seed.artifact('guardrail_mapping')['mandatory_by_class']['rows'])
     assert "answered" in str(e.value)
 
 
@@ -1343,3 +1343,27 @@ def test_the_volume_intake_captured_reaches_the_join_and_the_build_provenance_tr
     sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.cost][0]
     assert sent["volume"] == {"runs_per_month": 5000.0, "users": 40.0}
     assert sent["build_amount"] == 250000 and sent["build_provenance"] == "budget bucket"
+
+
+def test_a_corpus_the_design_run_cannot_read_defers_its_step_and_names_itself_on_the_run_board():
+    """The "a corpus is optional" branch, exercised: one artifact refuses, the run completes, the
+    step that needed it is deferred by name, and the run board says which corpus was unavailable.
+    (This branch once raised `NameError` — the handler that exists to tolerate a failure was the
+    thing that failed.)"""
+    from lab.workloads.use_case_design import workflow as W
+    real = corpus_tools()["reference_lookup"]
+
+    def flaky(args):
+        if args.get("artifact_id") == "facet-schema":
+            raise RuntimeError("facet-schema: no signed release for ring 0")
+        return real(args)
+    with spine(W, _design_chain_router(**{"reference_lookup": flaky})) as h:
+        _with_design_agents(h)
+        out = run_spine(W, h, _design_inputs())
+    assert out["verdict"] == "proceed"
+    package = [c["spec"] for c in h.router.called(SemanticTools.store_spec)
+               if c["name"] == "design.package.json"][-1]
+    assert "17" in package["pending_steps"], "step 17 reads the facet schema and must defer"
+    assert any("facet_schema" in k and "no signed release" in v
+               for u in h.runlog.updates for k, v in u[1].items()
+               if isinstance(v, str))

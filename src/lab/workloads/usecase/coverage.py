@@ -256,8 +256,9 @@ def queries_for(elements: Mapping[str, Any] | None) -> list[str]:
 
 def candidates_from_hits(hits) -> list[dict]:
     """Relevance hits as the candidate rows step 5 reads: `{id, label, path}`, de-duplicated,
-    first-seen order. A hit over the map is RECORD-backed — its `key` carries the id — and its
-    text is `path. definition`, which is where the label and the path come from."""
+    first-seen order. A hit over the map is RECORD-backed — its `key` carries the id — and the
+    façade names the `path` and `label` its passage opens with, so nothing here knows how the
+    index was written."""
     out: list[dict] = []
     seen: set[str] = set()
     for hit in hits or []:
@@ -267,13 +268,12 @@ def candidates_from_hits(hits) -> list[dict]:
         except ValueError:
             key = {}
         ident = str(key.get("id") or attrs.get("record_id") or "").strip()
-        text = " ".join(c.get("text", "") for c in (hit.get("content") or [])
-                        if isinstance(c, dict))
-        path = text.split(". ", 1)[0].strip()
+        path = str(attrs.get("path") or "").strip()
         if not ident or ident in seen or not path:
             continue
         seen.add(ident)
-        out.append({"id": ident, "label": path.rsplit(" > ", 1)[-1], "path": path})
+        out.append({"id": ident, "label": str(attrs.get("label") or path.rsplit(" > ", 1)[-1]),
+                    "path": path})
     return out
 
 

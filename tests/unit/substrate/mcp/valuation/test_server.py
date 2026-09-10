@@ -65,7 +65,7 @@ def test_the_rules_table_reads_exactly_what_the_contract_says_it_reads():
 
 def test_a_cost_model_joins_the_selected_components_onto_the_pinned_catalogue():
     out = S.valuation_cost(component_ids=[_component("Key Vault"), _component("Compute hosts")],
-                           envelope="expected", volume={"runs_per_month": 6000}, **pinned())
+                           criticality="business-critical", volume={"runs_per_month": 6000}, **pinned())
     assert {l["component_name"] for l in out["lines"]} == {"Key Vault", "Compute hosts"}
     assert out["monthly"]["expected"] > 0 and out["year_one"]["expected"] >= out["monthly"]["expected"]
     assert out["rules_source"]["kind"] == "governed corpus"
@@ -79,8 +79,8 @@ def test_a_component_with_no_catalogue_line_is_a_gap_flag_and_never_a_proxy_pric
 
 
 def test_a_driven_line_with_no_captured_volume_is_excluded_and_named_not_guessed():
-    out = S.valuation_cost(component_ids=[_component("App Insights")], envelope="expected",
-                           volume={}, **pinned())
+    out = S.valuation_cost(component_ids=[_component("App Insights")],
+                           criticality="business-critical", volume={}, **pinned())
     assert out["lines"] == [] and any("runs_per_month" in r for r in out["requires_input"])
 
 
@@ -106,9 +106,12 @@ def test_a_missing_build_cost_is_declared_rather_than_read_as_zero():
     assert out["year_one"]["expected"] == out["monthly"]["expected"] * 12
 
 
-def test_an_unknown_envelope_refuses():
+def test_the_envelope_is_the_service_s_rule_of_the_confirmed_class_and_an_unknown_class_refuses():
+    high = S.valuation_cost(component_ids=[_component("Foundry model catalog")],
+                            criticality="safety-of-life", **pinned())
+    assert high["envelope"] == "high" and any(l["variant"] == "frontier-provisioned" for l in high["lines"])
     with pytest.raises(ToolError):
-        S.valuation_cost(component_ids=[_component("Key Vault")], envelope="huge", **pinned())
+        S.valuation_cost(component_ids=[_component("Key Vault")], criticality="huge", **pinned())
 
 
 # ---------------------------------------------------------------- step 24

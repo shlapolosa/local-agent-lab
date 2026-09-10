@@ -92,7 +92,9 @@ def _mapping_rows(rows=None) -> dict[str, str]:
     server passes what it read from the reference corpus under a pin, so the rule a run obeyed is
     the released one rather than whatever this package shipped with (NFR-15). Omitted, the local
     seed answers, which is what keeps the domain testable with no infrastructure at all."""
-    rows = rows if rows is not None else seed.artifact("guardrail_mapping")["mandatory_by_class"]["rows"]
+    if rows is None:
+        raise ObligationError("the class-to-guardrail mapping must be supplied — read "
+                              "`guardrail-mapping` under the run's pin; there is no packaged copy")
     out: dict[str, str] = {}
     for row in rows:
         # Rows are the master's table: (class, what it mandates). A mapping is also accepted, with
@@ -171,8 +173,10 @@ def triggered_for(workflow: Workflow, step_id: str, *,
                         criticality=workflow.criticality) for s in workflow]
     answers = {**(conditions or {}), **dict(step.conditions)}
     fired: set[str] = set()
-    for guardrail in (seed.live_only(guardrails) if guardrails is not None
-                      else seed.live_guardrails()):
+    if guardrails is None:
+        raise ObligationError("the guardrail set must be supplied — read `guardrails` under the "
+                              "run's pin; there is no packaged copy")
+    for guardrail in seed.live_only(guardrails):
         try:
             if parse(guardrail["pred"]).evaluate(facts, workflow=vectors, conditions=answers):
                 fired.add(guardrail["id"])
@@ -235,11 +239,14 @@ def derive(workflow: Workflow, *,
            mapping_rows=None) -> ControlRequirementSet:
     """The control requirement set — what the `decision_obligations` tool returns.
 
-    `guardrails` and `mapping_rows` are the GOVERNED copies when a caller has pinned them; omitted,
-    the local seed answers. The rules are read at call time either way — never compiled in."""
-    # `live_only` on the INJECTED rows too: a governed corpus serves the retired guardrails as
-    # well, because their identifiers must stay resolvable for citations already written down.
-    live = seed.live_only(guardrails) if guardrails is not None else seed.live_guardrails()
+    `guardrails` and `mapping_rows` are the GOVERNED copies the caller pinned. There is no
+    packaged fallback any more — an answer from the image changes when the image does."""
+    if guardrails is None:
+        raise ObligationError("the guardrail set must be supplied — read `guardrails` under the "
+                              "run's pin; there is no packaged copy")
+    # `live_only` on the rows: a governed corpus serves the retired guardrails as well, because
+    # their identifiers must stay resolvable for citations already written down.
+    live = seed.live_only(guardrails)
     by_step: dict[str, list[Obligation]] = {}
     for step in workflow:
         exposure, influence = exposure_of(step), influence_of(workflow, step.id)

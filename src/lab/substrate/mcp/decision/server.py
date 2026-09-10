@@ -19,7 +19,6 @@ gates, because a workload may never import the substrate and the arithmetic must
 """
 from __future__ import annotations
 
-from typing import Any
 
 from fastmcp.exceptions import ToolError
 

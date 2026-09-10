@@ -16,7 +16,6 @@ by nothing else, and a helper used by one tier lives in that tier.
 from __future__ import annotations
 
 import functools
-import inspect
 
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -84,15 +83,13 @@ class Derivation:
             self.defer(step.number, f"{label or step.key} — needs {needs}")
             return False
         context_seen = A.context_for(step.key, pool)
-        # A completeness rule that reads the CONTEXT (step 21 checks a component id against the
-        # catalogue it was shown) is given exactly what the agent was given, and nothing more.
-        complete = step.complete
-        if "context" in inspect.signature(step.complete).parameters:
-            complete = functools.partial(step.complete, context=context_seen)
+        # Every completeness rule takes the CONTEXT the agent was shown (step 21 checks a component
+        # id against the catalogue it was given) — exactly that, and nothing more.
         with gateway.node_span(cfg, f"step_{step.number}"):
             out = await run_gated(agent, A.message(step, context_seen),
                                   step=step.number, validator=step.validator(),
-                                  normalise=step.normalise, complete=complete)
+                                  normalise=step.normalise,
+                                  complete=functools.partial(step.complete, context=context_seen))
         self.record(step.key, out, step.number)
         return True
 

@@ -18,12 +18,9 @@ from fixtures.usecase_answers import (ASSERTIONS, BENEFIT_INPUTS, BUILD_SURFACE,
 
 
 def gated(number, out, context=None):
-    """The rule alone — schema validation is tested next door; this is about MEANING. A rule that
-    reads the context (step 21's catalogue check) is given one."""
-    complete = step_for(number).complete
-    if context is not None:
-        return complete(out, context=context)
-    return complete(out)
+    """The rule alone — schema validation is tested next door; this is about MEANING. Every rule
+    takes the context the agent was shown; step 21's reads it."""
+    return step_for(number).complete(out, context=context)
 
 
 def rejects(number, out, *needles, context=None):
@@ -130,6 +127,11 @@ def test_a_component_not_in_the_catalogue_is_refused_by_its_id():
     selected = [dict(COMPONENTS["selected"][0], component_id="cmp-made-up")]
     rejects("21", dict(COMPONENTS, selected=selected), "catalogue", "cmp-made-up",
             context=CATALOGUE)
+
+
+def test_a_catalogue_with_no_ids_fails_the_gate_rather_than_switching_it_off():
+    """A renamed column is exactly when the refusal is most wanted."""
+    rejects("21", COMPONENTS, "G04", context={"component_catalogue": [{"component_id": "x"}]})
 
 
 def test_a_component_chosen_with_no_rejected_alternative_is_refused():

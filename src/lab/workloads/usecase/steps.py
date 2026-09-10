@@ -55,7 +55,9 @@ class Step:
     number: str
     key: str                    # the field it contributes to the screening record
     service: str                # the bounded context that owns it
-    complete: Callable[[dict], list[str]]
+    #: `(out, context)` — the context is what the agent was shown; most rules ignore it, step
+    #: 21's checks a component id against the pinned catalogue it was given.
+    complete: Callable[[dict, Mapping[str, Any] | None], list[str]]
     normalise: Callable[[dict], None] | None = None
 
     def validator(self):
@@ -67,7 +69,7 @@ class Step:
 
 # ---------------------------------------------------------------- the completeness rules
 
-def _frame(out: dict) -> list[str]:
+def _frame(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     problem = str(out.get("problem", "")).lower()
     hit = [w for w in _SOLUTION_WORDS if w in problem]
@@ -101,7 +103,7 @@ def _frame(out: dict) -> list[str]:
     return bad
 
 
-def _elements(out: dict) -> list[str]:
+def _elements(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     for kind in ("active", "behavioural", "passive"):
         if not out.get(kind):
@@ -116,7 +118,7 @@ def _elements(out: dict) -> list[str]:
     return bad
 
 
-def _coverage_map(out: dict) -> list[str]:
+def _coverage_map(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     if not out.get("matched") and not out.get("functions_without_capability"):
         bad.append("neither a match nor an unmatched function — the coverage check was not done")
@@ -141,7 +143,7 @@ def _coverage_map(out: dict) -> list[str]:
     return bad
 
 
-def _realisation_match(out: dict) -> list[str]:
+def _realisation_match(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     if not out.get("matched") and not out.get("unrealised"):
         bad.append("no element was matched and none reported unrealised — the check was not done")
@@ -152,14 +154,14 @@ def _realisation_match(out: dict) -> list[str]:
     return bad
 
 
-def _criticality_band(out: dict) -> list[str]:
+def _criticality_band(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     if out.get("provisional") is not True:
         return ["the band must be marked provisional — it exists for the feasibility verdict only, "
                 "and step 12 derives the confirmed class independently"]
     return []
 
 
-def _quality_attributes(out: dict) -> list[str]:
+def _quality_attributes(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     for scenario in out.get("scenarios") or []:
         taken = str(scenario.get("taken_from", "")).strip().lower()
@@ -172,7 +174,7 @@ def _quality_attributes(out: dict) -> list[str]:
     return bad
 
 
-def _ontology_delta(out: dict) -> list[str]:
+def _ontology_delta(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     if not out.get("concepts"):
         return ["no business object was checked — the ontology check is per OBJECT, and an empty "
                 "result means it was not run"]
@@ -182,7 +184,7 @@ def _ontology_delta(out: dict) -> list[str]:
     return []
 
 
-def _workflow_graph(out: dict) -> list[str]:
+def _workflow_graph(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     nodes = {n["id"] for n in out.get("nodes") or []}
     if not nodes:
@@ -198,7 +200,7 @@ def _workflow_graph(out: dict) -> list[str]:
     return bad[:5]
 
 
-def _source_contracts(out: dict) -> list[str]:
+def _source_contracts(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
     for source in out.get("sources") or []:
         if not str(source.get("citation_policy", "")).strip():
@@ -213,7 +215,7 @@ def _source_contracts(out: dict) -> list[str]:
 
 # ---------------------------------------------------------------- the design-side rules
 
-def _assertions(out: dict) -> list[str]:
+def _assertions(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """E0.10 / FR-18: "evaluable against a system of record without reading anything the workflow
     produced". The rule this enforces is the difference between monitoring and self-congratulation:
     an assertion that reads the workflow's own output is true whenever the workflow says so, and
@@ -232,7 +234,7 @@ def _assertions(out: dict) -> list[str]:
     return bad[:5]
 
 
-def _determinism(out: dict) -> list[str]:
+def _determinism(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Q1.1-Q1.5. The necessity test is asked ONCE per non-D0 step, and a step reducible by
     criteria 6-7 is re-tiered to D0 — the observed failure is over-classifying as
     non-deterministic, which buys an agent where a lookup table would do."""
@@ -263,7 +265,7 @@ def _determinism(out: dict) -> list[str]:
 from lab.core.usecase.predicates import NAMED_CONDITIONS
 
 
-def _facet_vectors(out: dict) -> list[str]:
+def _facet_vectors(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Q2.4 and FR-22: every override carries a written justification, and exposure and influence
     are NOT decided here — they follow by a published derivation, and deciding them in an agent
     would make the derivation an opinion."""
@@ -293,7 +295,7 @@ def _facet_vectors(out: dict) -> list[str]:
     return bad[:5]
 
 
-def _build_surface(out: dict) -> list[str]:
+def _build_surface(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """FR-25 and FR-26. The incumbent question is asked FIRST and its failures recorded; an
     obligation the selected surface cannot enforce sends the design back to step 17, because a
     different runtime with the same gap is the same gap."""
@@ -317,10 +319,13 @@ def _component_selection(out: dict, context: Mapping[str, Any] | None = None) ->
     if not out.get("selected"):
         bad.append("nothing was selected")
     known = {str(row.get("id", "")) for row in (context or {}).get("component_catalogue") or []
-             if isinstance(row, Mapping)}
+             if isinstance(row, Mapping) and row.get("id")}
+    if context is not None and not known:
+        bad.append("the component catalogue in context carries no ids — G04 cannot be checked, "
+                   "and a selection nothing can join is not a selection")
     unknown = [str(c.get("component_id")) for c in out.get("selected") or []
-               if known and str(c.get("component_id", "")) not in known]
-    if unknown:
+               if str(c.get("component_id", "")) not in known]
+    if unknown and known:
         bad.append(f"{unknown} are not ids in the component catalogue — a design admits components "
                    f"by catalogue identity (G04); use the `id` column, or declare a building block")
     for choice in out.get("selected") or []:
@@ -349,7 +354,7 @@ BUSINESS_CASE_SECTIONS = ("executive summary", "current state", "proposed soluti
                           "risks and mitigations", "approvals and recommendation")
 
 
-def _delivery_artifacts(out: dict) -> list[str]:
+def _delivery_artifacts(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Step 25. Four artifacts, and each rule below is the field its own schema calls the one worth
     keeping — which is exactly the field a model under length pressure drops first."""
     bad = []
@@ -377,7 +382,7 @@ def _delivery_artifacts(out: dict) -> list[str]:
     return bad[:5]
 
 
-def _cost_inputs(out: dict) -> list[str]:
+def _cost_inputs(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Sub-step 23.5. The run cost is a join the service does; what an agent contributes is the
     build cost with its provenance, and a build cost never arrives without one."""
     bad = []
@@ -390,7 +395,7 @@ def _cost_inputs(out: dict) -> list[str]:
     return bad[:5]
 
 
-def _benefit_inputs(out: dict) -> list[str]:
+def _benefit_inputs(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Sub-steps 24.1-24.4. The one rule worth the gate: an absent driver is DECLARED, never
     silently omitted and never filled with a default that looks like evidence."""
     bad = []

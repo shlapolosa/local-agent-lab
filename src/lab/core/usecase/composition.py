@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping
 
-from lab.core.usecase import seed
 from lab.core.usecase.exposure import exposure_of, influence_of
 from lab.core.usecase.model import Workflow
 from lab.core.usecase.predicates import PredicateError, parse
@@ -44,9 +43,13 @@ class Composition:
     connectors: tuple[tuple[str, str], ...] = ()
 
 
-def _catalogue(families=None) -> list[dict]:
-    """The family triggers. `families` lets a caller supply the governed copy under a pin."""
-    return list(families if families is not None else seed.artifact("family_triggers")["families"])
+def _catalogue(families) -> list[dict]:
+    """The family triggers, as the caller pinned them. There is no packaged fallback: a
+    composition that could answer from the image would change when the image did."""
+    if families is None:
+        raise CompositionError("the family triggers must be supplied — read `family-triggers` "
+                               "under the run's pin; there is no packaged copy to fall back on")
+    return list(families)
 
 
 def _vectors(workflow: Workflow) -> list[dict]:

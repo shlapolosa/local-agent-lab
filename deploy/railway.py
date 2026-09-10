@@ -135,8 +135,9 @@ SUBSTRATE = {
     # No "s3": the reference server never opens an artifact — publication explodes the agent-
     # readable form into rows — so it holds no bucket credential and no ARTIFACTS_URL.
     "reference-mcp": {"cmd": "python -m lab.substrate.mcp.reference.server", "port": None},
-    # Pure derivation over facet vectors: no store, no bucket, no database of its own. It
-    # reads the governed rules through the GATEWAY like any other caller.
+    # Pure derivation over facet vectors: no store, no bucket, no database of its own. It reads
+    # the governed rules THROUGH reference-mcp (substrate to substrate, on the private network,
+    # bearer-authenticated — the stated exception in CLAUDE.md), never from a DSN of its own.
     "decision-mcp": {"cmd": "python -m lab.substrate.mcp.decision.server", "port": None,
                      "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no DSN here
     # The FINANCIAL derivations, split from decision-mcp by artifact OWNER: finance releases the
@@ -170,7 +171,8 @@ SUBSTRATE = {
                      "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
     "review":       {"cmd": "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
                             "--server.address :: --server.headless true", "port": 8501,
-                     "s3": True},   # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
+                     "s3": True,    # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
+                     "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no reader DSN
 }
 S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
 
@@ -357,6 +359,9 @@ ROLE_ENV = {
         "REDIS_URL",                               # approvals / workflows / runlog streams
         "ARTIFACTS_URL", "DATABASE_URL",           # reads xml/svg refs of a request
         "JAEGER_UI_URL",                           # trace links
+        "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET",   # the Submit form's
+                                                   # intake groups, read from the corpus THROUGH reference-mcp under
+                                                   # a pin — never the LiteLLM DSN it holds for artifacts
     ],                                             # + S3_KEYS via the "s3" flag (Submit page uploads straight to the bucket)
     "telegram": [                                  # src/lab/substrate/channels/telegram.py + lab.substrate.approvals + lab.platform.config
         "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",  # the Bot API credential + target chat (unset = not deployed)
@@ -581,8 +586,10 @@ REDIS_CMD = "redis-server --bind 0.0.0.0 :: --protected-mode no --appendonly yes
 EMBED_NAME = "embedder"
 EMBED_IMAGE = "ollama/ollama:0.34.0"
 EMBED_MODEL = "nomic-embed-text"
+# `|| exit 1`: a pull that fails must take the service down (ALWAYS restarts it, loudly in its
+# logs) rather than leave a healthy-looking server that refuses every search at query time.
 EMBED_CMD = (f"sh -c 'OLLAMA_HOST=[::]:11434 OLLAMA_KEEP_ALIVE=-1 ollama serve & sleep 5; "
-             f"ollama pull {EMBED_MODEL}; wait'")
+             f"ollama pull {EMBED_MODEL} || exit 1; wait'")
 
 
 def ensure_image_service(name, image):

@@ -66,11 +66,10 @@ class ThreePoint:
     low: float
     expected: float
     high: float
-    known: bool = True
 
     def __add__(self, other: "ThreePoint") -> "ThreePoint":
         return ThreePoint(self.low + other.low, self.expected + other.expected,
-                          self.high + other.high, self.known and other.known)
+                          self.high + other.high)
 
 
 def _number(value: Any, what: str) -> float:
@@ -114,6 +113,12 @@ class PriceLine:
         if driver != "none" and driver not in DRIVERS:
             raise CostError(f"{component}/{variant}: {driver!r} is not a volume driver intake "
                             f"captures ({sorted(DRIVERS)})")
+        expected_at = _number(row.get("expected_at") or 0, "expected_at")
+        high_at = _number(row.get("high_at") or 0, "high_at")
+        if driver != "none" and not (0 < expected_at < high_at):
+            raise CostError(f"{component}/{variant}: driven by {driver} but its bands are "
+                            f"{expected_at}/{high_at} — a driven line with no bands would price "
+                            f"every volume at the top of its range")
         capex_raw = row.get("capex_once")
         capex = None if capex_raw in ("", None) else _number(capex_raw, "capex_once")
         return cls(
@@ -123,9 +128,7 @@ class PriceLine:
                             _number(row.get("opex_expected"), "opex_expected"),
                             _number(row.get("opex_high"), "opex_high")),
             envelope_in=envelopes, volume_driver=driver,
-            expected_at=_number(row.get("expected_at") or 0, "expected_at"),
-            high_at=_number(row.get("high_at") or 0, "high_at"),
-            capex=capex, source_line=str(row.get("source_line") or ""),
+            expected_at=expected_at, high_at=high_at, capex=capex, source_line=str(row.get("source_line") or ""),
             note=str(row.get("note") or ""))
 
 
@@ -207,27 +210,55 @@ def envelope_for(criticality: str) -> str:
     return table[key]
 
 
+#: A period a person writes a volume in, and how many of it make a month. A number with no
+#: period is taken as monthly — the driver's own unit — and said so in the docstring.
+_PERIODS = (("day", 30.0), ("daily", 30.0), ("week", 4.33), ("weekly", 4.33),
+            ("year", 1 / 12), ("annual", 1 / 12), ("month", 1.0), ("monthly", 1.0))
+_QUANTITY = r"(\d[\d,]*(?:\.\d+)?)\s*([kKmM])?(?![A-Za-z0-9])"
+
+
+def _scale(raw: str, suffix: str | None) -> float:
+    value = float(raw.replace(",", ""))
+    return value * {"k": 1e3, "m": 1e6}.get((suffix or "").lower(), 1.0)
+
+
+def _per_month(text_after: str) -> float:
+    """The factor that turns a quantity into a monthly one, from the period written beside it."""
+    for word, factor in _PERIODS:
+        if re.search(rf"\b(?:per|a|an|each|every|/)\s*{word}", text_after, re.I) or \
+                re.search(rf"\b{word}\b", text_after, re.I):
+            return factor
+    return 1.0
+
+
 def volume_from_intake(intake: Mapping[str, Any] | None) -> dict[str, float]:
     """The volume assumptions a person captured at intake, as numbers per driver.
 
-    An intake mapping is `label -> {field: text}` written by a human; the volume group is found by
-    its label and each driver by a word beside a number ("5,000 runs a month", "users: 40").
-    A driver not found is simply absent — the cost model then names the line it could not place
-    rather than positioning it by guess."""
+    An intake mapping is `label -> {field: text}` written by a human. Every group's text is
+    scanned (a Finance rename of the group must not silently disable cost), and a driver is
+    read from a quantity beside its word within one clause — "5k users", "12,000 runs a month",
+    "records: 120000" — never across a `;`, `,` or `.`. `k`/`m` multiply; a period beside a
+    RUN count is normalised to a month (per day ×30, per week ×4.33, per year ÷12); a count
+    with no period is monthly, the driver's own unit. A driver not found is simply absent — the
+    cost model then names the line it could not place rather than positioning it by guess."""
     text = " ".join(
-        str(v) for label, fields in (intake or {}).items()
-        if "volume" in str(label).lower() and isinstance(fields, Mapping)
+        str(v) for fields in (intake or {}).values() if isinstance(fields, Mapping)
         for v in fields.values())
     found: dict[str, float] = {}
     for driver, words in DRIVERS.items():
         for word in words:
-            after = re.search(rf"\b{word}[a-z]*\b[^0-9]{{0,25}}(\d[\d,]*(?:\.\d+)?)", text, re.I)
-            before = re.search(rf"(\d[\d,]*(?:\.\d+)?)\s*(?:k\b)?[^0-9]{{0,25}}\b{word}[a-z]*\b",
-                               text, re.I)
+            before = re.search(_QUANTITY + rf"[^0-9;,.]{{0,25}}\b{word}[a-z]*\b", text, re.I)
+            after = re.search(rf"\b{word}[a-z]*\b[^0-9;,.]{{0,25}}" + _QUANTITY, text, re.I)
             hit = before or after
-            if hit:
-                found[driver] = float(hit.group(1).replace(",", ""))
-                break
+            if not hit:
+                continue
+            raw, suffix = (hit.group(1), hit.group(2)) if hit is before else (hit.group(1), hit.group(2))
+            value = _scale(raw, suffix)
+            if driver == "runs_per_month":
+                tail = text[hit.end():hit.end() + 30]
+                value *= _per_month(tail)
+            found[driver] = value
+            break
     return found
 
 
@@ -253,7 +284,7 @@ def position(line: PriceLine, volume: Mapping[str, float]) -> ThreePoint | None:
 def year_one_total(monthly: ThreePoint, build: float) -> ThreePoint:
     """Sub-step 23.6 — build (and any one-off) plus twelve times the monthly run cost."""
     return ThreePoint(build + monthly.low * 12, build + monthly.expected * 12,
-                      build + monthly.high * 12, monthly.known)
+                      build + monthly.high * 12)
 
 
 def build_cost(amount: float, provenance: Provenance) -> BuildCost:

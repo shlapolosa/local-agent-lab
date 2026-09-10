@@ -18,7 +18,7 @@ import asyncio
 import concurrent.futures
 from typing import Any, Callable, Mapping, Sequence
 
-from lab.core.reference.errors import ReferenceError
+from lab.core.reference.errors import ReferenceError, ReferenceUnavailable
 from lab.core.reference.model import (
     ArtifactHead,
     ArtifactKind,
@@ -58,6 +58,13 @@ def _remote_call(url: str, headers: Mapping[str, str]) -> Callable[[str, dict], 
                 # refusal); it travels as the base type so a caller's `except ReferenceError`
                 # still holds and the sentence reaches whoever asked.
                 raise ReferenceError(str(exc)) from exc
+            except Exception as exc:                      # noqa: BLE001 — transport, not a refusal
+                # A corpus server that cannot be reached is an operator's problem, and the
+                # sentence says where it was looked for; it must not escape as a bare socket
+                # error that a caller's `except ReferenceError` lets straight through.
+                raise ReferenceUnavailable(
+                    "(any)", -1, f"reference-mcp at {url} could not be reached for {tool}: "
+                                 f"{type(exc).__name__}: {exc}") from exc
     return call
 
 
@@ -70,16 +77,28 @@ class McpReferenceLibrary:
         self.ring = int(ring)
         headers = {"Authorization": f"Bearer {secret}"} if secret else {}
         self._call = call or _remote_call(url, headers)
+        self._types: dict[str, str] = {}                  # artifact -> record type, from the catalogue
 
     # ---------------------------------------------------------------- catalogue and pin
 
     def catalogue(self) -> list[ArtifactHead]:
         out = self._call(ReferenceTools.catalogue, {})
-        return [ArtifactHead(artifact_id=a["artifact_id"], kind=ArtifactKind(a["kind"]),
-                             title=a["title"], owner=a["owner"], version=a["version"],
-                             record_type=a.get("record_type") or "",
-                             retrieval=Retrieval(a["retrieval"]) if a.get("retrieval") else None)
-                for a in out.get("artifacts") or []]
+        heads = [ArtifactHead(artifact_id=a["artifact_id"], kind=ArtifactKind(a["kind"]),
+                              title=a["title"], owner=a["owner"], version=a["version"],
+                              record_type=a.get("record_type") or "",
+                              retrieval=Retrieval(a["retrieval"]) if a.get("retrieval") else None)
+                 for a in out.get("artifacts") or []]
+        if not heads:
+            raise ReferenceUnavailable("(any)", self.ring,
+                                       "the corpus server answered an empty catalogue")
+        self._types = {h.artifact_id: h.record_type for h in heads}
+        return heads
+
+    def _record_type(self, artifact_id: str) -> str:
+        """An artifact's record type, from the catalogue — a version carries none."""
+        if artifact_id not in self._types:
+            self.catalogue()
+        return self._types.get(artifact_id, "")
 
     def pin(self, artifact_ids: Sequence[str] = ()) -> Pin:
         taken = self._call(ReferenceTools.pin, {"artifact_ids": list(artifact_ids)})
@@ -102,7 +121,8 @@ class McpReferenceLibrary:
 
     # ---------------------------------------------------------------- the reads
 
-    def _citation(self, pin: Pin, c: Mapping[str, Any]) -> Citation:
+    @staticmethod
+    def _citation(c: Mapping[str, Any]) -> Citation:
         return Citation(artifact_id=c["artifact_id"], title=c.get("title", ""),
                         version=c["version"], signature_id=c.get("signature_id", ""),
                         locator=c.get("locator", ""), master_ref=c.get("master_ref", ""),
@@ -114,7 +134,7 @@ class McpReferenceLibrary:
             "pin_id": pin.pin_id, "record_type": record_type, "key": dict(key), "limit": limit,
             "artifact_id": artifact_id, "run_id": run.run_id, "process": run.process,
             "field": run.field})
-        citations = [self._citation(pin, c) for c in out.get("citations") or []]
+        citations = [self._citation(c) for c in out.get("citations") or []]
         by_locator = {c.locator: c for c in citations}
         records = tuple(Record(
             record_id=r["record_id"], record_type=record_type, key=dict(r.get("key") or {}),
@@ -131,7 +151,7 @@ class McpReferenceLibrary:
         out = self._call(ReferenceTools.search, {
             "pin_id": pin.pin_id, "question": question, "artifact_ids": list(artifact_ids),
             "k": k, "run_id": run.run_id, "process": run.process, "field": run.field})
-        citations = [self._citation(pin, c) for c in out.get("citations") or []]
+        citations = [self._citation(c) for c in out.get("citations") or []]
         by_locator = {c.locator: c for c in citations}
         passages = tuple(Passage(
             passage_id=p["passage_id"], text=p["text"], score=float(p["score"]),
@@ -144,13 +164,14 @@ class McpReferenceLibrary:
         return PassageResult(passages=passages, citations=tuple(citations))
 
     def record(self, pin: Pin, *, artifact_id: str, record_id: str, run: RunRef) -> Record:
+        pin.pinned(artifact_id)                              # a typed refusal, before any call
         out = self._call(ReferenceTools.record, {
             "pin_id": pin.pin_id, "artifact_id": artifact_id, "record_id": record_id,
             "run_id": run.run_id, "process": run.process, "field": run.field})
         found, citation = out["record"], out["citation"]
-        return Record(record_id=found["record_id"], record_type=pin.version_of(artifact_id).kind
-                      and "", key=dict(found.get("key") or {}), body=dict(found.get("body") or {}),
-                      citation=self._citation(pin, citation))
+        return Record(record_id=found["record_id"], record_type=self._record_type(artifact_id),
+                      key=dict(found.get("key") or {}), body=dict(found.get("body") or {}),
+                      citation=self._citation(citation))
 
     def consumers(self, *, artifact_id: str, version: str) -> list[Consumption]:
         out = self._call(ReferenceTools.consumers, {"artifact_id": artifact_id, "version": version})

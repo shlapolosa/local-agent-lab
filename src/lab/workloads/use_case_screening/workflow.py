@@ -18,7 +18,9 @@ import json
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.platform import config
-from lab.platform.contracts import (ReferenceTools, VectorStores, 
+from lab.platform.contracts import (
+    ReferenceTools,
+    VectorStores,
     USE_CASE_DESIGN,
     USE_CASE_SCREENING,
     ApprovalTools,
@@ -62,6 +64,10 @@ SCHEME = "healthcare-provider-v2.0"
 CAPABILITY_MAP = VectorStores.for_scheme(SCHEME)
 MAP_RECORD_TYPE = "capability"
 FETCHED_LEVELS = (1, coverage.DEEPEST_LEVEL)
+#: More than any level of the published maps holds (the healthcare map's L3 is ~1,000 rows);
+#: `reference.records` refuses a read the server truncated, so a map that outgrows this fails
+#: loudly rather than matching over a random subset.
+MAP_LIMIT = 5000
 
 #: Fields a corpus record contributes to a PROMPT, by corpus. Everything else is dropped before the
 #: message is built.
@@ -77,9 +83,10 @@ PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent", "path")}
 #: What this run pins: the capability map its coverage match reads.
 REFERENCE_ARTIFACTS = (CAPABILITY_MAP,)
 
-#: The relevance store the `vector` matcher searches — preflighted like a tool, for zero tokens,
-#: only when that matcher is the one configured.
-REQUIRED_STORES = (CAPABILITY_MAP,) if config.COVERAGE_MATCHER == "vector" else ()
+def required_stores() -> tuple[str, ...]:
+    """The relevance store the `vector` matcher searches — preflighted like a tool, for zero
+    tokens, only when that matcher is the one configured. Read at RUN time, not import time."""
+    return (CAPABILITY_MAP,) if config.COVERAGE_MATCHER == "vector" else ()
 
 #: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
 #: unavailable with its size, rather than sent — a step that silently receives half a corpus
@@ -152,7 +159,8 @@ async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
     rows: list[dict] = []
     for level in FETCHED_LEVELS:
         rows += await reference.records(cfg, pin_id, CAPABILITY_MAP, record_type=MAP_RECORD_TYPE,
-                                        key={"level": str(level)}, field="coverage_map")
+                                        key={"level": str(level)}, field="coverage_map",
+                                        limit=MAP_LIMIT)
     return _map_rows(rows)
 
 
@@ -385,4 +393,4 @@ async def run_workflow(cfg, inputs: dict) -> dict:
     in particular was paid for once by a cloud failure and should not exist per
     workload, because the copy that will lack it is the next one."""
     return await gateway.run_graph(cfg, build_workflow, inputs, what="screening",
-                                   required=REQUIRED_TOOLS, required_stores=REQUIRED_STORES)
+                                   required=REQUIRED_TOOLS, required_stores=required_stores())

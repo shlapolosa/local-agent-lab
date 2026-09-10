@@ -26,7 +26,8 @@ from lab.core.semantic.ids import content_id
 
 __all__ = [
     "DerivationError", "DerivedPassage", "DerivedRecord",
-    "chunk", "content_digest", "passages", "record_passages", "records",
+    "FIELD_SEP", "chunk", "content_digest", "passages", "record_passages", "records",
+    "split_record_passage",
 ]
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
@@ -167,6 +168,18 @@ def records(artifact_id: str, rows: Sequence[Mapping[str, Any]], *,
     return out
 
 
+#: How the fields of a record are joined into its passage — and, for a hit, taken apart again.
+#: One constant, so the reader of a passage never has to know the writer's punctuation.
+FIELD_SEP = ". "
+
+
+def split_record_passage(text: str) -> tuple[str, str]:
+    """(first field, the rest) of a passage `record_passages` wrote — the first field is the
+    path for a capability map, which is what a relevance hit is named by."""
+    head, _, tail = text.partition(FIELD_SEP)
+    return head.strip(), tail.strip()
+
+
 def record_passages(artifact_id: str, derived: Sequence[DerivedRecord], *,
                     text_fields: Sequence[str] = ()) -> list[DerivedPassage]:
     """One passage per record, for a record artifact that is ALSO retrieved by relevance.
@@ -179,8 +192,8 @@ def record_passages(artifact_id: str, derived: Sequence[DerivedRecord], *,
     out: list[DerivedPassage] = []
     for ordinal, record in enumerate(derived):
         fields = list(text_fields) or [k for k, v in record.body.items() if str(v or "").strip()]
-        text = ". ".join(str(record.body.get(f, "")).strip() for f in fields
-                         if str(record.body.get(f, "")).strip())
+        text = FIELD_SEP.join(str(record.body.get(f, "")).strip() for f in fields
+                              if str(record.body.get(f, "")).strip())
         if not text:
             raise DerivationError(f"{artifact_id}: record {record.record_id} renders no text from "
                                   f"{fields}; a passage with nothing in it would index as if it "

@@ -80,3 +80,70 @@ def test_the_registry_offers_the_adapter_by_name_and_it_ignores_an_embedder():
     assert container.REFERENCE_PROVIDERS["mcp"].endswith("mcp_library")
     lib = mcp_library.build(url="http://ref/mcp", secret="s", ring=1, embedder=object())
     assert isinstance(lib, McpReferenceLibrary) and lib.ring == 1
+
+
+PIN_INFO = {"pin_id": "pin-9", "ring": 0, "pinned_at": "t", "expires_at": "t", "versions": [VERSION]}
+CATALOGUE = {"ring": 0, "artifacts": [{"artifact_id": "guardrails", "kind": "record",
+                                        "record_type": "guardrail", "title": "Guardrails",
+                                        "owner": "governance", "version": "v0.27", "retrieval": "key"}]}
+
+
+def test_a_record_reopened_by_id_carries_the_artifact_s_record_type_from_the_catalogue():
+    lib = library({ReferenceTools.pin_info: PIN_INFO, ReferenceTools.catalogue: CATALOGUE,
+                   ReferenceTools.record: {"record": {"record_id": "rec-1", "key": {"id": "G01"},
+                                                      "body": {"id": "G01"}},
+                                           "citation": {"artifact_id": "guardrails", "title": "Guardrails",
+                                                        "version": "v0.27", "signature_id": "k1",
+                                                        "locator": "rec-1", "master_ref": "art://m/g.md"}}})
+    pin = lib.pin_by_id("pin-9")
+    found = lib.record(pin, artifact_id="guardrails", record_id="rec-1", run=RUN)
+    assert found.record_type == "guardrail" and found.citation.master_ref == "art://m/g.md"
+
+
+def test_reopening_a_record_of_an_unpinned_artifact_is_a_typed_refusal():
+    from lab.core.reference.errors import NotPinned
+    lib = library({ReferenceTools.pin_info: PIN_INFO})
+    with pytest.raises(NotPinned):
+        lib.record(lib.pin_by_id("pin-9"), artifact_id="nope", record_id="r", run=RUN)
+
+
+def test_a_search_maps_passages_with_their_record_ids_and_keys():
+    lib = library({ReferenceTools.pin_info: PIN_INFO,
+                   ReferenceTools.search: {"passages": [{"passage_id": "psg-1", "text": "A > B. def",
+                                                         "score": 0.9, "heading_path": ["id=x"],
+                                                         "artifact_id": "capability-map", "version": "v0.27",
+                                                         "record_id": "rec-x", "key": {"id": "x"}}],
+                                           "citations": []}})
+    out = lib.search(lib.pin_by_id("pin-9"), question="triage", run=RUN, artifact_ids=["capability-map"])
+    sent = lib.calls[-1][1]
+    assert sent["artifact_ids"] == ["capability-map"] and sent["field"] == "obligations"
+    assert out.passages[0].record_id == "rec-x" and out.passages[0].key == {"id": "x"}
+
+
+def test_an_empty_catalogue_refuses_as_the_port_requires():
+    with pytest.raises(ReferenceError):
+        library({ReferenceTools.catalogue: {"ring": 0, "artifacts": []}}).catalogue()
+
+
+def test_the_reverse_index_maps_consumers():
+    lib = library({ReferenceTools.consumers: {"consumers": [{"run_id": "r", "process": "p", "field": "f",
+                                                            "mode": "lookup", "locator": "", "hit": True,
+                                                            "consulted_at": "t"}], "runs": 1}})
+    rows = lib.consumers(artifact_id="guardrails", version="v0.27")
+    assert rows[0].run_id == "r" and rows[0].artifact_id == "guardrails"
+
+
+def test_a_transport_failure_is_a_typed_unreachable_naming_the_server(monkeypatch):
+    """A socket error must not escape as itself past a caller's `except ReferenceError`."""
+    from lab.core.reference.errors import ReferenceUnavailable
+    from lab.substrate.reference.mcp_library import _remote_call
+    import fastmcp.client.transports as T
+
+    class Broken:
+        def __init__(self, *a, **k):
+            raise ConnectionError("refused")
+    monkeypatch.setattr(T, "StreamableHttpTransport", Broken)
+    call = _remote_call("http://ref:9700/mcp", {})
+    with pytest.raises(ReferenceUnavailable) as e:
+        call(ReferenceTools.catalogue, {})
+    assert "http://ref:9700/mcp" in str(e.value) and "ConnectionError" in str(e.value)

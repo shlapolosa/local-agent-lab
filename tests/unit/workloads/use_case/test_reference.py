@@ -61,3 +61,16 @@ def test_a_read_is_attributed_to_the_derived_field_and_comes_back_as_the_domain_
 def test_a_run_with_no_id_is_still_attributed_as_what_it_is(corpus):
     assert reference.attribution({"process": "p"}, "f") == {"run_id": "local", "process": "p",
                                                              "field": "f"}
+
+
+def test_a_read_the_server_had_to_cut_at_the_limit_is_refused_rather_than_matched_over(monkeypatch):
+    """The surviving subset is ordered by a content hash — a coverage map over a random two thirds
+    of the map would look exactly like a whole one."""
+    many = {"reference_lookup": lambda a: {"records": [{"record_id": f"r{i}", "key": {}, "body": {"id": f"L{i}"}}
+                                                       for i in range(20)], "matched": 20}}
+    router = Router(many, full=True)
+    monkeypatch.setattr(gateway, "Client", router.client_class())
+    with pytest.raises(RuntimeError) as e:
+        asyncio.run(reference.records(_cfg(router), "pin-test", "capability-map",
+                                      record_type="capability", field="coverage_map", limit=20))
+    assert "limit" in str(e.value)

@@ -67,6 +67,7 @@ def test_a_search_answers_the_openai_page_with_a_hit_that_names_its_record(api):
     assert hit["file_id"] == "psg-9" and hit["filename"].startswith("art://")
     assert hit["attributes"]["record_id"] == "rec-9"
     assert json.loads(hit["attributes"]["key"])["parent"] == "L2.1"
+    assert hit["attributes"]["path"] == "Care Delivery > Triage" and hit["attributes"]["label"] == "Triage"
     assert isinstance(hit["score"], float)
 
 
