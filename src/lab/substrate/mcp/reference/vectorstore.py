@@ -10,9 +10,13 @@ API, not a Postgres client. So this module speaks it. It is an ADAPTER over the 
 refusal on a stale index, the same consumption row.
 
 WHAT MAKES IT GOVERNED RATHER THAN A HOLE. The OpenAI shape has no notion of a run, so the run's
-identity travels in `filters` — `pin_id`, `run_id`, `process`, `field` — and a search without them
-is 400. That is what keeps a read through this door attributed exactly like one through the MCP
-tool (FR-44): the consumption row is written inside the read, or the read does not happen. It is
+identity travels in `filters` — `pin_id`, `run_id`, `process`, `field` — and a workload's search
+is attributed exactly like one through the MCP tool (FR-44): the consumption row is written
+inside the read, or the read does not happen. A search with NO pin at all — the gateway UI's test
+box, a person with a key — is served AD HOC (user decision, 10 Sep 2026): the façade takes a pin
+of that store's artifact itself and records the read as process `adhoc`, run `gateway-<date>`,
+field `search`, so exploration is still pinned, verified and in the trail; only a caller that
+names a pin and then omits its field is refused, because that is a workload that forgot. It is
 also why `file_search` tool injection is refused by design: the hook carries no pin and sees only
 the last user message.
 
@@ -21,6 +25,7 @@ team be granted the capability map and nothing else.
 """
 from __future__ import annotations
 
+import datetime
 import json
 from typing import Any
 
@@ -93,13 +98,17 @@ def _search_route(server, max_hits: int):
         filters = body.get("filters") or {}
         if not isinstance(filters, dict):
             return error_response(400, "`filters` must be an object carrying the run identity")
-        missing = [f for f in RUN_FIELDS if not str(filters.get(f, "")).strip()]
+        adhoc = not str(filters.get("pin_id", "")).strip()
+        if adhoc:
+            # No pin at all: an exploratory search. Pinned and attributed as such, below.
+            filters = {"run_id": f"gateway-{datetime.date.today().isoformat()}",
+                       "process": "adhoc", "field": "search"}
+        missing = [f for f in RUN_FIELDS if f != "pin_id" and not str(filters.get(f, "")).strip()]
         if missing:
             return error_response(
-                400, f"a search names the run it is for: `filters` must carry {list(RUN_FIELDS)}, "
-                     f"missing {missing}. Take a pin with reference_pin and pass its pin_id; a "
-                     f"read this corpus cannot attribute to a derived field is refused, not "
-                     f"served", missing=missing)
+                400, f"a search under a pin names the run it is for: `filters` must carry "
+                     f"{list(RUN_FIELDS)}, missing {missing}. A read this corpus cannot attribute "
+                     f"to a derived field is refused, not served", missing=missing)
         try:
             k = int(body.get("max_num_results") or 8)
         except (TypeError, ValueError):
@@ -110,11 +119,13 @@ def _search_route(server, max_hits: int):
         try:
             run = RunRef(run_id=str(filters["run_id"]), process=str(filters["process"]),
                          field=str(filters["field"]))
-            pin = library.pin_by_id(str(filters["pin_id"]))
+            pin = (library.pin([store_id]) if adhoc
+                   else library.pin_by_id(str(filters["pin_id"])))
             out = library.search(pin, question=query, run=run, artifact_ids=[store_id], k=k)
         except ReferenceError as exc:
             return error_response(_status(exc), exc.sentence, artifact=exc.artifact_id)
         span().set_attribute("reference.passages", len(out.passages))   # a COUNT, never the text
+        span().set_attribute("reference.adhoc", adhoc)
         return JSONResponse({"object": "vector_store.search_results.page",
                              "search_query": query,
                              "data": [_hit(p) for p in out.passages]})

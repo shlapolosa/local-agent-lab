@@ -97,21 +97,28 @@ def test_the_hit_count_is_capped_however_many_are_asked_for(api):
 
 # ---------------------------------------------------------------- not a way around governance
 
-@pytest.mark.parametrize("missing", ["pin_id", "run_id", "process", "field"])
-def test_a_search_without_the_run_s_identity_is_refused_and_says_what_to_pass(api, missing):
+@pytest.mark.parametrize("missing", ["run_id", "process", "field"])
+def test_a_search_under_a_pin_that_omits_its_field_is_refused(api, missing):
+    """A caller that names a pin is a workload, and a workload that forgot its field is refused —
+    an unattributed read under a pin is the one FR-44 cannot accept."""
     client, fake = api
     filters = _identity(fake)
     filters.pop(missing)
     got = client.post(f"/v1/vector_stores/{MAP}/search", json={"query": "triage",
                                                                "filters": filters})
-    assert got.status_code == 400
-    assert missing in got.json()["missing"] and "reference_pin" in got.json()["error"]
+    assert got.status_code == 400 and missing in got.json()["missing"]
 
 
-def test_a_search_with_no_filters_at_all_is_refused(api):
-    client, _ = api
-    got = client.post(f"/v1/vector_stores/{MAP}/search", json={"query": "triage"})
-    assert got.status_code == 400 and "pin_id" in got.json()["error"]
+def test_a_search_with_no_pin_at_all_is_served_ad_hoc_pinned_and_in_the_trail(api):
+    """The gateway UI's test box and a person with a key: served, under a pin the façade takes of
+    that one store, and recorded as adhoc — still governed, only not a workload's field."""
+    client, fake = api
+    got = client.post(f"/v1/vector_stores/{MAP}/search", json={"query": "triage urgency"})
+    assert got.status_code == 200, got.text
+    assert got.json()["data"][0]["attributes"]["record_id"] == "rec-9"
+    row = [c for c in fake.consumption if c.mode == "search"][-1]
+    assert row.process == "adhoc" and row.field == "search" and row.run_id.startswith("gateway-")
+    assert row.artifact_id == MAP
 
 
 def test_an_exact_artifact_is_refused_as_a_store_rather_than_ranked(api):
@@ -203,6 +210,6 @@ def test_the_facade_is_mounted_on_the_served_app_beside_mcp(api):
     from lab.substrate.mcpserver import app_for
     app = app_for(S.server.mcp, routes=vectorstore.routes(S.server, max_hits=S.MAX_HITS))
     with TestClient(app) as client:
-        got = client.post(f"/v1/vector_stores/{MAP}/search", json={"query": "triage"})
+        got = client.post(f"/v1/vector_stores/{MAP}/search", json={"query": ""})
     assert got.status_code == 400, "reached the façade (a 404 would mean it is not mounted)"
-    assert "pin_id" in got.json()["error"]
+    assert "query" in got.json()["error"]

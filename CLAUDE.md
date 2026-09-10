@@ -1034,8 +1034,11 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   reference-mcp's **OpenAI vector-store façade** (`lab.substrate.mcp.reference.vectorstore`, `POST
   /v1/vector_stores/<id>/search`, mounted beside `/mcp` via `LabServer.serve(routes=)`, behind the same
   bearer). It is a second TRANSPORT over the one `pg_library.search`, not a second implementation:
-  `filters` MUST carry `pin_id/run_id/process/field` (400 otherwise) so a read through the gateway is
-  attributed exactly like one through the tool. A team is granted stores with
+  a workload's search carries `pin_id/run_id/process/field` in `filters` (a pin with no field is 400)
+  so it is attributed exactly like one through the tool; a search with NO pin — the gateway UI, a
+  person with a key — is served AD HOC under a pin the façade takes of that store, recorded as
+  `adhoc`/`gateway-<date>`/`search` (user decision 10 Sep 2026: exploration stays governed and in
+  the trail, only workloads must name a field). A team is granted stores with
   `object_permission.vector_stores` — **LiteLLM reads an absent OR EMPTY list as "every store"**, so
   `provision_usecase_agents._grants` always writes it and spells "none" as the sentinel `["-"]`.
   `file_search` injection stays OFF (no pin travels with it). **No credential on the store**: LiteLLM
