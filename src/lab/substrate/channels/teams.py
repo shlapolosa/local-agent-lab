@@ -41,7 +41,7 @@ Run: .venv/bin/python -m lab.substrate.channels.teams   (loop; exits immediately
 """
 import json
 
-from lab.platform import config, streams
+from lab.platform import config, contracts, streams
 from lab.platform.webhook import post_json
 from lab.substrate import approvals
 
@@ -108,15 +108,18 @@ class TeamsChannel:
         silently does nothing is worse than none. The card says where to answer instead.
         """
         blocks = [{"type": "TextBlock", "text": question.get("prompt", ""), "wrap": True}]
+        # A question that is not about voices (the asker declared one `value` per label) has no
+        # timings worth a fact; its samples ARE the choices, so they take the fact's place.
+        voices = contracts.answer_fields({"question": question}) != ("value",)
         for item in question.get("items") or []:
-            said = " · ".join(str(s)[:MAX_SAMPLE] for s in (item.get("samples") or [])[:2])
+            samples = [str(s)[:MAX_SAMPLE] for s in (item.get("samples") or [])]
+            said = " · ".join(samples[:2] if voices else samples)
+            fact = (f'{round(float(item.get("seconds") or 0))}s · {item.get("turns", 0)} turns'
+                    if voices else said or "—")
             blocks.append({"type": "Container", "separator": True, "items": [
-                {"type": "FactSet", "facts": [
-                    {"title": item.get("label", "?"),
-                     "value": f'{round(float(item.get("seconds") or 0))}s · '
-                              f'{item.get("turns", 0)} turns'}]},
+                {"type": "FactSet", "facts": [{"title": item.get("label", "?"), "value": fact}]},
                 *([{"type": "TextBlock", "text": said, "wrap": True, "isSubtle": True,
-                    "spacing": "None"}] if said else []),
+                    "spacing": "None"}] if said and voices else []),
             ]})
         blocks.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
                        "text": "Answer in the review app, or through a flow that posts this card and "

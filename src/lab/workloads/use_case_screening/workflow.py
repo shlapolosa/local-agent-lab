@@ -371,6 +371,7 @@ def build_workflow(cfg):
                 "items": [{"label": "criticality_class",
                            "samples": ["routine", "business-critical", "safety-of-life"]},
                           {"label": "justification", "samples": []}],
+                "fields": ["value"],                   # one thing to say per label, not a voice
                 "continuation": cont.to_dict(),
                 "artifacts": {"submission": state["submission_record_ref"],
                               "screening": state["screening_ref"]},

@@ -26,7 +26,8 @@ from typing import Any, Mapping
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.core.usecase import cost
-from lab.platform import config, runlog
+from lab.core.usecase.model import canonical_criticality
+from lab.platform import config, contracts, runlog
 from lab.platform.contracts import (
     ReferenceTools,
     USE_CASE_DESIGN,
@@ -146,13 +147,26 @@ def _criticality(state: dict) -> str:
     evaluation depth, approval shape, corroboration. `criticality` is a required input and gate D
     will not pass without it, so the default was unreachable; it was also the one direction whose
     failure drops controls, which is not a default worth keeping for a branch that cannot run."""
-    given = (state.get("criticality") or {}).get("criticality_class", "")
-    if not given:
+    entry = (state.get("criticality") or {}).get("criticality_class")
+    if not entry:
         raise ValueError(
             "the confirmed criticality class is missing. It is a required input of this process "
             "and the readiness gate does not pass without it — deriving from the lowest class "
             "instead would silently drop controls.")
-    return given
+    # The answer is a MAPPING — {label: {field: value}}, the shape the process contract validates
+    # and every answering surface builds — so the class is the one value under its label, in the
+    # taxonomy's own spelling: the gate compares it against a closed set.
+    return canonical_criticality(contracts.answer_value(entry))
+
+
+def _criticality_context(state: dict) -> dict[str, str]:
+    """The answer as VALUES for the agent's context — the class canonical, the justification as
+    given — so step 13 and the gate see one value spelt one way, not a transport shape."""
+    out = {label: contracts.answer_value(entry)
+           for label, entry in (state.get("criticality") or {}).items()}
+    if "criticality_class" in out:
+        out["criticality_class"] = _criticality(state)
+    return out
 
 
 async def _corpora(cfg, pin_id: str) -> dict:
@@ -320,7 +334,7 @@ def build_workflow(cfg):
             pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS,
                                          previous=screening.get("pinned_versions") or ())
             d = Derivation(available={**{k: v for k, v in screening.items() if v},
-                                      "criticality": dict(state.get("criticality") or {})})
+                                      "criticality": _criticality_context(state)})
             await _agent_step(cfg, "13", d)
             verdict = await gateway.call(cfg, DecisionTools.readiness, {
                 "gates_evidenced": gate_evidence(screening, state.get("criticality") or {}),

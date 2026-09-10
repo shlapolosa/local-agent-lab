@@ -199,13 +199,19 @@ def test_a_consumer_describes_a_request_with_nothing_useful_rather_than_raising(
 @pytest.mark.parametrize("name,inputs", [
     ("use_case_screening", {"submission": "art://a/u.md", "submitter": "ba@x.ae"}),
     ("use_case_design", {"submission_ref": "art://a/s.json", "screening_ref": "art://a/c.json",
-                         "criticality": {"criticality_class": "routine"}}),
-    ("use_case_investment", {"design_ref": "art://d/d.json", "conformance": {"decision": "approve"}}),
-    ("use_case_provisioning", {"investment_ref": "art://i/i.json", "authorisation": {}}),
+                         "criticality": {"criticality_class": {"value": "routine"}}}),
+    ("use_case_investment", {"design_ref": "art://d/d.json",
+                             "conformance": {"decision": {"value": "approve"}}}),
+    ("use_case_provisioning", {"investment_ref": "art://i/i.json",
+                               "authorisation": {"decision": {"value": "approve"}}}),
 ])
 def test_a_consumer_unpacks_the_inputs_its_contract_declares(name, inputs, monkeypatch):
     """The names here are the spec's. A consumer reading a field the contract does not declare
-    would fail only on a real request, hours after the mistake."""
+    would fail only on a real request, hours after the mistake. And the SHAPES are the contract's
+    too: a fixture the process would refuse proves nothing about the consumer (the cloud found the
+    design row in exactly that state on 10 Sep 2026), so every row passes its own validator first."""
+    from lab.platform.contracts import PROCESSES
+    inputs = PROCESSES[name].validate(inputs)
     host = host_of(name)
     seen: list = []
 

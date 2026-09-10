@@ -226,8 +226,45 @@ def _design_router(readiness="pass", verdict="proceed", failed=(), **extra):
 
 def _design_inputs(**kw):
     return {"submission_ref": "art://s/sub.json", "screening_ref": "art://s/scr.json",
-            "criticality": {"criticality_class": "business-critical"}, "submitter": "ba@x.ae",
-            **kw}
+            "criticality": {"criticality_class": {"value": "business-critical"},
+                            "justification": {"value": "wrong verdicts mis-allocate investment"}},
+            "submitter": "ba@x.ae", **kw}
+
+
+def test_the_design_fixture_is_what_the_process_contract_and_the_workflow_both_accept():
+    """The seam the cloud run found on 10 Sep 2026: the gate's completeness check accepted a flat
+    {criticality_class: "x"}, the workflow read that same flat shape, and the process's OWN typed
+    input refused it — so no answer a human could give passed all three. The one shape that travels
+    is the MAPPING the speaker answer and the intake form already use, and this test holds the
+    fixture, the contract and the reader together so they cannot drift apart again."""
+    from lab.workloads.use_case_design import workflow as W
+    inputs = USE_CASE_DESIGN.validate(_design_inputs())
+    assert W._criticality(inputs) == "business-critical"
+    with pytest.raises(ValueError, match="criticality_class"):
+        USE_CASE_DESIGN.validate(_design_inputs(criticality={"criticality_class": "business-critical"}))
+
+
+def test_a_criticality_answer_with_more_than_one_value_is_refused_not_guessed():
+    from lab.workloads.use_case_design import workflow as W
+    with pytest.raises(ValueError, match="exactly one value"):
+        W._criticality({"criticality": {"criticality_class": {"value": "routine", "other": "x"}}})
+    with pytest.raises(ValueError, match="missing"):
+        W._criticality({"criticality": {}})
+
+
+def test_the_class_a_reviewer_typed_reaches_the_gate_in_its_published_spelling():
+    from lab.workloads.use_case_design import workflow as W
+    assert W._criticality({"criticality": {"criticality_class": {"value": "Safety of Life"}}}) == "safety-of-life"
+    with pytest.raises(ValueError, match="published class"):
+        W._criticality({"criticality": {"criticality_class": {"value": "mission-critical"}}})
+
+
+def test_the_agent_context_carries_the_answer_as_values_not_as_the_transport_shape():
+    """One value, one spelling: the gate and step 13 must not see the same class two ways."""
+    from lab.workloads.use_case_design import workflow as W
+    ctx = W._criticality_context({"criticality": {"criticality_class": {"value": "Business critical"},
+                                                  "justification": {"value": "wrong verdicts cost"}}})
+    assert ctx == {"criticality_class": "business-critical", "justification": "wrong verdicts cost"}
 
 
 def test_both_verdicts_are_ruled_by_the_governed_service_not_by_the_workload():
@@ -947,7 +984,7 @@ def test_the_facet_vectors_the_agents_produce_actually_derive_a_control_set():
     from lab.workloads.use_case_design.workflow import _workflow_payload
     from lab.core.usecase.model import Step as DomainStep, Workflow as DomainWorkflow
 
-    payload = _workflow_payload({"criticality": {"criticality_class": "business-critical"}},
+    payload = _workflow_payload({"criticality": {"criticality_class": {"value": "business-critical"}}},
                                 {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
     workflow = DomainWorkflow(steps=tuple(DomainStep(**s) for s in payload["steps"]),
                               criticality=payload["criticality"])
@@ -972,7 +1009,7 @@ def test_the_conditions_ride_on_the_step_and_reach_the_derivation():
     """They cannot be workflow-wide: the predicates ask about a STEP, so one answer for all of them
     is the same as not answering."""
     from lab.workloads.use_case_design.workflow import _workflow_payload
-    payload = _workflow_payload({"criticality": {"criticality_class": "routine"}},
+    payload = _workflow_payload({"criticality": {"criticality_class": {"value": "routine"}}},
                                 {"facet_vectors": DESIGN_ANSWERS["facet_vectors"]})
     assert all(set(s["conditions"]) == set(_predicates.NAMED_CONDITIONS) for s in payload["steps"])
 

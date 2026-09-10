@@ -539,6 +539,8 @@ def _answer_form(p, request_id):
     prompts = contracts.speaker_prompts(p)
     if not prompts:
         return None, ""
+    if contracts.answer_fields(p) == ("value",):
+        return _item_form(q, prompts, request_id)   # declared by the asker: a question, not a line-up
 
     st.divider()
     st.subheader("Who is each speaker?")
@@ -591,6 +593,41 @@ def _answer_form(p, request_id):
         st.info(f'Give exactly one of identity or tag for: {", ".join(missing)}. '
                 "Every speaker must be answered — an unidentified voice stops the minutes.")
         return answer, f'{len(missing)} speaker(s) still unanswered'
+    return answer, ""
+
+
+def _item_form(q, prompts, request_id):
+    """One value per label, for a question whose items are not voices — the criticality class.
+
+    The items carry no seconds or turns because nobody spoke; their `samples` are the answers the
+    asker suggests (the classes of the taxonomy), offered as a pick BESIDE free text and never
+    instead of it. The answer travels as the same MAPPING every other surface builds —
+    `{label: {"value": text}}` — so the completeness gate and the process contract stay generic.
+    """
+    st.divider()
+    if q.get("prompt"):
+        st.caption(q["prompt"])
+    answer, missing = {}, []
+    PICK_NONE = "— choose —"
+    for prompt in prompts:
+        typed, picked = "", ""
+        if prompt.samples:
+            c1, c2 = st.columns(2)
+            chosen = c1.selectbox(prompt.label, [PICK_NONE] + list(prompt.samples),
+                                  key=f"pick_{request_id}_{prompt.label}")
+            picked = "" if chosen == PICK_NONE else chosen
+            typed = c2.text_input(f"{prompt.label} — or type it",
+                                  key=f"val_{request_id}_{prompt.label}")
+        else:
+            typed = st.text_input(prompt.label, key=f"val_{request_id}_{prompt.label}")
+        value = typed.strip() or picked            # what someone typed wins over a pick
+        if value:
+            answer[prompt.label] = {"value": value}
+        else:
+            missing.append(prompt.label)
+    if missing:
+        st.info(f'Answer {", ".join(missing)} — approving is answering, and a blank is not an answer.')
+        return answer, f'{len(missing)} still unanswered'
     return answer, ""
 
 
@@ -667,7 +704,18 @@ def _review_page(reviewer):
         st.success(f"Recorded: {d}"); st.rerun()
     # An approval that asks a question is approved by ANSWERING it, so the button says so and is
     # disabled until every speaker has one — better than letting someone submit and be refused.
-    approve_label = "✅ Approve — start the minutes" if answer is not None else "✅ Approve — release for import"
+    # ...and says what approving STARTS, read from the continuation the asker declared. Guarded,
+    # because `continuation_of` refuses a process this build does not know — version skew between
+    # a review app and the workload that staged the approval — and a caption must not make the
+    # approval undecidable: the reviewer can still decline or comment.
+    try:
+        cont = contracts.continuation_of(p)
+    except ValueError as e:
+        cont = None
+        st.warning(f"This approval declares a continuation this build cannot start: {e}")
+    approve_label = (f"✅ Approve — start the {cont.starts}" if cont
+                     else "✅ Approve — record the answer" if answer is not None
+                     else "✅ Approve — release for import")
     if b1.button(approve_label, type="primary", disabled=bool(blocked),
                  help=blocked or None): _decide("approve")
     if b2.button("✏️ Request changes"): _decide("update")

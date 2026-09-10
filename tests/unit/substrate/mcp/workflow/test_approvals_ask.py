@@ -220,3 +220,18 @@ def test_asking_without_candidates_is_unchanged(tools):
     payload = approvals.status(out["request_id"], client=r)["payload"]
     assert speaker_candidates(payload) == []
     assert payload["answer_labels"] == ["SPEAKER_00"]
+
+
+def test_the_asker_declares_what_fields_an_answer_carries_and_speakers_stay_the_default(tools):
+    """The review app renders a question from this declaration — not from whether the items happen
+    to carry timings, which a diarizer may simply not report."""
+    from lab.platform.contracts import answer_fields
+    from lab.substrate import approvals
+    server, r = tools
+    voices = call(server, "approvals_ask", subject="sync", prompt="Who is each speaker?",
+                  items=[{"label": "SPEAKER_00"}], requester="wf-meeting")
+    classes = call(server, "approvals_ask", subject="class", prompt="Confirm the class.",
+                   items=[{"label": "criticality_class", "samples": ["routine"]}],
+                   fields=["value"], requester="wf-screening")
+    assert answer_fields(approvals.status(voices["request_id"], client=r)["payload"]) == ("identity", "tag")
+    assert answer_fields(approvals.status(classes["request_id"], client=r)["payload"]) == ("value",)

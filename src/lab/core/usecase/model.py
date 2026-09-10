@@ -19,6 +19,7 @@ from lab.core.usecase.predicates import normalise_value
 
 __all__ = [
     "ACTIVITIES", "AUDIENCES", "AUTHORISATIONS", "BLAST_RADII", "CRITICALITIES", "DETERMINISM",
+    "canonical_criticality",
     "DOMAINS", "EFFECTS", "FRESHNESS", "REVERSIBILITY", "SENSITIVITIES", "TRUST",
     "Step", "Workflow",
 ]
@@ -51,6 +52,22 @@ _VOCABULARY: dict[str, tuple[str, ...]] = {
 _CANONICAL: dict[str, dict[str, str]] = {
     facet: {normalise_value(v): v for v in values} for facet, values in _VOCABULARY.items()
 }
+
+
+_CANONICAL_CRITICALITY = {normalise_value(c): c for c in CRITICALITIES}
+
+
+def canonical_criticality(value: str) -> str:
+    """The published spelling of a criticality class, or a refusal naming the legal ones.
+
+    A human confirms the class in free text and `gates` compares it with `==` against this closed
+    set, so "Safety of Life" would otherwise fall through to the permissive branch — the one
+    direction whose failure drops controls. Hyphens, spaces and underscores are one spelling."""
+    key = normalise_value(str(value or "")).replace("_", "-").replace(" ", "-")
+    canonical = _CANONICAL_CRITICALITY.get(key) or _CANONICAL_CRITICALITY.get(key.replace("-", " "))
+    if canonical is None:
+        raise ValueError(f"{value!r} is not a published class; expected one of {list(CRITICALITIES)}")
+    return canonical
 
 
 def _checked(name: str, value: str) -> str:

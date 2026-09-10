@@ -352,3 +352,14 @@ def test_nothing_in_the_card_builder_dispatches_on_the_approval_kind():
         fn.body = fn.body[1:]
     code = ast.unparse(ast.Module(body=fn.body, type_ignores=[])).lower()
     assert "kind ==" not in code and "'ea-import'" not in code and "speaker" not in code
+
+
+def test_a_question_that_is_not_about_voices_shows_the_choices_not_zero_turns():
+    """The asker declared `fields: [value]` — nobody spoke, so timings would be a lie on the card;
+    what a person needs is the choices the asker suggested."""
+    card = _envelope({"question": {"prompt": "Confirm the class.", "fields": ["value"],
+                                   "items": [{"label": "criticality_class",
+                                              "samples": ["routine", "business-critical"]}]},
+                      "answer_labels": ["criticality_class"], "answer_required": True})
+    body = _text(card)
+    assert "routine · business-critical" in body and "0 turns" not in body

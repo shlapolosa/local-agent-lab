@@ -5,6 +5,7 @@ artifacts` modules swapped into the app's namespace. Offline: no Redis, no gatew
 Asserts BEHAVIOUR: which decision is published, what Submit publishes for N files, the Runs board
 row shape, the Mermaid highlight of the current node, artifact-unavailable degradation.
 Run: .venv/bin/python tests/unit/substrate/review/test_app_pages.py   (also pytest-compatible)"""
+import json
 import sys
 
 from lab.substrate import artifacts as real_artifacts
@@ -602,7 +603,7 @@ def test_an_unanswered_speaker_blocks_approval_rather_than_being_refused_after_t
 
 
 def test_a_complete_answer_is_recorded_with_the_decision():
-    ap, st = _answering(**{"✅ Approve — start the minutes": True,
+    ap, st = _answering(**{"✅ Approve — record the answer": True,
                            "Directory identity": "maria@contoso.com",
                            "or a free tag": ""})
     try:
@@ -708,7 +709,7 @@ def test_a_picked_attendee_becomes_the_identity_without_typing():
     """The point of the picker: a typed address fails LATE — it survives the gate and only breaks
     during attribution, when the person who could fix it is gone."""
     ap = FakeApprovals(items=[CANDIDATE_REQ])
-    install(FakeSt(**{"✅ Approve — start the minutes": True,
+    install(FakeSt(**{"✅ Approve — record the answer": True,
                       "Attended this meeting": "Sam Patel <sam@contoso.com>",
                       "Directory identity": "", "or a free tag": ""}),
             approvals=ap, store=_store_for(CANDIDATE_REQ))
@@ -724,7 +725,7 @@ def test_a_typed_identity_beats_the_pick():
     """The box is the more specific act. Silently overriding what somebody typed is how a form loses
     their trust."""
     ap = FakeApprovals(items=[CANDIDATE_REQ])
-    install(FakeSt(**{"✅ Approve — start the minutes": True,
+    install(FakeSt(**{"✅ Approve — record the answer": True,
                       "Attended this meeting": "Sam Patel <sam@contoso.com>",
                       "Directory identity": "typed@contoso.com", "or a free tag": ""}),
             approvals=ap, store=_store_for(CANDIDATE_REQ))
@@ -748,7 +749,7 @@ def test_the_free_tag_still_wins_for_someone_outside_the_directory():
     """Attending is not speaking and not everyone in the room is in the directory — the picker must
     never become a constraint."""
     ap = FakeApprovals(items=[CANDIDATE_REQ])
-    install(FakeSt(**{"✅ Approve — start the minutes": True,
+    install(FakeSt(**{"✅ Approve — record the answer": True,
                       "Attended this meeting": "— type it below —",
                       "Directory identity": "", "or a free tag": "the vendor's architect"}),
             approvals=ap, store=_store_for(CANDIDATE_REQ))
@@ -757,3 +758,92 @@ def test_the_free_tag_still_wins_for_someone_outside_the_directory():
     except Rerun:
         pass
     assert all(v == {"tag": "the vendor's architect"} for v in ap.answers["apr-pick"].values())
+
+
+# ============================================================ a question that is not about voices
+CLASS_REQ = {
+    "request_id": "apr-c", "subject": "Confirm the criticality class of a submitted use case",
+    "requester": "wf-usecase-screening", "status": "pending",
+    "created_at": "2026-09-10T10:00:00+00:00", "trace_id": "",
+    "payload": {
+        "question": {"prompt": "Confirm the criticality class derived for this use case.",
+                     "fields": ["value"],
+                     "items": [{"label": "criticality_class",
+                                "samples": ["routine", "business-critical", "safety-of-life"]},
+                               {"label": "justification", "samples": []}]},
+        "answer_labels": ["criticality_class", "justification"], "answer_required": True,
+        "continuation": {"process": "use_case_design", "answer_input": "criticality",
+                         "inputs": {"submission_ref": "art://s/sub.json",
+                                    "screening_ref": "art://s/scr.json"}}},
+}
+
+
+def _classing(**widgets):
+    ap = FakeApprovals(items=[CLASS_REQ])
+    st = install(FakeSt(**widgets), approvals=ap, store=_store_for(CLASS_REQ))
+    return ap, st
+
+
+def test_a_question_that_is_not_about_voices_is_not_asked_as_one():
+    """The criticality gate's items carry no seconds or turns — nobody spoke. Rendering them as
+    speakers put the three classes on screen as "verbatim lines" under "Who is each speaker?", and
+    the reviewer's answer landed in a `tag` field meant for a person outside the directory."""
+    ap, st = _classing()
+    APP._review_page("ann")
+    assert not st.said("subheader", "Who is each speaker?")
+    assert st.said("caption", "Confirm the criticality class derived for this use case.")
+    assert st.said("selectbox", "criticality_class")
+    assert st.said("text_input", "justification")
+    assert ap.decisions == []                                   # nothing answered yet -> blocked
+
+
+def test_a_pick_and_a_typed_justification_travel_as_one_value_each():
+    ap, st = _classing(**{"✅ Approve — start the design": True,
+                          "criticality_class": "business-critical",
+                          "justification": "wrong verdicts mis-allocate investment"})
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert ap.decisions and ap.decisions[0][:2] == ("apr-c", "approve")
+    assert ap.answers["apr-c"] == {"criticality_class": {"value": "business-critical"},
+                                   "justification": {"value": "wrong verdicts mis-allocate investment"}}
+
+
+def test_a_speaker_question_whose_provider_reported_no_timings_is_still_a_speaker_question():
+    """The kind of question is what the asker DECLARED, never inferred from optional numbers: a
+    diarizer that reports no durations must not turn the line-up into free-text boxes whose answer
+    the minutes run would refuse an hour later."""
+    silent = json.loads(json.dumps(QUESTION_REQ))
+    for item in silent["payload"]["question"]["items"]:
+        item["seconds"], item["turns"] = 0, 0
+    ap = FakeApprovals(items=[silent])
+    st = install(FakeSt(), approvals=ap, store=_store_for(silent))
+    APP._review_page("ann")
+    assert st.said("subheader", "Who is each speaker?")
+    assert st.said("text_input", "Directory identity")
+
+
+def test_what_someone_typed_wins_over_a_pick_in_the_item_form():
+    ap, st = _classing(**{"✅ Approve — start the design": True,
+                          "criticality_class": "routine",
+                          "criticality_class — or type it": "safety-of-life",
+                          "justification": "a wrong verdict can hurt a patient"})
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert ap.answers["apr-c"]["criticality_class"] == {"value": "safety-of-life"}
+
+
+def test_a_continuation_this_build_cannot_start_leaves_the_approval_decidable():
+    """Version skew: a review app one commit behind the workload that staged the approval. The
+    reviewer must still be able to decline or comment — a traceback instead of the page makes the
+    gate unusable for exactly the approvals the newer workload produces."""
+    skewed = json.loads(json.dumps(CLASS_REQ))
+    skewed["payload"]["continuation"]["process"] = "not_a_process_yet"
+    ap = FakeApprovals(items=[skewed])
+    st = install(FakeSt(), approvals=ap, store=_store_for(skewed))
+    APP._review_page("ann")
+    assert st.said("warning", "not_a_process_yet")
+    assert st.said("button", "Decline")

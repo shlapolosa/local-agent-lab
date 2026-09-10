@@ -287,3 +287,43 @@ def test_a_falsy_but_real_value_is_an_answer():
     future question that is not about speakers."""
     from lab.platform.contracts import check_answer
     assert check_answer({"answer_labels": ["n"]}, {"n": 0}) == {"n": 0}
+
+
+# ------------------------------------------------------------------ reading ONE value out of an answer
+def test_answer_value_is_the_single_value_of_a_mapping_entry():
+    """A MAPPING answer is {label: {field: value}} — the inner object exists so a speaker can be
+    an identity OR a tag. A question with one thing to say per label (a criticality class) still
+    travels in that shape, and its consumer reads the one value without caring what the surface
+    called the field."""
+    assert C.answer_value({"value": "business-critical"}) == "business-critical"
+    assert C.answer_value({"tag": " routine "}) == "routine"
+
+
+@pytest.mark.parametrize("bad", [None, "", {}, "business-critical", {"a": "x", "b": "y"}])
+def test_answer_value_refuses_anything_but_one_field(bad):
+    with pytest.raises(ValueError, match="exactly one value"):
+        C.answer_value(bad)
+
+
+@pytest.mark.parametrize("bad", [{"value": "  "}, {"value": 3}])
+def test_answer_value_refuses_a_blank_or_non_string_value(bad):
+    with pytest.raises(ValueError, match="non-empty string"):
+        C.answer_value(bad)
+
+
+def test_the_asker_declares_the_fields_an_answer_carries():
+    """A surface renders what the PAYLOAD declares, never what it infers: a speaker question
+    answered as identity-or-tag and a class to confirm answered as one value are told apart by the
+    asker's own declaration. An approval staged before the declaration existed is a speaker
+    question, because that is the only kind there was."""
+    assert C.answer_fields({"question": {"fields": ["value"]}}) == ("value",)
+    assert C.answer_fields({"question": {"items": [{"label": "S0"}]}}) == ("identity", "tag")
+    assert C.answer_fields({}) == ("identity", "tag")
+
+
+def test_a_continuation_says_in_one_word_what_approving_starts():
+    """The registry's naming convention makes a process name's last segment a noun; the button on
+    every surface reads it from ONE place rather than each guessing."""
+    assert C.Continuation(process="use_case_design", inputs={}).starts == "design"
+    assert C.Continuation(process="transcript_to_minutes", inputs={}).starts == "minutes"
+    assert "answer_value" in C.__all__ and "answer_fields" in C.__all__

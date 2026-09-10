@@ -42,7 +42,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from lab.platform.contracts import (APPROVAL_FINAL, ApprovalKind, ApprovalStatus, ApprovalTools,
+from lab.platform.contracts import (
+    APPROVAL_FINAL, SPEAKER_FIELDS, ApprovalKind, ApprovalStatus, ApprovalTools,
                                     Continuation, Decision, SpeakerPrompt, import_artifacts,
                                     speaker_candidates)
 from lab.substrate import approvals
@@ -200,6 +201,12 @@ def register(server: LabServer) -> None:
                                                   "without it a channel has to guess from the "
                                                   "subject line, which is a guess that gets "
                                                   "quietly wrong.")] = "",
+        fields: Annotated[list[str] | None, Field(description="The fields each answer carries. Omit "
+                                                              "for a speaker line-up (identity or "
+                                                              "tag); pass [\"value\"] for a question "
+                                                              "with one thing to say per label, such "
+                                                              "as a class to confirm. Every surface "
+                                                              "renders the form from this.")] = None,
     ) -> dict:
         """Ask a HUMAN a question this run cannot answer itself, and finish.
 
@@ -229,7 +236,7 @@ def register(server: LabServer) -> None:
         picks = [c.to_dict() for c in
                  speaker_candidates({"question": {"candidates": candidates or []}})]
         payload = {"question": {"prompt": prompt, "items": [p.to_dict() for p in prompts],
-                                "fields": ["identity", "tag"], "candidates": picks},
+                                "fields": list(fields or SPEAKER_FIELDS), "candidates": picks},
                    # the completeness contract the gate will enforce, DECLARED by the asker — which
                    # is what keeps `check_answer` generic and the approval kind free of dispatch
                    "answer_labels": labels, "answer_required": True}

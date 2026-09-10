@@ -723,6 +723,40 @@ def _answered(value: Any) -> bool:
     return True                                   # a number or another scalar IS a value
 
 
+SPEAKER_FIELDS = ("identity", "tag")
+
+
+def answer_fields(payload: dict[str, Any]) -> tuple[str, ...]:
+    """The fields an answer carries per label, as the ASKER declared them on `question.fields`.
+
+    A surface renders what the payload declares, never what it infers: a speaker line-up is answered
+    as identity-or-tag and a class to confirm as one `value`, and the two are told apart here rather
+    than by whether the items happen to carry timings — which a diarizer may simply not report. An
+    approval staged before the declaration existed is a speaker question, the only kind there was.
+    """
+    fields = ((payload or {}).get("question") or {}).get("fields") or ()
+    return tuple(str(f) for f in fields) or SPEAKER_FIELDS
+
+
+def answer_value(entry: Any) -> str:
+    """The ONE value a MAPPING entry carries, for a question with one thing to say per label.
+
+    A MAPPING answer is `{label: {field: value}}`. The inner object exists so a speaker can be an
+    identity OR a tag; a question with a single answer per label — the criticality class — travels
+    in the same shape so every surface and the completeness gate stay generic, and its consumer
+    reads the one value through here without caring what the surface called the field. Two fields
+    is not one answer, and a blank is not one either: both refuse, because the class this reads
+    decides the rigour of everything downstream and a guess in either direction drops controls.
+    """
+    if not isinstance(entry, dict) or len(entry) != 1:
+        given = sorted(entry) if isinstance(entry, dict) else type(entry).__name__
+        raise ValueError(f"an answer carries exactly one value per label, got {given}")
+    (field, value), = entry.items()
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"the one value for {field!r} must be a non-empty string")
+    return value.strip()
+
+
 # ----------------------------------------------------------------------------- what approving releases
 @dataclass(frozen=True)
 class Continuation:
@@ -750,6 +784,13 @@ class Continuation:
         if self.answer_input and self.answer_input not in {f.name for f in spec.inputs}:
             raise ValueError(f"{self.answer_input!r} is not an input of {self.process} — "
                              f"one of {sorted(f.name for f in spec.inputs)}")
+
+    @property
+    def starts(self) -> str:
+        """The one word for what approving starts — the process name's last segment, which the
+        registry's naming convention makes a noun (design, minutes, provisioning). Declared here so
+        every surface's button reads the same word instead of each guessing."""
+        return self.process.rsplit("_", 1)[-1]
 
     def to_dict(self) -> dict[str, Any]:
         return {"process": self.process, "inputs": dict(self.inputs),
@@ -1514,6 +1555,7 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
            "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "check_answer",
+           "answer_value", "answer_fields", "SPEAKER_FIELDS",
            "Continuation", "continuation_of",
            "WorkflowStatus", "WORKFLOW_FINISHED", "WORKFLOW_OPEN", "WorkflowRequest",
            "InputKind", "InputField", "ProcessSpec", "PROCESSES", "VISIO_TO_ARCHIMATE",

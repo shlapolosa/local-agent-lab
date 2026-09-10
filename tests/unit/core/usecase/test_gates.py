@@ -155,3 +155,17 @@ def test_a_halting_verdict_says_so_so_the_workflow_can_stop():
                                   capability_meets_target=False)
     assert reject.halts is True
     assert proceed.halts is False
+
+
+def test_a_confirmed_class_is_canonicalised_before_it_can_reach_a_gate():
+    """`gates` compares the class with `==` against a closed set, so "Safety of Life" typed by a
+    reviewer would fall through to the permissive branch — the one direction whose failure drops
+    controls. The published spelling is the only one that travels."""
+    import pytest
+    from lab.core.usecase.model import canonical_criticality, CRITICALITIES
+    for spelt in ("Safety of Life", "safety-of-life", " SAFETY_OF_LIFE ", "the safety of life"):
+        assert canonical_criticality(spelt) == "safety-of-life", spelt
+    assert canonical_criticality("Business critical") == "business-critical"
+    with pytest.raises(ValueError, match="published class"):
+        canonical_criticality("mission-critical")
+    assert all(canonical_criticality(c) == c for c in CRITICALITIES)
