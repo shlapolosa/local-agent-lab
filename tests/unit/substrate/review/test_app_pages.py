@@ -272,21 +272,32 @@ def test_a_use_case_submission_carries_its_intake_mapping_and_its_document():
     assert inputs["submitter"] == "ba@x.ae"
 
 
+def _intake_corpus():
+    from fixtures.reference import FakeReferenceLibrary
+    from fixtures.usecase_corpus import seeded
+    return FakeReferenceLibrary([seeded("intake-fields")])
+
+
 def test_the_intake_form_suggests_the_field_groups_the_governed_artifact_publishes():
     """Suggestions only — every row stays editable, because a submission that does not fit the
-    suggested shape must still be possible to make."""
-    st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
-    APP._submit_page("ann")
+    suggested shape must still be possible to make. Read from the CORPUS under a pin, and
+    recorded there, never from the packaged seed."""
+    library = _intake_corpus()
+    with APP.container.reference.override(library):
+        st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
+        APP._submit_page("ann")
     rows = st.session_state["map_use_case_screening_intake"]
     labels = {r["label"] for r in rows}
-    assert {"Effort table", "Quality baseline", "Sensitivity flags"} <= labels
+    assert {"Effort table", "Quality baseline", "Sensitivity flags", "Volume assumptions"} <= labels
     assert all(r["value"] == "" for r in rows)
+    assert [c.field for c in library.consumption] == ["intake"], "the read is in the trail"
 
 
 def test_a_missing_suggestion_artifact_leaves_the_form_free_rather_than_refusing(monkeypatch):
     monkeypatch.setitem(APP.MAPPING_ROWS, ("use_case_screening", "intake"), "no-such-artifact")
-    st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
-    APP._submit_page("ann")
+    with APP.container.reference.override(_intake_corpus()):
+        st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
+        APP._submit_page("ann")
     assert st.session_state["map_use_case_screening_intake"] == [{"label": "", "value": ""}]
 
 

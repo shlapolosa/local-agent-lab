@@ -16,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[2] / "src" / "lab"
 RATCHET = {
     "core/usecase/composition.py",            # default-argument fallback to the packaged families
     "core/usecase/obligations.py",            # default-argument fallback to the packaged guardrails
-    "substrate/review/app.py",                # the Submit form's intake fields
 }
 
 READS = {"artifact", "guardrails", "live_guardrails", "names"}

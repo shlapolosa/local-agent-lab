@@ -60,24 +60,36 @@ UPLOAD_TYPES = {
 #: key/value grid. Suggestions ONLY: every row is editable and rows can be added, because a
 #: submission that does not fit the suggested shape must still be possible to make.
 MAPPING_ROWS = {
-    ("use_case_screening", "intake"): "intake_fields",
+    ("use_case_screening", "intake"): "intake-fields",       # the corpus ARTIFACT, read under a pin
 }
 
 
 def _mapping_labels(process: str, field: str) -> list[str]:
     """The field groups a governed artifact publishes for this mapping, or none.
 
-    Read from the seed rather than retyped: these are the same field groups the valuation steps
-    consume, and two copies would drift the moment one of them was corrected."""
+    Read from the CORPUS under a pin taken once per session — the same artifact, at the released
+    version, that the valuation steps consume — and recorded in the consumption trail like any
+    other read. Never the packaged seed: the form would otherwise suggest the fields the image
+    was built with, not the ones Finance has released since. A corpus that cannot answer is a
+    suggestion missing, never a submission refused."""
     artifact = MAPPING_ROWS.get((process, field))
     if not artifact:
         return []
+    cache = st.session_state.setdefault("intake_labels", {})
+    if artifact in cache:
+        return list(cache[artifact])
     try:
-        from lab.core.usecase import seed
-        groups = seed.artifact(artifact)["field_groups"]
-        return [row[0] for row in groups["rows"] if row and row[0]]
-    except Exception:                      # a missing or renamed artifact is a suggestion missing,
-        return []                          # never a submission refused
+        from lab.core.reference.model import RunRef
+        library = container.reference()
+        pin = library.pin([artifact])
+        rows = library.lookup(pin, record_type="field-group", key={},
+                              run=RunRef(run_id="review-app", process="review-app", field=field),
+                              artifact_id=artifact).records
+        labels = [str(r.body.get("Field group") or "").strip() for r in rows]
+        cache[artifact] = [label for label in labels if label]
+    except Exception:                      # a missing or unpublished artifact is a suggestion
+        cache[artifact] = []               # missing, never a submission refused
+    return list(cache[artifact])
 
 
 def _mapping_editor(process: str, field, key: str) -> dict:
