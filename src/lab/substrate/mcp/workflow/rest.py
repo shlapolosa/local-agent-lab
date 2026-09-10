@@ -176,7 +176,10 @@ def _decide_route(server):
 
 def _brief(state) -> dict:
     return {k: state.get(k) for k in ("request_id", "kind", "subject", "requester", "status",
-                                      "created_at", "trace_id") if state.get(k)}
+                                      "created_at", "trace_id",
+                                      # what an approval RELEASED, or why it could not
+                                      "released_request_id", "released_process",
+                                      "continuation_error") if state.get(k)}
 
 
 def routes(server) -> list[Route]:

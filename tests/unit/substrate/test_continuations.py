@@ -49,6 +49,15 @@ def _drain(r):
 
 
 # ------------------------------------------------------------------ the happy path
+def test_an_approval_records_the_run_it_released(r):
+    """A person following the decision must be able to find the run it started."""
+    rid = _ask(r)
+    _decide(r, rid)
+    started = _drain(r)
+    assert started and r.hget(f"approvals:req:{rid}", "released_request_id") == started[0]
+    assert r.hget(f"approvals:req:{rid}", "released_process") == "visio_to_archimate"
+
+
 def test_approving_starts_the_next_run(r):
     rid = _ask(r)
     _decide(r, rid)

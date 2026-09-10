@@ -61,6 +61,10 @@ def _handle(entry_id: str, fields: dict, *, client) -> str | None:
         started, duplicate = workflows.submit(
             cont.process, inputs, cont.requester or fields.get("actor") or SERVICE,
             idempotency_key=rid, client=client)
+        # The approval says which run it released, so a person — or a driver — can follow the
+        # decision into the design run without a listing nothing exposes.
+        client.hset(f"approvals:req:{rid}", mapping={"released_request_id": started,
+                                                     "released_process": cont.process})
         print(f"{rid} approved -> {cont.process} {started}"
               f"{' (already queued)' if duplicate else ''}", flush=True)
         return None if duplicate else started
