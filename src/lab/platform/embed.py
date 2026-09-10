@@ -15,6 +15,8 @@ retrieval is quietly, permanently wrong. Every one of those is a refusal.
 from __future__ import annotations
 
 import json
+import time
+import urllib.error
 from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
 from lab.platform.webhook import post_json
@@ -31,6 +33,11 @@ PURPOSES = {"document": "search_document", "query": "search_query"}
 #: that runs without a GPU — an index build is an operator step, and waiting is the right answer.
 DEFAULT_BATCH = 32
 DEFAULT_TIMEOUT_S = 300
+#: A batch that fails on TRANSPORT (a 5xx from a gateway mid-restart, a dropped connection) is
+#: retried a few times with a pause — an index build is fifty batches and one blip must not cost
+#: the other forty-nine. A real answer that is wrong (bad JSON, a short batch) is never retried.
+RETRIES = 4
+RETRY_PAUSE_S = 15.0
 
 
 class EmbedError(RuntimeError):
@@ -57,13 +64,16 @@ class GatewayEmbedder:
 
     def __init__(self, *, base_url: str, credential: str, model: str, dim: int,
                  http: Callable[..., str] | None = None,
-                 batch_size: int = DEFAULT_BATCH, timeout: int = DEFAULT_TIMEOUT_S) -> None:
+                 batch_size: int = DEFAULT_BATCH, timeout: int = DEFAULT_TIMEOUT_S,
+                 retries: int = RETRIES, pause: Callable[[float], None] = time.sleep) -> None:
         self.base_url = base_url.rstrip("/")
         self.credential = credential
         self.model = model
         self.dim = int(dim)
         self.batch_size = max(1, int(batch_size))
         self.timeout = int(timeout)
+        self.retries = max(0, int(retries))
+        self._pause = pause
         self._http = http or _http
 
     def embed(self, texts: Sequence[str], *, purpose: str) -> list[list[float]]:
@@ -81,12 +91,24 @@ class GatewayEmbedder:
         return out
 
     def _one_batch(self, chunk: list[str], input_type: str) -> list[list[float]]:
-        body = self._http(
-            f"{self.base_url}/v1/embeddings",
-            {"model": self.model, "input": chunk, "input_type": input_type},
-            {"Authorization": f"Bearer {self.credential}",
-             "Content-Type": "application/json"},
-            self.timeout)
+        attempt = 0
+        while True:
+            try:
+                body = self._http(
+                    f"{self.base_url}/v1/embeddings",
+                    {"model": self.model, "input": chunk, "input_type": input_type},
+                    {"Authorization": f"Bearer {self.credential}",
+                     "Content-Type": "application/json"},
+                    self.timeout)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code < 500 or attempt >= self.retries:
+                    raise
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt >= self.retries:
+                    raise
+            attempt += 1
+            self._pause(RETRY_PAUSE_S * attempt)
         return _vectors(body, expected=len(chunk), dim=self.dim, model=self.model)
 
 

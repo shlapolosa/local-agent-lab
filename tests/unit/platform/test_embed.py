@@ -150,3 +150,38 @@ def test_a_batch_is_given_the_time_a_cpu_embedder_needs_and_is_not_too_large():
     assert len(http.calls) == 3 and len(http.calls[0]["payload"]["input"]) == 32
     from lab.platform.embed import DEFAULT_TIMEOUT_S
     assert DEFAULT_TIMEOUT_S >= 120
+
+
+def test_a_transient_gateway_failure_is_retried_and_a_real_refusal_is_not():
+    """Fifty batches, one 502 from a gateway mid-restart: the other forty-nine must not be lost.
+    A 4xx is an answer and is raised at once."""
+    import urllib.error
+    calls = {"n": 0}
+    good = FakeHttp()
+
+    def flaky(url, payload, headers=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.HTTPError(url, 502, "Bad Gateway", {}, None)
+        return good(url, payload, headers=headers, timeout=timeout)
+    paused = []
+    e = GatewayEmbedder(base_url="http://gw:4000", credential="k", model="m", dim=4, http=flaky,
+                        retries=4, pause=paused.append)
+    assert len(e.embed(["a"], purpose="document")) == 1
+    assert calls["n"] == 3 and len(paused) == 2 and paused[1] > paused[0]
+
+    def refused(url, payload, headers=None, timeout=None):
+        raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+    with pytest.raises(urllib.error.HTTPError):
+        GatewayEmbedder(base_url="http://gw:4000", credential="k", model="m", dim=4, http=refused,
+                        pause=paused.append).embed(["a"], purpose="document")
+
+
+def test_retries_are_bounded():
+    import urllib.error
+    def down(url, payload, headers=None, timeout=None):
+        raise urllib.error.URLError("refused")
+    e = GatewayEmbedder(base_url="http://gw:4000", credential="k", model="m", dim=4, http=down,
+                        retries=2, pause=lambda s: None)
+    with pytest.raises(urllib.error.URLError):
+        e.embed(["a"], purpose="document")
