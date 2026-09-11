@@ -148,6 +148,8 @@ def handle_event(entry_id: str, fields: dict, *, client) -> str | None:
     try:
         got = submit_for(event, client=client)
         fabric_events.ack(entry_id, client=client)
+        if got:
+            print(f"[ingress] {event.pointer_key}: artifact_intake {got[0]}{' (already queued)' if got[1] else ''}", flush=True)
         return got[0] if got and not got[1] else None
     except Exception as e:                    # noqa: BLE001 — leave unacked for reclaim, then park
         if fabric_events.attempts(entry_id, client=client) >= fabric_events.MAX_ATTEMPTS:

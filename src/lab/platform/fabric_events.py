@@ -71,6 +71,7 @@ def dead_letter(entry_id: str, fields: dict, reason: str, *, client=None) -> Non
     r.xadd(DEAD, {**{k: str(v) for k, v in fields.items()}, "reason": reason[:300], "entry_id": entry_id},
            maxlen=MAXLEN, approximate=True)
     ack(entry_id, client=r)
+    print(f"[fabric:events] dead-lettered {entry_id} ({fields.get('pointer', '?')[:80]}): {reason[:160]}", flush=True)
 
 
 # ----------------------------------------------------------------------------- the loop guard's memory
