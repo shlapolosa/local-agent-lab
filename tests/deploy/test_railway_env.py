@@ -569,3 +569,9 @@ def test_the_derivation_servers_read_the_corpus_through_reference_mcp_and_hold_n
         assert "REFERENCE_DB_URL" not in env, role
         if role != "review":                       # review holds the LiteLLM DSN for artifacts, not the corpus
             assert "DATABASE_URL" not in env, role
+
+
+def test_the_embedder_serves_a_query_beside_a_publish_batch_not_behind_it():
+    """ollama serialises requests by default: during the v0.28 publish every live relevance query
+    queued behind a 32-text batch (~90 s) and the matcher's search timed out (11 Sep 2026)."""
+    assert "OLLAMA_NUM_PARALLEL=4" in railway.EMBED_CMD

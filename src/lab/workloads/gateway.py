@@ -20,6 +20,7 @@ Two behaviours are the reason this is shared rather than copied:
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -134,6 +135,9 @@ async def preflight_stores(gateway_url: str, headers: Mapping[str, str],
             f"{sorted(listed)}")
 
 
+SEARCH_TIMEOUT_S = 120
+
+
 async def vector_search(gateway_url: str, headers: Mapping[str, str], store: str, query: str, *,
                         filters: Mapping[str, Any], k: int = 8, http=None) -> list[dict]:
     """ONE relevance query over a governed store, through the gateway.
@@ -144,7 +148,10 @@ async def vector_search(gateway_url: str, headers: Mapping[str, str], store: str
     and `attributes` with the `record_id` an exact read can follow."""
     url = f"{gateway_url.rstrip('/')}/v1/vector_stores/{store}/search"
     body = {"query": query, "max_num_results": int(k), "filters": dict(filters)}
-    raw = await asyncio.to_thread(http or post_json, url, body, headers=dict(headers or {}))
+    # The façade embeds the query first; under a publish the embedder answers in tens of seconds,
+    # not the webhook default's 30 (measured 11 Sep 2026: every search timed out mid-publish).
+    poster = http or functools.partial(post_json, timeout=SEARCH_TIMEOUT_S)
+    raw = await asyncio.to_thread(poster, url, body, headers=dict(headers or {}))
     return list(json.loads(raw).get("data") or [])
 
 

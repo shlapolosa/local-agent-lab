@@ -588,7 +588,7 @@ EMBED_IMAGE = "ollama/ollama:0.34.0"
 EMBED_MODEL = "nomic-embed-text"
 # `|| exit 1`: a pull that fails must take the service down (ALWAYS restarts it, loudly in its
 # logs) rather than leave a healthy-looking server that refuses every search at query time.
-EMBED_CMD = (f"sh -c 'OLLAMA_HOST=[::]:11434 OLLAMA_KEEP_ALIVE=-1 ollama serve & sleep 5; "
+EMBED_CMD = (f"sh -c 'OLLAMA_HOST=[::]:11434 OLLAMA_KEEP_ALIVE=-1 OLLAMA_NUM_PARALLEL=4 ollama serve & sleep 5; "
              f"ollama pull {EMBED_MODEL} || exit 1; wait'")
 
 

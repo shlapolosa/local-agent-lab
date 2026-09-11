@@ -30,3 +30,13 @@ def test_a_recall_drop_beyond_tolerance_is_a_regression_and_nothing_else_is():
     fell = ev.regressions(now, base)
     assert fell == ["leaves/c1 recall 0.40 < baseline 0.50 (-0.10)"]
     assert ev.regressions(base, base) == []
+
+
+def test_a_pair_the_run_attempted_but_never_scored_is_a_regression_not_an_absence():
+    """A run of all-429s once reported "no regression": every row carried a note, `means` dropped
+    them all, and the baseline pair looked simply unmeasured."""
+    base = {"leaves": {"c1": {"recall": 0.5}}}
+    attempted = {"leaves": {"c1": [_row(0.0, 0.0, note="429")]}}
+    assert ev.regressions(ev.means(attempted), base, results_cases=attempted) == [
+        "leaves/c1: no run scored (every run failed) — baseline recall 0.50"]
+    assert ev.regressions({}, base, results_cases={}) == [], "not attempted is not a regression"

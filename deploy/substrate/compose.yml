@@ -51,7 +51,7 @@ services:
   embedder:                    # the corpus's embedding model — the substrate's own, internal only
     image: ollama/ollama:0.34.0
     command: ["sh", "-c", "ollama serve & sleep 5 && ollama pull nomic-embed-text && wait"]
-    environment: { OLLAMA_HOST: "[::]:11434" }
+    environment: { OLLAMA_HOST: "[::]:11434", OLLAMA_NUM_PARALLEL: "4" }
     volumes: [ollama-models:/root/.ollama]
     restart: unless-stopped
     networks: [substrate]

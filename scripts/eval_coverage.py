@@ -139,15 +139,22 @@ def means(results: dict) -> dict:
     return out
 
 
-def regressions(current: dict, baseline: dict, tolerance: float = 0.05) -> list[str]:
+def regressions(current: dict, baseline: dict, tolerance: float = 0.05,
+                results_cases: dict | None = None) -> list[str]:
     """What fell below the recorded baseline by more than `tolerance` recall — the sentence a
     change has to answer before it ships. A matcher/case the baseline never scored is not a
-    regression; an improvement is reported by the caller, never here."""
+    regression; an improvement is reported by the caller, never here. `results_cases` (matcher -> {case: ...}) says which pairs this run
+    ATTEMPTED: one attempted and never scored — every run failed — is a regression too,
+    because "not scored" and "scored zero" must not both read as "no regression"
+    (11 Sep 2026: a run of all-429s reported none)."""
     out = []
     for matcher, cases in sorted(baseline.items()):
         for case, base in sorted(cases.items()):
             now = (current.get(matcher) or {}).get(case)
             if now is None:
+                if case in (results_cases or {}).get(matcher, {}):
+                    out.append(f"{matcher}/{case}: no run scored (every run failed) — baseline "
+                               f"recall {base['recall']:.2f}")
                 continue
             drop = base["recall"] - now["recall"]
             if drop > tolerance:
@@ -261,7 +268,8 @@ async def main() -> int:
                                          "scheme": args.scheme, "means": current}, indent=2) + "\n")
         print(f"baseline recorded: {base_path}")
     elif base_path.exists():
-        fell = regressions(current, json.loads(base_path.read_text()).get("means") or {})
+        fell = regressions(current, json.loads(base_path.read_text()).get("means") or {},
+                           results_cases=results)
         if fell:
             print(f"\nREGRESSION against {base_path}: {fell}")
             rc = 2

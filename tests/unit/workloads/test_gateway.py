@@ -181,3 +181,9 @@ def test_survive_restart_retries_across_the_waits_then_gives_up_as_it_was():
     with pytest.raises(_Status):
         asyncio.run(G.survive_restart(dead, waits=(1, 1), sleep=nap))
     assert slept == [1, 2, 1, 1], "the waits are exhausted, then the failure is the real one"
+
+
+def test_a_relevance_search_waits_longer_than_a_webhook_for_the_embedder():
+    from lab.workloads import gateway as G
+    from lab.platform import webhook
+    assert G.SEARCH_TIMEOUT_S >= 120 > webhook.TIMEOUT_S
