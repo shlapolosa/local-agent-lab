@@ -275,6 +275,8 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET", "BIND_HOST", "SEMANTIC_MCP_PORT",
         "ARTIFACTS_URL", "DATABASE_URL",           # semantic_store_spec / semantic_export_archimate write spec refs
         "FABRIC_DB_URL",                           # the fabric's catalog tables (falls back to DATABASE_URL)
+        "REDIS_URL",                               # rung_store: the index of the latest rung-graph refs + the single-writer lock.
+                                                   # Missing here = boot() crashes on 127.0.0.1:6379 (measured, first cloud deploy)
         "GATEWAY_URL", "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",   # the fabric's index posts to the gateway
         _OTLP, "REFERENCE_MODELS_DIR",
     ],

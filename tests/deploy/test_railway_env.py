@@ -257,10 +257,12 @@ def test_graph_mcp_holds_its_provider_credential_the_bucket_and_nothing_else():
 
 def test_semantic_mcp_is_credential_free():
     """No upstream credential ever: the fabric's index posts to the GATEWAY (a coordinate, and a virtual key
-    when one is configured — `REFERENCE_EMBED_KEY`, like reference-mcp), never to a model provider."""
+    when one is configured — `REFERENCE_EMBED_KEY`, like reference-mcp), never to a model provider. Redis
+    because the rung store keeps its index of latest graph refs there: the first cloud deploy crashed at
+    boot on 127.0.0.1:6379 for want of this one key."""
     env = railway.env_for_role("semantic-mcp", FAKE)
     assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "ARTIFACTS_URL", "DATABASE_URL",
-                        "OTEL_EXPORTER_OTLP_ENDPOINT", "GATEWAY_URL"}
+                        "OTEL_EXPORTER_OTLP_ENDPOINT", "GATEWAY_URL", "REDIS_URL"}
     assert not _has(env, "ADOIT_", "LITELLM_", "OLLAMA_", "ANTHROPIC_", "GRAPH_", "ENTRA_")
 
 
