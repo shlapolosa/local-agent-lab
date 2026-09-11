@@ -64,6 +64,15 @@ def test_the_intake_may_ask_and_the_publish_may_only_read_the_gate():
         assert ApprovalTools.decide not in _all(grant)
 
 
+def test_the_substrate_identity_can_list_and_put_but_never_subscribe():
+    """The projector writes pages and the reconciler lists drives with the curator key; neither may create a
+    subscription (egress to a caller-supplied URL) — that stays with an operator holding the master key."""
+    from lab.platform.contracts import CollabTools
+    granted = set(GRANTS["fabric-curator"][CollabTools.SERVER])
+    assert {CollabTools.list, CollabTools.item, CollabTools.put} <= granted
+    assert not granted & set(CollabTools.SUBSCRIBE)
+
+
 def test_the_intake_holds_no_collaboration_write():
     """Drafts are lab artifacts until a person approves them; the only content write the fabric makes is
     the projector's, with the curator key."""

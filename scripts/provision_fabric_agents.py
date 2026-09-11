@@ -44,6 +44,10 @@ PUBLISH_TOOLS = {
 }
 CURATOR_TOOLS = {
     SemanticTools.SERVER: list(SemanticTools.WRITE) + list(SemanticTools.READ),   # PIPELINE + PROMOTE: a channel
+    # ...and the collaboration verbs the projector (put) and the reconciler (list, item) act with. Measured
+    # on the first cloud sweep: `tool *collab_list not exposed by gateway` — a grant table that named
+    # only the semantic server.
+    CollabTools.SERVER: [CollabTools.list, CollabTools.item, CollabTools.put, CollabTools.capabilities],
 }
 
 
