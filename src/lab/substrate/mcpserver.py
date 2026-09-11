@@ -162,8 +162,34 @@ def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = 
     # what it actually is, and a deploy log is where a person looks when a tool call fails oddly.
     print(f"{service}: serving on http://{config.BIND_HOST}:{port}{path}  {config.build_id()}",
           flush=True)
-    uvicorn.run(app_for(mcp, path=path, routes=routes, public_paths=public_paths), host=config.BIND_HOST, port=port,
-                log_level=log_level)
+    app = app_for(mcp, path=path, routes=routes, public_paths=public_paths)
+    sockets = dual_stack_sockets(port) if config.BIND_HOST == "::" else None
+    if sockets is None:
+        uvicorn.run(app, host=config.BIND_HOST, port=port, log_level=log_level)
+        return
+    uvicorn.Server(uvicorn.Config(app, host=config.BIND_HOST, port=port, log_level=log_level)).run(sockets=sockets)
 
 
-__all__ = ["LabServer", "span", "serve", "app_for", "LOOPBACK", "error_response", "json_body"]
+def dual_stack_sockets(port: int) -> list:
+    """One IPv6 socket AND one IPv4 socket on `port`, for a server that must answer BOTH the private
+    network and the public edge.
+
+    asyncio (and so uvicorn) sets IPV6_V6ONLY on a `::` listener, so a host of `::` is IPv6-only: the
+    gateway reaches an MCP server over Railway's IPv6-only private DNS, but the public edge that a
+    provider's change notification arrives through is IPv4 — measured 11 Sep 2026, graph-mcp's public
+    domain answered every request with 502 and Graph refused the subscription. Two sockets, one server."""
+    import socket
+    made = []
+    for family, host in ((socket.AF_INET6, "::"), (socket.AF_INET, "0.0.0.0")):
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if family == socket.AF_INET6:
+            sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)     # the IPv4 side is its own socket
+        sock.bind((host, port if made == [] else made[0].getsockname()[1]))
+        sock.listen(128)
+        sock.set_inheritable(True)
+        made.append(sock)
+    return made
+
+
+__all__ = ["LabServer", "span", "serve", "app_for", "dual_stack_sockets", "LOOPBACK", "error_response", "json_body"]

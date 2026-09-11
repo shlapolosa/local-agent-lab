@@ -310,3 +310,32 @@ def test_a_server_can_carry_a_second_ingress_beside_its_mcp_path():
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+
+def test_a_double_colon_bind_serves_both_stacks(monkeypatch):
+    """`::` must answer the private IPv6 network AND the IPv4 public edge (a provider's change notification
+    arrives through the latter). asyncio makes a `::` listener IPv6-only, so the server binds two sockets."""
+    import socket
+    import uvicorn
+    from lab.platform import config
+    from lab.substrate import mcpserver as ms
+    socks = ms.dual_stack_sockets(0)
+    try:
+        assert [s.family for s in socks] == [socket.AF_INET6, socket.AF_INET]
+        assert socks[0].getsockname()[1] == socks[1].getsockname()[1] != 0
+        assert socks[0].getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY) == 1
+    finally:
+        for s in socks:
+            s.close()
+    ran = {}
+    monkeypatch.setattr(config, "BIND_HOST", "::"); monkeypatch.setattr(config, "MCP_SHARED_SECRET", "shh")
+    monkeypatch.setattr(ms, "dual_stack_sockets", lambda port: ["s6", "s4"])
+
+    class FakeServer:
+        def __init__(self, cfg): ran["host"], ran["port"] = cfg.host, cfg.port
+        def run(self, sockets=None): ran["sockets"] = sockets
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: ran.setdefault("plain", True))
+    ms.serve(ms.LabServer("dual-mcp", 9999).mcp, "dual-mcp", 9999)
+    assert ran == {"host": "::", "port": 9999, "sockets": ["s6", "s4"]}, ran
