@@ -21,7 +21,8 @@ from lab.workloads.artifact_publish import host as publish_host  # noqa: E402
 from lab.workloads.artifact_publish import workflow as publish  # noqa: E402
 import provision_fabric_agents as P  # noqa: E402
 
-GRANTS = {"fabric-intake": P.INTAKE_TOOLS, "fabric-publish": P.PUBLISH_TOOLS, "fabric-curator": P.CURATOR_TOOLS}
+GRANTS = {"fabric-intake": P.INTAKE_TOOLS, "fabric-publish": P.PUBLISH_TOOLS, "fabric-curator": P.CURATOR_TOOLS,
+          "fabric-bot": P.BOT_TOOLS}
 #: which team each host's identity belongs to (the script mints the key on that team)
 TEAM_OF = {intake_host.CLASSIFIER_PREFIX: "fabric-intake", intake_host.SYNTHESIS_PREFIX: "fabric-intake",
            publish_host.AGENT_PREFIX: "fabric-publish"}
@@ -50,8 +51,18 @@ def test_every_tool_a_workload_requires_is_granted_to_the_identity_its_host_uses
     assert not missing, f"{module.PROCESS} ({prefix}) requires ungranted tools: {missing}"
 
 
+def test_the_bot_reads_the_products_and_relays_a_persons_decision_and_nothing_else():
+    """The Copilot Studio agent: every product query, the approval list, and `approvals_decide` — which it may
+    hold ONLY because it authenticates a signed-in person and passes them as the actor. No pipeline write, no
+    PROMOTE (the curator applies what the bot relays), no ask (a bot does not raise questions to itself)."""
+    bot = _all(GRANTS["fabric-bot"])
+    assert set(P.BOT_TOOLS[SemanticTools.SERVER]) == set(SemanticTools.READ)
+    assert ApprovalTools.decide in bot and ApprovalTools.ask not in bot
+    assert not bot & set(SemanticTools.WRITE)
+
+
 def test_promote_reaches_no_workload_and_the_curator_holds_it():
-    for name in ("fabric-intake", "fabric-publish"):
+    for name in ("fabric-intake", "fabric-publish", "fabric-bot"):
         assert SemanticTools.promote not in _all(GRANTS[name]), name
     assert SemanticTools.promote in _all(GRANTS["fabric-curator"])
     assert set(GRANTS["fabric-curator"][SemanticTools.SERVER]) == set(SemanticTools.WRITE) | set(SemanticTools.READ)
@@ -60,8 +71,9 @@ def test_promote_reaches_no_workload_and_the_curator_holds_it():
 def test_the_intake_may_ask_and_the_publish_may_only_read_the_gate():
     assert set(P.INTAKE_TOOLS[WorkflowTools.SERVER]) <= set(ApprovalTools.RAISE)
     assert set(P.PUBLISH_TOOLS[WorkflowTools.SERVER]) <= set(ApprovalTools.READ)
-    for grant in GRANTS.values():
-        assert ApprovalTools.decide not in _all(grant)
+    # decide reaches ONLY a channel that authenticates a person (the bot) — never a workload, never the curator
+    for name in ("fabric-intake", "fabric-publish", "fabric-curator"):
+        assert ApprovalTools.decide not in _all(GRANTS[name]), name
 
 
 def test_the_substrate_identity_can_list_put_and_renew_but_never_create_or_retire_a_subscription():

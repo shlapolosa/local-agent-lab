@@ -10,6 +10,10 @@ virtual key per agent, each key paired 1:1 with an Entra app registration. The G
   wf-artifact-publish             its OWN tool-only identity (publish-agent): semantic_mcp PIPELINE + READ ·
                                   collab_mcp item · workflow_mcp approvals READ (the decision that released
                                   it) — never PROMOTE, never decide.
+  fabric-bot                      the Copilot Studio agent's identity (a virtual key, no model): semantic READ
+                                  (search · similar · impact · catalog · SPARQL) + approvals READ and DECIDE —
+                                  it relays a signed-in Teams user's decision with that person as the actor.
+                                  Never a pipeline write, never PROMOTE: the curator applies what the bot relays.
   fabric-curator                  the continuation runner's CHANNEL identity: semantic WRITE (PIPELINE +
                                   PROMOTE) + READ, so a person's answer to a fabric question is applied
                                   as rung-H assertions with the actor the channel authenticated. No model,
@@ -41,6 +45,10 @@ PUBLISH_TOOLS = {
     SemanticTools.SERVER: INTAKE_TOOLS[SemanticTools.SERVER],
     CollabTools.SERVER: [CollabTools.item],
     WorkflowTools.SERVER: list(ApprovalTools.READ),           # reads the decision that released it; never decides
+}
+BOT_TOOLS = {
+    SemanticTools.SERVER: list(SemanticTools.READ),
+    WorkflowTools.SERVER: list(ApprovalTools.READ) + list(ApprovalTools.WRITE),   # list/get + decide (a person's relay)
 }
 CURATOR_TOOLS = {
     SemanticTools.SERVER: list(SemanticTools.WRITE) + list(SemanticTools.READ),   # PIPELINE + PROMOTE: a channel
@@ -80,6 +88,8 @@ def main() -> int:
     publish_key = os.environ.get("PUBLISH_AGENT_KEY") or _key(litellm, "publish-agent", publish_team,
                                                                 "Fabric publish (tool-only)", models=())
     curator_team = team("FABRIC_CURATOR_TEAM_ID", "fabric-curator", CURATOR_TOOLS, models=())
+    bot_team = team("FABRIC_BOT_TEAM_ID", "fabric-bot", BOT_TOOLS, models=())
+    bot_key = os.environ.get("FABRIC_BOT_KEY") or _key(litellm, "fabric-bot", bot_team, "Fabric bot (Copilot Studio)", models=())
     curator_key = os.environ.get("FABRIC_CURATOR_KEY") or _key(litellm, "fabric-curator", curator_team,
                                                                 "Fabric curator (continuation runner)", models=())
 
@@ -98,12 +108,13 @@ def main() -> int:
         "PUBLISH_AGENT_CLIENT_ID": publish_id, "PUBLISH_AGENT_CLIENT_SECRET": publish_secret,
         "PUBLISH_AGENT_KEY": publish_key,
         "FABRIC_CURATOR_TEAM_ID": curator_team, "FABRIC_CURATOR_KEY": curator_key,
+        "FABRIC_BOT_TEAM_ID": bot_team, "FABRIC_BOT_KEY": bot_key,
         "ENTRA_CLIENT_TO_KEY": "'" + json.dumps(mapping) + "'",
     }
     _patch_env(patch)
     print("\n.env updated with:", ", ".join(k for k in patch if "SECRET" not in k and k != "ENTRA_CLIENT_TO_KEY"))
     for name, tools in (("fabric-intake", INTAKE_TOOLS), ("fabric-publish", PUBLISH_TOOLS),
-                        ("fabric-curator", CURATOR_TOOLS)):
+                        ("fabric-curator", CURATOR_TOOLS), ("fabric-bot", BOT_TOOLS)):
         print(f"  {name}:")
         for server, allowed in sorted(tools.items()):
             print(f"    {server}: {', '.join(allowed)}")
