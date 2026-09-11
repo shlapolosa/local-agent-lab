@@ -224,6 +224,9 @@ async def main() -> int:
 
     if args.derive:
         for case in cases:
+            if (case / "elements.json").exists():          # a scored case keeps its elements
+                print(f"  {case.name}: elements.json exists — kept (delete it to re-derive)")
+                continue
             elements = await derive_elements(cfg, (case / "submission.md").read_text())
             (case / "elements.json").write_text(json.dumps(elements, indent=2))
             print(f"  {case.name}: {sum(len(v) for v in elements.values() if isinstance(v, list))}"
