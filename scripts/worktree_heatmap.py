@@ -122,8 +122,14 @@ def build() -> C4Diagram:
                 "refuses a skewed run at 0 tokens\n+ argument checking", fill=DONE, row=1)
     d.component("w_trans", "z_work", "translate step",
                 "GREY: analysed, not built.\nPer-segment language unusable", fill=TODO, row=1)
+    # Was GREY "no runner", which was WRONG — my search was `find . -name 'evals*'` and
+    # `eval_coverage.py` does not start with "evals". Two harnesses exist: the capability matcher's
+    # (blind-adjudicated cases, a stated recall target, written against G10/G18) and the speech
+    # bake-off's (script mix, --repeat). What is missing is coverage of the model steps that have no
+    # scorer at all and any recorded BASELINE, which is what makes a prompt change falsifiable.
     d.component("w_evals", "z_work", "eval harness",
-                "GREY: one evals.json data file,\nno runner, no baseline", fill=TODO, row=1)
+                "AMBER: 2 harnesses (capability\nmatcher, speech). No baseline;\n"
+                "minutes + translation unscored", fill=PART, row=1)
 
     # ---------------------------------------------------------------- substrate services
     d.component("appr", "z_sub", "approvals",

@@ -31,7 +31,12 @@ A heatmap whose colours cannot be argued with is decoration. So when you move a 
 `fill=` and its description **in the same line** — the colour and the reason travel together, or the
 diagram becomes a picture of what somebody once hoped.
 
-At the last regeneration: **58 green · 17 amber · 8 grey** across 83 components.
+At the last regeneration: **62 green · 15 amber · 7 grey** across 84 components.
+
+Both of the last two corrections came from somebody who owned the area, which is the
+argument for this file: the reference layer moved four components to green with evidence,
+and the eval box was grey on a search too narrow to find its own runner
+(`find . -name 'evals*'` never matches `eval_coverage.py`).
 
 ## Expanding your own area
 
