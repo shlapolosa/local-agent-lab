@@ -1,0 +1,69 @@
+{
+  "$schema": "https://github.com/socrates/cafe/solution-spec/v1",
+  "title": "CAFÉ M5 Solution RA — UAE Multi-Domain Early-Warning System",
+  "use_case": "UAE_EarlyWarning_UseCase.md",
+
+  "_comment_archetype": "A4 (Multi-Agent Coordinator) is the primary archetype — multiple specialised agents collaborate (analyst, watch officer brief). A5 (Research/Analytic) provides the OSINT fusion + assessment loop. Both per CAFE_UAE_DataSource_Audit.md.",
+  "base_archetype": "A4",
+  "additional_archetypes": ["A5"],
+
+  "_comment_exclude": "The PoC explicitly excludes Power Automate (no orchestration approvals — Telegram delivery is the only side-effect; HITL happens out-of-band) and Copilot Studio engine (no conversational agent; this is a standing watch).",
+  "exclude_comps": [
+    "c_pa",
+    "c_cps",
+    "c_dec"
+  ],
+
+  "_comment_custom_comps": "Per §9.3 boundary-interfaces rule: the ingestion pipeline, the COP web app, and the Telegram delivery channel are TRADITIONAL architecture components, not catalogued in M4. They appear here marked kind=boundary and render with dashed borders.",
+  "custom_comps": [
+    {
+      "cid": "c_uae_ingest",
+      "zone": "z_ext",
+      "title": "OSINT ingestion pipeline",
+      "desc": "Event Hubs · airplanes.live · AISStream · USGS/EMSC · NASA FIRMS · ACLED · Planet · GDELT",
+      "kind": "boundary",
+      "rationale": "Traditional architecture: stream + poll relays; the AI grounds on the normalised state via a real-time-pull Knowledge source."
+    },
+    {
+      "cid": "c_uae_cop",
+      "zone": "z_exp",
+      "title": "Cesium COP",
+      "desc": "common-operating-picture · zone view + per-feed counters",
+      "kind": "boundary",
+      "rationale": "UI surface — file:// Static Web App for PoC; production = SWA."
+    },
+    {
+      "cid": "c_telegram",
+      "zone": "z_ext",
+      "title": "Telegram Bot",
+      "desc": "advisory delivery — escalate-if-unack",
+      "kind": "boundary",
+      "rationale": "Delivery channel; multi-path alerting handled by traditional comms (G09 HITL out-of-band)."
+    }
+  ],
+
+  "_comment_edges": "Solution-specific flows on top of the canonical A4+A5 composition. The OSINT pipeline feeds a Knowledge contract (G06 grounding via Foundry IQ); the LLM analyst (Foundry Agent Service) reads ontology-bound state (Fabric IQ) + raw retrievals, emits advisories that humans authorise; the COP renders the current picture.",
+  "edges": [
+    {"from": "c_uae_ingest",  "to": "c_fiq",      "kind": "knowledge", "label": "feeds → grounding"},
+    {"from": "c_uae_ingest",  "to": "c_ksrc",     "kind": "data",      "label": "normalised state"},
+    {"from": "c_fab",         "to": "c_foundry",  "kind": "knowledge", "label": "ontology / semantic rules"},
+    {"from": "c_foundry",     "to": "c_uae_cop",  "kind": "request",   "label": "render advisory"},
+    {"from": "c_foundry",     "to": "c_telegram", "kind": "event",     "label": "advisory (G09 HITL)"},
+    {"from": "c_uae_cop",     "to": "c_apim",     "kind": "request",   "label": "user request"}
+  ],
+
+  "_comment_guardrails": "All standard M3 guardrails apply (G01-G10) per A4+A5. CAFÉ-AI guardrails G11/G12/G13 are critical for an early-warning system (no-false-comfort, anti-spoofing, corroboration). G14 (Agent 365 inventory) applies to the LLM analyst + any sub-agents.",
+  "guardrails_enforced": [
+    "G01", "G02", "G03", "G04", "G06", "G07", "G09", "G10",
+    "G11", "G12", "G13", "G14"
+  ],
+
+  "decision_points": [
+    "Corroboration ≥2 independent sources before high-confidence advisory (G13)",
+    "Single-source signals open only a low-confidence watch (G13)",
+    "Human authorises every advisory dispatch (G09; decision-support only — no autonomous action)",
+    "Absence/staleness of signal communicated as 'no indication yet', never 'all-clear' (G11)",
+    "Spoofable inputs (ADS-B/AIS/GPS) plausibility-checked + cross-validated (G12)",
+    "Tier = imminence × severity → ranked action options; humans pick"
+  ]
+}
