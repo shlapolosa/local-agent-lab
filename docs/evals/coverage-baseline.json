@@ -1,0 +1,50 @@
+{
+  "recorded": "2026-09-10",
+  "scheme": "healthcare-provider-v2.0",
+  "corpus": "v0.27",
+  "note": "drill from the run the quota cut short (its 429 run excluded); leaves and vector n=2; expected sets = 2 blind-adjudicated cases",
+  "means": {
+    "drill": {
+      "intake-agent": {
+        "precision": 0.315,
+        "recall": 0.5,
+        "f1": 0.386,
+        "n": 2
+      },
+      "referral-triage": {
+        "precision": 0.57,
+        "recall": 0.4,
+        "f1": 0.47,
+        "n": 1
+      }
+    },
+    "leaves": {
+      "intake-agent": {
+        "precision": 0.354,
+        "recall": 0.5,
+        "f1": 0.414,
+        "n": 2
+      },
+      "referral-triage": {
+        "precision": 0.625,
+        "recall": 0.5,
+        "f1": 0.556,
+        "n": 2
+      }
+    },
+    "vector": {
+      "intake-agent": {
+        "precision": 0.191,
+        "recall": 0.333,
+        "f1": 0.243,
+        "n": 2
+      },
+      "referral-triage": {
+        "precision": 0.5,
+        "recall": 0.35,
+        "f1": 0.412,
+        "n": 2
+      }
+    }
+  }
+}

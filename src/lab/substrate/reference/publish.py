@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -79,8 +80,15 @@ class Publisher:
     def _tx(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> None:
         """One transaction. A publish that dies mid-way leaves a draft, never a servable version."""
         with self._connect(self.dsn) as conn, conn.cursor() as cur:
-            for sql, params in statements:
-                cur.execute(sql, tuple(params))
+            # One round trip per RUN of identical SQL, not per row: the map's 1,700 passages took
+            # ~25 minutes to write over one-row executes (10 Sep 2026). psycopg pipelines an
+            # executemany; the order and the single commit are unchanged.
+            for sql, group in itertools.groupby(statements, key=lambda st: st[0]):
+                rows = [tuple(params) for _, params in group]
+                if len(rows) == 1:
+                    cur.execute(sql, rows[0])
+                else:
+                    cur.executemany(sql, rows)
             conn.commit()
 
     # ---------------------------------------------------------------- init

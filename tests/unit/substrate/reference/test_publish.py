@@ -36,6 +36,12 @@ class FakeStore:
 class FakeCursor:
     def __init__(self, log, plan): self.log, self.plan = log, plan
     def execute(self, sql, params=()): self.log.append((sql, tuple(params))); self._sql = sql
+    def executemany(self, sql, seq):
+        self.batches.append((sql, len(seq)))
+        for params in seq:
+            self.log.append((sql, tuple(params)))
+        self._sql = sql
+    batches: list = []
     def fetchall(self):
         for fragment, rows in self.plan.items():
             if fragment in self._sql:
@@ -515,3 +521,21 @@ def test_an_unknown_master_format_refuses(tmp_path):
         publisher(tmp_path).publish("m", master_path=master_file(tmp_path), master_format="pdf",
                                     version="v1", kind="record", owner="x", record_type="t",
                                     key_fields=["a"])
+
+
+def test_a_transaction_sends_each_run_of_identical_statements_as_one_batch():
+    """A 1,700-passage map took ~25 minutes to write AFTER embedding (10 Sep 2026): one INSERT
+    per Neon round trip. Consecutive statements with the same SQL now go as one `executemany`,
+    which psycopg pipelines; the transaction boundary and the order are unchanged."""
+    log, cur_batches = [], []
+    class Cur(FakeCursor):
+        batches = cur_batches
+    class Conn(FakeConn):
+        def cursor(self): return Cur(self.log, self.plan)
+    pub = Publisher(dsn="x", connect=lambda dsn: Conn(log, {}), signing_key=PRIVATE, key_id="k",
+                    store=FakeStore())
+    pub._tx([("INSERT a", (1,)), ("INSERT a", (2,)), ("INSERT a", (3,)), ("UPDATE b", (9,)),
+             ("INSERT a", (4,))])
+    assert cur_batches == [("INSERT a", 3)], "a run batches; a lone statement is a plain execute"
+    assert [p for sql, p in log if sql == "INSERT a"] == [(1,), (2,), (3,), (4,)]
+    assert log[-1] == ("COMMIT", ()) and log.index(("UPDATE b", (9,))) < log.index(("INSERT a", (4,)))

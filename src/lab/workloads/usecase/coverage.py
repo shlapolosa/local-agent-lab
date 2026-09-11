@@ -56,7 +56,7 @@ __all__ = ["MATCHERS", "VECTOR_HITS", "candidates_from_hits", "composed", "leave
 
 #: How many hits one behavioural element's relevance query brings back. Twelve, so the union over a
 #: dozen elements is a few dozen candidates — enough to disagree with, not enough to be a corpus.
-VECTOR_HITS = 12
+VECTOR_HITS = 30      # per element; 12 was measured too narrow (eval, 10 Sep 2026)
 
 #: How many branches one level may open into the next (drill only). A coverage map that matched
 #: thirty branches is not a coverage map, and following them all would rebuild the whole corpus one
@@ -292,10 +292,32 @@ async def vector(cfg, d, corpus, *, search, **_) -> dict:
         except Exception as exc:                          # noqa: BLE001 — one query, not the run
             d.defer("5", f"match capabilities: the relevance search refused — {exc}")
             return {}
-    candidates = candidates_from_hits(hits)
+    candidates = with_siblings(candidates_from_hits(hits), corpus)
     return await _one_pass(cfg, d, candidates,
                            label=f"match capabilities ({len(candidates)} candidates from "
                                  f"{len(queries)} queries)")
+
+
+def with_siblings(candidates: list[dict], corpus) -> list[dict]:
+    """The candidates plus every leaf that shares a parent with one of them, hits first.
+
+    A relevance hit says "this branch", and the eval showed the misses were the leaves NEXT TO a
+    hit, not strangers. The adjudicating pass decides which leaves of a branch apply, so it is
+    shown the branch. Nothing here reaches the store: the siblings come from the map already in
+    hand, so a wider candidate set costs no extra query."""
+    rows = [r for r in (corpus or []) if isinstance(r, dict)]
+    parent_of = {str(r.get("id")): str(r.get("parent") or "") for r in rows}
+    wanted = {parent_of.get(c["id"], "") for c in candidates} - {""}
+    out, seen = list(candidates), {c["id"] for c in candidates}
+    for r in rows:
+        ident = str(r.get("id") or "")
+        if ident in seen or str(r.get("parent") or "") not in wanted:
+            continue
+        if int(r.get("level") or 0) != DEEPEST_LEVEL:
+            continue
+        seen.add(ident)
+        out.append({"id": ident, "label": str(r.get("label") or ""), "path": str(r.get("path") or "")})
+    return out
 
 
 #: The strategies, by name. Adding one is a line here and nothing else — which is what lets a

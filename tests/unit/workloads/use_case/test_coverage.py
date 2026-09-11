@@ -163,6 +163,32 @@ def test_the_vector_matcher_unions_the_hits_and_runs_one_pass_over_them():
     assert out["coverage_trail"][0]["candidates"] == 3
 
 
+SIBLINGS = [{"id": "x", "parent": "-", "level": 1, "label": "X", "path": "X"},
+            {"id": "a", "parent": "x", "level": 3, "label": "A", "path": "X > A"},
+            {"id": "a2", "parent": "x", "level": 3, "label": "A2", "path": "X > A2"},
+            {"id": "a3", "parent": "x", "level": 3, "label": "A3", "path": "X > A3"},
+            {"id": "y", "parent": "-", "level": 1, "label": "Y", "path": "Y"},
+            {"id": "c", "parent": "y", "level": 3, "label": "C", "path": "Y > C"},
+            {"id": "z", "parent": "-", "level": 1, "label": "Z", "path": "Z"},
+            {"id": "far", "parent": "z", "level": 3, "label": "Far", "path": "Z > Far"}]
+
+
+def test_the_vector_matcher_brings_every_hit_s_siblings_along():
+    """The eval of 10 Sep 2026 showed the vector matcher's misses were NEIGHBOURS of its hits —
+    the sibling leaf under the same parent — not strangers. A relevance hit says "this branch";
+    the adjudicating pass is what decides which leaves of it apply, so it is shown the branch."""
+    import asyncio
+    hit = lambda ident, path: {"attributes": {"key": f'{{"id": "{ident}"}}', "path": path}}
+    search = _search_of({"Triage referral": [hit("a", "X > A")]})
+    d = _Working(elements={"behavioural": [{"name": "Triage referral"}]}, answer={"matched": []})
+    asyncio.run(coverage.vector({}, d, SIBLINGS, search=search))
+    ids = [c["id"] for c in d.contexts[0]["capabilities"]]
+    assert ids[0] == "a", "a hit stays first"
+    assert set(ids) == {"a", "a2", "a3"}, "its siblings join; nothing from another branch"
+    assert len(ids) == len(set(ids))
+    assert coverage.VECTOR_HITS >= 30, "12 hits per element was measured too narrow"
+
+
 def test_the_vector_matcher_defers_without_elements_and_when_the_search_refuses():
     import asyncio
     d = _Working()

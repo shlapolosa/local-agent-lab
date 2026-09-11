@@ -24,10 +24,11 @@ from lab.core.semantic.reference.baguild import parse
 __all__ = ["HEADERS", "KEY_FIELDS", "ROOT", "TEXT_FIELDS", "capability_table"]
 
 #: The published columns, in the order a person reads them in the master.
-HEADERS = ("id", "parent", "level", "label", "path", "definition", "tier")
+HEADERS = ("id", "parent", "level", "label", "path", "definition", "tier", "context")
 KEY_FIELDS = ("id", "parent", "level")
-#: What a relevance passage says for one capability: where it sits, and what it means.
-TEXT_FIELDS = ("path", "definition")
+#: What a relevance passage says for one capability: where it sits, what it means, and — since
+#: v0.28 — what its parent means and what sits beside it, which is what a person reads to place it.
+TEXT_FIELDS = ("path", "definition", "context")
 ROOT = "-"
 
 
@@ -45,10 +46,25 @@ def capability_table(source: bytes, *, scheme: str, title: str) -> Master:
         rows.append((concept["id"], concept.get("parent") or ROOT, str(concept["level"]),
                      concept["label"], " > ".join(_path(concepts, concept)),
                      concept.get("definition") or "",
-                     "" if concept.get("tier") is None else str(concept["tier"])))
+                     "" if concept.get("tier") is None else str(concept["tier"]),
+                     _context(concepts, concept)))
     return Master(title=title, headers=HEADERS, rows=tuple(rows),
                   meta={"Artifact": scheme, "Source": parsed.source or "workbook",
                         "Rendered": "derived from the workbook by lab.core.reference.workbook"})
+
+
+def _context(concepts: dict[str, dict[str, Any]], concept: dict[str, Any]) -> str:
+    """The parent's first sentence and the sibling labels — the neighbourhood a person reads to
+    place a capability, given to the embedding in words. Empty at the top level."""
+    parent = concepts.get(concept.get("parent") or "")
+    if parent is None:
+        return ""
+    meaning = str(parent.get("definition") or "").strip().split(". ")[0].rstrip(".")
+    under = f"under {parent['label']}" + (f": {meaning}" if meaning else "")
+    beside = sorted(c["label"] for c in concepts.values()
+                    if c.get("kind") == "capability" and c.get("parent") == parent["id"]
+                    and c["id"] != concept["id"])
+    return under + (f" | beside: {', '.join(beside)}" if beside else "")
 
 
 def _path(concepts: dict[str, dict[str, Any]], concept: dict[str, Any]) -> list[str]:

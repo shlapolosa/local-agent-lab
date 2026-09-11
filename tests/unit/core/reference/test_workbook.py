@@ -65,6 +65,22 @@ def test_the_tier_is_kept_where_the_workbook_gives_one():
     assert tiers["Care Delivery"] == "1" and tiers["Triage"] == ""
 
 
+def test_each_row_carries_the_context_a_person_uses_to_place_it():
+    """A passage of "path + definition" embeds a leaf on its own words. A person placing a
+    capability also reads what its parent MEANS and what sits next to it; the context column
+    gives the embedding the same — the parent's first sentence and the sibling labels."""
+    table = capability_table(workbook([[1, 1, "Care Delivery", "Delivering care to patients. Also more."],
+                                       ["", 2, "Triage", "Sorting patients by urgency"],
+                                       ["", 3, "Urgent triage", "The urgent path"],
+                                       ["", 2, "Admission", "Taking a patient in"]]),
+                             scheme="s", title="t")
+    rows = {r[HEADERS.index("label")]: dict(zip(HEADERS, r)) for r in table.rows}
+    assert "context" in HEADERS and "context" in TEXT_FIELDS
+    assert rows["Triage"]["context"] == "under Care Delivery: Delivering care to patients | beside: Admission"
+    assert rows["Urgent triage"]["context"] == "under Triage: Sorting patients by urgency"
+    assert rows["Care Delivery"]["context"] == "", "a top-level capability has no parent to cite"
+
+
 def test_a_workbook_with_no_capability_map_derives_nothing_rather_than_something_else():
     wb = openpyxl.Workbook()
     wb.active.title = "Notes"

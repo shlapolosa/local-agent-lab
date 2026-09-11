@@ -125,6 +125,37 @@ def score(got: set, expected: set) -> dict:
             "f1": f1, "wrong": sorted(got - expected), "missed": sorted(expected - got)}
 
 
+def means(results: dict) -> dict:
+    """Per matcher and case: the mean precision, recall and F1 — the only thing a baseline holds.
+    No labels: the cases' expected sets derive from a licensed map and stay out of the repo."""
+    out: dict = {}
+    for matcher, cases in results.items():
+        for case, samples in cases.items():
+            ok = [s for s in samples if not s.get("note")]        # a failed run is not a score
+            if ok:
+                out.setdefault(matcher, {})[case] = {
+                    k: round(statistics.fmean(s[k] for s in ok), 3)
+                    for k in ("precision", "recall", "f1")} | {"n": len(ok)}
+    return out
+
+
+def regressions(current: dict, baseline: dict, tolerance: float = 0.05) -> list[str]:
+    """What fell below the recorded baseline by more than `tolerance` recall — the sentence a
+    change has to answer before it ships. A matcher/case the baseline never scored is not a
+    regression; an improvement is reported by the caller, never here."""
+    out = []
+    for matcher, cases in sorted(baseline.items()):
+        for case, base in sorted(cases.items()):
+            now = (current.get(matcher) or {}).get(case)
+            if now is None:
+                continue
+            drop = base["recall"] - now["recall"]
+            if drop > tolerance:
+                out.append(f"{matcher}/{case} recall {now['recall']:.2f} < baseline "
+                           f"{base['recall']:.2f} (-{drop:.2f})")
+    return out
+
+
 def report(results: dict, runs: int) -> int:
     """What each matcher scored, and whether the difference survives the variance.
 
@@ -167,6 +198,10 @@ async def main() -> int:
     ap.add_argument("--derive", action="store_true",
                     help="derive each case's elements.json and stop — run once per case")
     ap.add_argument("--out", default="var/eval/coverage-results.json")
+    ap.add_argument("--baseline", default="docs/evals/coverage-baseline.json",
+                    help="recorded means to refuse a regression against (recall, per matcher/case)")
+    ap.add_argument("--record-baseline", action="store_true",
+                    help="write this run's means AS the baseline (after a reviewed improvement)")
     args = ap.parse_args()
 
     gateway_url = os.environ.get("EVAL_GATEWAY") or os.environ.get("GATEWAY_URL",
@@ -211,7 +246,22 @@ async def main() -> int:
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(results, indent=2))
     print(f"\nwritten: {args.out}")
-    return report(results, args.runs)
+    rc = report(results, args.runs)
+    current = means(results)
+    base_path = Path(args.baseline)
+    if args.record_baseline:
+        base_path.parent.mkdir(parents=True, exist_ok=True)
+        base_path.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"),
+                                         "scheme": args.scheme, "means": current}, indent=2) + "\n")
+        print(f"baseline recorded: {base_path}")
+    elif base_path.exists():
+        fell = regressions(current, json.loads(base_path.read_text()).get("means") or {})
+        if fell:
+            print(f"\nREGRESSION against {base_path}: {fell}")
+            rc = 2
+        else:
+            print(f"\nno recall regression against {base_path}")
+    return rc
 
 
 if __name__ == "__main__":
