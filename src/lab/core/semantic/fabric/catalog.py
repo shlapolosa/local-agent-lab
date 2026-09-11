@@ -13,9 +13,7 @@ from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 from urllib.parse import quote
 
-#: A pointer names its item by ONE of these — shared with the platform contract (`check_pointer`) so an
-#: event, a run input and a catalog row agree on what identifies an artifact in its system of record.
-POINTER_ID_FIELDS: tuple[str, ...] = ("handle", "itemId", "workItem", "objectId", "ref")
+from lab.core.ids import POINTER_ID_FIELDS      # one home, rdflib-free: the contract and the row agree on it
 
 #: Lifecycle, as the catalog spells it (the graph spells it `fab:Pending` …, see `STATE_IRI`).
 STATES: tuple[str, ...] = ("pending", "in-review", "published", "withdrawn")

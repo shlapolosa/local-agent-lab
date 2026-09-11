@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from lab.core.semantic.fabric.catalog import POINTER_ID_FIELDS
+from lab.core.ids import POINTER_ID_FIELDS      # stdlib-only: this module must import without rdflib
 
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
@@ -1801,8 +1801,8 @@ class ArtifactChanged:
     @property
     def pointer_key(self) -> str:
         """`<source>:<item id>` — what makes two events for the same item the same event."""
-        from lab.core.semantic.fabric.catalog import pointer_key
-        return pointer_key(self.pointer)
+        ident = next(self.pointer[k] for k in POINTER_ID_FIELDS if self.pointer.get(k))
+        return f"{self.pointer['source']}:{ident}"
 
     @property
     def is_fabric_originated(self) -> bool:

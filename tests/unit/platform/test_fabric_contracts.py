@@ -140,3 +140,18 @@ def test_semantic_tools_split_read_pipeline_and_promote():
     assert {"semantic_catalog_get", "semantic_impact", "semantic_search", "semantic_query"} <= set(T.READ)
     assert {"semantic_catalog_upsert", "semantic_edge_assert", "semantic_embed"} <= set(T.PIPELINE)
     assert T.GRANTS == (T.READ, T.PIPELINE, T.PROMOTE)
+
+
+
+def test_the_contract_imports_no_semantic_layer_at_module_level():
+    """`lab.platform.contracts` is imported by every tier and by CI steps that install no rdflib (the
+    store-registration step died on `ModuleNotFoundError: rdflib` the day the contract reached through
+    `lab.core.semantic`). The pointer id fields live in the stdlib-only `lab.core.ids` for that reason."""
+    import ast, inspect
+    from lab.platform import contracts
+    from lab.core.ids import POINTER_ID_FIELDS
+    tree = ast.parse(inspect.getsource(contracts))
+    top = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
+    names = [getattr(n, "module", None) or "" for n in top] + [a.name for n in top if isinstance(n, ast.Import) for a in n.names]
+    assert not any(m.startswith("lab.core.semantic") for m in names), names
+    assert contracts.POINTER_ID_FIELDS is POINTER_ID_FIELDS

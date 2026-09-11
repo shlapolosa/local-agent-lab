@@ -37,6 +37,12 @@ def ulid_ms(value: str) -> int:
     return n
 
 
+#: A pointer into a system of record names its item by ONE of these. Lives here, in the stdlib-only core
+#: module, because BOTH the platform contract (`check_pointer`) and the catalog row key on it — and the
+#: contract must import without rdflib (a CI step that only registers stores has no semantic layer installed).
+POINTER_ID_FIELDS: tuple[str, ...] = ("handle", "itemId", "workItem", "objectId", "ref")
+
+
 def artifact_iri(u: str | None = None) -> str:
     """The fabric's IRI for an artifact: `urn:fabric:artifact:<ULID>`."""
     return f"urn:fabric:artifact:{u or ulid()}"
