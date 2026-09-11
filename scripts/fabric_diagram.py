@@ -20,7 +20,7 @@ from drawio_c4 import C4Diagram  # noqa: E402
 DONE, PART, TODO = "#D5E8D4", "#FFE6CC", "#E8E8E8"
 OUT = HERE.parent / "var" / "out" / "architecture"
 
-WAVE = "LIVE 11 Sep 2026: full loop proved on the local stack; DEPLOYED to the cloud (sha-83ae1c0) where the 9-step proof passes; cloud intake awaits an allow-listed library"
+WAVE = "LIVE IN THE CLOUD 11 Sep 2026 (sha-572b55b): a real SharePoint document swept → intake → association card → decided → curator → published → wiki page written → its own notification dropped"
 
 
 def build() -> C4Diagram:
@@ -35,9 +35,9 @@ def build() -> C4Diagram:
     g = lambda why: f"GREY: not built — {why}"
     d.component("contracts", "z_events", "contracts · ids · config (WP1)", "GREEN: ArtifactChanged, 2 ProcessSpecs, 5 InputKinds, 2 approval\nkinds, 3 AgentSpecs — exercised live by every hop of the proof", fill=DONE)
     # producers & adapters
-    d.component("runs", "z_prod", "existing runs", "minutes · visio · use-case EXIST; AMBER: the proof used a\nstored minutes artifact + emitted event, not a real minutes\nrun finishing (Ollama quota exhausted 11 Sep)", fill=PART)
-    d.component("notif", "z_prod", "graph-mcp /notifications", "AMBER: route deployed on graph-mcp's public domain\n(graph-mcp-production-2a35); no library subscribed yet", fill=PART)
-    d.component("recon", "z_prod", "fabric-reconciler", "AMBER: deployed and sweeping every 900 s — but\nFABRIC_ALLOWLIST is empty, so drives=0", fill=PART)
+    d.component("runs", "z_prod", "existing runs", "minutes · visio · use-case EXIST; AMBER: the workflow:finished\npath was proved with a stored minutes artifact, not a live minutes\nrun (Ollama weekly quota exhausted 11 Sep)", fill=PART)
+    d.component("notif", "z_prod", "graph-mcp /notifications", "GREEN: pilot library subscribed (drives/<id>/root, clientState);\nthe projector's write notified the receiver and the ingress\ndropped it as fabric-originated — the loop guard, live", fill=DONE)
+    d.component("recon", "z_prod", "fabric-reconciler", "GREEN: sweeps the pilot library every 900 s (5 files a sweep);\nits first real sweep became 4 intake runs and 4 cards", fill=DONE)
     d.component("delivery", "z_prod", "DeliveryContext port", "GREEN: meeting:<id> carried from the event to a rung-C\ndeliveredUnder edge live; usecase/submission by test; workitem later", fill=DONE)
     # events
     d.component("stream", "z_events", "fabric:events (Redis)", "GREEN: real Redis live — publish, group read, reclaim after\nthe ingress crash, ack; dead-letter + loop-guard by test", fill=DONE)
@@ -53,12 +53,12 @@ def build() -> C4Diagram:
     d.component("facade", "z_sem", "Facade", "GREEN in the cloud: embed (nomic, 768-d) · search · similar\nranked the ADR above the minutes for a claims-bus query; the\nlocal stack has no embedder, so local similarity is by test", fill=DONE)
     # gate & consumers
     d.component("approvals", "z_gate", "workflow-mcp approvals + curator", "GREEN: draft-review asked live with 2 drafts attached,\napproved by a named person, curator promoted the type to H,\nrunner bound approval_id and released the publish run", fill=DONE)
-    d.component("projector", "z_gate", "fabric-projector", "AMBER: deployed; rendered the page live (752 chars) but\nFABRIC_WIKI_FOLDER is unset, so it logs instead of writing", fill=PART)
+    d.component("projector", "z_gate", "fabric-projector", "GREEN: wrote 01-sanity-3-csv.md into the pilot library's\nroot via collab_put after the publish run; tagged in the\nloop-guard memory", fill=DONE)
     d.component("bot", "z_gate", "Copilot Studio bot", g("post-POC: MCP through the gateway, same door as\nagents; scripts/fabric_demo.py is the POC's caller"), fill=TODO)
     # state
     d.component("neon", "z_state", "Neon Postgres", "GREEN: keys · artifacts · corpus · fabric_artifact +\nfabric_embedding (hnsw), migrated at semantic-mcp boot", fill=DONE)
     d.component("redis", "z_state", "Redis Streams", "GREEN: local Redis carried fabric:events, fabric:graphs,\nthe lock, approvals and requests through the whole proof", fill=DONE)
-    d.component("m365", "z_state", "M365 · pilot library", "AMBER: no pilot library chosen — FABRIC_ALLOWLIST and the\nnotification subscription are the two settings that start it", fill=PART)
+    d.component("m365", "z_state", "M365 · pilot library", "GREEN: 'Documents' of the AI Use-Case Intake PoC site —\nallow-listed, subscribed (expires 14 Sep, renew), pages at its root", fill=DONE)
 
     for s, t, k in (("runs", "ingress", "async"), ("notif", "stream", "async"), ("recon", "stream", "async"), ("stream", "ingress", "async"),
                     ("ingress", "intake", "async"), ("intake", "catalog", "sync"), ("intake", "graph", "sync"), ("intake", "vocab", "sync"),
