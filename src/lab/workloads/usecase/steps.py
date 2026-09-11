@@ -19,6 +19,7 @@ be read next to the sentence that requires it.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -83,8 +84,9 @@ def _frame(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     # — leaving one honest answer and one fabricated one, of which only the fabricated one passes.
     # That is the opposite of what every prompt here asks for. A gap that reaches a human gets
     # closed; a name invented to satisfy a gate never does.
-    unnamed = not owner or any(w in owner.lower() for w in ("unspecified", "not named", "unknown",
-                                                            "names no person", "no person"))
+    unnamed = not owner or any(w in owner.lower() for w in (
+        "unspecified", "not named", "unknown", "names no person", "no person", "no named",
+        "no individual", "nobody", "no one", "no-one", "not identified"))
     if unnamed:
         if not any("owner" in str(q).lower() or "accountab" in str(q).lower()
                    for q in out.get("open_questions") or []):
@@ -96,8 +98,12 @@ def _frame(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     # A COMMA is deliberately not a separator: "Jane Smith, Chief Medical Officer" is one person
     # with a title, and treating punctuation as plurality refused more honest answers than shared
     # ones.
-    shared = any(sep in owner for sep in ("&", "/")) or " and " in f" {owner} "
-    if shared or any(w in owner.lower() for w in (" team", " group", " department", " unit")):
+    # Judged on the NAME — the first clause — not on an explanation that follows a dash or a full
+    # stop: "the reviewing architect — who assesses and signs off" is one seat, and a live run was
+    # refused twice for the "and" inside its explanation (11 Sep 2026).
+    name = re.split(r"\s—\s|\s-\s|\.\s|;", owner, maxsplit=1)[0]
+    shared = any(sep in name for sep in ("&", "/")) or " and " in f" {name} "
+    if shared or any(w in name.lower() for w in (" team", " group", " department", " unit")):
         bad.append(f"accountability is shared ({owner!r}) — name ONE person; a use case everyone "
                    f"owns is a use case nobody answers for")
     return bad

@@ -448,6 +448,24 @@ def test_an_owner_with_a_title_is_one_person():
     assert gated("3", dict(FRAME, accountable_owner="Dr Jane Smith, Chief Medical Officer")) == []
 
 
+LIVE_OWNER = ("The reviewing architect — the single architect who assesses submissions and signs off "
+              "each business-case recommendation. The submission names no named individual, so the "
+              "owner is stated as this one seat; confirming who holds it is flagged in open_questions.")
+
+
+def test_an_explanation_after_the_owner_is_not_a_second_owner():
+    """What the cloud run of 11 Sep 2026 wrote at step 3, twice, and the gate refused twice as
+    "shared": the words "assesses ... and signs off" sit in the explanation of ONE seat, and
+    "names no named individual" is the unnamed case in words the markers did not know. The honest
+    answer failed and only an invented name would have passed — the exact defect this gate's own
+    comment describes. The name is the first clause; what follows a dash or a full stop explains it."""
+    asked = ["Who holds the reviewing-architect seat, and is that the accountable owner?"]
+    assert gated("3", dict(FRAME, accountable_owner=LIVE_OWNER, open_questions=asked)) == []
+    refused = gated("3", dict(FRAME, accountable_owner=LIVE_OWNER))
+    assert refused and "open question" in refused[0] and "shared" not in refused[0]
+    assert gated("3", dict(FRAME, accountable_owner="Dr Aisha Khan — assesses and signs off referrals")) == []
+
+
 def test_genuinely_shared_accountability_is_still_refused():
     for owner in ("Ops / Clinical", "Finance & Risk", "Ana and Bo", "the referrals team"):
         assert gated("3", dict(FRAME, accountable_owner=owner)), owner
