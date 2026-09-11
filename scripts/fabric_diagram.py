@@ -20,7 +20,7 @@ from drawio_c4 import C4Diagram  # noqa: E402
 DONE, PART, TODO = "#D5E8D4", "#FFE6CC", "#E8E8E8"
 OUT = HERE.parent / "var" / "out" / "architecture"
 
-WAVE = "LIVE PROOF 11 Sep 2026 on the local lab.sh stack: event → intake → review → curator → publish → projection; cloud tier not deployed"
+WAVE = "LIVE 11 Sep 2026: full loop proved on the local stack; DEPLOYED to the cloud (sha-83ae1c0) where the 9-step proof passes; cloud intake awaits an allow-listed library"
 
 
 def build() -> C4Diagram:
@@ -36,8 +36,8 @@ def build() -> C4Diagram:
     d.component("contracts", "z_events", "contracts · ids · config (WP1)", "GREEN: ArtifactChanged, 2 ProcessSpecs, 5 InputKinds, 2 approval\nkinds, 3 AgentSpecs — exercised live by every hop of the proof", fill=DONE)
     # producers & adapters
     d.component("runs", "z_prod", "existing runs", "minutes · visio · use-case EXIST; AMBER: the proof used a\nstored minutes artifact + emitted event, not a real minutes\nrun finishing (Ollama quota exhausted 11 Sep)", fill=PART)
-    d.component("notif", "z_prod", "graph-mcp /notifications", "AMBER: WP5/9 route + clientState; graph-mcp gets a\npublic domain in deploy; not deployed, no subscription yet", fill=PART)
-    d.component("recon", "z_prod", "fabric-reconciler", "AMBER: WP8 bounded sweep (depth/limit), catalog by pointer,\nnever writes it; wired in deploy/compose/lab.sh; not run", fill=PART)
+    d.component("notif", "z_prod", "graph-mcp /notifications", "AMBER: route deployed on graph-mcp's public domain\n(graph-mcp-production-2a35); no library subscribed yet", fill=PART)
+    d.component("recon", "z_prod", "fabric-reconciler", "AMBER: deployed and sweeping every 900 s — but\nFABRIC_ALLOWLIST is empty, so drives=0", fill=PART)
     d.component("delivery", "z_prod", "DeliveryContext port", "GREEN: meeting:<id> carried from the event to a rung-C\ndeliveredUnder edge live; usecase/submission by test; workitem later", fill=DONE)
     # events
     d.component("stream", "z_events", "fabric:events (Redis)", "GREEN: real Redis live — publish, group read, reclaim after\nthe ingress crash, ack; dead-letter + loop-guard by test", fill=DONE)
@@ -47,18 +47,18 @@ def build() -> C4Diagram:
     d.component("publish", "z_work", "wf-artifact-publish", "GREEN: live run 13 s — released by the approval, record\npublished with a baseline version; re-index best-effort", fill=DONE)
     d.component("agents", "z_work", "classifier · synthesis · publish agents", "GREEN: 3 Entra apps + keys provisioned, 2 skills registered;\nAMBER note: on claude-haiku-4-5 while the Ollama quota is out", fill=DONE)
     # semantic layer
-    d.component("catalog", "z_sem", "Knowledge Catalog", "GREEN locally (in-process adapter): upsert/get/state/assert\nlive; AMBER note: Postgres adapter + DDL not yet run on Neon", fill=DONE)
+    d.component("catalog", "z_sem", "Knowledge Catalog", "GREEN: Postgres rows in Neon (DDL applied at boot, hnsw index),\nupsert/get/state/assert live from both the local and the cloud stack", fill=DONE)
     d.component("graph", "z_sem", "Traceability Graph", "GREEN: live — edges at C/X/S, SHACL refused a body and a\nguessed owner, impact skipped S, promote S→H by a named\nperson, N-Quads shadow written", fill=DONE)
     d.component("vocab", "z_sem", "Vocabulary", "GREEN: fab: + doc-types registered live beside the BA Guild\nschemes; vocab_link/propose exercised (a candidate parked)", fill=DONE)
-    d.component("facade", "z_sem", "Facade", "AMBER: embed/similar/search live on the gateway, but the local\nstack has no embedder (nomic runs as the cloud's image service);\nsimilarity proved by test only — green after the cloud deploy", fill=PART)
+    d.component("facade", "z_sem", "Facade", "GREEN in the cloud: embed (nomic, 768-d) · search · similar\nranked the ADR above the minutes for a claims-bus query; the\nlocal stack has no embedder, so local similarity is by test", fill=DONE)
     # gate & consumers
     d.component("approvals", "z_gate", "workflow-mcp approvals + curator", "GREEN: draft-review asked live with 2 drafts attached,\napproved by a named person, curator promoted the type to H,\nrunner bound approval_id and released the publish run", fill=DONE)
-    d.component("projector", "z_gate", "fabric-projector", "AMBER: live — consumed the finished publish run and rendered\nthe page (752 chars); FABRIC_WIKI_FOLDER unset so not written", fill=PART)
+    d.component("projector", "z_gate", "fabric-projector", "AMBER: deployed; rendered the page live (752 chars) but\nFABRIC_WIKI_FOLDER is unset, so it logs instead of writing", fill=PART)
     d.component("bot", "z_gate", "Copilot Studio bot", g("post-POC: MCP through the gateway, same door as\nagents; scripts/fabric_demo.py is the POC's caller"), fill=TODO)
     # state
-    d.component("neon", "z_state", "Neon Postgres", "EXISTS: keys · artifacts · corpus; AMBER: fabric tables\nmigrate on semantic-mcp boot (WP3) — not yet run", fill=PART)
+    d.component("neon", "z_state", "Neon Postgres", "GREEN: keys · artifacts · corpus · fabric_artifact +\nfabric_embedding (hnsw), migrated at semantic-mcp boot", fill=DONE)
     d.component("redis", "z_state", "Redis Streams", "GREEN: local Redis carried fabric:events, fabric:graphs,\nthe lock, approvals and requests through the whole proof", fill=DONE)
-    d.component("m365", "z_state", "M365 · pilot library", "EXISTS via collab_mcp; AMBER: subscription carries\nclientState; no pilot library subscribed yet", fill=PART)
+    d.component("m365", "z_state", "M365 · pilot library", "AMBER: no pilot library chosen — FABRIC_ALLOWLIST and the\nnotification subscription are the two settings that start it", fill=PART)
 
     for s, t, k in (("runs", "ingress", "async"), ("notif", "stream", "async"), ("recon", "stream", "async"), ("stream", "ingress", "async"),
                     ("ingress", "intake", "async"), ("intake", "catalog", "sync"), ("intake", "graph", "sync"), ("intake", "vocab", "sync"),

@@ -158,7 +158,7 @@ def build() -> C4Diagram:
     d.component("c_arch", "z_core", "archimate",
                 "engine · notation · relrepair · xsd", fill=DONE)
     d.component("fabric", "z_sub", "Documentation Fabric",
-                "GREEN on the LOCAL stack 11 Sep: event → ingress → intake (2 drafts) →\ndraft-review → curator S→H → publish → projection, one trace per run;\nAMBER note: cloud tier not deployed, projector folder unset, no local\nembedder (similarity by test only); detail in docs/architecture/fabric.png", row=1, fill=DONE)
+                "GREEN 11 Sep: full loop proved on the local stack (event → intake → review →\ncurator → publish → projection); deployed to the cloud (sha-83ae1c0), 9-step\nproof passes there; AMBER note: no library allow-listed, wiki folder unset;\ndetail in docs/architecture/fabric.png", row=1, fill=DONE)
     d.component("c_sem", "z_core", "semantic",
                 "vocabularies · SKOS · SPARQL", fill=DONE)
     d.component("c_sp", "z_core", "speech",
