@@ -511,6 +511,23 @@ stateless and address each other only through `src/lab/platform/config.py` env v
   write credential and the ADOIT password.** Rotating any of them means rotating in BOTH places — a
   stale `LAB_ENV` deploys old credentials over good ones, which fails confusingly. Without `LAB_ENV`
   the job falls back to `release` (image + redeploy, no config), so a fork still ships code. Both
+  **A deploy WAITS for a quiet run board (11 Sep 2026).** A rollout restarts the gateway with no
+  zero-downtime cutover, so every LLM, tool and embedding call in flight gets a 502 for one to three
+  minutes — two derives, an adjudication and a publish's embedding batches all died under one push.
+  `release`, `substrate up` and `workload up` now ask the front door `GET /api/runs/open` (a
+  `Workflow.Submit` power, ids only) and wait up to `LAB_DEPLOY_WAIT_S` (1800 s, a screening run)
+  before refusing with exit 3; `LAB_DEPLOY_FORCE=1` overrides; a front door that cannot be asked is
+  reported and the deploy proceeds, because a gate that blocks the repair of what it cannot reach is
+  worse than none. Belt and braces: a workload's gated agent call goes through
+  `lab.workloads.gateway.survive_restart` (20/40/60/60/60 s on a 5xx or a dropped connection, never
+  on a 4xx). **Two rules the gate cannot enforce**: never push while a corpus PUBLISH or an EVAL is
+  running (neither is a workflow run, so the board is quiet), and never run
+  `scripts/eval_coverage.py` beside a cloud run — Ollama Cloud's session limit is one bucket for
+  the whole account and it took ~3.5 h to clear twice. **Evals have their own identity**:
+  `usecase-evals` team + `EVAL_AGENT_KEY` (reference reads, both map stores, kimi-k3 and
+  claude-sonnet-5 for the adjudicator's second opinion); the eval scripts refuse a production
+  agent's key or the master key. The embedder runs `OLLAMA_NUM_PARALLEL=4` so a live query is
+  served beside a publish batch, not behind it.
   paths log key NAMES only, never values. It fails only on a service that crashed on
   the new image or never finished deploying; a service that does not exist (the one-shot
   `wf-visio-job`) is reported and is not a failure. Pin/roll back with `LAB_IMAGE_TAG=sha-<short>`; the GHCR
