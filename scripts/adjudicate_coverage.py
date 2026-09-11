@@ -58,15 +58,22 @@ LEAF CAPABILITIES:
 
 
 def ask(gateway: str, key: str, model: str, prompt: str, attempts: int = 3) -> dict:
+    # JSON mode and a budget that survives a reasoning model: kimi-k3 spends tokens thinking before
+    # it answers, and a 4,000-token cap returned an EMPTY content on every 45k-token prompt (11 Sep).
     body = {"model": model, "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0, "max_tokens": 4000}
+            "temperature": 0, "max_tokens": 16000, "response_format": {"type": "json_object"}}
     for attempt in range(attempts):
         req = urllib.request.Request(f"{gateway}/v1/chat/completions", data=json.dumps(body).encode(),
                                      headers={"Authorization": f"Bearer {key}",
                                               "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=600) as r:
-                text = json.load(r)["choices"][0]["message"]["content"]
+            with urllib.request.urlopen(req, timeout=900) as r:
+                reply = json.load(r)
+            choice = reply["choices"][0]
+            text = choice["message"].get("content") or ""
+            if not text.strip():
+                raise ValueError(f"empty content (finish_reason={choice.get('finish_reason')}, "
+                                 f"completion_tokens={(reply.get('usage') or {}).get('completion_tokens')})")
             start, end = text.find("{"), text.rfind("}")
             return json.loads(text[start:end + 1])
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as e:
