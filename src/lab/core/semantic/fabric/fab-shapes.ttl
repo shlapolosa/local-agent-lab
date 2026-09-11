@@ -1,0 +1,54 @@
+@prefix fab:  <urn:fabric:ont#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+# NFR-2 as an executable fitness function: an Artifact is a CLOSED shape. Any property not listed is a
+# violation — which is how a content property, however it is spelled, can never enter a fabric store.
+fab:ArtifactShape a sh:NodeShape ;
+    sh:targetClass fab:Artifact ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:path dct:title ; sh:maxCount 1 ; sh:maxLength 300 ;
+                  sh:message "a title is a label, not a body: 300 characters" ] ;
+    sh:property [ sh:path dcat:accessURL ; sh:minCount 1 ;
+                  sh:message "an artifact must point at its system of record (custody, principle 2)" ] ;
+    sh:property [ sh:path fab:documentType ; sh:maxCount 1 ] ;
+    sh:property [ sh:path fab:ownedBy ; sh:maxCount 1 ] ;
+    sh:property [ sh:path fab:sensitivityLabel ; sh:maxCount 1 ; sh:maxLength 120 ] ;
+    sh:property [ sh:path fab:lifecycleState ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:in ( fab:Pending fab:InReview fab:Published fab:Withdrawn ) ] ;
+    sh:property [ sh:path fab:baselineVersion ; sh:maxCount 1 ; sh:maxLength 64 ] ;
+    sh:property [ sh:path fab:producedBy ; sh:maxCount 1 ; sh:maxLength 64 ] ;
+    sh:property [ sh:path fab:sourceKind ; sh:maxCount 1 ; sh:maxLength 32 ] ;
+    sh:property [ sh:path fab:unassociated ; sh:maxCount 1 ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path dct:modified ; sh:maxCount 1 ] ;
+    sh:property [ sh:path dct:subject ] ;
+    sh:property [ sh:path fab:deliveredUnder ] ;
+    sh:property [ sh:path fab:references ] .
+
+# NFR-3: the owner and the label are LOOKED UP, never guessed — so their assertions may only ever sit
+# in the constructed graph. Checked with SPARQL because the constraint is about WHICH GRAPH holds the
+# triple, which a property shape cannot express.
+fab:OwnerProvenanceShape a sh:NodeShape ;
+    sh:targetSubjectsOf fab:ownedBy ;
+    sh:targetSubjectsOf fab:sensitivityLabel ;   # BOTH targets, or a label on an owner-less artifact is never a focus node
+    sh:sparql [ sh:message "owner and sensitivity label must be constructed (rung C) from reference data (NFR-3)" ;
+                sh:select """
+                    SELECT $this WHERE {
+                        GRAPH ?g { $this ?p ?o }
+                        FILTER (?p IN (<urn:fabric:ont#ownedBy>, <urn:fabric:ont#sensitivityLabel>))
+                        FILTER (?g != <urn:fabric:graph:C>)
+                    }""" ] .
+
+# An assertion's provenance is complete or it is not an assertion.
+fab:AssertionShape a sh:NodeShape ;
+    sh:targetClass fab:Assertion ;
+    sh:property [ sh:path fab:rung ; sh:minCount 1 ; sh:maxCount 1 ; sh:in ( "S" "X" "C" "H" "D" ) ] ;
+    sh:property [ sh:path fab:method ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path prov:generatedAtTime ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path fab:confidence ; sh:maxCount 1 ; sh:minInclusive 0.0 ; sh:maxInclusive 1.0 ] .

@@ -14,11 +14,17 @@ def fingerprint(value: str) -> str:
 
 
 class BearerAuthMiddleware:
-    def __init__(self, app, secret=None):
+    """`public_paths` are the few routes a THIRD PARTY calls without our secret — a provider's
+    change-notification callback — and they must prove themselves another way (a client state the
+    route checks). Exact paths only, declared by the server that owns them: an exemption is a hole,
+    and a hole you cannot list is one you cannot audit."""
+
+    def __init__(self, app, secret=None, public_paths=()):
         self.app, self.secret = app, (secret or config.MCP_SHARED_SECRET)
+        self.public_paths = frozenset(public_paths)
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not self.secret:
+        if scope["type"] != "http" or not self.secret or scope.get("path") in self.public_paths:
             return await self.app(scope, receive, send)
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         if headers.get("authorization", "") == f"Bearer {self.secret}":

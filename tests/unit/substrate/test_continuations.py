@@ -268,3 +268,51 @@ def test_a_failing_crash_hygiene_pass_does_not_stop_the_runner_starting(monkeypa
     monkeypatch.setattr(approvals, "decision_events", lambda *a, **kw: (stop(), iter([]))[1])
     continuations.main()
     assert "crash-hygiene pass failed" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ the fabric's questions
+def _fabric_ask(r, kind=ApprovalKind.DRAFT_REVIEW.value):
+    cont = Continuation(process="artifact_publish", inputs={"artifact_iri": "urn:fabric:artifact:01J9X5K7QZ3M8N2P4R6T8V0W1Y"})
+    payload = {"question": {"prompt": "Is this right?", "items": [{"label": "document_type"}], "fields": ["value"]},
+               "answer_labels": ["document_type"], "answer_required": True, "continuation": cont.to_dict()}
+    return approvals.request(kind, "ADR-14 — review", payload, "a@x.org", client=r)
+
+
+def test_a_fabric_decision_is_applied_by_the_curator_then_released_with_the_approval_bound(monkeypatch, r):
+    """The person's answer reaches the fabric FIRST (rung H, with the actor), then the publish run starts
+    knowing which approval released it — a declared `approval_id` input is bound by the runner."""
+    applied = []
+
+    async def fake_apply(state, actor, *, call=None):
+        applied.append((state["kind"], actor, state["answer"])); return [("semantic_promote", {})]
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, "draft-review", fake_apply)
+    rid = _fabric_ask(r)
+    _decide(r, rid, answer={"document_type": {"value": "urn:fabric:scheme:doc-types#minutes"}})
+    started = _drain(r)
+    assert applied == [("draft-review", "maria@contoso.com", {"document_type": {"value": "urn:fabric:scheme:doc-types#minutes"}})]
+    req = workflows.status(started[0], client=r)
+    assert req["process"] == "artifact_publish" and req["inputs"] == {"artifact_iri": "urn:fabric:artifact:01J9X5K7QZ3M8N2P4R6T8V0W1Y", "approval_id": rid}
+    assert r.hget(f"approvals:req:{rid}", "curated") == "1"
+
+
+def test_a_refused_curation_is_recorded_and_releases_nothing(monkeypatch, r):
+    async def refuse(state, actor, *, call=None):
+        raise ValueError("refused by the fabric's shapes: owner must be constructed")
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, "association", refuse)
+    rid = _fabric_ask(r, kind=ApprovalKind.ASSOCIATION.value)
+    _decide(r, rid, answer={"document_type": {"value": "urn:fabric:scheme:doc-types#minutes"}})
+    assert _drain(r) == []
+    assert "refused by the fabric" in (r.hget(f"approvals:req:{rid}", "continuation_error") or
+                                       r.hget(f"approvals:req:{rid}", "error") or "")
+    assert r.hget(f"approvals:req:{rid}", "released_request_id") is None
+
+
+def test_a_non_fabric_kind_never_reaches_the_curator(monkeypatch, r):
+    async def never(state, actor, *, call=None):
+        raise AssertionError("the curator must not see a speaker question")
+    for kind in ("association", "draft-review"):                     # the fabric's appliers, armed to explode
+        monkeypatch.setitem(continuations.answer_appliers.APPLIERS, kind, never)
+    assert continuations.answer_appliers.applier_for("speaker-mapping") is None
+    rid = _ask(r)                                                    # a speaker question
+    _decide(r, rid)
+    assert len(_drain(r)) == 1

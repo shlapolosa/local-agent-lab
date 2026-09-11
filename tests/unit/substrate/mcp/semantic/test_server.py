@@ -74,6 +74,7 @@ def _server():
     for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "UPLOADS_URL", "DATABASE_URL"):
         mp.delenv(k, raising=False)
     mp.setattr(config, "REFERENCE_MODELS_DIR", ref_dir)          # config already read the real env
+    mp.setattr(config, "FABRIC_DB_URL", "")                       # the in-process catalog, never a database
 
     spec = importlib.util.spec_from_file_location("semantic_mcp_server", SERVER)
     srv = importlib.util.module_from_spec(spec)
@@ -142,7 +143,9 @@ def tools():
 
 
 def test_tool_catalogue():
-    assert {t.name for t in tools()} == TOOLS
+    """MEMBERSHIP, not the exact set: the fabric's tools live on this server too (test_fabric_tools.py), and
+    the two-way parity with `SemanticTools` is tests/governance's job."""
+    assert TOOLS <= {t.name for t in tools()}
 
 
 def test_ontologies_describe_classify_check():
@@ -280,16 +283,15 @@ def test_span_attributes_are_the_telemetry_contract():
     assert st["semantic.spec_ref"].startswith("art://") and st["semantic.relations"] == 9
 
 
-def test_main_serves():
+def test_main_serves(monkeypatch):
+    """`__main__` boots (restores the rung graphs — patched: no Redis here) and then serves."""
     import lab.substrate.mcpserver as ms
-    served = []
-    real = ms.serve
-    ms.serve = lambda mcp, service, port, **kw: served.append((service, port))
-    try:
-        runpy.run_path(SERVER, run_name="__main__")
-    finally:
-        ms.serve = real
-    assert served == [("semantic-mcp", config.SEMANTIC_MCP_PORT)]
+    from lab.substrate.mcp.semantic.rung_store import RungStore
+    served, booted = [], []
+    monkeypatch.setattr(ms, "serve", lambda mcp, service, port, **kw: served.append((service, port)))
+    monkeypatch.setattr(RungStore, "restore", lambda self, fabric: booted.append(fabric) or {})
+    runpy.run_path(SERVER, run_name="__main__")
+    assert served == [("semantic-mcp", config.SEMANTIC_MCP_PORT)] and len(booted) == 1
 
 
 if __name__ == "__main__":

@@ -385,7 +385,7 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     gm = upserts["svc-graph-mcp"]["variables"]
     assert gm["S3_ENDPOINT"] == "https://s3.example" and gm["UPLOADS_URL"] == "s3://lab-uploads/uploads"
     assert gm["GRAPH_CLIENT_SECRET"] == "graph-secret-fake" and gm["ENTRA_TENANT_ID"] == "tenant-fake"
-    assert "REDIS_URL" not in gm and "LITELLM_MASTER_KEY" not in gm
+    assert "REDIS_URL" in gm and "LITELLM_MASTER_KEY" not in gm     # Redis: its /notifications route publishes fabric:events
     assert not any(k.startswith("S3_") for k in upserts["svc-semantic-mcp"]["variables"])
     assert not any(k.startswith("S3_") for k in upserts["svc-adoit-mcp"]["variables"])
     # workflow-mcp publishes/reads workflow:requests and NOTHING else: Redis + trust + tracing only
@@ -403,7 +403,9 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
                                        "healthcheckPath": "", "restartPolicyType": "ON_FAILURE"}, name
     assert "--host 0.0.0.0" in inst["svc-gateway"]["startCommand"]  # IPv4 edge + no probe (verified combo)
     domains = [c[1]["in"] for c in fake.ops("serviceDomainCreate")]
-    assert domains == [{"environmentId": "env-fake", "serviceId": "svc-gateway", "targetPort": 4000},
+    # three public doors, in SUBSTRATE order: graph-mcp (the change-notification receiver), the gateway, the review app
+    assert domains == [{"environmentId": "env-fake", "serviceId": "svc-graph-mcp", "targetPort": 9500},
+                       {"environmentId": "env-fake", "serviceId": "svc-gateway", "targetPort": 4000},
                        {"environmentId": "env-fake", "serviceId": "svc-review", "targetPort": 8501}]
     # image mode: nothing fetches a commit (every service pulls the same prebuilt tag)
     deploys = [(c[1]["s"], "latestCommit:true" in c[2]) for c in fake.ops("serviceInstanceDeploy")]
@@ -521,7 +523,8 @@ def test_substrate_up_existing_project_is_idempotent_and_redeploys_jaeger():
     with railway(fake) as out:
         rw.substrate_up()
     text = out.getvalue()
-    assert text.count("domain note") == 2 and "quota exceeded" in text
+    # three public domains: the gateway, the review app, and graph-mcp (the change-notification receiver)
+    assert text.count("domain note") == 3 and "quota exceeded" in text
     assert "jaeger        already up" in text
     assert all(c[1]["s"] != "svc-jaeger" for c in fake.ops("serviceInstanceDeploy"))
     assert "gateway  https://(pending)" in text                                     # no domain yet

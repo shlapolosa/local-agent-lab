@@ -126,7 +126,9 @@ SUBSTRATE = {
     # organisation collaborates. "s3": True because collab_fetch WRITES what it fetches into the
     # upload store — a meeting recording is streamed there and comes back as an art:// ref, so this
     # is the third holder of bucket credentials alongside storage-mcp (reads) and review (writes).
-    "graph-mcp":    {"cmd": "python -m lab.substrate.mcp.graph.server", "port": None, "s3": True},
+    # "port": the receiver of change notifications (`/notifications`, exempt from the bearer check) must be
+    # reachable from the provider's cloud, so graph-mcp gets a PUBLIC domain; /mcp on it still needs the secret.
+    "graph-mcp":    {"cmd": "python -m lab.substrate.mcp.graph.server", "port": 9500, "s3": True},
     # the SPEECH port (gateway alias speech_mcp): a recording becomes timed, speaker-labelled words.
     # "s3": True because it READS the audio out of the upload store and WRITES the segment timeline
     # back as an art:// ref — an hour of speech is never a tool result. It holds the speech
@@ -152,6 +154,13 @@ SUBSTRATE = {
     "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
     # what tells a meeting its minutes exist — Redis and one webhook, nothing else
     "meeting-notifier": {"cmd": "python -m lab.substrate.meeting_notifier", "port": None},
+    # The Documentation Fabric's three substrate consumers (docs/fabric/POC.md). Ingress: finished runs and
+    # change events -> artifact_intake requests (Redis only). Projector: a published record -> one wiki page,
+    # through the gateway with the fabric's substrate identity. Reconciler: a timer sweep of the allow-listed
+    # drives against the catalog -> change events, so a missed notification is said later.
+    "fabric-ingress":    {"cmd": "python -m lab.substrate.fabric_ingress", "port": None},
+    "fabric-projector":  {"cmd": "python -m lab.substrate.fabric_projector", "port": None},
+    "fabric-reconciler": {"cmd": "python -m lab.substrate.fabric_reconciler", "port": None},
     "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
@@ -265,6 +274,8 @@ ROLE_ENV = {
         "REFERENCE_MODELS_REFS",                              # src/lab/substrate/mcp/semantic/server.py — credential-free, read-only
         "MCP_SHARED_SECRET", "BIND_HOST", "SEMANTIC_MCP_PORT",
         "ARTIFACTS_URL", "DATABASE_URL",           # semantic_store_spec / semantic_export_archimate write spec refs
+        "FABRIC_DB_URL",                           # the fabric's catalog tables (falls back to DATABASE_URL)
+        "GATEWAY_URL", "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",   # the fabric's index posts to the gateway
         _OTLP, "REFERENCE_MODELS_DIR",
     ],
     "storage-mcp": [                               # src/lab/substrate/mcp/storage/server.py + lab.substrate.artifacts + lab.platform.docparse — READ-ONLY upload store
@@ -285,6 +296,7 @@ ROLE_ENV = {
     ],                                             # ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*: refs are never dereferenced here
     "graph-mcp": [                                 # src/lab/substrate/mcp/graph/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.collab — the COLLABORATION adapter
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
+        "REDIS_URL", "FABRIC_EVENTS", "FABRIC_NOTIFY_CLIENT_STATE",   # notifications.py: a change notification -> fabric:events
         "GRAPH_*",                                 # GRAPH_MCP_PORT + the adapter's own settings: client id/secret,
                                                    # base url, auth mode, meeting user(s), fetch ceiling,
                                                    # notification allow-list, metered switch (graph_auth/graph_repository)
@@ -347,8 +359,21 @@ ROLE_ENV = {
     "continuations": [                             # src/lab/substrate/continuations.py + lab.substrate.approvals + lab.platform.workflows
         "REDIS_URL",                               # the approvals:decisions group + workflow:requests
         "REVIEW_APP_URL",                          # printed on start so an operator can find the gate
+        "GATEWAY_URL", "FABRIC_CURATOR_KEY",       # fabric_curator: a person's fabric decision applied at rung H
         _OTLP,                                     # NOTHING else: no store, no bucket, no model and no
     ],                                             # provider credential. It cannot read what it releases.
+    "fabric-ingress": [                            # src/lab/substrate/fabric_ingress.py + lab.platform.{fabric_events,workflows,delivery} — Redis ONLY
+        "REDIS_URL", "FABRIC_EVENTS", "FABRIC_ALLOWLIST",
+        _OTLP,                                     # no store, no gateway, no credential: it reads run state and events, and submits requests
+    ],
+    "fabric-projector": [                          # src/lab/substrate/fabric_projector.py — a published record becomes a wiki page
+        "REDIS_URL", "GATEWAY_URL", "FABRIC_CURATOR_KEY", "FABRIC_WIKI_FOLDER",
+        _OTLP,                                     # reads the record and writes the page THROUGH the gateway; no store credential
+    ],
+    "fabric-reconciler": [                         # src/lab/substrate/fabric_reconciler.py — the timer sweep of the allow-listed drives
+        "REDIS_URL", "GATEWAY_URL", "FABRIC_CURATOR_KEY", "FABRIC_EVENTS", "FABRIC_ALLOWLIST", "FABRIC_SWEEP_*",
+        _OTLP,
+    ],
     "meeting-notifier": [       # src/lab/substrate/meeting_notifier.py + lab.platform.workflows — Redis ONLY
         "REDIS_URL",            # the finished-runs stream it consumes
         "MEETING_WEBHOOK_URL",  # where it POSTs. Unset = it logs what it would say
@@ -427,6 +452,15 @@ WORKLOAD_ENV: dict[str, list[str]] = {
                                                    # writes the minutes with OUR model, so it needs an
                                                    # LLM identity where the transcription one does not.
         "AGENT_*",                                 # agents.py: responses-store toggle, timeouts, caps
+    ],
+    "fabric-intake": [
+        "CLASSIFIER_AGENT_*", "SYNTHESIS_AGENT_*", # two identities: the classifier SUGGESTS (and carries the tool
+                                                   # calls), the synthesiser WRITES tagged drafts
+        "FABRIC_AGENT_MODEL", "FABRIC_ASSOCIATION_THRESHOLD", "FABRIC_DEFAULT_LABEL",
+        "AGENT_*",
+    ],
+    "artifact-publish": [
+        "PUBLISH_AGENT_*",                         # its OWN tool-only identity (team fabric-publish)
     ],
     "meeting": [
         "MEETING_*",                               # MEETING_AGENT_CLIENT_ID/SECRET/KEY, and MEETING_LANGUAGES —
@@ -1164,6 +1198,22 @@ WORKLOADS = {
     "usecase-provisioning": {
         "service": "wf-usecase-provisioning",
         "cmd": "python -m lab.workloads.use_case_provisioning.consumer",
+        "restart": "ALWAYS",
+        "env": {"WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    # The Documentation Fabric's two hosts. Intake is started ONLY by fabric-ingress (external=False);
+    # publish ONLY by the continuation runner when an owner approves the record's review.
+    "fabric-intake": {
+        "service": "wf-fabric",
+        "cmd": "python -m lab.workloads.artifact_intake.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "artifact-publish": {
+        "service": "wf-artifact-publish",
+        "cmd": "python -m lab.workloads.artifact_publish.consumer",
         "restart": "ALWAYS",
         "env": {"WF_CONSUMER": "1"},
         "markers": ("consumer ready", "request "),

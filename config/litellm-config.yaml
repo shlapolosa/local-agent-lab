@@ -123,7 +123,7 @@ mcp_servers:                          # addresses + trust come from the environm
     transport: http
     auth_type: bearer_token
     authentication_token: os.environ/MCP_SHARED_SECRET
-    description: Semantic layer — vocabularies as data (ArchiMate 3.1 first), classification, exact relationship legality, SPARQL over models
+    description: Semantic layer — vocabularies as data (ArchiMate 3.1 first), classification, exact relationship legality, SPARQL over models; the Documentation Fabric's four metadata products (catalog, traceability edges at provenance rungs, vocabulary links, similarity facade) — PIPELINE and PROMOTE tools are granted per team, never to a workload's own agents
     extra_headers: ["traceparent", "tracestate"]
   storage_mcp:                        # READ-ONLY governed access to the upload store (bucket): the
     url: os.environ/STORAGE_MCP_URL   # only way an agent/workload reaches an input object — the

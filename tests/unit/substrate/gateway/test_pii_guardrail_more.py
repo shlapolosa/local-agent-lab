@@ -130,3 +130,18 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+
+
+
+def test_a_responses_body_parks_the_map_only_where_litellm_never_forwards_it():
+    """The Responses route forwards unknown top-level keys and `metadata` to the upstream; Anthropic refused
+    `pii_restore_map` there (live, 11 Sep 2026). `litellm_metadata` is LiteLLM's own carrier and the post hook
+    reads it, so on that shape it is the only place the map may sit."""
+    mapping = {"[EMAIL#1]": EMAIL}
+    body = {"model": "claude-haiku-4-5", "input": "mail [EMAIL#1]", "metadata": {"user_id": "u1"}}
+    pg.park_mapping(body, mapping)
+    assert pg.MAP_KEY not in body and body["metadata"] == {"user_id": "u1"}
+    assert body["litellm_metadata"] == {pg.MAP_KEY: mapping} and pg.find_mapping(body) is mapping
+    chat = {"model": "glm-flash", "messages": [{"role": "user", "content": "x"}]}
+    pg.park_mapping(chat, mapping)
+    assert chat[pg.MAP_KEY] is mapping and chat["metadata"][pg.MAP_KEY] is mapping     # chat route unchanged

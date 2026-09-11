@@ -207,6 +207,11 @@ def register(server: LabServer) -> None:
                                                               "with one thing to say per label, such "
                                                               "as a class to confirm. Every surface "
                                                               "renders the form from this.")] = None,
+        kind: Annotated[str, Field(description="What KIND of question this is, from the approval "
+                                               "contract: speaker-mapping (default), association "
+                                               "(where does this artifact belong), draft-review "
+                                               "(is this record right). Channels triage by it; "
+                                               "nothing dispatches on it.")] = ApprovalKind.SPEAKER_MAPPING.value,
     ) -> dict:
         """Ask a HUMAN a question this run cannot answer itself, and finish.
 
@@ -226,6 +231,8 @@ def register(server: LabServer) -> None:
         prompts = [SpeakerPrompt.from_dict(i) for i in (items or []) if isinstance(i, dict)]
         if not prompts:
             raise ValueError("ask about at least one thing — an empty question cannot be answered")
+        if kind not in {k.value for k in ApprovalKind}:
+            raise ValueError(f"kind must be one of {sorted(k.value for k in ApprovalKind)}, not {kind!r}")
         labels = [p.label for p in prompts]
         if len(set(labels)) != len(labels):
             dupes = sorted({l for l in labels if labels.count(l) > 1})
@@ -258,7 +265,7 @@ def register(server: LabServer) -> None:
                              "continuation, the reviewer's brief). Pass artifacts under names of "
                              "your own.")
         payload |= dict(artifacts or {})
-        rid = approvals.request(kind=ApprovalKind.SPEAKER_MAPPING.value, subject=subject,
+        rid = approvals.request(kind=kind, subject=subject,
                                 payload=payload, requester=requester or SOURCE, client=_client())
         span().set_attributes({"approval.request_id": rid, "approvals.asked": len(prompts)})
         return {"request_id": rid, "status": ApprovalStatus.PENDING.value, "asked": len(prompts),

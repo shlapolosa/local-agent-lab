@@ -74,7 +74,8 @@ def _provisioned_prefixes() -> set[str]:
     import provision_usecase_agents as U
     found = set(U.SERVICE_PREFIXES.values())
     for module, names in (("provision_meeting_agents", ("MEETING_AGENT", "MINUTES_AGENT")),
-                          ("provision_visio_agents", ("BA_AGENT", "ARCHITECT_AGENT"))):
+                          ("provision_visio_agents", ("BA_AGENT", "ARCHITECT_AGENT")),
+                          ("provision_fabric_agents", ("CLASSIFIER_AGENT", "SYNTHESIS_AGENT", "PUBLISH_AGENT"))):
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts",
                                 f"{module}.py"), encoding="utf-8").read()
         found |= {n for n in names if f"{n}_KEY" in src or f'"{n}' in src}

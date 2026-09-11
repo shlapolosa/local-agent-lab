@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from lab.core.semantic.fabric.catalog import POINTER_ID_FIELDS
+
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
@@ -208,6 +210,40 @@ class SemanticTools(ToolCatalogue):
     store_spec = "semantic_store_spec"
     questions = "semantic_questions"
     ask = "semantic_ask"
+    # The Documentation Fabric's four metadata products (docs/fabric/notes 004/005) on the SAME server:
+    # a query port is not a process, so it does not sit on workflow-mcp. The Catalog row, the rung-graph
+    # edges, the vocabulary links and the facade over the embedding index (which proposes, never decides).
+    catalog_get = "semantic_catalog_get"
+    catalog_upsert = "semantic_catalog_upsert"
+    catalog_state = "semantic_catalog_state"
+    catalog_assert = "semantic_catalog_assert"     # a classified facet at a RUNG: row column + graph triple + PROV
+    # "graph" is a banned word in a tool name (it is a collaboration vendor's product), so the Traceability
+    # Graph's tools speak of EDGES and TRACES.
+    edge_assert = "semantic_edge_assert"
+    edge_retract = "semantic_edge_retract"
+    trace = "semantic_trace"
+    impact = "semantic_impact"                     # reads C·X·H·D — never S (NFR-7)
+    vocab_link = "semantic_vocab_link"
+    vocab_propose = "semantic_vocab_propose"
+    embed = "semantic_embed"
+    similar = "semantic_similar"
+    search = "semantic_search"
+    validate_shapes = "semantic_validate_shapes"
+    promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
+    # THREE GRANTS. `READ` is what every team had before the fabric and every query the products answer.
+    # `PIPELINE` is what the intake and publish workloads write — at a rung, with provenance — and no
+    # other team. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
+    # own human (the review app, the Teams bot), never a workload: an agent that could promote its own
+    # suggestion to H would make the ladder decorative. WRITE = PIPELINE + PROMOTE so the split ratchet
+    # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
+    READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
+            export_archimate, store_spec, questions, ask,
+            catalog_get, trace, impact, similar, search, validate_shapes)
+    PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
+                vocab_propose, embed)
+    PROMOTE = (promote,)
+    WRITE = PIPELINE + PROMOTE
+    GRANTS = (READ, PIPELINE, PROMOTE)
 
 
 class EATools(ToolCatalogue):
@@ -476,6 +512,11 @@ class ApprovalKind(StrEnum):
     # answer itself: which anonymous speaker is which person. Same gate, same audit log, same
     # channels; nothing dispatches on this value, which is what keeps that true.
     SPEAKER_MAPPING = "speaker-mapping"
+    # The Documentation Fabric's two gates (docs/fabric/FRS.md §5): confirming which delivery context an
+    # artifact belongs to (a QUESTION with candidates, like speaker-mapping), and releasing a reviewed
+    # artifact for publication. Nothing dispatches on either value.
+    ASSOCIATION = "association"
+    DRAFT_REVIEW = "draft-review"
 
 
 @dataclass(frozen=True)
@@ -888,6 +929,15 @@ class InputKind(StrEnum):
     MAPPING = "mapping"    # a SMALL flat object of label -> {field: value}, from a human's answer
     CONVERSATION = "conversation"   # ONE opaque provider conversation id: where a result is announced
     CHOICE = "choice"      # ONE value from a CLOSED set declared on the field
+    APPROVAL = "approval"  # ONE approval id (`apr-<12 hex>`): the decision a continuation was released by
+    # The Documentation Fabric's three (docs/fabric/FRS.md §4.4, §4.6): a POINTER is a bounded structured
+    # reference INTO a system of record (never content, never a URL); an EVENT is the ULID of the
+    # ArtifactChanged that started a run; a CONTEXT is the delivery container an artifact was produced
+    # under, as `<kind>:<id>` from a closed set of kinds (note 001: the work item is one kind of several).
+    POINTER = "pointer"
+    EVENT = "event"
+    CONTEXT = "context"
+    ARTIFACT = "artifact"  # ONE fabric artifact IRI, urn:fabric:artifact:<ULID> — the catalog's own identity
 
 
 # A mapping is a human's answer, not a payload. Bounded so it can never become a way to smuggle
@@ -897,6 +947,99 @@ MAX_MAPPING_BYTES = 8192
 # A conversation id is an id. Teams' own is ~60 characters; the ceiling is generous for a provider
 # that mints longer ones and still far too small to be a paragraph.
 MAX_CONVERSATION_CHARS = 512
+# A pointer names ONE item in ONE system of record. Bounded like a mapping, for the same reason.
+# Sources are the lab's PORTS, never vendors: "collab" (files and meetings behind collab_mcp), "work"
+# (work items behind the delivery-context port), "ea" (the EA repository behind ea_mcp), "lab" (an
+# artifact a lab run wrote to its own store). A pointer into collab IS the content handle.
+POINTER_SOURCES = ("collab", "work", "ea", "lab")
+# POINTER_ID_FIELDS lives with the catalog row that keys on it (lab.core.semantic.fabric.catalog); one home.
+MAX_POINTER_BYTES = 1024
+# A delivery context is `<kind>:<id>`; the kinds are the delivery containers the lab knows.
+CONTEXT_KINDS = ("usecase", "meeting", "submission", "workitem")
+MAX_CONTEXT_CHARS = 256
+ARTIFACT_CHANGES = ("created", "updated", "deleted", "moved", "relabelled")
+
+
+def check_pointer(value: Any, field: str = "pointer") -> dict[str, str]:
+    """A bounded, structured reference into a system of record — never content, never a URL.
+
+    Shared by the input contract and by `ArtifactChanged`, so an event and a run refuse the same
+    shapes. A JSON string is accepted because the stream carries fields as strings."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as e:
+            raise ValueError(f"{field} must be a pointer object, got a string that is not JSON") from e
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"{field} must be a pointer object {{source, <id fields>}}, got {type(value).__name__}")
+    if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > MAX_POINTER_BYTES:
+        raise ValueError(f"{field} is larger than the {MAX_POINTER_BYTES} bytes a pointer may be")
+    source = value.get("source")
+    if source not in POINTER_SOURCES:
+        raise ValueError(f"{field}.source must be one of {list(POINTER_SOURCES)}, not {source!r}")
+    if not any(value.get(k) for k in POINTER_ID_FIELDS):
+        raise ValueError(f"{field} names no item: one of {list(POINTER_ID_FIELDS)} is required")
+    out: dict[str, str] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not isinstance(v, (str, int)) or isinstance(v, bool):
+            raise ValueError(f"{field}.{k} must be a string or integer")
+        text = str(v).strip()
+        if "://" in text and k not in ("ref", "handle"):
+            raise ValueError(f"{field}.{k} looks like a URL — a pointer carries ids, never locations")
+        if k == "ref" and not ArtifactRef.is_ref(text):
+            raise ValueError(f"{field}.ref must be an art:// reference")
+        if k == "handle":
+            from lab.core.collab.model import ContentHandle      # platform may import core
+            text = str(ContentHandle.parse(text))                 # ids only, never a URL
+        out[k] = text
+    return out
+
+
+_APPROVAL_ID = re.compile(r"^apr-[0-9a-f]{12}$")
+
+
+def check_approval_id(value: Any, field: str = "approval_id") -> str:
+    """An approval id as `lab.substrate.approvals.request` mints them — an opaque id, never a URL."""
+    text = value.strip() if isinstance(value, str) else ""
+    if not _APPROVAL_ID.match(text):
+        raise ValueError(f"{field} must be an approval id (apr-<12 hex>), got {value!r}")
+    return text
+
+
+def check_event_id(value: Any, field: str = "event_id") -> str:
+    from lab.core import ids                       # platform may import core
+
+    text = value.strip() if isinstance(value, str) else ""
+    if not ids.is_ulid(text):
+        raise ValueError(f"{field} must be a ULID (26 Crockford base32 characters), got {value!r}")
+    return text
+
+
+def check_context(value: Any, field: str = "context") -> str:
+    """`<kind>:<id>` — the delivery container an artifact was produced under. An id, checked like a
+    conversation id: no whitespace, no URL, bounded; the kind from the closed set."""
+    text = value.strip() if isinstance(value, str) else ""
+    kind, sep, ident = text.partition(":")
+    if not sep or kind not in CONTEXT_KINDS or not ident:
+        raise ValueError(f"{field} must be <kind>:<id> with kind in {list(CONTEXT_KINDS)}, got {value!r}")
+    if any(c.isspace() for c in ident) or "://" in ident:
+        raise ValueError(f"{field} must be an opaque id, got {value!r}")
+    if len(text) > MAX_CONTEXT_CHARS:
+        raise ValueError(f"{field} is longer than the {MAX_CONTEXT_CHARS} characters an id may be")
+    return text
+
+
+ARTIFACT_IRI_PREFIX = "urn:fabric:artifact:"
+
+
+def check_artifact_iri(value: Any, field: str = "artifact_iri") -> str:
+    """The catalog's identity for an artifact — opaque, minted by the fabric, never a path or a URL."""
+    from lab.core import ids
+
+    text = value.strip() if isinstance(value, str) else ""
+    if not text.startswith(ARTIFACT_IRI_PREFIX) or not ids.is_ulid(text[len(ARTIFACT_IRI_PREFIX):]):
+        raise ValueError(f"{field} must be {ARTIFACT_IRI_PREFIX}<ULID>, got {value!r}")
+    return text
 
 
 @dataclass(frozen=True)
@@ -937,6 +1080,16 @@ class InputField:
             return self._conversation(value)
         if self.kind is InputKind.CHOICE:
             return self._choice(value)
+        if self.kind is InputKind.POINTER:
+            return check_pointer(value, self.name)
+        if self.kind is InputKind.EVENT:
+            return check_event_id(value, self.name)
+        if self.kind is InputKind.APPROVAL:
+            return check_approval_id(value, self.name)
+        if self.kind is InputKind.CONTEXT:
+            return check_context(value, self.name)
+        if self.kind is InputKind.ARTIFACT:
+            return check_artifact_iri(value, self.name)
         if self.kind is InputKind.MAPPING:
             return self._mapping(value)
         if self.kind is InputKind.REF:
@@ -1529,14 +1682,147 @@ AGENTS: tuple[AgentSpec, ...] = (
     AgentSpec(name="usecase-value-analyst", prefix="USECASE_VALUE",
               description="States the benefit inputs a use case's investment case is valued on.",
               skills=("benefit_inputs",), model="kimi-k3", processes=("use_case_design",)),
+
+    # The Documentation Fabric (docs/fabric/POC.md). Two identities, because the classifier SUGGESTS
+    # (rung S) and the synthesiser WRITES tagged drafts — different powers, so different keys, so a
+    # draft is attributable to the identity that wrote it.
+    AgentSpec(name="classifier-agent", prefix="CLASSIFIER_AGENT",
+              description="Suggests an artifact's document type and the vocabulary concepts it is about; never resolves owner or label.",
+              skills=("fabric_classification",), model="kimi-k3", processes=("artifact_intake",)),
+    AgentSpec(name="synthesis-agent", prefix="SYNTHESIS_AGENT",
+              description="Drafts decision records from approved minutes into the fabric's tagged drafts; writes nothing else.",
+              skills=("fabric_decision_record",), model="kimi-k3", processes=("artifact_intake",)),
+    AgentSpec(name="publish-agent", prefix="PUBLISH_AGENT",
+              description="Baselines and re-indexes a record whose review a person approved; reads the decision, writes no content.",
+              skills=("fabric_publish",), processes=("artifact_publish",)),   # tool-only: every step deterministic
 )
 
+
+#: Every process whose outputs the fabric ingests — the specs themselves, so a producer added above is a
+#: producer here (a test holds this equal to PROCESSES minus the fabric's own two).
+PRODUCING_PROCESSES: tuple[str, ...] = tuple(p.name for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
+                                                              TRANSCRIPT_TO_MINUTES, USE_CASE_SCREENING,
+                                                              USE_CASE_DESIGN, USE_CASE_INVESTMENT,
+                                                              USE_CASE_PROVISIONING))
+
+ARTIFACT_INTAKE = ProcessSpec(
+    name="artifact_intake",
+    group="wf-fabric",
+    title="One changed artifact becomes a catalogued, classified, linked and reviewed record",
+    description=(
+        "The Documentation Fabric's standing pipeline for ONE artifact that changed in a system of "
+        "record: mint or find its identity, classify it (type suggested; owner and label looked up), "
+        "link it to its delivery context and to what it references, record what it affects, draft "
+        "decision records where the artifact is minutes, check overlap, and ask the owner to review. "
+        "It writes only metadata and tagged drafts. "
+        "Started ONLY by the fabric's own ingress from an ArtifactChanged event: an outside caller "
+        "cannot start it, because the event IS the provenance of everything the run records."),
+    inputs=(
+        InputField("pointer", InputKind.POINTER,
+                   "The item that changed, as a pointer into its system of record: {source: 'collab', "
+                   "handle, version} for a file behind the collaboration port, {source: 'lab', ref} for "
+                   "an artifact a lab run wrote. Never content, never a URL."),
+        InputField("event_id", InputKind.EVENT,
+                   "The ULID of the ArtifactChanged event this run answers — the run's provenance."),
+        InputField("context", InputKind.CONTEXT,
+                   "The delivery container the artifact was produced under, as <kind>:<id> "
+                   "(usecase, meeting, submission, workitem). Known for anything a lab run produced; "
+                   "absent for a document a person edited, which the run must then associate.",
+                   required=False),
+        InputField("produced_by", InputKind.CHOICE,
+                   "Which lab process produced the artifact, when one did. Its declared document "
+                   "type is then a FACT (rung C), not a suggestion.", required=False,
+                   choices=PRODUCING_PROCESSES),
+    ),
+    outputs=("trace_id", "artifact_iri", "approval_id", "draft_refs", "rung_counts"),
+    external=False,
+)
+
+ARTIFACT_PUBLISH = ProcessSpec(
+    name="artifact_publish",
+    group="wf-artifact-publish",
+    title="A reviewed artifact is baselined, its assertions promoted, and its projection regenerated",
+    description=(
+        "The continuation an approved draft-review releases: record the baseline (which source "
+        "version was approved, by whom, when), promote the suggested assertions the owner confirmed "
+        "to human-confirmed, refresh the artifact's embedding, and publish the finished-run event "
+        "the projector turns into a wiki page. "
+        "Started ONLY by approving the draft-review question an artifact_intake run raised."),
+    inputs=(
+        InputField("artifact_iri", InputKind.ARTIFACT,
+                   "The catalog IRI of the artifact the owner approved, urn:fabric:artifact:<ULID>."),
+        InputField("approval_id", InputKind.APPROVAL, "The approval whose decision released this run."),
+    ),
+    outputs=("trace_id", "baseline", "promoted", "projection_ref"),
+    external=False,
+)
 
 PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
                                                          TRANSCRIPT_TO_MINUTES,
                                                          USE_CASE_SCREENING, USE_CASE_DESIGN,
                                                          USE_CASE_INVESTMENT,
-                                                         USE_CASE_PROVISIONING)}
+                                                         USE_CASE_PROVISIONING,
+                                                         ARTIFACT_INTAKE, ARTIFACT_PUBLISH)}
+
+
+@dataclass(frozen=True)
+class ArtifactChanged:
+    """Port 1 of every source adapter (docs/fabric/notes/2026-09-11-ports-adapters-events.md): ONE
+    change to ONE item in a system of record, in the ontology's terms, on a durable stream. The
+    fabric consumes this and knows nothing of webhooks. `pointer_key` is the idempotency key; a
+    `fabric_tag` marks a write the fabric itself made, which the ingress drops (the loop guard)."""
+
+    event_id: str
+    pointer: dict[str, str]
+    source_kind: str
+    change: str
+    actor_oid: str
+    occurred_at: str
+    fabric_tag: dict[str, str] | None = None
+    produced_by: str = ""          # the lab process that wrote the item, when one did
+    context: str = ""              # the delivery context, when the producer knew it
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "event_id", check_event_id(self.event_id, "event_id"))
+        object.__setattr__(self, "pointer", check_pointer(self.pointer, "pointer"))
+        if self.source_kind not in POINTER_SOURCES:
+            raise ValueError(f"source_kind must be one of {list(POINTER_SOURCES)}, not {self.source_kind!r}")
+        if self.change not in ARTIFACT_CHANGES:
+            raise ValueError(f"change must be one of {list(ARTIFACT_CHANGES)}, not {self.change!r}")
+        if not isinstance(self.actor_oid, str) or not self.occurred_at:
+            raise ValueError("actor_oid and occurred_at are required")
+        if self.produced_by and self.produced_by not in PROCESSES:
+            raise ValueError(f"produced_by names unknown process {self.produced_by!r}")
+        if self.context:
+            object.__setattr__(self, "context", check_context(self.context, "context"))
+        if self.fabric_tag is not None and not isinstance(self.fabric_tag, dict):
+            raise ValueError("fabric_tag must be an object or null")
+
+    @property
+    def pointer_key(self) -> str:
+        """`<source>:<item id>` — what makes two events for the same item the same event."""
+        from lab.core.semantic.fabric.catalog import pointer_key
+        return pointer_key(self.pointer)
+
+    @property
+    def is_fabric_originated(self) -> bool:
+        return bool(self.fabric_tag)
+
+    def to_fields(self) -> dict[str, str]:
+        """Redis stream fields: every value a string; JSON where the value is structured."""
+        return {"event_id": self.event_id, "pointer": json.dumps(self.pointer, sort_keys=True),
+                "source_kind": self.source_kind, "change": self.change, "actor_oid": self.actor_oid,
+                "occurred_at": self.occurred_at, "fabric_tag": json.dumps(self.fabric_tag or {}),
+                "produced_by": self.produced_by, "context": self.context}
+
+    @classmethod
+    def from_fields(cls, f: dict[str, Any]) -> "ArtifactChanged":
+        tag = json.loads(f.get("fabric_tag") or "{}") if isinstance(f.get("fabric_tag"), str) else (f.get("fabric_tag") or {})
+        return cls(event_id=str(f.get("event_id", "")), pointer=f.get("pointer", ""),
+                   source_kind=str(f.get("source_kind", "")), change=str(f.get("change", "")),
+                   actor_oid=str(f.get("actor_oid", "")), occurred_at=str(f.get("occurred_at", "")),
+                   fabric_tag=(tag or None), produced_by=str(f.get("produced_by") or ""),
+                   context=str(f.get("context") or ""))
 
 
 # ----------------------------------------------------------------------------- the registry of servers
@@ -1553,7 +1839,10 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools", "DecisionTools", "ValuationTools",
            "VectorStores", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
-           "Decision", "ApprovalStatus", "APPROVAL_FINAL",
+           "Decision", "ApprovalStatus", "APPROVAL_FINAL", "ARTIFACT_INTAKE", "ARTIFACT_PUBLISH",
+           "ArtifactChanged", "check_pointer", "check_event_id", "check_approval_id", "check_context",
+           "check_artifact_iri", "POINTER_SOURCES",
+           "CONTEXT_KINDS", "ARTIFACT_CHANGES",
            "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "check_answer",
            "answer_value", "answer_fields", "SPEAKER_FIELDS",
            "Continuation", "continuation_of",

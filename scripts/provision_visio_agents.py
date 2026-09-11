@@ -24,6 +24,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from lab.platform.contracts import SemanticTools
+
 TENANT = os.environ["ENTRA_TENANT_ID"]
 GRAPH = "https://graph.microsoft.com/v1.0"
 GRAPH_CLIENT = "14d82eec-204b-4c2f-b7e8-296a70dab67e"   # Microsoft Graph public client (device-code)
@@ -121,7 +123,10 @@ def main():
         team = litellm("/team/new", {
             "team_alias": "visio-conversion", "max_budget": 5.0, "budget_duration": "30d",
             "models": ["kimi-k3", "gpt-oss-120b", "glm-flash"],
-            "object_permission": {"mcp_servers": ["ea_mcp", "semantic_mcp", "storage_mcp"]},
+            "object_permission": {"mcp_servers": ["ea_mcp", "semantic_mcp", "storage_mcp"],
+                                  # semantic-mcp now carries the fabric's WRITE tools: a modelling agent
+                                  # gets the read side only (the ratchet in tests/governance insists)
+                                  "mcp_tool_permissions": {"semantic_mcp": list(SemanticTools.READ)}},
         })
         team_id = team["team_id"]
         print("created team visio-conversion:", team_id)

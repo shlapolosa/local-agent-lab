@@ -258,6 +258,9 @@ def test_a_subscription_body_is_what_graph_expects_not_what_the_domain_calls_it(
                                        "2026-09-05T00:00:00Z")
     assert body == {"resource": "/drives/d/root", "notificationUrl": "https://flow.example/hook",
                     "changeType": "created,deleted", "expirationDateTime": "2026-09-05T00:00:00Z"}
+    with_state = graph_map.subscription_body("/drives/d/root", "https://flow.example/hook",
+                                             (ChangeType.CREATED,), "2026-09-05T00:00:00Z", client_state="s3cret")
+    assert with_state["clientState"] == "s3cret", "the receiver's proof travels with the subscription"
 
 
 # ------------------------------------------------------------------ expiry clamping

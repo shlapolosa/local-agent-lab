@@ -1,0 +1,60 @@
+@prefix fab:   <urn:fabric:ont#> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+
+# The Documentation Fabric's ontology (docs/fabric/FRS.md §4.4). Small on purpose: the fabric holds
+# METADATA — pointers, edges, concepts, events — and the classes here say what those are. Subjects use
+# dct:subject to skos:Concept; provenance uses PROV-O on the assertion; custody is a dcat:accessURL.
+
+<urn:fabric:ont> a owl:Ontology ; rdfs:label "Documentation Fabric ontology" ; owl:versionInfo "1.0" .
+
+fab:Artifact        a owl:Class ; rdfs:subClassOf dcat:Resource ; rdfs:label "Artifact" ;
+    rdfs:comment "A managed document, decision record, drawing or synthesised product: owned, reviewed, published. The fabric holds its pointer, never its content." .
+fab:DeliveryContext a owl:Class ; rdfs:label "Delivery context" ;
+    rdfs:comment "The container delivery work is filed under. The delivery axis of the graph (note 001)." .
+fab:UseCase         a owl:Class ; rdfs:subClassOf fab:DeliveryContext .
+fab:Meeting         a owl:Class ; rdfs:subClassOf fab:DeliveryContext .
+fab:Submission      a owl:Class ; rdfs:subClassOf fab:DeliveryContext .
+fab:WorkItem        a owl:Class ; rdfs:subClassOf fab:DeliveryContext ;
+    rdfs:comment "An Azure DevOps work item, when that operating decision applies. One kind of several." .
+fab:Person          a owl:Class ; rdfs:subClassOf foaf:Person .
+fab:DocumentType    a owl:Class ; rdfs:subClassOf skos:Concept .
+fab:Source          a owl:Class ; rdfs:label "System of record" .
+fab:LifecycleState  a owl:Class .
+fab:Pending a fab:LifecycleState . fab:InReview a fab:LifecycleState .
+fab:Published a fab:LifecycleState . fab:Withdrawn a fab:LifecycleState .
+fab:Assertion       a owl:Class ; rdfs:subClassOf prov:Entity ;
+    rdfs:comment "The PROV record of one assertion: its rung, method, actor, confidence, time; superseded, never deleted." .
+
+# --- the three typed axes
+fab:deliveredUnder  a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:DeliveryContext ;
+    rdfs:comment "Delivery axis: why, when, by whom, together with what." .
+fab:references      a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Artifact ;
+    rdfs:comment "Structural axis: what points to what (an embedded diagram, a link, an id mention)." .
+# subject axis = dct:subject -> skos:Concept in a scheme (no fabric property needed)
+
+# --- governance and custody
+fab:ownedBy         a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Person .
+fab:documentType    a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:DocumentType .
+fab:sensitivityLabel a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
+fab:lifecycleState  a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:LifecycleState .
+fab:baselineVersion a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
+fab:producedBy      a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string ;
+    rdfs:comment "The lab process that produced the artifact, when one did." .
+fab:sourceKind      a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
+fab:unassociated    a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:boolean ;
+    rdfs:comment "A legal, visible state: no delivery edge, and that is honest." .
+
+# --- provenance of an assertion
+fab:rung            a owl:DatatypeProperty ; rdfs:domain fab:Assertion ; rdfs:comment "O S X C H D" .
+fab:method          a owl:DatatypeProperty ; rdfs:domain fab:Assertion .
+fab:confidence      a owl:DatatypeProperty ; rdfs:domain fab:Assertion ; rdfs:range xsd:double .
+fab:asserts         a owl:ObjectProperty ; rdfs:domain fab:Assertion ;
+    rdfs:comment "The reified statement this assertion records (rdf:Statement)." .

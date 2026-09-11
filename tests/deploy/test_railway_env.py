@@ -234,20 +234,21 @@ def test_the_front_door_holds_redis_and_two_links_and_no_store():
 
 def test_graph_mcp_holds_its_provider_credential_the_bucket_and_nothing_else():
     """The COLLABORATION adapter: its own app-only credential, the upload store it streams fetched
-    content into, and tracing. NO Redis (it publishes no event and holds no approval), no gateway or
-    model secret, no ADOIT credential — and its own secret must not leak to any other role."""
+    content into, tracing — and, since the fabric, Redis: its `/notifications` route turns a provider's
+    change notification into an `ArtifactChanged` on `fabric:events`. No gateway or model secret, no
+    ADOIT credential — and its own secret must not leak to any other role."""
     env = railway.env_for_role("graph-mcp", FAKE, s3=True)
     assert set(env) == {
         "MCP_SHARED_SECRET", "BIND_HOST", "COLLAB_PROVIDER", "ENTRA_TENANT_ID",
         "GRAPH_MCP_URL", "GRAPH_MCP_PORT", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET",
         "GRAPH_AUTH_MODE", "GRAPH_BASE_URL", "GRAPH_MEETING_USER",
         "GRAPH_NOTIFICATION_ALLOWLIST", "GRAPH_ALLOW_METERED",
-        "ARTIFACTS_URL", "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "ARTIFACTS_URL", "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_URL",
         "S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE",
         "UPLOADS_URL"}
     # DATABASE_URL is the LiteLLM key/spend store's DSN — the most sensitive secret in the substrate,
     # and this role has no use for it (ARTIFACTS_URL already carries the expanded value it falls back to)
-    assert "REDIS_URL" not in env and "DATABASE_URL" not in env
+    assert "DATABASE_URL" not in env
     assert not _has(env, "ADOIT_", "LITELLM_", "OLLAMA_", "BA_", "ARCHITECT_", "MICROSOFT_")
     for role in railway.ROLE_ENV:
         if role != "graph-mcp":
@@ -255,9 +256,12 @@ def test_graph_mcp_holds_its_provider_credential_the_bucket_and_nothing_else():
 
 
 def test_semantic_mcp_is_credential_free():
+    """No upstream credential ever: the fabric's index posts to the GATEWAY (a coordinate, and a virtual key
+    when one is configured — `REFERENCE_EMBED_KEY`, like reference-mcp), never to a model provider."""
     env = railway.env_for_role("semantic-mcp", FAKE)
     assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "ARTIFACTS_URL", "DATABASE_URL",
-                        "OTEL_EXPORTER_OTLP_ENDPOINT"}
+                        "OTEL_EXPORTER_OTLP_ENDPOINT", "GATEWAY_URL"}
+    assert not _has(env, "ADOIT_", "LITELLM_", "OLLAMA_", "ANTHROPIC_", "GRAPH_", "ENTRA_")
 
 
 def test_storage_mcp_and_review_s3_gating():

@@ -1,0 +1,20 @@
+@prefix dt:   <urn:fabric:scheme:doc-types#> .
+@prefix fab:  <urn:fabric:ont#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+# The six document types the lab's own workflows produce (BRS §9 decision 2 confirms the business set).
+dt:scheme a skos:ConceptScheme ; skos:prefLabel "Document types"@en ;
+    skos:hasTopConcept dt:minutes , dt:decision-record , dt:architecture-model , dt:screening-report ,
+                       dt:solution-design , dt:investment-case .
+dt:minutes a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Meeting minutes"@en ; skos:altLabel "minutes"@en ; fab:producedBy "transcript_to_minutes" .
+dt:decision-record a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Decision record"@en ; skos:altLabel "ADR"@en , "architecture decision record"@en .
+dt:architecture-model a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Architecture model"@en ; skos:altLabel "ArchiMate model"@en ; fab:producedBy "visio_to_archimate" .
+dt:screening-report a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Use-case screening report"@en ; fab:producedBy "use_case_screening" .
+dt:solution-design a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Solution design"@en ; fab:producedBy "use_case_design" .
+dt:investment-case a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Investment case"@en ; fab:producedBy "use_case_investment" .

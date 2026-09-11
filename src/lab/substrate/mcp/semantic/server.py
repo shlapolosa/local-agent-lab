@@ -15,12 +15,24 @@ Tools
   semantic_load_model(spec, model_id)         model -> RDF with derived relations, queryable
   semantic_query(sparql)                      SPARQL over vocabularies + loaded models
   semantic_ask(question, params)              named traceability questions; semantic_questions() lists them
+
+The Documentation Fabric's four metadata products live HERE too (docs/fabric/notes 004/005) — a query port
+is not a process, so it does not sit on workflow-mcp. Rung graphs share the store's Dataset (SPARQL sees
+vocabularies + fabric together), are SHACL-checked on every write and shadowed to the artifact store
+(`rung_store`); the Catalog rows are Postgres when `FABRIC_DB_URL`/`DATABASE_URL` is set, in-process otherwise.
+  semantic_catalog_get|upsert|state|assert    the Catalog product (identity, custody, facets at a rung, lifecycle)
+  semantic_edge_assert|retract|traverse|impact   the Traceability Graph (impact never reads S)
+  semantic_vocab_link|propose                 the Vocabulary product (label match at X; candidates for a steward)
+  semantic_embed|similar|search               the facade over the embedding index (proposes, never decides)
+  semantic_validate_shapes · semantic_promote the fitness function, and the curator's gate (actor required)
 """
 import json
 import os
 
+from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
 from lab.platform import config
+from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "semantic-mcp"
@@ -56,6 +68,31 @@ def reference_dir(refs=config.REFERENCE_MODELS_REFS, directory=config.REFERENCE_
 
 
 S = SemanticService(reference_dir=reference_dir())
+# The fabric over the SAME dataset and registry: the rung graphs are named graphs beside the vocabularies, so
+# `semantic_query` answers the competency questions with no second store. Composed at BOOT (`boot()`), not at
+# import: the catalog and the embedder are clients, and a module that builds clients on import cannot be
+# imported by a test that means to override them.
+RUNGS = RungStore(artifacts=server.artifacts, redis=server.container.redis)
+F: FabricService | None = None
+
+
+def boot() -> dict[str, int]:
+    """Compose the fabric from the container, apply the catalog's schema, restore the persisted rung graphs.
+    Part of STARTING, not of importing — `__main__` calls it before `serve`, a test after its overrides."""
+    global F
+    catalog = server.container.catalog()
+    F = FabricService(S.store.ds, catalog, S.doc_types, schemes=lambda: S.schemes_,
+                      embedder=server.container.embedder(),
+                      on_write=lambda names: RUNGS.save(F, names))
+    if hasattr(catalog, "ensure_schema"):
+        catalog.ensure_schema()
+    return RUNGS.restore(F)
+
+
+def fabric() -> FabricService:
+    if F is None:
+        raise RuntimeError("the fabric is not booted — semantic-mcp calls boot() before serving")
+    return F
 
 
 @server.tool()
@@ -198,5 +235,126 @@ def semantic_ask(question: str, params: dict | None = None) -> dict:
     return S.ask(question, **(params or {}))
 
 
+# ------------------------------------------------------------------------------ the Documentation Fabric
+
+@server.tool()
+def semantic_catalog_get(iri: str = "", pointer: dict | None = None) -> dict | None:
+    """The Catalog row for an artifact — by IRI, or by POINTER ({source, handle|ref|…}) — plus its graph
+    links by rung (delivery, references, subjects, facets), or null. Identity and custody only — never content."""
+    return fabric().catalog_get(iri, pointer=pointer)
+
+
+@server.tool()
+def semantic_catalog_upsert(pointer: dict, iri: str = "", title: str = "", produced_by: str = "",
+                            context: str = "", source_kind: str = "") -> dict:
+    """Identify an artifact: mint its IRI (or find it by pointer) and mirror the row into rung C. A lab
+    process's output (`produced_by`) gets its document type as a FACT and its delivery edge from the run's
+    `context` (`<kind>:<id>`). Idempotent on the pointer."""
+    r = fabric().catalog_upsert(pointer, iri=iri, title=title, produced_by=produced_by, context=context, source_kind=source_kind)
+    span().set_attributes({"fabric.iri": r["iri"], "fabric.produced_by": produced_by or ""})
+    return r
+
+
+@server.tool()
+def semantic_catalog_state(iri: str, state: str, baseline_version: str | None = None,
+                           unassociated: bool | None = None) -> dict:
+    """Move an artifact's lifecycle (pending | in-review | published | withdrawn), optionally recording the
+    baseline version and whether it is unassociated with any delivery context."""
+    return fabric().catalog_state(iri, state, baseline_version=baseline_version, unassociated=unassociated)
+
+
+@server.tool()
+def semantic_catalog_assert(iri: str, field: str, value: str, rung: str, method: str, actor: str = "",
+                            confidence: float | None = None) -> dict:
+    """Assert a classified facet (document_type | owner | sensitivity_label) at a provenance rung: the row's
+    column AND the graph triple with its PROV record. Owner and label are refused anywhere but C (NFR-3)."""
+    return fabric().catalog_assert(iri, field, value, rung=rung, method=method, actor=actor, confidence=confidence)
+
+
+@server.tool()
+def semantic_edge_assert(subject: str, predicate: str, object: str, rung: str, method: str, actor: str = "",
+                          confidence: float | None = None, supersede: bool = False) -> dict:
+    """Enter one edge at a rung (S needs a confidence; D is computed, never asserted). SHACL-checked: a
+    content property never enters. `supersede` retracts the subject's previous value of that predicate."""
+    return fabric().graph_assert(subject, predicate, object, rung=rung, method=method, actor=actor,
+                          confidence=confidence, supersede=supersede)
+
+
+@server.tool()
+def semantic_edge_retract(subject: str, predicate: str, object: str, actor: str, reason: str) -> dict:
+    """Supersede an edge (PROV invalidation — never deleted). `actor` names the person or the rule."""
+    return {"retracted": fabric().graph_retract(subject, predicate, object, actor=actor, reason=reason)}
+
+
+@server.tool()
+def semantic_trace(start: str, predicates: list[str], rungs: list[str], depth: int = 3,
+                            inbound: bool = True) -> list:
+    """Breadth-first over the chosen rung graphs from `start`, joined with the catalog. The rungs you choose
+    ARE the trust policy of the answer; each hit carries the weakest rung on its path."""
+    return fabric().graph_traverse(start, predicates, rungs=rungs, depth=depth, inbound=inbound)
+
+
+@server.tool()
+def semantic_impact(iri: str, depth: int = 3) -> list:
+    """What a change to this artifact may have invalidated: everything reaching it over the delivery and
+    reference axes on TRUSTED rungs (C·X·H·D — never S, NFR-7), joined with the catalog."""
+    hits = fabric().graph_impact(iri, depth=depth)
+    span().set_attribute("fabric.impact", len(hits))
+    return hits
+
+
+@server.tool()
+def semantic_vocab_link(iri: str, terms: list[str], schemes: list[str] | None = None) -> dict:
+    """Link an artifact to every reference concept whose preferred label a term matches exactly (rung X,
+    method label-match). Misses are returned for semantic_vocab_propose."""
+    return fabric().vocab_link(iri, terms, schemes=schemes)
+
+
+@server.tool()
+def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader: str = "") -> dict:
+    """Park a candidate concept for a steward. Not in any scheme until a person accepts it (semantic_promote
+    with the candidate's IRI and no predicate)."""
+    return fabric().vocab_propose(label, definition=definition, actor=actor, broader=broader)
+
+
+@server.tool()
+def semantic_embed(iri: str, text: str) -> dict:
+    """Index an artifact by its DESCRIPTIVE text (title · type · subjects) through the gateway embedder.
+    Never a body: the index proposes neighbours, it stores no content."""
+    return fabric().embed(iri, text)
+
+
+@server.tool()
+def semantic_similar(iri: str = "", text: str = "", limit: int = 5) -> list:
+    """Nearest indexed artifacts to an indexed artifact (`iri`) or to a text, joined with the catalog and
+    scored — a PROPOSAL for overlap/association, never a decision."""
+    return fabric().similar(iri=iri, text=text, limit=limit)
+
+
+@server.tool()
+def semantic_search(text: str, limit: int = 10, document_type: str = "", state: str = "") -> list:
+    """The facade: similarity over the index filtered by catalog facets (document type, lifecycle state)."""
+    return fabric().search(text, limit=limit, document_type=document_type, state=state)
+
+
+@server.tool()
+def semantic_validate_shapes() -> dict:
+    """Run the fabric's SHACL shapes over its graphs now (metadata-only, owner provenance, assertion
+    completeness) — the fitness function, on demand."""
+    r = fabric().validate()
+    return {"conforms": r.conforms, "messages": list(r.messages)}
+
+
+@server.tool()
+def semantic_promote(subject: str, actor: str, method: str, predicate: str = "", object: str = "",
+                     to: str = "H") -> dict:
+    """A PERSON moves an assertion up the ladder (default to H): with a predicate and object, that edge;
+    with the subject alone, a candidate concept is accepted. `actor` is the signed-in human — blank is refused."""
+    r = fabric().promote(subject, predicate, object or None, actor=actor, method=method, to=to)
+    span().set_attributes({"fabric.promoted_to": to, "fabric.from": str(r.get("from", ""))})
+    return r
+
+
 if __name__ == "__main__":
+    boot()
     server.serve()

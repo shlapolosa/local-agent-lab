@@ -422,6 +422,10 @@ def collab_unwatch(watch_id: str) -> dict:
 
 
 if __name__ == "__main__":
+    from lab.substrate.mcp.graph import notifications
     print(f"graph-mcp: collaboration provider = {config.COLLAB_PROVIDER}, page size <= {MAX_LIMIT}; "
           f"call {CollabTools.capabilities} to see what this tenant actually allows")
-    server.serve()
+    # The adapter's INBOUND door (docs/fabric/notes/2026-09-11-ports-adapters-events.md): change
+    # notifications from the provider, beside /mcp, exempt from the bearer because the caller is
+    # not the gateway — it proves itself with the client state the route checks.
+    server.serve(routes=[notifications.route_for(server)], public_paths=(notifications.PATH,))

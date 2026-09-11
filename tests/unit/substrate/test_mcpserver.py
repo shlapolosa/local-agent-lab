@@ -291,7 +291,7 @@ def test_serve_delegates_to_the_module_bootstrap(monkeypatch):
     monkeypatch.setattr(mcpserver, "serve", lambda mcp, service, port, **kw: calls.append((mcp, service, port, kw)))
     srv = LabServer("tiny-mcp", 9300, path="/tools")
     srv.serve()
-    assert calls == [(srv.mcp, "tiny-mcp", 9300, {"path": "/tools", "routes": ()})]
+    assert calls == [(srv.mcp, "tiny-mcp", 9300, {"path": "/tools", "routes": (), "public_paths": ()})]
 
 
 def test_a_server_can_carry_a_second_ingress_beside_its_mcp_path():

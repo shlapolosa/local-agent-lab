@@ -300,3 +300,34 @@ USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "kimi-k3")
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"
+
+# --- the Documentation Fabric (docs/fabric/POC.md) ---
+#: Port 1 of every source adapter: the durable stream ArtifactChanged events are published to.
+FABRIC_EVENTS = _e("FABRIC_EVENTS", "fabric:events")
+#: Below this confidence a suggested delivery association is never committed — it asks (rung 4).
+FABRIC_ASSOCIATION_THRESHOLD = float(_e("FABRIC_ASSOCIATION_THRESHOLD", "0.75"))
+#: Which sources' events enter the pipeline at all: `<sourceKind>:<site|project|drive id>` entries.
+#: EMPTY means nothing is admitted — the ingress must escalate, not admit the world by default.
+FABRIC_ALLOWLIST = tuple(a.strip() for a in (_e("FABRIC_ALLOWLIST") or "").split(",") if a.strip())
+#: The secret a Graph change notification must echo in `clientState` before it is believed.
+FABRIC_NOTIFY_CLIENT_STATE = _e("FABRIC_NOTIFY_CLIENT_STATE", "")
+#: Where the projector writes a published artifact's Markdown projection (a collab:// folder handle).
+FABRIC_WIKI_FOLDER = _e("FABRIC_WIKI_FOLDER", "")
+# The Catalog product's store: the database semantic-mcp already reaches (the same fallback chain as
+# the reference layer). Empty = an in-process catalog — tests and a laptop, never the cloud tier.
+FABRIC_DB_URL = _e("FABRIC_DB_URL") or _e("DATABASE_URL", "")
+# The intake's two agents share one model setting (both are kimi-k3 class work: classify metadata, draft
+# records from minutes); the sensitivity label written at C when nothing better is known (NFR-3: a
+# label is looked up, never guessed — the site default IS the lookup for a library with one label).
+FABRIC_AGENT_MODEL = _e("FABRIC_AGENT_MODEL", "kimi-k3")
+# The CURATOR: the virtual key the substrate's fabric consumers act with — the runner applies a person's
+# fabric decision (PROMOTE, which no workload has), the projector writes pages, the reconciler sweeps.
+# Empty = every fabric consumer refuses: an approved fabric question is recorded on its approval as a
+# failure and releases NOTHING, so a record is never published with facets the fabric did not take.
+FABRIC_CURATOR_KEY = _e("FABRIC_CURATOR_KEY", "")
+# The reconciler's sweep: how often the allow-listed drives are listed against the catalog, how deep it
+# follows folders (listing is one level deep by design), how many items one sweep may touch.
+FABRIC_SWEEP_S = int(_e("FABRIC_SWEEP_S", "900"))
+FABRIC_SWEEP_DEPTH = int(_e("FABRIC_SWEEP_DEPTH", "3"))
+FABRIC_SWEEP_LIMIT = int(_e("FABRIC_SWEEP_LIMIT", "500"))
+FABRIC_DEFAULT_LABEL = _e("FABRIC_DEFAULT_LABEL", "")

@@ -55,7 +55,10 @@ ANNOTATION: dict[InputKind, Any] = {InputKind.REF: str, InputKind.REF_LIST: list
                                     InputKind.HANDLE: str, InputKind.IDENTITY: str,
                                     InputKind.CONVERSATION: str,
                                     InputKind.MAPPING: dict[str, dict[str, str]],
-                                    InputKind.CHOICE: str}
+                                    InputKind.CHOICE: str,
+                                    # the fabric's kinds: a pointer is a small object, the rest are opaque ids
+                                    InputKind.POINTER: dict[str, str], InputKind.EVENT: str,
+                                    InputKind.CONTEXT: str, InputKind.ARTIFACT: str, InputKind.APPROVAL: str}
 
 
 def annotation_of(field) -> Any:

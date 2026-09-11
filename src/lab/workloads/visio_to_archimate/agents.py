@@ -22,9 +22,10 @@ from agent_framework.openai import OpenAIChatClient
 
 from lab.platform import config
 from lab.platform.contracts import EATools, SemanticTools, StorageTools
+from lab.workloads import skills
 
 HERE = Path(__file__).resolve().parent
-SKILLS = config.REPO_ROOT / "skills"          # the registered skills' SKILL.md (single source of truth)
+SKILLS = skills.SKILLS                        # the registered skills' SKILL.md (single source of truth)
 MODEL = os.environ.get("VISIO_AGENT_MODEL", "kimi-k3")
 # store=True only when the gateway's upstream actually persists Responses state (Azure/Foundry/OpenAI).
 STORE = os.environ.get("AGENT_RESPONSES_STORE", "false").strip().lower() in ("1", "true", "yes")
@@ -34,10 +35,7 @@ def _read(rel: str) -> str:
     return (HERE / rel).read_text()
 
 
-def _strip_frontmatter(md: str) -> str:
-    if md.lstrip().startswith("---"):
-        return md.split("---", 2)[2].strip()
-    return md
+_strip_frontmatter = skills.strip_frontmatter      # one reader for every workload (lab.workloads.skills)
 
 
 def ba_instructions() -> str:

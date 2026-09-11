@@ -2,6 +2,7 @@ litellm[proxy]==1.98.0
 prisma
 fastmcp>=3.4,<4
 rdflib>=7.6
+pyshacl>=0.30
 owlrl
 openpyxl
 streamlit>=1.60

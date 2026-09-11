@@ -93,6 +93,9 @@ for_each_daemon() {   # calls "$1 <name> <module> <ready line> <what it does>"
   "$1" continuations    lab.substrate.continuations   "continuation runner ready" "approved approvals start their next run"
   "$1" meeting-notifier lab.substrate.meeting_notifier "meeting notifier ready"    "a finished minutes run tells its meeting"
   "$1" usecase-notifier lab.substrate.usecase_notifier "usecase-notifier ready"    "a decided use case tells its submitter"
+  "$1" fabric-ingress    lab.substrate.fabric_ingress    "fabric-ingress ready"      "finished runs and change events start artifact intake"
+  "$1" fabric-projector  lab.substrate.fabric_projector  "fabric projector ready"    "a published record becomes a wiki page"
+  "$1" fabric-reconciler lab.substrate.fabric_reconciler "fabric-reconciler ready"   "allow-listed drives are swept against the catalog"
 }
 
 start_daemon() {   # name, module, ready line, description
@@ -319,6 +322,8 @@ for_each_workload() {   # calls "$1 <service> <module>" for every workload host
   "$1" wf-usecase-design     lab.workloads.use_case_design.consumer
   "$1" wf-usecase-investment lab.workloads.use_case_investment.consumer
   "$1" wf-usecase-provisioning lab.workloads.use_case_provisioning.consumer
+  "$1" wf-fabric            lab.workloads.artifact_intake.consumer
+  "$1" wf-artifact-publish  lab.workloads.artifact_publish.consumer
 }
 
 start_workload() {   # service, module

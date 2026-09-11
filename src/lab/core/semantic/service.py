@@ -10,6 +10,7 @@
   ask(question, **params)            named traceability questions (SPARQL templates)
 """
 from .archimate import build as build_archimate
+from .fabric.ontology import DocumentTypes, FabricOntology
 from .meeting import build as build_meeting
 from .model_rdf import model_iri, spec_to_triples
 from .ontology import Registry, SemanticStore, Vocabulary
@@ -86,6 +87,8 @@ class SemanticService:
         self.registry = Registry()
         self.registry.add(build_archimate())
         self.registry.add(build_meeting())      # knowledge from conversations, concept-centred
+        self.registry.add(FabricOntology())     # the Documentation Fabric: artifacts, axes, provenance
+        self.doc_types = self.registry.add(DocumentTypes())   # ...and what the lab's processes produce
         self.schemes_ = {}
         for sc in load_reference_models(reference_dir):
             self.registry.add(sc); self.schemes_[sc.name] = sc

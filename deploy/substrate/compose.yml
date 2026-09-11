@@ -136,6 +136,30 @@ services:
     <<: *sub                  # it announces ids and links, and never opens what it announces.
     command: ["python", "-m", "lab.substrate.meeting_notifier"]
 
+  fabric-ingress:             # the Documentation Fabric's front door: finished runs + change events become
+    <<: *sub                  # artifact_intake requests. Redis only — no store, no gateway, no credential.
+    command: ["python", "-m", "lab.substrate.fabric_ingress"]
+    environment:
+      <<: *env
+      FABRIC_ALLOWLIST: ${FABRIC_ALLOWLIST:-}     # `collab:<drive>` entries; empty admits nothing external
+
+  fabric-projector:           # a published record becomes one wiki page, through the gateway with the
+    <<: *sub                  # fabric's substrate identity. Unset folder = it logs the page it would write.
+    command: ["python", "-m", "lab.substrate.fabric_projector"]
+    environment:
+      <<: *env
+      FABRIC_CURATOR_KEY: ${FABRIC_CURATOR_KEY:-}
+      FABRIC_WIKI_FOLDER: ${FABRIC_WIKI_FOLDER:-}
+
+  fabric-reconciler:          # the timer sweep: allow-listed drives against the catalog -> change events,
+    <<: *sub                  # so a missed notification is said later. Never writes the catalog.
+    command: ["python", "-m", "lab.substrate.fabric_reconciler"]
+    environment:
+      <<: *env
+      FABRIC_CURATOR_KEY: ${FABRIC_CURATOR_KEY:-}
+      FABRIC_ALLOWLIST: ${FABRIC_ALLOWLIST:-}
+      FABRIC_SWEEP_S: ${FABRIC_SWEEP_S:-900}
+
   gateway:                    # the single governance plane — the only public door
     <<: *sub
     command: ["litellm", "--config", "config/litellm-config.yaml", "--port", "4000"]

@@ -235,16 +235,19 @@ def watch(js: dict) -> Watch:
 
 
 def subscription_body(resource: str, notification_url: str, events: tuple[ChangeType, ...],
-                      expires: str) -> dict:
+                      expires: str, client_state: str = "") -> dict:
     """The POST body Graph expects for a subscription.
 
-    No `clientState`: that field exists so a RECEIVER can authenticate an incoming notification, and
-    the receiver is deliberately not part of this change (a caller-supplied `notification_url` means
-    someone else owns the receiving end today). It comes back with the receiver that needs it, rather
-    than sitting here as an option nobody takes."""
-    return {"resource": resource, "notificationUrl": notification_url,
+    `clientState` is what lets a RECEIVER authenticate an incoming notification: Graph echoes it in
+    every delivery and the receiver (graph-mcp's `/notifications`, docs/fabric/notes 003) refuses a
+    batch that does not carry it. Sent only when the lab has one configured — a caller-supplied
+    receiver that is not ours cannot check a secret it was never given."""
+    body = {"resource": resource, "notificationUrl": notification_url,
             "changeType": ",".join(ChangeType(e).value for e in events),
             "expirationDateTime": expires}
+    if client_state:
+        body["clientState"] = client_state
+    return body
 
 
 def max_expiry_minutes(resource: str) -> int:

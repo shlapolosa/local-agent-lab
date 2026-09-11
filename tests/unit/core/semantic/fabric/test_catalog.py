@@ -1,0 +1,81 @@
+"""The Catalog port and its in-memory adapter: identity, the closed row, the embedding index beside it."""
+import pytest
+
+from lab.core.semantic.fabric.catalog import (Catalog, CatalogEntry, MemoryCatalog, POINTER_ID_FIELDS,
+                                              STATES, STATE_IRI, cosine, pointer_key)
+
+P = {"source": "collab", "handle": "collab://site/drive/item1", "version": "3"}
+
+
+def test_the_memory_adapter_satisfies_the_port():
+    assert isinstance(MemoryCatalog(), Catalog)
+
+
+def test_pointer_key_is_source_and_the_first_id_field():
+    assert pointer_key(P) == "collab:collab://site/drive/item1"
+    assert pointer_key({"source": "lab", "ref": "art://1/x.md"}) == "lab:art://1/x.md"
+    with pytest.raises(ValueError):
+        pointer_key({"source": "lab"})
+    with pytest.raises(ValueError):
+        pointer_key({"ref": "art://1/x.md"})
+    assert "ref" in POINTER_ID_FIELDS and "handle" in POINTER_ID_FIELDS
+
+
+def test_an_entry_enforces_its_own_invariants():
+    e = CatalogEntry("urn:fabric:artifact:A", P, title="Minutes")
+    assert e.state == "pending" and e.pointer_key == "collab:collab://site/drive/item1"
+    assert e.created_at and e.updated_at
+    with pytest.raises(ValueError):
+        CatalogEntry("", P)
+    with pytest.raises(ValueError):
+        CatalogEntry("urn:x", {"source": "collab"})
+    with pytest.raises(ValueError):
+        CatalogEntry("urn:x", P, state="draft")
+    with pytest.raises(ValueError):
+        CatalogEntry("urn:x", P, title="t" * 301)
+
+
+def test_every_state_has_a_graph_spelling():
+    assert set(STATE_IRI) == set(STATES)
+    assert all(v.startswith("urn:fabric:ont#") for v in STATE_IRI.values())
+
+
+def test_with_touches_updated_at_and_nothing_else():
+    e = CatalogEntry("urn:x", P, title="a")
+    f = e.with_(state="published", baseline_version="2.0")
+    assert (f.state, f.baseline_version, f.title, f.created_at) == ("published", "2.0", "a", e.created_at)
+    assert f.updated_at >= e.updated_at
+    assert "pointer" in e.to_dict() and e.to_dict()["iri"] == "urn:x"
+
+
+def test_put_is_an_upsert_and_by_pointer_finds_the_row():
+    c = MemoryCatalog()
+    e = c.put(CatalogEntry("urn:x", P, title="a"))
+    assert c.get("urn:x") is e and c.by_pointer(e.pointer_key) is e and len(c) == 1
+    c.put(e.with_(title="b"))
+    assert c.get("urn:x").title == "b" and len(c) == 1
+    assert c.get("urn:nope") is None and c.by_pointer("lab:none") is None
+
+
+def test_embeddings_index_only_known_rows_and_rank_by_cosine():
+    c = MemoryCatalog()
+    for i in ("a", "b", "c"):
+        c.put(CatalogEntry(f"urn:{i}", {"source": "lab", "ref": f"art://{i}"}))
+    c.put_embedding("urn:a", [1.0, 0.0], "m")
+    c.put_embedding("urn:b", [0.9, 0.1], "m")
+    c.put_embedding("urn:c", [0.0, 1.0], "m")
+    with pytest.raises(LookupError):
+        c.put_embedding("urn:zzz", [1.0, 0.0], "m")
+    assert c.embedding("urn:a") == ([1.0, 0.0], "m") and c.embedding("urn:zzz") is None
+    ranked = c.similar([1.0, 0.0], limit=2)
+    assert [r for r, _ in ranked] == ["urn:a", "urn:b"] and ranked[0][1] == pytest.approx(1.0)
+    assert [r for r, _ in c.similar([1.0, 0.0], limit=5, exclude="urn:a")] == ["urn:b", "urn:c"]
+    assert c.similar([1.0, 0.0], limit=0) == []
+    c.put_embedding("urn:c", [1.0, 0.0], "other-model")
+    assert [r for r, _ in c.similar([1.0, 0.0], limit=5, model="m")] == ["urn:a", "urn:b"]
+
+
+def test_cosine_is_defined_on_zero_vectors_and_refuses_a_mismatch():
+    assert cosine([0.0, 0.0], [1.0, 0.0]) == 0.0
+    with pytest.raises(ValueError):
+        cosine([1.0], [1.0, 0.0])

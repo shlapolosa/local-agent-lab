@@ -23,7 +23,7 @@ SUBSTRATE_KEYS = CONFIG_KEYS + ("ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "
                                 "REFERENCE_PROVIDER", "REFERENCE_DB_URL", "REFERENCE_RING",
                                 "REFERENCE_PIN_TTL_S", "REFERENCE_TRUST_KEYS",
                                 "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM",
-                                "REFERENCE_EMBED_KEY")
+                                "REFERENCE_EMBED_KEY", "FABRIC_DB_URL")
 
 # The COLLABORATION port's adapters, by name: the ONE place a provider module is named. The
 # container binds a KEY (`COLLAB_PROVIDER`), so a second collaboration platform — a different
@@ -81,6 +81,17 @@ def gateway_embedder(base_url: str, credential: str, model: str, dim: int, **ove
                            **overrides)
 
 
+def fabric_catalog(url: str, dim: int = 768, **overrides):
+    """The Catalog port (`lab.core.semantic.fabric.catalog.Catalog`) by URL: a database when one is
+    configured, the in-process catalog otherwise — a laptop and the unit suite, never the cloud tier, where
+    semantic-mcp reaches the same database as the reference layer. `dim` is the embedder's."""
+    if not str(url or "").strip():
+        from lab.core.semantic.fabric.catalog import MemoryCatalog
+        return MemoryCatalog()
+    from lab.substrate.mcp.semantic import catalog_pg
+    return catalog_pg.build(dsn=url, dim=int(dim), **overrides)
+
+
 def collab_repository(provider: str, **overrides):
     """The `lab.core.collab.CollabRepository` this deployment runs. Imported LAZILY by name so the
     substrate container — which every MCP server and the review app build — does not drag a
@@ -127,6 +138,9 @@ class SubstrateContainer(Container):
                                    credential=Container.config.reference_embed_key,
                                    model=Container.config.reference_embed_model,
                                    dim=Container.config.reference_embed_dim)
+    # the fabric's Catalog product — the semantic-mcp role's rows (memory when no database is configured)
+    catalog = providers.Singleton(fabric_catalog, url=Container.config.fabric_db_url,
+                                  dim=Container.config.reference_embed_dim)
     # the governed corpus (signed, versioned artifacts read under a pin) — the reference-mcp role's adapter
     reference = providers.Singleton(reference_library, provider=Container.config.reference_provider,
                                     embedder=embedder)

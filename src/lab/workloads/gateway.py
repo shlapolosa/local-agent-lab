@@ -28,6 +28,7 @@ from typing import Any
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
+from lab.platform import mcp_client
 from lab.platform.contracts import ArtifactRef
 from lab.platform.webhook import get_json, post_json
 
@@ -35,13 +36,7 @@ __all__ = ["auth_headers", "call", "call_tools", "call_tools_raw", "node_span",
            "preflight", "preflight_stores", "ref_from", "resolve", "run_graph", "vector_search"]
 
 
-def resolve(exposed: Iterable[str], suffix: str) -> str:
-    """The gateway's name for a tool, matched by suffix. Raises naming what is exposed."""
-    names = list(exposed)
-    match = [n for n in names if n.endswith(suffix)]
-    if not match:
-        raise RuntimeError(f"tool *{suffix} not exposed by gateway ({names})")
-    return match[0]
+resolve = mcp_client.resolve        # ONE resolver (lab.platform.mcp_client); the substrate's channels share it
 
 
 async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable[Any]) -> None:
@@ -161,9 +156,7 @@ async def call_tools_raw(headers: Mapping[str, str], mcp_url: str, calls) -> lis
     Raw because `.content` is where image blocks live — `.data` is None for an image result, so a
     caller that needs pictures cannot use the convenience wrapper below.
     """
-    async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
-        names = [t.name for t in await c.list_tools()]
-        return [await c.call_tool(resolve(names, sfx), args) for sfx, args in calls]
+    return await mcp_client.call_tools_raw(headers, mcp_url, calls, client_class=Client)
 
 
 async def call_tools(headers: Mapping[str, str], mcp_url: str, calls) -> list[Any]:

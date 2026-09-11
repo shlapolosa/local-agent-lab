@@ -235,3 +235,17 @@ def test_the_asker_declares_what_fields_an_answer_carries_and_speakers_stay_the_
                    fields=["value"], requester="wf-screening")
     assert answer_fields(approvals.status(voices["request_id"], client=r)["payload"]) == ("identity", "tag")
     assert answer_fields(approvals.status(classes["request_id"], client=r)["payload"]) == ("value",)
+
+
+def test_the_asker_declares_the_kind_and_an_unknown_kind_is_refused(tools):
+    """A fabric question is asked as `association` or `draft-review`; a channel triages by it, and the
+    continuation runner applies the answer to the fabric because of it. Anything not in the contract is
+    refused at the ask — never a free-text kind."""
+    server, r = tools
+    out = call(server, "approvals_ask", subject="ADR-14 — review the record", prompt="Is the type right?",
+               items=[{"label": "document_type", "samples": ["suggested: Decision record (0.83)"]}],
+               fields=["value"], kind=ApprovalKind.DRAFT_REVIEW.value, requester="a@x.org")
+    from lab.substrate import approvals
+    assert approvals.status(out["request_id"], client=r)["kind"] == "draft-review"
+    assert "kind must be one of" in call_error(server, "approvals_ask", subject="s", prompt="p",
+                                               items=[{"label": "x"}], kind="whatever")

@@ -413,7 +413,8 @@ class GraphCollabRepository:
         self._check_destination(notification_url)
         self._check_metered("watches", resource)
         body = graph_map.subscription_body(resource, notification_url, events,
-                                           graph_map.expiry_for(resource, expires, self._now))
+                                           graph_map.expiry_for(resource, expires, self._now),
+                                           client_state=config.FABRIC_NOTIFY_CLIENT_STATE)
         return graph_map.watch(self._call("watches", self.client.post, "/subscriptions", body))
 
     def renew(self, watch_id: str, expires: str) -> Watch:

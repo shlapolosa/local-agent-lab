@@ -135,9 +135,14 @@ def mask_request(data: dict, patterns: Patterns) -> dict[str, str]:
 
 def park_mapping(data: dict, mapping: dict[str, str]) -> None:
     # metadata key differs per route (/v1/chat uses `metadata`, /v1/messages and /v1/responses
-    # `litellm_metadata`); park the map in every carrier the post hook can see.
-    data[MAP_KEY] = mapping
-    for holder in ("metadata", "litellm_metadata"):
+    # `litellm_metadata`); park the map in every carrier the post hook can see — EXCEPT on a Responses
+    # body, where LiteLLM forwards unknown top-level keys and `metadata` to the upstream: Anthropic's API
+    # refused a minutes synthesis with `pii_restore_map: Extra inputs are not permitted` (measured live,
+    # 11 Sep 2026). There the map rides in `litellm_metadata` alone, which is LiteLLM's own and never sent.
+    responses = "input" in data and "messages" not in data
+    if not responses:
+        data[MAP_KEY] = mapping
+    for holder in (("litellm_metadata",) if responses else ("metadata", "litellm_metadata")):
         if isinstance(data.get(holder), dict) or holder not in data:
             data.setdefault(holder, {})[MAP_KEY] = mapping
 

@@ -28,9 +28,12 @@ from __future__ import annotations
 
 import sys
 
+import asyncio
+
 from lab.platform import config, streams, workflows
-from lab.platform.contracts import Decision, continuation_of
-from lab.substrate import approvals
+from lab.platform.contracts import PROCESSES, Decision, continuation_of
+from lab.substrate import answer_appliers, approvals
+from lab.substrate import fabric_curator  # noqa: F401 — registers the fabric's appliers on import
 
 SERVICE = "continuations"
 GROUP = approvals.DEC_GROUPS[0]
@@ -56,6 +59,18 @@ def _handle(entry_id: str, fields: dict, *, client) -> str | None:
         inputs = dict(cont.inputs)
         if cont.answer_input:
             inputs[cont.answer_input] = state.get("answer") or {}
+        # A released process that declares `approval_id` is told which approval released it — the run
+        # can then read the decision (who, when) without the asker knowing the id before asking.
+        if "approval_id" in {f.name for f in PROCESSES[cont.process].inputs} and not inputs.get("approval_id"):
+            inputs["approval_id"] = rid
+        # Some kinds carry an ANSWER a domain must apply FIRST (the fabric: a person's rung-H decision, with
+        # a grant the released workload does not hold). The registry says which; refused there = recorded
+        # on the approval and NOT released — publishing a record whose facets the person corrected but the
+        # fabric never took would be a lie in the wiki.
+        applier = answer_appliers.applier_for(state.get("kind", ""))
+        if applier is not None:
+            applied = asyncio.run(applier(state, fields.get("actor") or state.get("decided_by") or ""))
+            client.hset(f"approvals:req:{rid}", mapping={"curated": str(len(applied))})
         # The process's OWN contract validates these inputs inside submit(), so a malformed answer is
         # refused loudly at this boundary rather than inside a workload an hour later.
         started, duplicate = workflows.submit(

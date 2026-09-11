@@ -131,3 +131,17 @@ def test_the_registry_builds_the_named_adapter_with_the_overrides_it_is_given():
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+def test_the_fabric_catalog_is_chosen_by_url_memory_when_none():
+    """`FABRIC_DB_URL` empty → the in-process catalog (tests, a laptop); a URL → the Postgres adapter over the
+    database semantic-mcp already reaches. Nothing above the port knows which."""
+    from lab.core.semantic.fabric.catalog import Catalog, MemoryCatalog
+    from lab.substrate.mcp.semantic.catalog_pg import PostgresCatalog
+    assert "FABRIC_DB_URL" in SUBSTRATE_KEYS
+    c = build("semantic-mcp", fabric_db_url="")
+    assert isinstance(c.catalog(), MemoryCatalog) and c.catalog() is c.catalog()
+    d = build("semantic-mcp", fabric_db_url="postgres://neon/lab", reference_embed_dim=1536)
+    assert isinstance(d.catalog(), PostgresCatalog) and d.catalog().dsn == "postgres://neon/lab"
+    assert d.catalog().dim == 1536
+    assert isinstance(d.catalog(), Catalog)

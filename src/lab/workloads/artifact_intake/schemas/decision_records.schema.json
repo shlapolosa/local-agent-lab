@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fabric decision records — one draft per decision in a set of minutes",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["records"],
+  "properties": {
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "status", "context", "decision", "consequences", "decided_by", "concerns", "actions"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^d[0-9]+$"},
+          "title": {"type": "string", "minLength": 3, "maxLength": 120},
+          "status": {"type": "string", "enum": ["proposed"]},
+          "context": {"type": "string", "maxLength": 1500},
+          "decision": {"type": "string", "minLength": 3, "maxLength": 800},
+          "consequences": {"type": "string", "maxLength": 1500},
+          "decided_by": {"type": "array", "items": {"type": "string"}},
+          "concerns": {"type": "array", "items": {"type": "string"}},
+          "actions": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}
