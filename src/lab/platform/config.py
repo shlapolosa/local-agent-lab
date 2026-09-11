@@ -330,4 +330,10 @@ FABRIC_CURATOR_KEY = _e("FABRIC_CURATOR_KEY", "")
 FABRIC_SWEEP_S = int(_e("FABRIC_SWEEP_S", "900"))
 FABRIC_SWEEP_DEPTH = int(_e("FABRIC_SWEEP_DEPTH", "3"))
 FABRIC_SWEEP_LIMIT = int(_e("FABRIC_SWEEP_LIMIT", "500"))
+# The FIRST sweep after a start waits: a deploy restarts every service together and the gateway is the
+# slowest up, so a sweep at boot queued runs that died at preflight on a 502 (measured, first cloud deploy).
+FABRIC_SWEEP_FIRST_S = int(_e("FABRIC_SWEEP_FIRST_S", "180"))
+# A change-notification subscription expires (drive subscriptions: ~3 days). The reconciler renews the lab's
+# own — those pointing at a receiver on GRAPH_NOTIFICATION_ALLOWLIST — when this much life is left.
+FABRIC_RENEW_WITHIN_S = int(_e("FABRIC_RENEW_WITHIN_S", str(2 * 86400)))
 FABRIC_DEFAULT_LABEL = _e("FABRIC_DEFAULT_LABEL", "")

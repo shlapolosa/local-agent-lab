@@ -164,15 +164,17 @@ class GraphClient:
         return self._json(self._request("DELETE", self._url(path)))
 
     def paged(self, path: str, params: Mapping[str, object] | None = None, cursor: str | None = None,
-              limit: int | None = None) -> tuple[list[dict], str | None]:
+              limit: int | None = None, *, top: bool = True) -> tuple[list[dict], str | None]:
         """One page: the raw items and the next cursor (`None` on the last page). `limit` is clamped
-        through the DOMAIN's one page-size policy, so no adapter invents its own cap."""
+        through the DOMAIN's one page-size policy, so no adapter invents its own cap. `top=False` for the
+        few resources Graph refuses a page size on (`/subscriptions`: "Query option 'Top' is not allowed",
+        measured 11 Sep 2026) — they page by the link alone."""
         if cursor:
             if not str(cursor).startswith(self.base_url):
                 raise ValueError(f"a cursor must be a Microsoft Graph link under {self.base_url}: {cursor!r}")
             url = cursor
         else:
-            url = self._url(path, {**dict(params or {}), "$top": clamp_limit(limit)})
+            url = self._url(path, {**dict(params or {}), **({"$top": clamp_limit(limit)} if top else {})})
         data = self._json(self._request("GET", url))
         value = data.get("value")
         items = value if isinstance(value, list) else [data]

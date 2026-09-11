@@ -64,13 +64,14 @@ def test_the_intake_may_ask_and_the_publish_may_only_read_the_gate():
         assert ApprovalTools.decide not in _all(grant)
 
 
-def test_the_substrate_identity_can_list_and_put_but_never_subscribe():
-    """The projector writes pages and the reconciler lists drives with the curator key; neither may create a
-    subscription (egress to a caller-supplied URL) — that stays with an operator holding the master key."""
+def test_the_substrate_identity_can_list_put_and_renew_but_never_create_or_retire_a_subscription():
+    """The projector writes pages and the reconciler lists drives and RENEWS the lab's subscriptions with the
+    curator key. Creating one (egress to a caller-supplied URL) or retiring one stays with an operator holding
+    the master key: a renewal cannot change a destination or a resource, which is what makes it safe here."""
     from lab.platform.contracts import CollabTools
     granted = set(GRANTS["fabric-curator"][CollabTools.SERVER])
-    assert {CollabTools.list, CollabTools.item, CollabTools.put} <= granted
-    assert not granted & set(CollabTools.SUBSCRIBE)
+    assert {CollabTools.list, CollabTools.item, CollabTools.put, CollabTools.watches, CollabTools.watch_renew} <= granted
+    assert not granted & {CollabTools.watch, CollabTools.unwatch}
 
 
 def test_the_intake_holds_no_collaboration_write():

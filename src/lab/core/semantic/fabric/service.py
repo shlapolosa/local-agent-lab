@@ -282,6 +282,13 @@ class FabricService:
         s, p, o = URIRef(subject), URIRef(predicate), term(obj)
         if p in _MIRRORED:
             raise ValueError(f"{_short(p)} is the catalog row's own fact — use catalog_state, not a retraction")
+        # A FACET edge is mirrored in the row's column: retracting the edge clears the column when it still
+        # carries that value, whether or not the triple is still there (the graph and the row must agree —
+        # measured live: a retracted type left `minutes` on the row).
+        facet = next((f for f, (pred, _) in FACETS.items() if pred == p), None)
+        row = self.catalog.get(subject) if facet else None
+        if row is not None and getattr(row, facet) == str(o):
+            self.catalog.put(row.with_(**{facet: ""}))
         hits = G.find(self.ds, s, p, o)
         if not hits:
             return False

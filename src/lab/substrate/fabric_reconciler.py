@@ -28,6 +28,37 @@ from lab.substrate import fabric_gateway
 SERVICE = "fabric-reconciler"
 
 
+def _parse(stamp: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def renew_watches(*, call=None, receivers: tuple[str, ...] | None = None, within_s: int | None = None,
+                        now: datetime | None = None) -> list[dict]:
+    """Renew the lab's OWN change-notification subscriptions — the ones delivering to a receiver on the
+    allow-list — when they are within `within_s` of expiring. A subscription outlives the run that made it
+    and dies quietly; a sweep that outlives it would then be the only source of change events. Renewal
+    cannot change a destination or a resource, which is why this consumer may hold that verb and no other
+    subscription verb. Returns what was renewed."""
+    go = call or fabric_gateway.call
+    receivers = config.GRAPH_NOTIFICATION_ALLOWLIST if receivers is None else receivers
+    within = config.FABRIC_RENEW_WITHIN_S if within_s is None else within_s
+    now = now or datetime.now(timezone.utc)
+    page = (await go([(CollabTools.watches, {})]))[0] or {}
+    renewed = []
+    for w in page.get("items") or []:
+        if w.get("notification_url") not in receivers:
+            continue
+        expires = _parse(w.get("expires") or "")
+        if expires is None or (expires - now).total_seconds() > within:
+            continue
+        out = (await go([(CollabTools.watch_renew, {"watch_id": w["id"]})]))[0]
+        renewed.append({"id": w["id"], "resource": w.get("resource"), "expires": (out or {}).get("expires")})
+    return renewed
+
+
 def drives(allowlist: tuple[str, ...]) -> list[str]:
     """The drive ids to sweep — the collab entries of the allow-list that name a drive."""
     out = []
@@ -96,6 +127,12 @@ async def sweep(*, call=None, allowlist: tuple[str, ...] | None = None, depth: i
 def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
     r = client or _client()
     try:
+        kept = asyncio.run(renew_watches(call=call))
+        if kept:
+            print(f"[reconciler] renewed {len(kept)} subscription(s): {[k['id'] for k in kept]}", flush=True)
+    except Exception as e:                          # noqa: BLE001 — a renewal that fails is retried next tick
+        print(f"[reconciler] renewal failed: {type(e).__name__}: {e}", flush=True)
+    try:
         out = asyncio.run(sweep(call=call, client=r))
         print(f"[reconciler] swept: {len(out)} change(s) published", flush=True)
         return out
@@ -111,14 +148,15 @@ def _client():
 
 def main() -> None:
     r = _client()
+    waits = [config.FABRIC_SWEEP_FIRST_S]          # the first tick waits out the deploy window; the rest keep the cadence
 
     def tick():
-        time.sleep(config.FABRIC_SWEEP_S)
+        time.sleep(waits.pop(0) if waits else config.FABRIC_SWEEP_S)
         return [("sweep", {})]
 
     streams.serve(name=SERVICE,
-                  ready=f"{SERVICE} ready  drives={len(drives(config.FABRIC_ALLOWLIST))} every={config.FABRIC_SWEEP_S}s",
-                  on_start=lambda: run_once(client=r), read=tick, handle=lambda eid, f: run_once(client=r))
+                  ready=f"{SERVICE} ready  drives={len(drives(config.FABRIC_ALLOWLIST))} first={config.FABRIC_SWEEP_FIRST_S}s every={config.FABRIC_SWEEP_S}s",
+                  read=tick, handle=lambda eid, f: run_once(client=r))
 
 
 if __name__ == "__main__":

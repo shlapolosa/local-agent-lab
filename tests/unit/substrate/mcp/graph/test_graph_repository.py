@@ -423,6 +423,8 @@ def test_the_watches_this_identity_owns_are_listable_because_they_outlive_the_ru
          "notificationUrl": "https://flow.example/hook"}]})
     made, _ = repo(t)
     assert [w.id for w in made.watches()] == ["sub-1"]
+    # and NO page size on the request: Graph refuses `$top` on /subscriptions ("Query option 'Top' is not allowed")
+    assert all("top" not in u.lower() for u in getattr(t, "urls", []) if "/subscriptions" in u), getattr(t, "urls", [])
 
 
 def test_a_renewal_reads_the_subscription_first_so_the_new_expiry_can_be_clamped_to_its_resource():

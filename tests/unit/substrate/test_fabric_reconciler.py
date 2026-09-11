@@ -80,3 +80,34 @@ def test_run_once_never_raises(monkeypatch, capsys):
         raise RuntimeError("gateway down")
     assert R.run_once(call=boom, client=FakeRedis()) == []
     assert "sweep failed" in capsys.readouterr().out
+
+
+
+def test_renewal_touches_only_the_labs_expiring_subscriptions():
+    from datetime import datetime, timezone
+    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    calls = []
+
+    async def gw(cs):
+        out = []
+        for s, a in cs:
+            calls.append((s, a))
+            if s == CollabTools.watches:
+                out.append({"items": [
+                    {"id": "ours-soon", "resource": "drives/d/root", "notification_url": "https://recv/notifications", "expires": "2026-09-14T00:00:00Z"},
+                    {"id": "ours-fresh", "resource": "drives/d/root", "notification_url": "https://recv/notifications", "expires": "2026-09-30T00:00:00Z"},
+                    {"id": "theirs", "resource": "drives/x/root", "notification_url": "https://flow.example/hook", "expires": "2026-09-12T13:00:00Z"},
+                    {"id": "odd", "resource": "drives/d/root", "notification_url": "https://recv/notifications", "expires": "not-a-date"}]})
+            else:
+                out.append({"id": a["watch_id"], "expires": "2026-09-15T11:00:00Z"})
+        return out
+    renewed = asyncio.run(R.renew_watches(call=gw, receivers=("https://recv/notifications",), within_s=2 * 86400, now=now))
+    assert [r["id"] for r in renewed] == ["ours-soon"] and renewed[0]["expires"] == "2026-09-15T11:00:00Z"
+    assert [a for s, a in calls if s == CollabTools.watch_renew] == [{"watch_id": "ours-soon"}]
+
+
+def test_the_first_sweep_waits_out_the_deploy_window(monkeypatch):
+    """A sweep at boot queued runs that died at preflight while the gateway was still restarting."""
+    import inspect
+    src = inspect.getsource(R.main)
+    assert "FABRIC_SWEEP_FIRST_S" in src and "on_start" not in src

@@ -296,3 +296,16 @@ def test_get_by_pointer_answers_a_sweeps_question(fab):
     assert fab.catalog_get(pointer=DOC)["iri"] == row["iri"]
     assert fab.catalog_get(pointer={"source": "collab", "handle": "collab://item/x/y"}) is None
     assert fab.catalog_get() is None
+
+
+
+def test_retracting_a_facet_edge_clears_the_rows_column(fab):
+    """The row mirrors the facet; a retraction that left `minutes` on the row while the graph had no type
+    was measured live. Cleared even when the triple is already gone, so the two can be brought back in step."""
+    a = fab.catalog_upsert(DOC)["iri"]
+    fab.catalog_assert(a, "document_type", "urn:fabric:scheme:doc-types#minutes", rung=SUGGESTED, method="m", confidence=0.7)
+    assert fab.graph_retract(a, "urn:fabric:ont#documentType", "urn:fabric:scheme:doc-types#minutes", actor="p", reason="wrong")
+    assert fab.catalog.get(a).document_type == "" and G.find(fab.ds, URIRef(a), G.FAB.documentType) == []
+    fab.catalog.put(fab.catalog.get(a).with_(document_type="urn:fabric:scheme:doc-types#minutes"))   # drifted row, no triple
+    assert fab.graph_retract(a, "urn:fabric:ont#documentType", "urn:fabric:scheme:doc-types#minutes", actor="p", reason="drift") is False
+    assert fab.catalog.get(a).document_type == ""

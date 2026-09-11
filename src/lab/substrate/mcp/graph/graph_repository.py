@@ -405,7 +405,8 @@ class GraphCollabRepository:
 
     # ------------------------------------------------------------------ watches (the write side)
     def watches(self, limit: int | None = None, cursor: str | None = None) -> Page[Watch]:
-        items, nxt = self._call("watches", self.client.paged, "/subscriptions", None, cursor, limit)
+        # no `$top`: Graph refuses a page size on /subscriptions (measured live; the listing 400ed)
+        items, nxt = self._call("watches", self.client.paged, "/subscriptions", None, cursor, limit, top=False)
         return Page(tuple(graph_map.watch(i) for i in items), nxt)
 
     def watch(self, resource: str, notification_url: str, events: tuple[ChangeType, ...],
