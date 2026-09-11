@@ -35,7 +35,7 @@ OUT = HERE.parent / "var" / "out" / "architecture"
 
 
 def build() -> C4Diagram:
-    d = C4Diagram("local-agent-lab · worktree heatmap (feat/speech-lanes @ 3af4ef0)", width=3000)
+    d = C4Diagram("local-agent-lab · worktree heatmap (main @ b72701e+)", width=3000)
 
     # ---------------------------------------------------------------- bands, top -> down
     d.zone("z_people", "HUMANS & CLIENT SURFACES", stroke="#D79B00", height=250, comp_fill="#FFE6CC")
@@ -95,9 +95,9 @@ def build() -> C4Diagram:
         ("m_wf", "workflow-mcp :9400", "submit/status/result + approvals", DONE),
         ("m_col", "graph-mcp :9500 (collab_mcp)", "M365 behind a neutral port", DONE),
         ("m_sp", "speech-mcp :9600", "transcribe · diarize", DONE),
-        ("m_ref", "reference-mcp :9700", "AMBER: governed corpus,\nunder redesign by a peer", PART),
-        ("m_dec", "decision-mcp :9800", "CAFE deterministic derivations", DONE),
-        ("m_val", "valuation-mcp :9900", "cost & benefit", DONE),
+        ("m_ref", "reference-mcp :9700", "VERIFIED 11 Sep: pin · lookup · search\n+ vector-store façade via gateway", DONE),
+        ("m_dec", "decision-mcp :9800", "VERIFIED: readiness verdict under\na pin (design run, gate C)", DONE),
+        ("m_val", "valuation-mcp :9900", "AMBER: valuation_cost join proven\noffline only — design halts at gate C", PART),
     ]:
         d.component(cid, "z_ports", title, desc, fill=fill)
 
@@ -109,10 +109,13 @@ def build() -> C4Diagram:
     d.component("w_min", "z_work", "transcript_to_minutes",
                 "VERIFIED today: 171 triples,\nnames not labels", fill=DONE)
     d.component("w_scr", "z_work", "use_case_screening",
-                "AMBER: deployed; peer session\nactively building", fill=PART)
-    d.component("w_des", "z_work", "use_case_design", "AMBER: as above", fill=PART)
-    d.component("w_inv", "z_work", "use_case_investment", "AMBER: as above", fill=PART)
-    d.component("w_pro", "z_work", "use_case_provisioning", "AMBER: as above", fill=PART)
+                "VERIFIED 11 Sep: leaves matcher,\n7.7 min, pinned, trail recorded", fill=DONE)
+    d.component("w_des", "z_work", "use_case_design",
+                "AMBER: started by the approval, re-pins,\nHALTS at gate C: 3 tenant corpora absent", fill=PART)
+    d.component("w_inv", "z_work", "use_case_investment",
+                "AMBER: deployed, never reached\n(design halts at gate C)", fill=PART)
+    d.component("w_pro", "z_work", "use_case_provisioning",
+                "AMBER: deployed, never reached\n(design halts at gate C)", fill=PART)
     d.component("w_run", "z_work", "governed_run skeleton",
                 "one root span, one close path\nevery host goes through it", fill=DONE, row=1)
     d.component("w_pre", "z_work", "preflight",
@@ -150,9 +153,9 @@ def build() -> C4Diagram:
                 "minutes · naming (names, not labels)", fill=DONE)
     d.component("c_vis", "z_core", "visio", "parsers · geometry recovery", fill=DONE)
     d.component("c_uc", "z_core", "usecase",
-                "AMBER: CAFE predicates,\nunder active build", fill=PART)
+                "AMBER: gates/predicates live; cost join\n& obligations proven offline only", fill=PART)
     d.component("c_ref", "z_core", "reference",
-                "AMBER: corpus, peer redesign", fill=PART)
+                "retrieval as data (whole|key|vector)\nrecord passages · pins · drift", fill=DONE)
     d.component("c_ea", "z_core", "EARepository port",
                 "GREY: no core/ea/port.py.\nadoit_rest imported concretely", fill=TODO, row=1)
     d.component("c_id", "z_core", "AgentIdentity port",
@@ -172,7 +175,7 @@ def build() -> C4Diagram:
         ("p_lock", "locks", "workload lock", DONE, 1),
         ("p_otel", "otel", "tracer; no-op when unset", DONE, 1),
         ("p_doc", "docparse", "image sizing in ONE place", DONE, 1),
-        ("p_emb", "embed", "AMBER: Embedder port; no\nembedding model on the gateway", PART, 1),
+        ("p_emb", "embed", "GatewayEmbedder -> nomic-embed-text\n3,345 passages indexed (v0.27)", DONE, 1),
         ("p_hook", "webhook", "the one outbound JSON POST", DONE, 1),
         ("p_reg", "staged_registry", "staged imports", DONE, 1),
     ]:
@@ -181,10 +184,12 @@ def build() -> C4Diagram:
     # ---------------------------------------------------------------- state & external
     d.component("redis", "z_state", "Redis (in-substrate)", "streams · limiter · locks", fill=DONE)
     d.component("neon", "z_state", "Neon Postgres",
-                "keys · spend · artifacts · agents", fill=DONE)
+                "keys · spend · artifacts · agents\n+ ref_* corpus (signed, ringed, pinned)", fill=DONE)
     d.component("jaeger", "z_state", "Jaeger", "one trace per run", fill=DONE)
     d.component("bucket", "z_state", "Upload bucket (S3)", "art:// inputs", fill=DONE)
     d.component("ollama", "z_state", "Ollama Cloud", "kimi-k3 · glm-flash · gpt-oss", fill=DONE)
+    d.component("embedder", "z_state", "Embedder (Railway ollama)",
+                "nomic-embed-text, 768-d, on a volume", fill=DONE, row=1)
     d.component("entra", "z_state", "Entra ID", "1 app registration per agent", fill=DONE)
     d.component("adoit", "z_state", "ADOIT:CE",
                 "AMBER: reads work,\nwrites edge-blocked", fill=PART)

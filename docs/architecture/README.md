@@ -7,6 +7,7 @@ here**; the generators live in `scripts/` and are the source of truth.
 |---|---|---|
 | `worktree-heatmap` | what is actually BUILT, component by component | `scripts/worktree_heatmap.py` |
 | `lab_cafe` | the same lab in CAFÉ A3 vocabulary — the Azure target it claims parity with | `scripts/lab_cafe.solution.json` |
+| `reference-layer` | the reference corpus and the use-case intake pipeline in DETAIL — the area the reference-layer redesign touched, updated as its components land | `scripts/reference_layer_diagram.py` |
 
 Regenerate both:
 
