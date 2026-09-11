@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1662 2788" width="1662" height="2788" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+<defs>
+<marker id="arr0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#C7CED8"/></marker>
+<marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2DD4BF"/></marker>
+<marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#FBBF24"/></marker>
+<marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#FB923C"/></marker>
+<marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#60A5FA"/></marker>
+<marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9CA3AF"/></marker>
+<marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#A78BFA"/></marker>
+<marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4ADE80"/></marker>
+</defs>
+<rect x="0" y="0" width="1662" height="2788" fill="#0b0d12"/>
+<text x="20" y="14" font-size="12" fill="#9CA3AF">local-agent-lab as CAFE A3 — the Azure target it claims parity with (status per component)</text>
+<rect x="196" y="86" width="1428" height="130" rx="6" ry="6" fill="#280F17" stroke="#C0526E" stroke-width="2" />
+<text x="910" y="151" font-size="12" fill="#C0526E" text-anchor="middle" font-weight="500">Identity &amp; Trust (cross-cutting)</text>
+<rect x="196" y="326" width="1428" height="130" rx="6" ry="6" fill="#1A2540" stroke="#5A82C4" stroke-width="2" />
+<text x="910" y="391" font-size="12" fill="#5A82C4" text-anchor="middle" font-weight="500">Experience &amp; Channels</text>
+<rect x="196" y="566" width="1428" height="130" rx="6" ry="6" fill="#0F2A36" stroke="#4AA0C4" stroke-width="2" />
+<text x="910" y="631" font-size="12" fill="#4AA0C4" text-anchor="middle" font-weight="500">Edge &amp; AI Gateway</text>
+<rect x="196" y="910" width="1428" height="130" rx="6" ry="6" fill="#251736" stroke="#9A6FD0" stroke-width="2" />
+<text x="910" y="975" font-size="12" fill="#9A6FD0" text-anchor="middle" font-weight="500">Cognitive Plane</text>
+<rect x="196" y="1150" width="1428" height="130" rx="6" ry="6" fill="#0A2C24" stroke="#3FAE8E" stroke-width="2" />
+<text x="910" y="1215" font-size="12" fill="#3FAE8E" text-anchor="middle" font-weight="500">Knowledge &amp; Semantic</text>
+<rect x="196" y="1390" width="1428" height="130" rx="6" ry="6" fill="#311F08" stroke="#D09A4E" stroke-width="2" />
+<text x="910" y="1455" font-size="12" fill="#D09A4E" text-anchor="middle" font-weight="500">Models</text>
+<rect x="196" y="1630" width="1428" height="130" rx="6" ry="6" fill="#062A30" stroke="#4FAAB8" stroke-width="2" />
+<text x="910" y="1695" font-size="12" fill="#4FAAB8" text-anchor="middle" font-weight="500">Tools &amp; Integration</text>
+<rect x="196" y="1870" width="1428" height="130" rx="6" ry="6" fill="#1A2540" stroke="#5A82C4" stroke-width="2" />
+<text x="910" y="1935" font-size="12" fill="#5A82C4" text-anchor="middle" font-weight="500">Data Plane</text>
+<rect x="196" y="2110" width="1428" height="130" rx="6" ry="6" fill="#251D18" stroke="#9A7A5A" stroke-width="2" />
+<text x="910" y="2175" font-size="12" fill="#9A7A5A" text-anchor="middle" font-weight="500">External Systems</text>
+<rect x="196" y="2350" width="1428" height="130" rx="6" ry="6" fill="#142513" stroke="#6AAA60" stroke-width="2" />
+<text x="910" y="2415" font-size="12" fill="#6AAA60" text-anchor="middle" font-weight="500">Observability · Cost · Eval (cross-cutting)</text>
+<rect x="196" y="2590" width="1428" height="130" rx="6" ry="6" fill="#1A1D24" stroke="#6A7488" stroke-width="2" />
+<text x="910" y="2655" font-size="12" fill="#6A7488" text-anchor="middle" font-weight="500">Platform Foundation</text>
+<rect x="178" y="864" width="1464" height="36" rx="6" ry="6" fill="#FBE9A0" stroke="#C9A100" stroke-width="3.5" stroke-dasharray="3 7"/>
+<text x="188" y="880" font-size="11" fill="#6b5200" text-anchor="start" font-weight="600">PARTNER / EXTERNAL TRUST BOUNDARY · APIM-mediated</text>
+<text x="206" y="32" font-size="11" fill="#1a1a1a" text-anchor="start" font-weight="600">local-agent-lab as CAFE A3 — the Azure target it claims parity with (status per component)</text>
+<text x="206" y="2766" font-size="11" fill="#333" text-anchor="start" font-weight="600">Legend:  Request (sync) · Knowledge (G06) · Tool (G02) · Data · Event / async · Policy (APIM/G01) · Identity · Observability  |  dotted box = system / trust boundary</text>
+<rect x="230" y="120" width="210" height="82" rx="6" ry="6" fill="#4D2030" stroke="#C0526E" stroke-width="1.3" />
+<text x="335" y="155" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Purview</text>
+<text x="335" y="169" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">catalog · DLP</text>
+<rect x="460" y="120" width="210" height="82" rx="6" ry="6" fill="#4D2030" stroke="#C0526E" stroke-width="1.3" />
+<text x="565" y="155" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Entra Agent ID</text>
+<text x="565" y="169" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">blueprints</text>
+<rect x="690" y="120" width="210" height="82" rx="6" ry="6" fill="#4D2030" stroke="#C0526E" stroke-width="1.3" />
+<text x="795" y="155" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Key Vault</text>
+<text x="795" y="169" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">secrets</text>
+<rect x="920" y="120" width="210" height="82" rx="6" ry="6" fill="#4D2030" stroke="#C0526E" stroke-width="1.3" />
+<text x="1025" y="155" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Microsoft Agent 365</text>
+<text x="1025" y="169" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">control plane (G14)</text>
+<rect x="1150" y="120" width="210" height="82" rx="6" ry="6" fill="#4D2030" stroke="#C0526E" stroke-width="1.3" />
+<text x="1255" y="155" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Microsoft Entra ID</text>
+<text x="1255" y="169" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">users · workloads</text>
+<rect x="1380" y="120" width="210" height="82" rx="6" ry="6" fill="#4D2030" stroke="#C0526E" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1485" y="155" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Agent registry (A2A cards)</text>
+<text x="1485" y="169" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · 17 cards, 17 keys linked the Agent 365 analogue</text>
+<rect x="575" y="360" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" />
+<text x="680" y="395" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Web / Power Apps</text>
+<text x="680" y="409" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">portal · SPA</text>
+<rect x="805" y="360" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" />
+<text x="910" y="395" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">System</text>
+<text x="910" y="409" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">REST · webhooks · A2A</text>
+<rect x="1035" y="360" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1140" y="395" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Review app (Streamlit)</text>
+<text x="1140" y="409" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · approve, submit, runs board stands in for Power Apps</text>
+<rect x="575" y="944" width="210" height="82" rx="6" ry="6" fill="#3F2A5D" stroke="#9A6FD0" stroke-width="1.3" />
+<text x="680" y="979" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Foundry agents</text>
+<text x="680" y="993" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">prompt · workflow · hosted</text>
+<rect x="805" y="944" width="210" height="82" rx="6" ry="6" fill="#3F2A5D" stroke="#9A6FD0" stroke-width="1.3" />
+<text x="910" y="979" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Agent Framework</text>
+<text x="910" y="993" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">orchestration · manifests (G01)</text>
+<rect x="1035" y="944" width="210" height="82" rx="6" ry="6" fill="#3F2A5D" stroke="#9A6FD0" stroke-width="1.3" />
+<text x="1140" y="979" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Manifest &amp; supply chain</text>
+<text x="1140" y="993" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">DevOps · GitHub Actions (G01)</text>
+<rect x="345" y="1184" width="210" height="82" rx="6" ry="6" fill="#145843" stroke="#3FAE8E" stroke-width="1.3" />
+<text x="450" y="1219" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Foundry IQ</text>
+<text x="450" y="1233" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">federated · real-time-pull</text>
+<rect x="575" y="1184" width="210" height="82" rx="6" ry="6" fill="#145843" stroke="#3FAE8E" stroke-width="1.3" />
+<text x="680" y="1219" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Azure AI Search</text>
+<text x="680" y="1233" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">vector · ranker</text>
+<rect x="805" y="1184" width="210" height="82" rx="6" ry="6" fill="#145843" stroke="#3FAE8E" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="910" y="1219" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">semantic-mcp (RDF/SPARQL)</text>
+<text x="910" y="1233" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · vocabularies as DATA ArchiMate 3.1, SKOS reference models</text>
+<rect x="1035" y="1184" width="210" height="82" rx="6" ry="6" fill="#145843" stroke="#3FAE8E" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1140" y="1219" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">reference-mcp (governed corpus)</text>
+<text x="1140" y="1233" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">AMBER · signed, versioned, ring-gated under redesign by a peer session</text>
+<rect x="1265" y="1184" width="210" height="82" rx="6" ry="6" fill="#145843" stroke="#3FAE8E" stroke-width="1.3" />
+<text x="1370" y="1219" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Knowledge sources</text>
+<text x="1370" y="1233" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">SP · OneLake · Blob · Web · MCP</text>
+<rect x="575" y="1424" width="210" height="82" rx="6" ry="6" fill="#5D3E15" stroke="#D09A4E" stroke-width="1.3" />
+<text x="680" y="1459" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Foundry model catalog</text>
+<text x="680" y="1473" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GPT · Claude · Llama</text>
+<rect x="805" y="1424" width="210" height="82" rx="6" ry="6" fill="#5D3E15" stroke="#D09A4E" stroke-width="1.3" />
+<text x="910" y="1459" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Remote (via APIM)</text>
+<text x="910" y="1473" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Anthropic · OpenAI</text>
+<rect x="1035" y="1424" width="210" height="82" rx="6" ry="6" fill="#5D3E15" stroke="#D09A4E" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1140" y="1459" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Ollama Cloud</text>
+<text x="1140" y="1473" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · kimi-k3, glm-flash, gpt-oss stands in for AI Foundry models</text>
+<rect x="460" y="1904" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" />
+<text x="565" y="1939" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Azure SQL</text>
+<text x="565" y="1953" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">operational</text>
+<rect x="690" y="1904" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" />
+<text x="795" y="1939" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Agent state</text>
+<text x="795" y="1953" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Cosmos · Redis</text>
+<rect x="920" y="1904" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1025" y="1939" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Redis Streams</text>
+<text x="1025" y="1953" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · durable queues + approvals stands in for Service Bus</text>
+<rect x="1150" y="1904" width="210" height="82" rx="6" ry="6" fill="#324674" stroke="#5A82C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1255" y="1939" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Artifact store (art://)</text>
+<text x="1255" y="1953" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · by reference, never by path file / s3 / postgres by URL</text>
+<rect x="460" y="2144" width="210" height="82" rx="6" ry="6" fill="#463727" stroke="#9A7A5A" stroke-width="1.3" />
+<text x="565" y="2179" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">External agents (A2A)</text>
+<text x="565" y="2193" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">partner agents</text>
+<rect x="690" y="2144" width="210" height="82" rx="6" ry="6" fill="#463727" stroke="#9A7A5A" stroke-width="1.3" />
+<text x="795" y="2179" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">SaaS / Web</text>
+<text x="795" y="2193" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">partner APIs · Bing</text>
+<rect x="920" y="2144" width="210" height="82" rx="6" ry="6" fill="#463727" stroke="#9A7A5A" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1025" y="2179" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">ADOIT:CE (EA repository)</text>
+<text x="1025" y="2193" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">AMBER · reads work over REST writes edge-blocked; file-import only</text>
+<rect x="1150" y="2144" width="210" height="82" rx="6" ry="6" fill="#463727" stroke="#9A7A5A" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1255" y="2179" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Speech vendors</text>
+<text x="1255" y="2193" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">AMBER · ElevenLabs + AssemblyAI GREEN Munsit AMBER, Soniox not in lanes</text>
+<rect x="230" y="2384" width="210" height="82" rx="6" ry="6" fill="#2A4A28" stroke="#6AAA60" stroke-width="1.3" />
+<text x="335" y="2419" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Foundry traces</text>
+<text x="335" y="2433" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">agent runs</text>
+<rect x="460" y="2384" width="210" height="82" rx="6" ry="6" fill="#2A4A28" stroke="#6AAA60" stroke-width="1.3" />
+<text x="565" y="2419" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Evaluations</text>
+<text x="565" y="2433" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">gate deploy (G10)</text>
+<rect x="690" y="2384" width="210" height="82" rx="6" ry="6" fill="#2A4A28" stroke="#6AAA60" stroke-width="1.3" />
+<text x="795" y="2419" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">App Insights</text>
+<text x="795" y="2433" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">traces</text>
+<rect x="920" y="2384" width="210" height="82" rx="6" ry="6" fill="#2A4A28" stroke="#6AAA60" stroke-width="1.3" />
+<text x="1025" y="2419" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Cost Management</text>
+<text x="1025" y="2433" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">token metering</text>
+<rect x="1150" y="2384" width="210" height="82" rx="6" ry="6" fill="#2A4A28" stroke="#6AAA60" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1255" y="2419" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Jaeger (OTel)</text>
+<text x="1255" y="2433" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · one trace per run stands in for App Insights</text>
+<rect x="1380" y="2384" width="210" height="82" rx="6" ry="6" fill="#2A4A28" stroke="#6AAA60" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1485" y="2419" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Eval harness</text>
+<text x="1485" y="2433" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREY · NOT BUILT one evals.json, no runner, no baseline</text>
+<rect x="230" y="2624" width="210" height="82" rx="6" ry="6" fill="#353A45" stroke="#6A7488" stroke-width="1.3" />
+<text x="335" y="2659" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Landing zone</text>
+<text x="335" y="2673" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">CAF AI Ready</text>
+<rect x="460" y="2624" width="210" height="82" rx="6" ry="6" fill="#353A45" stroke="#6A7488" stroke-width="1.3" />
+<text x="565" y="2659" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Compute hosts</text>
+<text x="565" y="2673" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Foundry · ACA · AKS</text>
+<rect x="690" y="2624" width="210" height="82" rx="6" ry="6" fill="#353A45" stroke="#6A7488" stroke-width="1.3" />
+<text x="795" y="2659" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Windows 365 for Agents</text>
+<text x="795" y="2673" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">sandboxed VM</text>
+<rect x="920" y="2624" width="210" height="82" rx="6" ry="6" fill="#353A45" stroke="#6A7488" stroke-width="1.3" />
+<text x="1025" y="2659" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Networking</text>
+<text x="1025" y="2673" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">private endpoints · firewall</text>
+<rect x="1150" y="2624" width="210" height="82" rx="6" ry="6" fill="#353A45" stroke="#6A7488" stroke-width="1.3" />
+<text x="1255" y="2659" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">WAF AI pillars</text>
+<text x="1255" y="2673" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">5 pillars</text>
+<rect x="1380" y="2624" width="210" height="82" rx="6" ry="6" fill="#353A45" stroke="#6A7488" stroke-width="1.3" />
+<text x="1485" y="2659" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">AAC baselines</text>
+<text x="1485" y="2673" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Foundry Chat · Agentic</text>
+<rect x="210" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" />
+<text x="301" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">MCP edge</text>
+<text x="301" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">registry · OAuth (G04)</text>
+<rect x="413" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" />
+<text x="504" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Channel adapters</text>
+<text x="504" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Agents SDK · Bot · Event Grid</text>
+<rect x="616" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" />
+<text x="707" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">APIM — AI Gateway</text>
+<text x="707" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">token limit · cache · safety</text>
+<rect x="819" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="910" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">LiteLLM gateway</text>
+<text x="910" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · THE local APIM analogue virtual keys, budgets, per-tool ACL</text>
+<rect x="1021" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1113" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">custom_auth</text>
+<text x="1113" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · Entra JWT -&gt; virtual key the validate-jwt equivalent</text>
+<rect x="1224" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1316" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">PII guardrail (regex tier)</text>
+<text x="1316" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · reversible pseudonymisation 82 patterns, ~1ms</text>
+<rect x="1427" y="600" width="183" height="82" rx="6" ry="6" fill="#245267" stroke="#4AA0C4" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1519" y="635" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Presidio NER tier</text>
+<text x="1519" y="649" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREY · NOT BUILT (0 files in src/) names and clinical PII uncaught</text>
+<rect x="210" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" />
+<text x="301" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">MCP servers</text>
+<text x="301" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Dataverse · GitHub (G02)</text>
+<rect x="413" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" />
+<text x="504" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Power Automate</text>
+<text x="504" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">approvals (G09)</text>
+<rect x="616" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" />
+<text x="707" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Integration</text>
+<text x="707" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">Service Bus · Event Hubs</text>
+<rect x="819" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="910" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">workflow-mcp (the front door)</text>
+<text x="910" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · submit/status/result + the human approval gate</text>
+<rect x="1021" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1113" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">EARepository port</text>
+<text x="1113" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREY · NOT BUILT adoit_rest imported concretely</text>
+<rect x="1224" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1316" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">speech-mcp (Transcriber port)</text>
+<text x="1316" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · 3 adapters live, 1 unused munsit AMBER: 3/3 unusable output</text>
+<rect x="1427" y="1664" width="183" height="82" rx="6" ry="6" fill="#145560" stroke="#4FAAB8" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="1519" y="1699" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">collab-mcp (M365 behind a port)</text>
+<text x="1519" y="1713" font-size="12" fill="#E6E8EE" text-anchor="middle" font-weight="500">GREEN · vendor-neutral alias fetch/put by REFERENCE, never inline</text>
+<text x="1438" y="96" font-size="11" fill="#C0526E" text-anchor="middle" font-weight="500">🔒 🔒 G03 Agent ID · G04 admission · G14 Agent 365 inventory</text>
+<text x="1438" y="336" font-size="11" fill="#5A82C4" text-anchor="middle" font-weight="500">🔒 channels — users &amp; system consumers</text>
+<text x="1438" y="576" font-size="11" fill="#4AA0C4" text-anchor="middle" font-weight="500">🔒 🔒 G01 · G02 · G06 · G08 enforcement</text>
+<text x="1438" y="920" font-size="11" fill="#9A6FD0" text-anchor="middle" font-weight="500">🔒 🔒 G01 manifests · G07 handoffs · G08 budgets</text>
+<text x="1438" y="1160" font-size="11" fill="#3FAE8E" text-anchor="middle" font-weight="500">🔒 🔒 G06 grounding contract — permission-trimmed</text>
+<text x="1438" y="1400" font-size="11" fill="#D09A4E" text-anchor="middle" font-weight="500">🔒 via APIM gateway — policy + metering</text>
+<text x="1438" y="1640" font-size="11" fill="#4FAAB8" text-anchor="middle" font-weight="500">🔒 🔒 G02 scoped · G04 M4-catalogued · G09 HITL</text>
+<text x="1438" y="1880" font-size="11" fill="#5A82C4" text-anchor="middle" font-weight="500">🔒 systems of record — read + write</text>
+<text x="1438" y="2120" font-size="11" fill="#9A7A5A" text-anchor="middle" font-weight="500">🔒 always mediated by APIM + scoped credentials</text>
+<text x="1438" y="2360" font-size="11" fill="#6AAA60" text-anchor="middle" font-weight="500">🔒 🔒 G10 eval gates deploy · cost metering · SIEM correlate</text>
+<text x="1438" y="2600" font-size="11" fill="#6A7488" text-anchor="middle" font-weight="500">🔒 Azure landing zone · WAF AI pillars · networking</text>
+<path d="M 680 442 L 680 468 L 661 468 L 661 600 L 707 600" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 910 442 L 910 468 L 875 468 L 707 468 L 707 600" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 707 682 L 707 823 L 762 823 L 750 823 L 750 944 L 680 944" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 504 682 L 504 880 L 715 880 L 715 944 L 680 944" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 680 1026 L 680 1052 L 753 1052 L 840 1052 L 840 944 L 910 944" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 1140 1026 L 1140 1061 L 769 1061 L 769 944 L 680 944" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 680 1026 L 680 1088 L 737 1088 L 485 1088 L 485 1184 L 450 1184" fill="none" stroke="#2DD4BF" stroke-width="1.6"  marker-end="url(#arr1)"/>
+<path d="M 450 1266 L 450 1320 L 415 1320 L 680 1320 L 680 1184" fill="none" stroke="#2DD4BF" stroke-width="1.6"  marker-end="url(#arr1)"/>
+<path d="M 680 1026 L 680 1133 L 720 1133 L 178 1133 L 178 1306 L 680 1306 L 680 1424" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 707 682 L 707 891 L 725 891 L 164 891 L 164 1292 L 910 1292 L 910 1424" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 680 1026 L 680 1124 L 704 1124 L 150 1124 L 150 1574 L 332 1574 L 332 1664 L 301 1664" fill="none" stroke="#FB923C" stroke-width="1.6"  marker-end="url(#arr3)"/>
+<path d="M 680 1026 L 680 1115 L 688 1115 L 136 1115 L 136 1560 L 535 1560 L 535 1664 L 504 1664" fill="none" stroke="#FB923C" stroke-width="1.6"  marker-end="url(#arr3)"/>
+<path d="M 301 682 L 301 880 L 122 880 L 122 1546 L 271 1546 L 271 1664 L 301 1664" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 301 1746 L 301 1800 L 565 1800 L 565 1904" fill="none" stroke="#60A5FA" stroke-width="1.6"  marker-end="url(#arr4)"/>
+<path d="M 504 1746 L 504 1786 L 108 1786 L 108 2026 L 795 2026 L 795 2144" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-dasharray="6 6" marker-end="url(#arr5)"/>
+<path d="M 450 1266 L 450 1334 L 485 1334 L 1335 1334 L 1335 1184 L 1370 1184" fill="none" stroke="#2DD4BF" stroke-width="1.6"  marker-end="url(#arr1)"/>
+<path d="M 680 1026 L 680 1106 L 672 1106 L 94 1106 L 94 1772 L 795 1772 L 795 1904" fill="none" stroke="#60A5FA" stroke-width="1.6"  marker-end="url(#arr4)"/>
+<path d="M 680 1026 L 680 1097 L 656 1097 L 80 1097 L 80 2012 L 565 2012 L 565 2144" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-dasharray="6 6" marker-end="url(#arr5)"/>
+<path d="M 1255 202 L 1255 228 L 1220 228 L 1642 228 L 1642 482 L 753 482 L 753 600 L 707 600" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 565 202 L 565 270 L 530 270 L 66 270 L 66 868 L 680 868 L 680 944" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 335 202 L 335 256 L 52 256 L 52 1088 L 415 1088 L 415 1184 L 450 1184" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 1025 202 L 1025 256 L 1060 256 L 600 256 L 600 120 L 565 120" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 1025 202 L 1025 242 L 990 242 L 38 242 L 38 857 L 645 857 L 645 944 L 680 944" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 795 202 L 795 228 L 24 228 L 24 846 L 610 846 L 610 944 L 680 944" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 707 682 L 707 834 L 689 834 L 10 834 L 10 2294 L 795 2294 L 795 2384" fill="none" stroke="#4ADE80" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr7)"/>
+<path d="M 680 1026 L 680 1079 L 640 1079 L -4 1079 L -4 2280 L 335 2280 L 335 2384" fill="none" stroke="#4ADE80" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr7)"/>
+<path d="M 680 1026 L 680 1070 L 623 1070 L -18 1070 L -18 2266 L 565 2266 L 565 2384" fill="none" stroke="#4ADE80" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr7)"/>
+<path d="M 707 682 L 707 823 L 652 823 L -32 823 L -32 2252 L 990 2252 L 990 2384 L 1025 2384" fill="none" stroke="#4ADE80" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr7)"/>
+<path d="M 565 2624 L 565 2506 L -46 2506 L -46 1061 L 607 1061 L 607 1026 L 680 1026" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 335 2706 L 335 2732 L 565 2732 L 565 2624" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 795 2624 L 795 2492 L -60 2492 L -60 1052 L 591 1052 L 591 1026 L 680 1026" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 1140 442 L 1140 468 L 910 468 L 910 600" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 910 442 L 910 496 L 945 496 L 864 496 L 864 600 L 910 600" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 504 1664 L 504 1532 L 474 1532 L -74 1532 L -74 812 L 837 812 L 837 682 L 910 682" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 1113 682 L 1113 823 L 873 823 L 873 600 L 910 600" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 1316 682 L 1316 834 L 892 834 L 892 600 L 910 600" fill="none" stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+<path d="M 910 682 L 910 812 L 855 812 L 910 812 L 910 944" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 910 682 L 910 846 L 1656 846 L 1656 1292 L 1140 1292 L 1140 1424" fill="none" stroke="#C7CED8" stroke-width="1.6"  marker-end="url(#arr0)"/>
+<path d="M 910 682 L 910 812 L 928 812 L 1670 812 L 1670 1532 L 910 1532 L 910 1664" fill="none" stroke="#FB923C" stroke-width="1.6"  marker-end="url(#arr3)"/>
+<path d="M 910 682 L 910 857 L 947 857 L 1684 857 L 1684 1546 L 1316 1546 L 1316 1664" fill="none" stroke="#FB923C" stroke-width="1.6"  marker-end="url(#arr3)"/>
+<path d="M 910 682 L 910 868 L 965 868 L 1698 868 L 1698 1560 L 1488 1560 L 1488 1664 L 1519 1664" fill="none" stroke="#FB923C" stroke-width="1.6"  marker-end="url(#arr3)"/>
+<path d="M 910 1026 L 910 1052 L 875 1052 L 910 1052 L 910 1184" fill="none" stroke="#2DD4BF" stroke-width="1.6"  marker-end="url(#arr1)"/>
+<path d="M 910 1026 L 910 1070 L 1140 1070 L 1140 1184" fill="none" stroke="#2DD4BF" stroke-width="1.6"  marker-end="url(#arr1)"/>
+<path d="M 1316 1746 L 1316 1800 L 1712 1800 L 1712 2026 L 1255 2026 L 1255 2144" fill="none" stroke="#60A5FA" stroke-width="1.6"  marker-end="url(#arr4)"/>
+<path d="M 1519 1664 L 1519 1574 L 1549 1574 L 1726 1574 L 1726 1306 L 1405 1306 L 1405 1266 L 1370 1266" fill="none" stroke="#60A5FA" stroke-width="1.6"  marker-end="url(#arr4)"/>
+<path d="M 910 1746 L 910 1772 L 1025 1772 L 1025 1904" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-dasharray="6 6" marker-end="url(#arr5)"/>
+<path d="M 910 1026 L 910 1052 L 945 1052 L 1740 1052 L 1740 1786 L 1255 1786 L 1255 1904" fill="none" stroke="#60A5FA" stroke-width="1.6"  marker-end="url(#arr4)"/>
+<path d="M 1113 1746 L 1113 1772 L 1754 1772 L 1754 2012 L 1025 2012 L 1025 2144" fill="none" stroke="#60A5FA" stroke-width="1.6"  marker-end="url(#arr4)"/>
+<path d="M 1255 202 L 1255 242 L 1290 242 L 1768 242 L 1768 510 L 1113 510 L 1113 600" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 1485 202 L 1485 256 L 1782 256 L 1782 496 L 956 496 L 956 600 L 910 600" fill="none" stroke="#A78BFA" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr6)"/>
+<path d="M 910 1026 L 910 1079 L 980 1079 L 1796 1079 L 1796 2266 L 1255 2266 L 1255 2384" fill="none" stroke="#4ADE80" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr7)"/>
+<path d="M 910 682 L 910 880 L 983 880 L 1810 880 L 1810 2252 L 1060 2252 L 1060 2384 L 1025 2384" fill="none" stroke="#4ADE80" stroke-width="1.6" stroke-dasharray="2 4" marker-end="url(#arr7)"/>
+</svg>

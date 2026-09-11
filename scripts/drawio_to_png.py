@@ -106,14 +106,18 @@ def render(path: pathlib.Path) -> pathlib.Path:
         st = style_of(cell)
         bx, by = X(g.get("x", 0)), Y(g.get("y", 0))
         bw, bh = float(g.get("width", 0)) * SCALE, float(g.get("height", 0)) * SCALE
-        fill = st.get("fillColor", "none")
-        stroke = st.get("strokeColor", "#000000")
+        # `none` is a real mxGraph value for BOTH of these and Pillow rejects it as a colour.
+        # The CAFE renderer uses strokeColor=none where the C4 one never did — found by rendering it.
+        def _col(v, fallback=None):
+            return fallback if v in (None, "", "none") else v
+        fill = _col(st.get("fillColor"))
+        stroke = _col(st.get("strokeColor"), "#000000")
         box = [bx, by, bx + bw, by + bh]
         if st.get("ellipse"):
-            dr.ellipse(box, fill=None if fill == "none" else fill, outline=stroke)
+            dr.ellipse(box, fill=fill, outline=stroke)
             continue
         radius = 10 * SCALE if st.get("rounded") == "1" else 0
-        kw = {"fill": None if fill in ("none", "") else fill, "outline": stroke,
+        kw = {"fill": fill, "outline": stroke,
               "width": max(1, int(float(st.get("strokeWidth", 1)) * SCALE))}
         if radius:
             dr.rounded_rectangle(box, radius=radius, **kw)
@@ -128,15 +132,38 @@ def render(path: pathlib.Path) -> pathlib.Path:
         head = _font(BOLD if bold_first or st.get("fontStyle") == "1" else FONTS, size)
         body = _font(FONTS, max(8, size - SCALE))
         align = st.get("align", "center")
-        ty = by + (6 * SCALE if st.get("verticalAlign", "middle") == "top" else
-                   (bh - len(lines) * (size + 2 * SCALE)) / 2)
+
+        # WRAP. mxGraph boxes carry `whiteSpace=wrap` and draw.io honours it; Pillow has no concept
+        # of a text box, so without this a description simply runs out of its box and is overprinted
+        # by the neighbour — which is what the first CAFE render did, silently and legibly enough to
+        # look almost right.
+        avail = bw - 16 * SCALE
+        wrapped: list[tuple[str, object]] = []
         for i, ln in enumerate(lines):
             f = head if i == 0 else body
-            tw = dr.textlength(ln, font=f)
-            tx = {"left": bx + 10 * SCALE, "right": bx + bw - tw - 10 * SCALE}.get(
+            if dr.textlength(ln, font=f) <= avail or not ln.strip():
+                wrapped.append((ln, f))
+                continue
+            cur = ""
+            for word in ln.split():
+                trial = f"{cur} {word}".strip()
+                if dr.textlength(trial, font=f) <= avail or not cur:
+                    cur = trial
+                else:
+                    wrapped.append((cur, f))
+                    cur = word
+            if cur:
+                wrapped.append((cur, f))
+
+        lh = size + 2 * SCALE
+        ty = by + (6 * SCALE if st.get("verticalAlign", "middle") == "top" else
+                   max(4 * SCALE, (bh - len(wrapped) * lh) / 2))
+        for text, f in wrapped:
+            tw = dr.textlength(text, font=f)
+            tx = {"left": bx + 8 * SCALE, "right": bx + bw - tw - 8 * SCALE}.get(
                 align, bx + (bw - tw) / 2)
-            dr.text((tx, ty), ln, font=f, fill=fcol)
-            ty += size + 2 * SCALE
+            dr.text((tx, ty), text, font=f, fill=fcol)
+            ty += lh
 
     for cell in (c for c in cells if c.get("edge") == "1"):
         g = cell.find("mxGeometry")
@@ -147,7 +174,8 @@ def render(path: pathlib.Path) -> pathlib.Path:
         if len(pts) < 2:
             continue
         st = style_of(cell)
-        col = st.get("strokeColor", "#1A1A1A")
+        col = st.get("strokeColor") or "#1A1A1A"
+        col = "#1A1A1A" if col == "none" else col
         w = max(1, int(float(st.get("strokeWidth", 1)) * SCALE))
         if st.get("dashed") == "1":
             for (ax, ay), (bx2, by2) in zip(pts, pts[1:]):        # manual dashes: Pillow has none
