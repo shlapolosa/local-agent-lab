@@ -184,6 +184,52 @@ def ref_from(res: Any, key: str = "spec_ref") -> str:
 # `agents`, `authority_table`, `languages`, `schema` — and collapsing those into one would make
 # every workload's configuration the union of every other's.
 
+#: Waits between attempts when the gateway is restarting: a rollout takes one to three minutes and
+#: the OpenAI client's own three retries span seconds, so a run an hour of tokens in died with
+#: "upstream error" on every deploy (11 Sep 2026). ~4 minutes in total, then the failure is real.
+RESTART_WAITS_S = (20, 40, 60, 60, 60)
+
+
+def is_transient(exc: BaseException) -> bool:
+    """A failure that a gateway coming back would cure — 5xx, a dropped connection, a timeout — and
+    NOT one that will still be there in four minutes (a 4xx: a quota, a refused key, a bad request).
+    Looks through the wrappers a client stacks around the HTTP error."""
+    seen: list[BaseException] = []
+    todo = [exc]
+    while todo:
+        e = todo.pop()
+        if any(e is s for s in seen):
+            continue
+        seen.append(e)
+        status = getattr(e, "status_code", None)
+        if isinstance(status, int):
+            return status >= 500
+        if type(e).__name__ in ("APIConnectionError", "APITimeoutError", "ConnectError",
+                                "ReadTimeout", "RemoteProtocolError", "ConnectionError", "TimeoutError"):
+            return True
+        todo += [a for a in getattr(e, "args", ()) if isinstance(a, BaseException)]
+        if e.__cause__ is not None:
+            todo.append(e.__cause__)
+    text = str(exc)
+    return any(m in text for m in ("Error code: 502", "Error code: 503", "Error code: 504",
+                                   "Connection error", "connection reset"))
+
+
+async def survive_restart(attempt, *, waits=RESTART_WAITS_S, sleep=asyncio.sleep):
+    """Run `attempt()` (a coroutine factory), retrying a TRANSIENT failure across `waits`. Anything
+    else — and a transient one that outlives the waits — is raised as it was."""
+    for wait in waits:
+        try:
+            return await attempt()
+        except Exception as exc:                          # noqa: BLE001 — classified, then re-raised
+            if not is_transient(exc):
+                raise
+            print(f"gateway: transient failure ({type(exc).__name__}: {str(exc)[:90]}) — "
+                  f"retrying in {wait}s", flush=True)
+            await sleep(wait)
+    return await attempt()
+
+
 def auth_headers(credential: str, traceparent: str = "") -> dict[str, str]:
     """The headers a workload calls the gateway with: its own credential, and the trace it belongs
     to. The traceparent is what joins the gateway's and every MCP server's spans to THIS run."""

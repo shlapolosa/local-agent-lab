@@ -839,6 +839,68 @@ def version_report():
     return bad
 
 
+# ---------------------------------------------------------------------------- the quiet gate
+#
+# A rollout restarts the gateway, and every LLM, tool and embedding call in flight gets a 502 while
+# it comes back — a run an hour of tokens in ends with "upstream error" (measured 11 Sep 2026: two
+# derives, an adjudication and a publish's embedding batches all died under one push). So a deploy
+# first asks the front door what is still running and WAITS for it to finish, up to
+# LAB_DEPLOY_WAIT_S (default 30 min, a screening run), then refuses. LAB_DEPLOY_FORCE=1 skips the
+# gate for the case where the gateway itself is what is broken. A front door that cannot be asked
+# (no PUBLIC_GATEWAY_URL in the profile, or unreachable) is reported and the deploy proceeds: a gate
+# that blocks the repair of the thing it cannot reach would be worse than none.
+QUIET_POLL_S = 30
+
+
+def open_runs(profile: dict):
+    """The runs the front door says are still pending or running, or None when it cannot be asked."""
+    url, key = profile.get("PUBLIC_GATEWAY_URL", ""), profile.get("LITELLM_MASTER_KEY", "")
+    if not url or not key:
+        return None
+    try:
+        req = urllib.request.Request(f"{url.rstrip('/')}/api/runs/open",
+                                     headers={"Authorization": f"Bearer {key}"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return list(json.load(r).get("runs") or [])
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as e:
+        print(f"  quiet gate: front door unreachable ({type(e).__name__}: {str(e)[:80]})",
+              file=sys.stderr, flush=True)
+        return None
+
+
+def quiet_board(profile: dict, wait_s: int | None = None) -> bool:
+    """True when nothing is running (or nothing can be known); False when runs are still in flight
+    after waiting. Prints what it waited for, because a deploy that pauses silently looks hung."""
+    if os.environ.get("LAB_DEPLOY_FORCE") == "1":
+        print("  quiet gate: LAB_DEPLOY_FORCE=1 — deploying over whatever is running")
+        return True
+    if not profile.get("PUBLIC_GATEWAY_URL"):
+        print("  quiet gate: no PUBLIC_GATEWAY_URL in the profile — cannot ask, proceeding")
+        return True
+    budget = int(os.environ.get("LAB_DEPLOY_WAIT_S", "1800")) if wait_s is None else wait_s
+    waited = 0
+    while True:
+        runs = open_runs(profile)
+        if not runs:
+            if waited:
+                print(f"  quiet gate: board quiet after {waited}s")
+            return True
+        names = ", ".join(f"{r.get('process')}/{r.get('request_id')}" for r in runs[:4])
+        if waited >= budget:
+            print(f"  quiet gate: {len(runs)} run(s) still in flight after {waited}s ({names}) — "
+                  f"refusing to restart the gateway under them; LAB_DEPLOY_FORCE=1 overrides",
+                  file=sys.stderr, flush=True)
+            return False
+        print(f"  quiet gate: waiting for {len(runs)} run(s) ({names}) … {waited}/{budget}s", flush=True)
+        time.sleep(QUIET_POLL_S)
+        waited += QUIET_POLL_S
+
+
+def _require_quiet(profile: dict) -> None:
+    if not quiet_board(profile):
+        raise SystemExit(3)
+
+
 def release(wait_s: int = 600):
     """Roll every EXISTING service onto THIS commit's image. Returns True on any problem.
 
@@ -853,6 +915,7 @@ def release(wait_s: int = 600):
     a line saying so, because creating it without its env would produce a container that starts and
     then fails on its first call.
     """
+    _require_quiet(deploy_profile())
     ids = services()
     names = [n for n in substrate_names(deploy_profile(), ids)
              if n not in (REDIS_NAME, EMBED_NAME, JAEGER_NAME)]
@@ -975,6 +1038,7 @@ def ensure_jaeger(ids):
 
 def substrate_up():
     base = load_env_for_cloud()
+    _require_quiet(base)
     table = substrate_services(base)                       # + the approval channels that are configured
     print(f"deploying substrate ({len(table)} services + redis + jaeger) from "
           f"{IMAGE if BUILD_MODE == 'image' else f'{REPO}@{BRANCH} (repo build)'}")
@@ -1204,6 +1268,7 @@ def configure_workload(name, sid, spec, base_env, ids, service=None, consumer=No
 
 
 def workload_up(name):
+    _require_quiet(deploy_profile())
     spec = WORKLOADS[name]
     ids = services()
     base = load_env_for_cloud()

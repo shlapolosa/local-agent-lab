@@ -139,3 +139,45 @@ def test_run_graph_preflights_the_stores_a_run_will_search(monkeypatch):
         asyncio.run(gateway.run_graph(cfg, lambda c: None, {}, what="w", required=["x"],
                                       required_stores=["capability-map-a"]))
     assert seen == [("http://gw", ["capability-map-a"])]
+
+
+# ------------------------------------------------------------------ surviving a gateway restart
+class _Status(Exception):
+    def __init__(self, code): super().__init__(f"Error code: {code}"); self.status_code = code
+
+
+def test_a_5xx_and_a_dropped_connection_are_transient_and_a_4xx_is_not():
+    from lab.workloads import gateway as G
+    assert G.is_transient(_Status(502)) and G.is_transient(_Status(503))
+    assert not G.is_transient(_Status(429)) and not G.is_transient(_Status(400))
+    wrapped = RuntimeError("ChatClientException: service failed", _Status(502))
+    assert G.is_transient(wrapped), "the client's wrapper carries the HTTP error in its args"
+    class APIConnectionError(Exception): ...
+    assert G.is_transient(APIConnectionError("connection dropped"))
+    assert not G.is_transient(ValueError("bad json"))
+
+
+def test_survive_restart_retries_across_the_waits_then_gives_up_as_it_was():
+    import asyncio
+    from lab.workloads import gateway as G
+    calls, slept = [], []
+    async def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise _Status(502)
+        return "ok"
+    async def nap(s): slept.append(s)
+    assert asyncio.run(G.survive_restart(flaky, waits=(1, 2, 3), sleep=nap)) == "ok"
+    assert slept == [1, 2], "one wait per failure, taken from the table in order"
+
+    async def quota():
+        raise _Status(429)
+    with pytest.raises(_Status) as e:
+        asyncio.run(G.survive_restart(quota, waits=(1,), sleep=nap))
+    assert e.value.status_code == 429 and slept == [1, 2], "a 4xx is not waited on"
+
+    async def dead():
+        raise _Status(503)
+    with pytest.raises(_Status):
+        asyncio.run(G.survive_restart(dead, waits=(1, 1), sleep=nap))
+    assert slept == [1, 2, 1, 1], "the waits are exhausted, then the failure is the real one"

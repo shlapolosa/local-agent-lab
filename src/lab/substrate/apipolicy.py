@@ -71,6 +71,10 @@ OPERATIONS: tuple[Operation, ...] = (
         "start a run"),
     _op("processes.run", "GET", rf"/processes/{_SEG}/runs/{_SEG}", ApiRoles.SUBMIT,
         "the status and outputs of one run"),
+    # What a DEPLOY must wait for: a run in flight dies when the gateway restarts under it
+    # (measured 11 Sep 2026 — derives, adjudications and a publish all 502'd during one rollout).
+    _op("runs.open", "GET", r"/runs/open", ApiRoles.SUBMIT,
+        "every run still pending or running, across processes"),
     _op("approvals.list", "GET", r"/approvals", ApiRoles.READ,
         "everything still waiting on a person"),
     _op("approvals.get", "GET", rf"/approvals/{_SEG}", ApiRoles.READ,

@@ -8,6 +8,7 @@ not be able to do through one door what the other would refuse.
 Offline: fake Redis, Starlette's test client, no gateway and no network.
 Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/mcp/workflow/test_rest.py
 """
+import json
 import pytest
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
@@ -252,3 +253,16 @@ def test_an_approval_offering_nobody_returns_an_empty_list_not_a_missing_key(api
     """A client should not have to distinguish 'no candidates' from 'this build has no candidates'."""
     client, r = api
     assert client.get(f"/api/approvals/{_ask(r)}").json()["candidates"] == []
+
+
+def test_open_runs_lists_what_a_deploy_would_kill_and_nothing_finished(api):
+    """A gateway restart under a run in flight ends it with a 502 an hour of tokens in. The deploy
+    asks this first; a finished run is not on the list, and the list carries ids, not inputs."""
+    client, r = api
+    assert client.get("/api/runs/open").json() == {"runs": []}
+    rid = client.post(f"/api/processes/{MEETING}/runs", json=GOOD).json()["request_id"]
+    listed = client.get("/api/runs/open").json()["runs"]
+    assert [x["request_id"] for x in listed] == [rid] and listed[0]["process"] == MEETING
+    assert "recording" not in json.dumps(listed) and "owner" not in json.dumps(listed)
+    workflows.mark(rid, "done", client=r)
+    assert client.get("/api/runs/open").json() == {"runs": []}

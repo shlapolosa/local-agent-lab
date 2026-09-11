@@ -206,7 +206,10 @@ async def main() -> int:
 
     gateway_url = os.environ.get("EVAL_GATEWAY") or os.environ.get("GATEWAY_URL",
                                                                    "http://127.0.0.1:4000")
-    credential = os.environ["USECASE_AGENT_KEY"]
+    credential = os.environ.get("EVAL_AGENT_KEY") or ""
+    if not credential:
+        raise SystemExit("EVAL_AGENT_KEY is not set — evals run on their OWN identity, never on a "
+                         "production agent's key (scripts/provision_usecase_agents.py mints it)")
     cfg = {"agents": agents_for(gateway_url, os.environ.get("USECASE_AGENT_MODEL", "kimi-k3"),
                                 credential, step_for("3"), step_for("4"), step_for("5")),
            # what the `vector` matcher needs to reach the store the way a run does

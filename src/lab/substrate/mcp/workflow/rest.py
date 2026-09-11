@@ -48,8 +48,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from lab.platform import config, workflows
-from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, Decision, ProcessSpec,
-                                    speaker_candidates, speaker_prompts)
+from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_OPEN, Decision,
+                                    ProcessSpec, speaker_candidates, speaker_prompts)
 from lab.substrate import approvals
 from lab.substrate.mcpserver import error_response as _error, json_body as _body
 
@@ -107,6 +107,18 @@ def _run_route(server, spec: ProcessSpec):
         out |= {k: state[k] for k in spec.outputs if state.get(k) is not None}
         return JSONResponse(out)
     return run
+
+
+def _open_runs_route(server):
+    async def open_runs(request: Request) -> JSONResponse:
+        """Every run still pending or running, across processes — what a deploy waits for before it
+        restarts the gateway under them. Ids, processes and timestamps only."""
+        rows = workflows.pending(client=server.container.redis())
+        return JSONResponse({"runs": [
+            {k: st.get(k) for k in ("request_id", "process", "status", "created_at", "started_at")
+             if st.get(k)}
+            for st in rows if st.get("status") in WORKFLOW_OPEN]})
+    return open_runs
 
 
 def _approvals_route(server):
@@ -191,6 +203,7 @@ def routes(server) -> list[Route]:
     out: list[Route] = [
         Route(f"{API_PREFIX}/processes", _index, methods=["GET"]),
         # The human-in-the-loop gate, for a client that authenticated its own person.
+        Route(f"{API_PREFIX}/runs/open", _open_runs_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/approvals", _approvals_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/approvals/{{approval_id}}", _approval_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/approvals/{{approval_id}}/decide", _decide_route(server),

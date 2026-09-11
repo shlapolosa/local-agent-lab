@@ -97,6 +97,16 @@ NO_STORES = ("-",)
 #: intake team matches capabilities against the maps; the delivery and submitter identities search
 #: nothing and are spelled as such, because an empty grant is an open one.
 INTAKE_STORES = [VectorStores.CAPABILITY_MAP_HEALTHCARE, VectorStores.CAPABILITY_MAP_INSURANCE]
+
+#: The EVALS identity: what `scripts/eval_coverage.py` and `scripts/adjudicate_coverage.py` run as.
+#: Its own team and key, because a harness on the production agents' key competes with real runs
+#: for the same rpm/tpm and budget and is indistinguishable from them in the ledger (11 Sep 2026).
+#: Reads the corpus and searches the maps like a run does; starts nothing, answers nothing. The
+#: second model family is for the adjudicator's independent opinion. No Entra app: it is a harness
+#: an operator runs, not an agent a process hosts.
+EVALS_TOOLS = {ReferenceTools.SERVER: list(ReferenceTools.READ)}
+EVALS_STORES = list(INTAKE_STORES)
+EVALS_MODELS = ("kimi-k3", "claude-sonnet-5")
 DELIVERY_STORES: list[str] = []
 SUBMITTER_STORES: list[str] = []
 
@@ -185,8 +195,11 @@ def main() -> int:
                          DELIVERY_STORES)
     submitter_team = team("USECASE_SUBMITTER_TEAM_ID", "usecase-submitter", SUBMITTER_TOOLS,
                           SUBMITTER_STORES, budget=1.0, models=())
+    evals_team = team("USECASE_EVALS_TEAM_ID", "usecase-evals", EVALS_TOOLS, EVALS_STORES,
+                      budget=10.0, models=EVALS_MODELS)
 
     patch = {"USECASE_TEAM_ID": intake_team,
+             "USECASE_EVALS_TEAM_ID": evals_team,
              "USECASE_DELIVERY_TEAM_ID": delivery_team,
              "USECASE_SUBMITTER_TEAM_ID": submitter_team,
              "USECASE_AGENT_CLIENT_ID": intake_id, "USECASE_AGENT_CLIENT_SECRET": intake_secret,
@@ -194,14 +207,16 @@ def main() -> int:
              "USECASE_DELIVERY_CLIENT_SECRET": delivery_secret}
 
     keys = {}
-    for env_key, alias, team_id, role in (
-            ("USECASE_AGENT_KEY", "usecase-agent", intake_team, "screening and design"),
+    for env_key, alias, team_id, role, models in (
+            ("USECASE_AGENT_KEY", "usecase-agent", intake_team, "screening and design", ("kimi-k3",)),
             ("USECASE_DELIVERY_KEY", "usecase-delivery-agent", delivery_team,
-             "investment and provisioning")):
+             "investment and provisioning", ("kimi-k3",)),
+            ("EVAL_AGENT_KEY", "usecase-evals", evals_team, "coverage evals and adjudication",
+             EVALS_MODELS)):
         if os.environ.get(env_key):
             print(f"{env_key} already set — keeping it")
             continue
-        patch[env_key] = keys[alias] = _key(litellm, alias, team_id, role)
+        patch[env_key] = keys[alias] = _key(litellm, alias, team_id, role, models=models)
 
     # appId -> virtual key, so the gateway's custom auth maps an Entra JWT back to the same key and
     # a run authenticates either way with identical budgets, ACLs and spend.

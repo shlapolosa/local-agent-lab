@@ -13,9 +13,9 @@ WHAT IT IS NOT. It is not the expected set. A model adjudicating a model is the 
 twice; the draft is a starting point for a blind human review, and `expected.json` is written by a
 person. The output is `expected.draft.json`, never `expected.json`.
 
-Models: `kimi-k3` through the use-case agent key (the matcher's own model — its picks are the ceiling
-the matcher could reach) and `claude-sonnet-5` through the master key (a different family, as the
-independent second opinion). Operator script: it runs against the gateway like any client.
+Models: `kimi-k3` (the matcher's own model — its picks are the ceiling the matcher could reach) and
+`claude-sonnet-5` (a different family, as the independent second opinion), both on the EVALS key —
+its own team, budget and limits, so a harness never competes with a run for the production key.
 """
 import argparse
 import importlib.util
@@ -93,8 +93,10 @@ def main() -> int:
 
     gateway = (os.environ.get("EVAL_GATEWAY") or os.environ.get("PUBLIC_GATEWAY_URL")
                or os.environ.get("GATEWAY_URL", "http://127.0.0.1:4000")).rstrip("/")
-    keys = {"kimi-k3": os.environ["USECASE_AGENT_KEY"]}
-    master = os.environ.get("LITELLM_MASTER_KEY", "")
+    credential = os.environ.get("EVAL_AGENT_KEY") or ""
+    if not credential:
+        raise SystemExit("EVAL_AGENT_KEY is not set — evals run on their OWN identity, never on a "
+                         "production agent's key or the master key")
     corpus = _ev.corpus_for(args.scheme, os.environ.get(
         "REFERENCE_MODELS_DIR", str(Path.home() / "Development/local-agent-lab/var/reference-sources")))
     leaves = coverage.leaves_for(corpus)
@@ -110,11 +112,8 @@ def main() -> int:
         prompt = PROMPT % ((case / "submission.md").read_text(), listing)
         picks: dict[str, list] = {}
         for model in args.models.split(","):
-            key = keys.get(model) or master
-            if not key:
-                print(f"  {case.name}: no credential for {model} — skipped"); continue
             started = time.time()
-            out = ask(gateway, key, model, prompt)
+            out = ask(gateway, credential, model, prompt)
             chosen = []
             for item in out.get("applicable") or []:
                 leaf = by_id.get(str(item.get("id") or "").strip())

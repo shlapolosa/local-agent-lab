@@ -95,3 +95,11 @@ def test_a_trailing_slash_does_not_change_the_operation(path):
     """A client that appends a slash must not fall into the deny-by-no-match branch and get a
     confusing 401 instead of the operation it asked for."""
     assert apipolicy.role_for("GET", path) is not None
+
+
+def test_the_open_runs_listing_is_a_submit_power_not_an_approval_one():
+    """A deploy asks it before restarting the gateway; it reveals run ids and processes, which is
+    what starting and reading a run already reveals — nothing an approval reader should gain."""
+    from lab.substrate.apipolicy import operation
+    op = operation("GET", "/api/runs/open")
+    assert op and op.name == "runs.open" and op.role == ApiRoles.SUBMIT

@@ -25,6 +25,7 @@ import json
 from typing import Any, Callable, Sequence
 
 from jsonschema import Draft202012Validator
+from lab.workloads import gateway
 
 __all__ = ["GateFailed", "gate", "json_of", "run_gated", "validator_for"]
 
@@ -94,7 +95,7 @@ async def run_gated(agent, message: str, *, step: str, validator: Draft202012Val
     failure raises — negotiating with a model that has already been told what is wrong produces
     plausible output rather than correct output, which is worse.
     """
-    reply = await agent.run(message)
+    reply = await gateway.survive_restart(lambda: agent.run(message))
     out = json_of(reply)
     problems = gate(out, validator=validator, normalise=normalise, complete=complete)
     if not problems:
@@ -104,7 +105,7 @@ async def run_gated(agent, message: str, *, step: str, validator: Draft202012Val
                   + "\n".join(f"- {p}" for p in problems)
                   + "\n\nReturn the WHOLE answer again, corrected. Do not return only the parts "
                     "that changed, and do not explain — the reply is parsed as JSON.")
-    out = json_of(await agent.run(corrective))
+    out = json_of(await gateway.survive_restart(lambda: agent.run(corrective)))
     problems = gate(out, validator=validator, normalise=normalise, complete=complete)
     if problems:
         raise GateFailed(step, problems)
