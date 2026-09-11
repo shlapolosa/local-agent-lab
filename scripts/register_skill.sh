@@ -24,6 +24,14 @@ case "$SKILL" in
     CATEGORY=analysis
     DESC="Read and interpret Microsoft Visio (.vsdx) diagrams into a structured, plain-language description of the system they depict (shapes with stencil hints and captions, directed connectors), ready to convert into ArchiMate."
     KEYWORDS='["visio","vsdx","business-analysis","reverse-engineering","archimate"]' ;;
+  drawio-c4)
+    CATEGORY=architecture
+    DESC="Banded C4 solution/container architecture as an editable draw.io file: trust-zone bands, components and typed edges, laid out and routed by the engine (banded or A* orthogonal). Stdlib only."
+    KEYWORDS='["drawio","c4","solution-architecture","container-diagram","trust-zones"]' ;;
+  drawio-cafe)
+    CATEGORY=architecture
+    DESC="CAFÉ M5 logical reference architecture (archetypes A1–A8 or a supplied solution spec) as draw.io plus a dark SVG preview, enforcing the M3/M4 interlock. Bundles the drawio-c4 engine."
+    KEYWORDS='["drawio","cafe","reference-architecture","agent-archetypes","m5"]' ;;
   *)
     CATEGORY=general
     DESC="$SKILL skill for the local agent lab."
