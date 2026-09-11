@@ -19,6 +19,20 @@ Regenerate both:
 cp var/out/architecture/* docs/architecture/
 ```
 
+## Adding a detail view for your own area
+
+Five steps, and the first one is the whole trick — copy a file that already works rather than
+rebuild the setup:
+
+1. `cp scripts/reference_layer_diagram.py scripts/<area>_diagram.py` — it is the worked example.
+2. Keep `DONE` / `PART` / `TODO` and the legend **verbatim**, so every view reads the same.
+3. Render with the default `layout="astar"`. Do not pass `layout="banded"` (see below).
+4. Put the colour's REASON in the box text, on the same line as its `fill=`.
+5. Render the PNG with `scripts/drawio_to_png.py` and copy both into `docs/architecture/`.
+
+Then add a row to the table at the top of this file, and update it AS your components land — not
+when the work is finished.
+
 ## The colours are evidence, and that is the whole point
 
 - **GREEN** — deployed AND exercised end to end: `deploy/railway.py substrate images` lists it on the
