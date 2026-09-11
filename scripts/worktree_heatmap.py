@@ -82,8 +82,15 @@ def build() -> C4Diagram:
                 "17 cards, 17 keys linked", fill=DONE, row=1)
     d.component("hub", "z_gov", "Public agent hub",
                 "AMBER: bulk make_public fixed,\nnot yet re-verified live", fill=PART, row=1)
+    # GREEN now: all four skills are in BOTH registries. The `/v1/skills` GET still answers 500 and
+    # that is NOT a defect — it reports "ANTHROPIC_API_KEY is required for Skills API", i.e. the LIST
+    # is routing to Anthropic's cloud store, and this gateway deliberately does not inherit that key
+    # (CLAUDE.md: "that is how the skill upload leaked to Anthropic once"). The refusal is the leak
+    # protection holding. Local registration is proven by the id prefix instead: `litellm_skill_…` is
+    # the local store, `skill_…` would mean it was forwarded.
     d.component("skills", "z_gov", "Skill registries",
-                "AMBER: drawio-c4 / drawio-cafe\nNOT registered; /v1/skills 500s", fill=PART, row=1)
+                "4 skills, both registries\nhub verified; ids are litellm_skill_",
+                fill=DONE, row=1)
     d.component("meter", "z_gov", "Metering & spend",
                 "per key -> per team -> per agent", fill=DONE, row=1)
 
