@@ -292,7 +292,15 @@ MEETING_LANGUAGES = tuple(l.strip() for l in _e("MEETING_LANGUAGES", "ar,en").sp
 WF_CONSUMER = _e("WF_CONSUMER", "1")
 
 # The model that writes the minutes — OURS, through the gateway, never the transcription vendor's.
-MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "kimi-k3")
+# THE declaration: the agent card (`contracts.AGENTS`) and the key's model allowlist
+# (`scripts/provision_meeting_agents.py`) both read it here, so a switch is one value. kimi-k3 until
+# 12 Sep 2026, when Ollama Cloud's account-wide weekly cap 429'd every call for days — measured
+# against the DEPLOYED gateway with the minutes agent's own key, which is also how the key's
+# allowlist turned out to be the second half of the problem: it said `['kimi-k3']`, so pointing the
+# host at another model would have traded a 429 for a 403. Minutes are a JSON-mode frame against a
+# schema, which is what gpt-5.4-mini was measured fast at, and it is the model the use-case agents
+# moved to on the same day and the vendor that serves the corpus's embeddings.
+MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # The use-case agents' model — THE declaration: the agent cards (`contracts.AGENTS`), the key and
 # team allowlists (`scripts/provision_usecase_agents.py`) and the eval harness all read it here, so
 # a switch is one value. kimi-k3 until 12 Sep 2026, when Ollama Cloud's account-wide weekly cap

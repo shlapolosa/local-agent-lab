@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from lab.platform import config                                            # noqa: E402
 from lab.platform.contracts import (ApprovalTools, CollabTools, MEETING_TO_TRANSCRIPT,  # noqa: E402
                                     SemanticTools, SpeechTools, StorageTools, WorkflowTools)
 
@@ -67,13 +68,18 @@ CONNECTOR_TOOLS = {
 }
 
 
+#: THE model this workload's agents run on, read where it is declared. Every team and key allowlist
+#: below follows it, and an EXISTING one is reconciled to it.
+AGENT_MODEL = config.MINUTES_AGENT_MODEL
+
+
 def _grants(tools):
     """The `object_permission` for a per-tool ACL. `mcp_servers` alone would grant EVERY tool on the
     server, so the two travel together."""
     return {"mcp_servers": sorted(tools), "mcp_tool_permissions": tools}
 
 
-def _team(litellm, alias, tools, budget=5.0, models=("kimi-k3", "glm-flash")):
+def _team(litellm, alias, tools, budget=5.0, models=(AGENT_MODEL, "gpt-4.1")):
     """One team with a per-tool ACL."""
     return litellm("/team/new", {
         "team_alias": alias, "max_budget": budget, "budget_duration": "30d",
@@ -81,8 +87,8 @@ def _team(litellm, alias, tools, budget=5.0, models=("kimi-k3", "glm-flash")):
     })["team_id"]
 
 
-def _reconcile(litellm, team_id, alias, tools):
-    """Make an EXISTING team's grants match the table above. Returns the team id.
+def _reconcile(litellm, team_id, alias, tools, models=()):
+    """Make an EXISTING team's grants AND model allowlist match the table above. Returns the team id.
 
     Because the tables below are the declaration and this script is what applies them — and it did
     not. `MINUTES_TOOLS` has named `collab_item` and `collab_put` since delivery was written, but the
@@ -94,11 +100,28 @@ def _reconcile(litellm, team_id, alias, tools):
     Declared once at creation and never reconciled is the same defect the image tag had. A table is
     only the truth if something applies it every time.
     """
-    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools)})
+    body = {"team_id": team_id, "object_permission": _grants(tools)}
+    if models:
+        # The models list is the SAME defect one level down, and it cost a second diagnosis on
+        # 12 Sep 2026: with the model declaration moved off a capped upstream, a kept team and a kept
+        # key both still allowed only the old model, so the host asking for the new one got a 403
+        # where it used to get a 429. Empty means "leave it alone" — the connector team deliberately
+        # allows no model at all and must not be handed one.
+        body["models"] = list(models)
+    litellm("/team/update", body)
     return team_id
 
 
-def _key(litellm, alias, team_id, role, models=("kimi-k3",)):
+def _reconcile_key(litellm, key, models):
+    """An existing key's model allowlist follows the declaration too. A key kept because its id was
+    already in `.env` used to keep the allowlist it was minted with: measured against the deployed
+    gateway, the minutes key said `models=['kimi-k3']` long after the declaration had moved."""
+    if models:
+        litellm("/key/update", {"key": key, "models": list(models)})
+    return key
+
+
+def _key(litellm, alias, team_id, role, models=(AGENT_MODEL,)):
     return litellm("/key/generate", {
         "key_alias": alias, "team_id": team_id, "models": list(models),
         "max_budget": 2.0, "budget_duration": "30d", "rpm_limit": 60, "tpm_limit": 240000,
@@ -120,19 +143,25 @@ def main() -> int:
 
     # Every team is RECONCILED when it already exists, never merely reused: the tables above are the
     # declaration and this is what applies them. See `_reconcile` for what reusing them silently cost.
-    def team(env_key, alias, tools, **kw):
+    def team(env_key, alias, tools, models=(AGENT_MODEL, "gpt-4.1"), **kw):
         existing = os.environ.get(env_key)
-        return (_reconcile(litellm, existing, alias, tools) if existing
-                else _team(litellm, alias, tools, **kw))
+        return (_reconcile(litellm, existing, alias, tools, models) if existing
+                else _team(litellm, alias, tools, models=models, **kw))
 
     transcript_team = team("MEETING_TEAM_ID", "meeting-transcript", TRANSCRIPT_TOOLS)
     minutes_team = team("MINUTES_TEAM_ID", "meeting-minutes", MINUTES_TOOLS)
     connector_team = team("CONNECTOR_TEAM_ID", "power-automate", CONNECTOR_TOOLS,
                           budget=1.0, models=())
 
-    meeting_key = os.environ.get("MEETING_AGENT_KEY") or _key(litellm, "meeting-agent", transcript_team, "Meeting transcription")
-    minutes_key = os.environ.get("MINUTES_AGENT_KEY") or _key(litellm, "minutes-agent", minutes_team, "Meeting minutes")
-    connector_key = os.environ.get("POWER_AUTOMATE_KEY") or _key(litellm, "power-automate", connector_team, "Low-code connector", models=())
+    def key(env_key, alias, team_id, role, models=(AGENT_MODEL,)):
+        existing = os.environ.get(env_key)
+        return (_reconcile_key(litellm, existing, models) if existing
+                else _key(litellm, alias, team_id, role, models=models))
+
+    meeting_key = key("MEETING_AGENT_KEY", "meeting-agent", transcript_team, "Meeting transcription")
+    minutes_key = key("MINUTES_AGENT_KEY", "minutes-agent", minutes_team, "Meeting minutes")
+    connector_key = key("POWER_AUTOMATE_KEY", "power-automate", connector_team,
+                        "Low-code connector", models=())
 
     mapping = json.loads(os.environ.get("ENTRA_CLIENT_TO_KEY", "{}"))
     mapping[meeting_id] = meeting_key

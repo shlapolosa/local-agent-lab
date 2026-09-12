@@ -1639,7 +1639,7 @@ AGENTS: tuple[AgentSpec, ...] = (
               processes=("meeting_to_transcript",)),
     AgentSpec(name="minutes-agent", prefix="MINUTES_AGENT",
               description="Turns an attributed transcript into gated minutes and a concept model.",
-              skills=("minutes",), model="kimi-k3",
+              skills=("minutes",), model=config.MINUTES_AGENT_MODEL,
               processes=("transcript_to_minutes",)),
     AgentSpec(name="usecase-agent", prefix="USECASE_AGENT",
               description="Screens a submitted use case and designs it.",

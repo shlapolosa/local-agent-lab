@@ -95,3 +95,47 @@ def test_the_use_case_agents_model_is_served_and_the_cards_and_provisioning_foll
     spec = importlib.util.spec_from_file_location("provision_usecase_agents", ROOT / "scripts" / "provision_usecase_agents.py")
     mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
     assert mod.AGENT_MODEL == config.USECASE_AGENT_MODEL and mod.EVALS_MODELS[0] == config.USECASE_AGENT_MODEL
+
+
+def test_the_minutes_model_is_served_and_the_card_and_provisioning_follow_it():
+    """One declaration (`config.MINUTES_AGENT_MODEL`): the gateway serves it, the minutes agent card
+    names it, and the provisioning script mints AND reconciles the team and key allowlists to it.
+
+    The sibling of `test_the_use_case_agents_model_is_served_and_the_cards_and_provisioning_follow_it`,
+    and written for a defect that test would not have caught: on 12 Sep 2026 the minutes host asked
+    for a model its own key did not allow. Measured against the deployed gateway, `kimi-k3` answered
+    429 (an account-wide weekly cap) and every alternative answered **403 — "This key can only access
+    models=['kimi-k3']"**. So a model switch has THREE places that must agree, not two: the host's
+    declaration, the key's allowlist and the team's. Moving the declaration alone trades a 429 for a
+    403, which looks like a different bug.
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    from lab.platform import config
+    from lab.platform.contracts import AGENTS
+
+    served = {m["model_name"] for m in _config()["model_list"]}
+    assert config.MINUTES_AGENT_MODEL in served, \
+        f"the gateway serves no {config.MINUTES_AGENT_MODEL!r} — the minutes host would 404"
+
+    card = [a for a in AGENTS if a.prefix == "MINUTES_AGENT"]
+    assert len(card) == 1 and card[0].model == config.MINUTES_AGENT_MODEL
+
+    root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / "scripts"))
+    spec = importlib.util.spec_from_file_location(
+        "provision_meeting_agents", root / "scripts" / "provision_meeting_agents.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.AGENT_MODEL == config.MINUTES_AGENT_MODEL
+
+    # And the two reconcilers exist and are wired — the whole point is that an EXISTING team or key is
+    # brought to the declaration rather than kept as minted.
+    src = (root / "scripts" / "provision_meeting_agents.py").read_text()
+    assert "def _reconcile_key(" in src
+    assert "_reconcile_key(litellm, existing, models)" in src, \
+        "an existing key must be reconciled, not merely reused"
+    assert '"models"] = list(models)' in src or '"models": list(models)' in src, \
+        "an existing team's model allowlist must be written too"
