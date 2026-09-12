@@ -131,7 +131,7 @@ def _team(litellm, alias, tools, stores=(), budget=5.0, models=(AGENT_MODEL, "gp
     })["team_id"]
 
 
-def _reconcile(litellm, team_id, alias, tools, stores=()):
+def _reconcile(litellm, team_id, alias, tools, stores=(), models=(AGENT_MODEL, "gpt-4.1")):
     """Make an EXISTING team's grants match the table above.
 
     Never merely reused: the tables are the declaration and this is what applies them. The meeting
@@ -139,7 +139,8 @@ def _reconcile(litellm, team_id, alias, tools, stores=()):
     old ACL because its id was already in `.env`, and the workload failed at its last step having
     produced correct minutes, while provisioning printed "Grants written" and had written nothing.
     """
-    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools, stores)})
+    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools, stores),
+                             "models": list(models)})
     return team_id
 
 
@@ -198,8 +199,8 @@ def main() -> int:
 
     def team(env_key, alias, tools, stores, **kw):
         existing = os.environ.get(env_key)
-        return (_reconcile(litellm, existing, alias, tools, stores) if existing
-                else _team(litellm, alias, tools, stores, **kw))
+        return (_reconcile(litellm, existing, alias, tools, stores, **({"models": kw["models"]} if "models" in kw else {}))
+                if existing else _team(litellm, alias, tools, stores, **kw))
 
     intake_team = team("USECASE_TEAM_ID", "usecase-intake", INTAKE_TOOLS, INTAKE_STORES)
     delivery_team = team("USECASE_DELIVERY_TEAM_ID", "usecase-delivery", DELIVERY_TOOLS,
