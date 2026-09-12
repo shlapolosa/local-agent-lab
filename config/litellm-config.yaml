@@ -63,6 +63,18 @@ model_list:
     model_info:
       supports_function_calling: true
       supports_vision: true
+  # The same model told to THINK: on the 1,042-leaf capability prompt the plain group answered in
+  # 3 s and matched nothing (12 Sep 2026), where a reasoning model spent minutes and matched half.
+  # A separate group so the choice is a model NAME a workload or an eval can be pointed at.
+  - model_name: gpt-5.4-mini-think
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_UPSTREAM_API_KEY
+      reasoning_effort: medium
+      input_cost_per_token: 0.00000025
+      output_cost_per_token: 0.00000200
+    model_info:
+      supports_function_calling: true
   - model_name: gpt-4.1
     litellm_params:
       model: openai/gpt-4.1
@@ -329,7 +341,7 @@ litellm_settings:
     # identity to 7 models while the master key saw 12. NOTE it applies at user CREATION, so an
     # existing developer keeps the list they were provisioned with until their key is updated.
     models: ["gpt-oss-120b", "glm-flash", "kimi-k3", "kimi-k2.7-code", "claude-sonnet-5", "claude-haiku-4-5", "auto",
-             "gpt-5.4-mini", "gpt-4.1",
+             "gpt-5.4-mini", "gpt-5.4-mini-think", "gpt-4.1",
              "claude/kimi-k3", "claude/kimi-k2.7-code", "claude/gpt-oss-120b", "claude/glm-flash", "claude/auto"]
   callbacks: ["otel"]                 # every gateway call -> OTLP span (joins the caller's trace)
   cache: true                         # Redis backs limiter/budget/router state ...
