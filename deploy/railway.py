@@ -238,6 +238,7 @@ ROLE_ENV = {
         "LITELLM_*",                               # master key, LITELLM_MCP_CLIENT_TIMEOUT / TOOL_LISTING_TIMEOUT (litellm env)
         "DATABASE_URL",                            # key/team/spend store (litellm)
         "OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY",   # litellm-config.yaml os.environ/ refs; auto_router.py
+        "OPENAI_UPSTREAM_API_KEY",                 # ... the vendor embedding model (text-embedding-3-large)
         "EMBED_URL",                               # ... the corpus's embedding model, the substrate's own (set by substrate_env)
         "PG_VECTOR_API_BASE", "PG_VECTOR_API_KEY",  # the vector_store_registry's provider reads THESE from the
                                                    # process env (LiteLLM resolves no os.environ/ on that path):

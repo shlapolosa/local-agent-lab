@@ -109,6 +109,20 @@ model_list:
     model_info:
       mode: embedding
       output_vector_size: 768
+  # --- the VENDOR embedding model (OpenAI funded 12 Sep 2026), served beside the substrate's own ---
+  # Not yet the one the corpus embeds with: REFERENCE_EMBED_MODEL / REFERENCE_EMBED_DIM name that,
+  # and a switch is a MIGRATION (vectors from two models are not comparable) — a new corpus version
+  # embedded end to end, measured with scripts/eval_coverage.py against the recorded baseline
+  # before it is adopted. 3072 is the native width; the same model ships on the production target
+  # as "Embeddings 3 Large", so the choice is portable. The key is the gateway's, never a workload's.
+  - model_name: text-embedding-3-large
+    litellm_params:
+      model: openai/text-embedding-3-large
+      api_key: os.environ/OPENAI_UPSTREAM_API_KEY
+      input_cost_per_token: 0.00000013
+    model_info:
+      mode: embedding
+      output_vector_size: 3072
 
 mcp_servers:                          # addresses + trust come from the environment (cloud shape)
   ea_mcp:                             # the EA-repository PORT, vendor-neutral by design: swapping ADOIT

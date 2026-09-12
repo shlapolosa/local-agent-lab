@@ -120,10 +120,21 @@ def test_the_corpus_embeds_with_the_one_served_embedding_model_at_its_native_wid
     at another width cannot be compared with the index, and `pg_library.search` refuses the
     mismatch — this catches it before a corpus is published at the wrong width."""
     models = _embedding_models()
-    assert len(models) == 1, "one embedding model is served; a second needs REFERENCE_EMBED_MODEL"
-    assert models[0]["model_info"]["output_vector_size"] == config.REFERENCE_EMBED_DIM
-    assert models[0]["litellm_params"]["model"].startswith("ollama/"), \
-        "the corpus embeds with the substrate's own model — no vendor serves one this lab can use"
+    assert models, "the corpus needs an embedding model on the gateway"
+    widths = {m["model_name"]: m["model_info"]["output_vector_size"] for m in models}
+    assert all(isinstance(w, int) and w > 0 for w in widths.values()), widths
+    # The one the corpus embeds with — REFERENCE_EMBED_MODEL, or the only one served — must be the
+    # width REFERENCE_EMBED_DIM says; a second model beside it (the vendor's, 12 Sep 2026) is a
+    # migration target, not a silent alternative, and its width is declared so the switch is one
+    # pair of env values.
+    own = [m["model_name"] for m in models if m["litellm_params"]["model"].startswith("ollama/")]
+    served = config.REFERENCE_EMBED_MODEL or (own[0] if own else models[0]["model_name"])
+    assert served in widths, f"REFERENCE_EMBED_MODEL names {served!r}; served: {sorted(widths)}"
+    assert widths[served] == config.REFERENCE_EMBED_DIM
+    for m in models:
+        params = m["litellm_params"]
+        assert params["model"].startswith("ollama/") or str(params.get("api_key", "")).startswith("os.environ/"), \
+            f"{m['model_name']}: a vendor embedding model carries its key as an os.environ/ ref"
 
 
 # ---------------------------------------------------------------- compose is not a third answer
