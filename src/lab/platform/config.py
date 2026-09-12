@@ -300,6 +300,17 @@ WF_CONSUMER = _e("WF_CONSUMER", "1")
 # host at another model would have traded a 429 for a 403. Minutes are a JSON-mode frame against a
 # schema, which is what gpt-5.4-mini was measured fast at, and it is the model the use-case agents
 # moved to on the same day and the vendor that serves the corpus's embeddings.
+#
+# PLAIN, not the `-think` group, and measured rather than assumed — the use-case work found plain
+# gpt-5.4-mini SKIMMING a long prompt (1,042-leaf capability match: 3 s, nothing matched), so the same
+# risk was checked here with THIS workload's own prompt and schema over an hour-scale transcript
+# (7,271 words, 18 items planted across it): both recalled 18/18, plain in 16 s / 3.3k output tokens
+# against -think's 47 s / 8.0k. So the skim is a property of that task, not of long input.
+# The decisive difference was the opposite of the one expected: **-think fails this workload's gate.**
+# It writes the owner as the PERSON ("Ravi", "Layla"), while `actions[].owner` is "the speaker label
+# who owes it" and `gate` compares it against the labels the transcript used — nine actions, nine
+# rejections, a burnt retry and probably a failed run. Plain writes labels and passes. A model that
+# reasons its way to a nicer answer than the contract asks for is still wrong here.
 MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # The use-case agents' model — THE declaration: the agent cards (`contracts.AGENTS`), the key and
 # team allowlists (`scripts/provision_usecase_agents.py`) and the eval harness all read it here, so
