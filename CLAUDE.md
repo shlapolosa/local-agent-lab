@@ -523,12 +523,25 @@ stateless and address each other only through `src/lab/platform/config.py` env v
   on a 4xx). **Two rules the gate cannot enforce**: never push while a corpus PUBLISH or an EVAL is
   running (neither is a workflow run, so the board is quiet), and never run
   `scripts/eval_coverage.py` beside a cloud run — Ollama Cloud's session limit is one bucket for
-  the whole account and it took ~3.5 h to clear twice. **Evals have their own identity**:
+  the whole ACCOUNT — the rule is the shared upstream account, not the vendor, or it reads as
+  obsolete the moment the vendor changes (it did: both the evals and the minutes step moved to OpenAI
+  on 12 Sep, so the bucket moved rather than went away) — and it took ~3.5 h to clear twice. **Evals have their own identity**:
   `usecase-evals` team + `EVAL_AGENT_KEY` (reference reads, both map stores, kimi-k3 and
   claude-sonnet-5 for the adjudicator's second opinion); the eval scripts refuse a production
   agent's key or the master key. The embedder runs `OLLAMA_NUM_PARALLEL=4` so a live query is
   served beside a publish batch, not behind it.
-  paths log key NAMES only, never values. It fails only on a service that crashed on
+  paths log key NAMES only, never values.
+  **`LAB_ENV` is last-writer-wins over a ~170-key file that several sessions edit, and a lost write is
+  SILENT** (measured twice on 12 Sep 2026). One session uploaded from a worktree copy that still had
+  the old value and reverted another's change; the revert was discovered only by reading the DEPLOYED
+  service variable, because every intermediate signal — the green CD run, the "deployed" message, the
+  secret's own timestamp — was consistent with success. Upload only from the canonical file (three
+  worktrees symlink `~/Development/local-agent-lab/.env`; a real copy elsewhere is the hazard), diff
+  by key first, and say which keys changed.
+  **And GitHub snapshots secrets at WORKFLOW START, not job start**: a `LAB_ENV` uploaded 79 seconds
+  after a run began was not seen by that run's deploy job four minutes later, so a green deploy
+  shipped stale config. After changing `LAB_ENV`, the deploy that picks it up is the NEXT one — verify
+  by reading the variable off the service, never by trusting the tick. It fails only on a service that crashed on
   the new image or never finished deploying; a service that does not exist (the one-shot
   `wf-visio-job`) is reported and is not a failure. Pin/roll back with `LAB_IMAGE_TAG=sha-<short>`; the GHCR
   package must be PUBLIC (or give the services a registry credential). Dockerfile speed rules, all
@@ -1007,6 +1020,25 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   fresh consumer must not announce every run the lab ever completed). **Domain policy stays with the
   domain** — `approvals.channel_events` still drops and acks requests a person has already decided,
   because a channel announces what needs somebody NOW.
+  **A recording is matched to its meeting DIRECTIONALLY, because the gap IS the meeting's length.**
+  A drive file is created when recording STARTS and the provider's recording object when it STOPS, so
+  the object always arrives later, by however long the meeting ran. `_match` compared the two with a
+  SYMMETRIC 60 s tolerance, which therefore refused every meeting longer than a minute — measured
+  live 12 Sep 2026: file 14:01:38Z, recording object 14:02:54Z, 77 seconds apart, while the
+  next-nearest candidate was three days away. The right meeting lost by 17 seconds against a rival
+  3,300x worse. Widening the window would only have moved the cliff; the fix is direction — an object
+  that stopped BEFORE this file existed cannot be this file's, which is also what separates
+  back-to-back meetings — with the soonest-stopping winner inside a generous four-hour window.
+  **One failed match cost TWO things and looked like three bugs**: `_owning_meeting` returns the
+  participants AND the `chat_id`, so the speaker picker was empty AND the minutes were never announced
+  in the meeting's chat. It read like a Graph failure and was not: calling the same tools by hand with
+  the workload's own credential returned two meetings, eleven recordings, participants and chat_id.
+  The lookup succeeded and the arithmetic discarded the answer. **Only the exception path logged**, so
+  "asked and matched nothing" was indistinguishable from "never asked" and from "the meeting had no
+  attendees"; both outcomes now print, with the candidates considered and whether a chat_id came back.
+  The old tests passed throughout because their fixture used a FIVE-SECOND gap — a recording that
+  stopped five seconds after it started, which is not a meeting.
+
   **A speaker question may carry CANDIDATES** — `contracts.SpeakerCandidate` /
   `speaker_candidates`, resolved by the transcript workload from the meeting that OWNS the recording
   (matched by HANDLE, never by parsing a provider filename). Every surface offers them as a pick
