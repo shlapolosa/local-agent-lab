@@ -111,7 +111,7 @@ EVALS_STORES = list(INTAKE_STORES)
 #: below follows it, and an EXISTING key is reconciled to it — a key kept because its id was already
 #: in `.env` would otherwise keep the old allowlist and refuse the model the hosts now ask for.
 AGENT_MODEL = config.USECASE_AGENT_MODEL
-EVALS_MODELS = (AGENT_MODEL, "gpt-5.4-mini-think", "gpt-4.1", "claude-sonnet-5")
+EVALS_MODELS = (AGENT_MODEL, "gpt-5.4-mini", "gpt-4.1", "claude-sonnet-5")
 DELIVERY_STORES: list[str] = []
 SUBMITTER_STORES: list[str] = []
 

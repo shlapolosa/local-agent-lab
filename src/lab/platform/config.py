@@ -304,9 +304,12 @@ MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # The use-case agents' model — THE declaration: the agent cards (`contracts.AGENTS`), the key and
 # team allowlists (`scripts/provision_usecase_agents.py`) and the eval harness all read it here, so
 # a switch is one value. kimi-k3 until 12 Sep 2026, when Ollama Cloud's account-wide weekly cap
-# 429'd every call for days; gpt-5.4-mini answers a JSON-mode frame in ~3 s with no reasoning
-# tokens spent, and the same vendor now serves the corpus's embeddings.
-USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini")
+# 429'd every call for days. MEASURED on the capability-matching step (12 Sep, `var/eval/
+# model-comparison.md`): plain gpt-5.4-mini answered the 1,042-leaf prompt in 3 s and matched
+# nothing, gpt-4.1 matched few; the same model with reasoning on (`gpt-5.4-mini-think`, a gateway
+# group with reasoning_effort=medium) recalled 0.50/0.40 in ~90 s — the kimi baseline — at a
+# fraction of claude-sonnet-5's cost. Speed alone is the wrong answer for this step.
+USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini-think")
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"
