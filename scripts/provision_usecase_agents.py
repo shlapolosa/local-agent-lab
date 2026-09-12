@@ -30,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from lab.platform import config
 from lab.platform.contracts import (ApprovalTools, DecisionTools, ReferenceTools,  # noqa: E402
                                     SemanticTools, StorageTools, USE_CASE_SCREENING,
                                     ValuationTools, VectorStores, WorkflowTools)
@@ -106,7 +107,11 @@ INTAKE_STORES = [VectorStores.CAPABILITY_MAP_HEALTHCARE, VectorStores.CAPABILITY
 #: an operator runs, not an agent a process hosts.
 EVALS_TOOLS = {ReferenceTools.SERVER: list(ReferenceTools.READ)}
 EVALS_STORES = list(INTAKE_STORES)
-EVALS_MODELS = ("kimi-k3", "claude-sonnet-5")
+#: THE model the use-case agents run on, read where it is declared. Every key and team allowlist
+#: below follows it, and an EXISTING key is reconciled to it — a key kept because its id was already
+#: in `.env` would otherwise keep the old allowlist and refuse the model the hosts now ask for.
+AGENT_MODEL = config.USECASE_AGENT_MODEL
+EVALS_MODELS = (AGENT_MODEL, "claude-sonnet-5")
 DELIVERY_STORES: list[str] = []
 SUBMITTER_STORES: list[str] = []
 
@@ -119,7 +124,7 @@ def _grants(tools, stores=()):
             "vector_stores": sorted(stores) or list(NO_STORES)}
 
 
-def _team(litellm, alias, tools, stores=(), budget=5.0, models=("kimi-k3", "glm-flash")):
+def _team(litellm, alias, tools, stores=(), budget=5.0, models=(AGENT_MODEL, "gpt-4.1")):
     return litellm("/team/new", {
         "team_alias": alias, "max_budget": budget, "budget_duration": "30d",
         "models": list(models), "object_permission": _grants(tools, stores),
@@ -138,7 +143,12 @@ def _reconcile(litellm, team_id, alias, tools, stores=()):
     return team_id
 
 
-def _key(litellm, alias, team_id, role, models=("kimi-k3",)):
+def _reconcile_key(litellm, key, models):
+    """An existing key's model allowlist follows the declaration too (the model moved 12 Sep 2026)."""
+    litellm("/key/update", {"key": key, "models": list(models)})
+
+
+def _key(litellm, alias, team_id, role, models=(AGENT_MODEL,)):
     return litellm("/key/generate", {
         "key_alias": alias, "team_id": team_id, "models": list(models),
         "max_budget": 5.0, "budget_duration": "30d", "rpm_limit": 60, "tpm_limit": 240000,
@@ -167,7 +177,8 @@ def _provision_services(ensure_agent, gw_sp, litellm, team_id, existing_env) -> 
         patch[f"{prefix}_CLIENT_ID"] = app_id
         patch[f"{prefix}_CLIENT_SECRET"] = secret
         if existing_env.get(f"{prefix}_KEY"):
-            print(f"{prefix}_KEY already set — keeping it")
+            _reconcile_key(litellm, existing_env[f"{prefix}_KEY"], (AGENT_MODEL,))
+            print(f"{prefix}_KEY already set — kept, allowed {AGENT_MODEL}")
             continue
         key = _key(litellm, alias, team_id, service)
         patch[f"{prefix}_KEY"] = key
@@ -208,13 +219,14 @@ def main() -> int:
 
     keys = {}
     for env_key, alias, team_id, role, models in (
-            ("USECASE_AGENT_KEY", "usecase-agent", intake_team, "screening and design", ("kimi-k3",)),
+            ("USECASE_AGENT_KEY", "usecase-agent", intake_team, "screening and design", (AGENT_MODEL,)),
             ("USECASE_DELIVERY_KEY", "usecase-delivery-agent", delivery_team,
-             "investment and provisioning", ("kimi-k3",)),
+             "investment and provisioning", (AGENT_MODEL,)),
             ("EVAL_AGENT_KEY", "usecase-evals", evals_team, "coverage evals and adjudication",
              EVALS_MODELS)):
         if os.environ.get(env_key):
-            print(f"{env_key} already set — keeping it")
+            _reconcile_key(litellm, os.environ[env_key], models)
+            print(f"{env_key} already set — kept, allowed {', '.join(models)}")
             continue
         patch[env_key] = keys[alias] = _key(litellm, alias, team_id, role, models=models)
 

@@ -76,3 +76,22 @@ def test_an_alias_is_not_hidden_from_the_model_list():
     for alias, target in aliases.items():
         if isinstance(target, dict):
             assert target.get("hidden") is not True, f"{alias!r} is hidden from /v1/models"
+
+
+def test_the_use_case_agents_model_is_served_and_the_cards_and_provisioning_follow_it():
+    """One declaration (`config.USECASE_AGENT_MODEL`): the gateway serves it, every use-case agent
+    card names it, and the provisioning script mints and reconciles keys to it — so the 12 Sep 2026
+    move off a capped upstream was one value, and the next one will be too."""
+    import importlib.util, sys
+    from pathlib import Path
+    from lab.platform import config
+    ROOT = Path(__file__).resolve().parents[2]
+    from lab.platform.contracts import AGENTS
+    served = {m["model_name"] for m in _config()["model_list"]}
+    assert config.USECASE_AGENT_MODEL in served
+    usecase = [a for a in AGENTS if any(p.startswith("use_case_") for p in a.processes)]
+    assert len(usecase) >= 12 and all(a.model == config.USECASE_AGENT_MODEL for a in usecase)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("provision_usecase_agents", ROOT / "scripts" / "provision_usecase_agents.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    assert mod.AGENT_MODEL == config.USECASE_AGENT_MODEL and mod.EVALS_MODELS[0] == config.USECASE_AGENT_MODEL

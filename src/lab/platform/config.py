@@ -293,10 +293,12 @@ WF_CONSUMER = _e("WF_CONSUMER", "1")
 
 # The model that writes the minutes — OURS, through the gateway, never the transcription vendor's.
 MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "kimi-k3")
-# The screening agents. kimi-k3 for the same reason the visio workload uses it: measured reliable
-# at small-argument structured output, which is all these do — every one returns one JSON object
-# against a schema and calls no tools itself.
-USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "kimi-k3")
+# The use-case agents' model — THE declaration: the agent cards (`contracts.AGENTS`), the key and
+# team allowlists (`scripts/provision_usecase_agents.py`) and the eval harness all read it here, so
+# a switch is one value. kimi-k3 until 12 Sep 2026, when Ollama Cloud's account-wide weekly cap
+# 429'd every call for days; gpt-5.4-mini answers a JSON-mode frame in ~3 s with no reasoning
+# tokens spent, and the same vendor now serves the corpus's embeddings.
+USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini")
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

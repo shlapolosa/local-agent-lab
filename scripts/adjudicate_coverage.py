@@ -13,7 +13,7 @@ WHAT IT IS NOT. It is not the expected set. A model adjudicating a model is the 
 twice; the draft is a starting point for a blind human review, and `expected.json` is written by a
 person. The output is `expected.draft.json`, never `expected.json`.
 
-Models: `kimi-k3` (the matcher's own model — its picks are the ceiling the matcher could reach) and
+Models: the use-case agents' own (`config.USECASE_AGENT_MODEL` — its picks are the ceiling the matcher could reach) and
 `claude-sonnet-5` (a different family, as the independent second opinion), both on the EVALS key —
 its own team, budget and limits, so a harness never competes with a run for the production key.
 """
@@ -33,6 +33,7 @@ sys.path.insert(0, str(HERE.parent / "src"))
 _spec = importlib.util.spec_from_file_location("eval_coverage", HERE / "eval_coverage.py")
 _ev = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ev)
+from lab.platform import config  # noqa: E402
 from lab.workloads.usecase import coverage  # noqa: E402
 
 PROMPT = """You are adjudicating an evaluation set for a capability-matching step.
@@ -87,7 +88,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cases", default="var/eval/coverage")
     ap.add_argument("--scheme", default="healthcare-provider-v2.0")
-    ap.add_argument("--models", default="kimi-k3,claude-sonnet-5")
+    ap.add_argument("--models", default=f"{config.USECASE_AGENT_MODEL},claude-sonnet-5")
     ap.add_argument("--only", default="", help="comma-separated case names; default all without expected.json")
     args = ap.parse_args()
 

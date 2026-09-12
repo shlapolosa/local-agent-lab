@@ -26,6 +26,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+
+from lab.platform import config
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -1637,11 +1639,11 @@ AGENTS: tuple[AgentSpec, ...] = (
               processes=("transcript_to_minutes",)),
     AgentSpec(name="usecase-agent", prefix="USECASE_AGENT",
               description="Screens a submitted use case and designs it.",
-              skills=("use_case_screening", "use_case_design"), model="kimi-k3",
+              skills=("use_case_screening", "use_case_design"), model=config.USECASE_AGENT_MODEL,
               processes=("use_case_screening", "use_case_design")),
     AgentSpec(name="usecase-delivery-agent", prefix="USECASE_DELIVERY",
               description="Values a designed use case and provisions its delivery artifacts.",
-              skills=("use_case_investment", "use_case_provisioning"), model="kimi-k3",
+              skills=("use_case_investment", "use_case_provisioning"), model=config.USECASE_AGENT_MODEL,
               processes=("use_case_investment", "use_case_provisioning")),
 
     # The ten CAFE bounded contexts. One registration, one key, one card each — because spend
@@ -1652,36 +1654,36 @@ AGENTS: tuple[AgentSpec, ...] = (
     # since this tier may not import a workload to derive it.
     AgentSpec(name="usecase-business-analyst", prefix="USECASE_BA",
               description="Frames a submitted use case and maps the workflow it implies.",
-              skills=("use_case_framing",), model="kimi-k3", processes=("use_case_screening",)),
+              skills=("use_case_framing",), model=config.USECASE_AGENT_MODEL, processes=("use_case_screening",)),
     AgentSpec(name="usecase-business-architect", prefix="USECASE_BUSARCH",
               description="Identifies the business elements a use case touches and maps its coverage.",
-              skills=("capability_mapping",), model="kimi-k3", processes=("use_case_screening",)),
+              skills=("capability_mapping",), model=config.USECASE_AGENT_MODEL, processes=("use_case_screening",)),
     AgentSpec(name="usecase-application-architect", prefix="USECASE_APPARCH",
               description="Matches a use case to the applications that would realise it.",
-              skills=("realisation_matching",), model="kimi-k3", processes=("use_case_screening",)),
+              skills=("realisation_matching",), model=config.USECASE_AGENT_MODEL, processes=("use_case_screening",)),
     AgentSpec(name="usecase-risk-officer", prefix="USECASE_RISK",
               description="Bands a use case for criticality and states its exposure facets.",
-              skills=("criticality_banding",), model="kimi-k3",
+              skills=("criticality_banding",), model=config.USECASE_AGENT_MODEL,
               processes=("use_case_screening", "use_case_design")),
     AgentSpec(name="usecase-product-owner", prefix="USECASE_PO",
               description="States the quality attributes, assertions and delivery artifacts a use case needs.",
-              skills=("quality_attributes",), model="kimi-k3",
+              skills=("quality_attributes",), model=config.USECASE_AGENT_MODEL,
               processes=("use_case_screening", "use_case_design")),
     AgentSpec(name="usecase-data-architect", prefix="USECASE_DATA",
               description="States the ontology delta a use case implies and the contracts of its sources.",
-              skills=("ontology_delta",), model="kimi-k3", processes=("use_case_screening",)),
+              skills=("ontology_delta",), model=config.USECASE_AGENT_MODEL, processes=("use_case_screening",)),
     AgentSpec(name="usecase-solution-architect", prefix="USECASE_SOLARCH",
               description="Decides what must be deterministic and selects the components.",
-              skills=("component_selection",), model="kimi-k3", processes=("use_case_design",)),
+              skills=("component_selection",), model=config.USECASE_AGENT_MODEL, processes=("use_case_design",)),
     AgentSpec(name="usecase-technology-architect", prefix="USECASE_TECHARCH",
               description="States the build surface a designed use case requires.",
-              skills=("build_surface",), model="kimi-k3", processes=("use_case_design",)),
+              skills=("build_surface",), model=config.USECASE_AGENT_MODEL, processes=("use_case_design",)),
     AgentSpec(name="usecase-cost-engineer", prefix="USECASE_COST",
               description="States the cost inputs a use case's investment case is valued on.",
-              skills=("cost_inputs",), model="kimi-k3", processes=("use_case_design",)),
+              skills=("cost_inputs",), model=config.USECASE_AGENT_MODEL, processes=("use_case_design",)),
     AgentSpec(name="usecase-value-analyst", prefix="USECASE_VALUE",
               description="States the benefit inputs a use case's investment case is valued on.",
-              skills=("benefit_inputs",), model="kimi-k3", processes=("use_case_design",)),
+              skills=("benefit_inputs",), model=config.USECASE_AGENT_MODEL, processes=("use_case_design",)),
 
     # The Documentation Fabric (docs/fabric/POC.md). Two identities, because the classifier SUGGESTS
     # (rung S) and the synthesiser WRITES tagged drafts — different powers, so different keys, so a

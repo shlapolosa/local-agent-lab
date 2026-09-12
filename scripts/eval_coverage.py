@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from lab.platform import config
 from lab.core.semantic.service import SemanticService          # noqa: E402
 from lab.platform.contracts import VectorStores                # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
@@ -217,7 +218,7 @@ async def main() -> int:
     if not credential:
         raise SystemExit("EVAL_AGENT_KEY is not set — evals run on their OWN identity, never on a "
                          "production agent's key (scripts/provision_usecase_agents.py mints it)")
-    cfg = {"agents": agents_for(gateway_url, os.environ.get("USECASE_AGENT_MODEL", "kimi-k3"),
+    cfg = {"agents": agents_for(gateway_url, config.USECASE_AGENT_MODEL,
                                 credential, step_for("3"), step_for("4"), step_for("5")),
            # what the `vector` matcher needs to reach the store the way a run does
            "headers": gateway.auth_headers(credential), "gateway_url": gateway_url,
