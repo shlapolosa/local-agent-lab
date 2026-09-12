@@ -68,7 +68,16 @@ CANDIDATE_MEETINGS = 10
 # meetings a person would hold — and the NEAREST match wins anyway, so a generous window costs
 # accuracy only when two recordings land within a minute of each other, which is not a meeting
 # pattern any calendar produces.
-RECORDING_MATCH_S = 60.0
+#: How long AFTER a drive file appears its meeting's recording object may be created. The file is
+#: created when recording STARTS and the provider's recording object when it STOPS, so this gap is
+#: the MEETING'S OWN LENGTH plus a little processing — not measurement noise. A symmetric 60 s
+#: tolerance therefore refused every meeting longer than a minute: measured live 12 Sep 2026, a
+#: 90-second test meeting missed by 17 seconds (file 14:01:38Z, recording object 14:02:54Z) while
+#: the next-nearest candidate was three days away. Four hours covers any meeting this lab will see;
+#: the DIRECTION below is what actually discriminates, so the window can afford to be generous.
+RECORDING_MAX_S = 4 * 60 * 60
+#: ...and how far the two providers' clocks may disagree the other way. Skew is not evidence.
+RECORDING_SKEW_S = 120.0
 
 
 def _instant(value: str) -> float | None:
@@ -92,9 +101,15 @@ async def _match(cfg, recording: str, candidates: list, answers: list) -> dict |
 
     Matched on the two objects' own `created` instants, NEVER on the file's name: a provider's naming
     is a vendor detail this side of the collaboration port must not read, and it is the first thing
-    that changes. The NEAREST recording within `RECORDING_MATCH_S` wins, so a near-miss cannot beat a
-    better one that is checked later, and nothing at all is returned when none is close enough —
-    offering the wrong meeting's participants is worse than offering none.
+    that changes.
+
+    The match is DIRECTIONAL, and that is the whole of it: a drive file is created when recording
+    STARTS, the provider's recording object when it STOPS. So its object is created AFTER the file,
+    later by the length of the meeting. A recording that stopped before this file existed cannot be
+    this file's — which is also what tells two back-to-back meetings apart, where a symmetric window
+    could pick either. Among those that qualify the SOONEST-stopping wins, so a near-miss cannot beat
+    a better one checked later, and nothing at all is returned when none qualifies: offering the
+    wrong meeting's participants is worse than offering none.
     """
     from lab.core.collab import ContentHandle, HandleKind
     try:
@@ -106,7 +121,7 @@ async def _match(cfg, recording: str, candidates: list, answers: list) -> dict |
     when = _instant((item or {}).get("created"))
     if when is None:
         return None
-    best, best_gap = None, RECORDING_MATCH_S
+    best, best_gap = None, None
     for meeting, recs in zip(candidates, answers):
         if isinstance(recs, BaseException):
             continue
@@ -114,9 +129,12 @@ async def _match(cfg, recording: str, candidates: list, answers: list) -> dict |
             made = _instant(rec.get("created"))
             if made is None:
                 continue
-            gap = abs(made - when)
-            if gap <= best_gap:
-                best, best_gap = meeting, gap
+            gap = made - when                       # SIGNED: stopped-at minus started-at
+            if gap < -RECORDING_SKEW_S or gap > RECORDING_MAX_S:
+                continue
+            ranked = max(gap, 0.0)                  # inside the skew is as good as simultaneous
+            if best_gap is None or ranked < best_gap:
+                best, best_gap = meeting, ranked
     return best
 
 
@@ -145,6 +163,9 @@ async def _owning_meeting(cfg, state: dict) -> dict:
             return_exceptions=True)
         matched = await _match(cfg, state["recording"], candidates, answers)
         if matched is not None:
+            print(f"[resolve_candidates] matched 1 of {len(candidates)} meeting(s); "
+                  f"{len(matched.get('participants') or [])} participant(s), "
+                  f"chat_id={'yes' if matched.get('chat_id') else 'NO'}", flush=True)
             return matched
         # FIRST match in calendar order, not first to answer — the order is the provider's "most
         # recent", and a run must not resolve a different meeting depending on which call was quicker.
@@ -153,6 +174,13 @@ async def _owning_meeting(cfg, state: dict) -> dict:
                 continue
             if any(r.get("handle") == state["recording"] for r in (recs or {}).get("items", [])):
                 return m
+        # SAYING SO is the point. Only the exception path used to print, so "asked and matched
+        # nothing" was indistinguishable from "never asked" and from "the meeting had no attendees":
+        # the empty picker and the missing chat message looked like three different bugs and were
+        # one, and it took live calls with the workload's own credential to tell them apart. An
+        # instrument that only reports failure cannot explain a silent wrong answer.
+        print(f"[resolve_candidates] no meeting owns this recording "
+              f"({len(candidates)} candidate(s) considered)", flush=True)
     except Exception as e:                      # noqa: BLE001 — a picker is never worth a failed run
         print(f"[resolve_candidates] no meeting resolved ({type(e).__name__}: {e})", flush=True)
     return {}

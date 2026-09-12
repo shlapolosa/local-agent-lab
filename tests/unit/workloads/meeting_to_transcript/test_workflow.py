@@ -334,11 +334,57 @@ def test_the_chat_id_of_the_matched_meeting_reaches_the_minutes_run(gw, monkeypa
     assert gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]["chat_id"] == CHAT
 
 
+def test_a_meeting_is_matched_however_LONG_it_was(gw, monkeypatch):
+    """THE defect, measured live on 12 Sep 2026: the drive file said 14:01:38Z and the provider's
+    recording object said 14:02:54Z — 77 seconds apart, against a 60-second window, so the match was
+    refused. The right meeting was nearest by a factor of 3,300 (the next candidate was three days
+    away) and it was thrown out over 17 seconds.
+
+    The gap is not noise, it is the MEETING'S LENGTH: OneDrive creates the file when recording
+    STARTS and the provider creates its object when recording STOPS. A symmetric tolerance was
+    therefore structurally wrong — it silently refused every meeting longer than a minute, which is
+    every real one. The consequences were both halves of the same lookup: an empty speaker picker,
+    and no `chat_id`, so the minutes were written beside the recording and nobody was told.
+    """
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_item_match(gw, item_created="2026-09-12T14:01:38Z",
+                                         rec_created="2026-09-12T14:02:54.668Z"))
+    assert _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})["candidates"]
+
+
+def test_an_hour_long_meeting_is_matched_too(gw, monkeypatch):
+    """The 77-second case is a 90-second test meeting. A real one runs an hour, and its gap is an
+    hour — so a window chosen to fit the measurement would have failed the actual use case."""
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_item_match(gw, item_created="2026-09-12T10:00:00Z",
+                                         rec_created="2026-09-12T11:00:30Z"))
+    assert _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})["candidates"]
+
+
+def test_a_recording_that_stopped_BEFORE_this_file_started_is_not_its_meeting(gw, monkeypatch):
+    """Direction is evidence, and it is what a symmetric window threw away. A recording object made
+    before this file existed cannot be this file's: the file appears when recording begins. This is
+    also what keeps back-to-back meetings apart — the earlier meeting's object is behind, not near."""
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_item_match(gw, item_created="2026-09-12T11:00:00Z",
+                                         rec_created="2026-09-12T10:30:00Z"))
+    assert _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})["candidates"] == []
+
+
+def test_a_small_clock_disagreement_between_the_two_providers_still_matches(gw, monkeypatch):
+    """Two systems, two clocks. A few seconds the 'wrong' way is skew, not evidence of a different
+    meeting, and refusing over it would reintroduce the defect in miniature."""
+    monkeypatch.setattr(W.gateway, "call_tools",
+                        _with_item_match(gw, item_created="2026-09-12T14:00:05Z",
+                                         rec_created="2026-09-12T14:00:00Z"))
+    assert _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})["candidates"]
+
+
 def test_a_recording_made_at_a_quite_different_time_is_not_claimed(gw, monkeypatch):
     """Nothing at all beats the wrong meeting: offering another meeting's participants would put
     strangers in front of the human as if the lab knew they were there."""
     monkeypatch.setattr(W.gateway, "call_tools",
-                        _with_item_match(gw, rec_created="2026-09-07T09:30:00Z"))
+                        _with_item_match(gw, rec_created="2026-09-08T09:30:00Z"))
     assert _run(inputs={"owner": OWNER, "recording": ITEM_HANDLE})["candidates"] == []
 
 
