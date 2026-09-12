@@ -362,3 +362,17 @@ def test_a_redrive_forgets_what_it_cannot_continue_and_what_is_too_old_to_retry_
     assert continuations.redrive_failed(client=r) == []
     assert continuations.failed(client=r) == []
     assert old in capsys.readouterr().err and "idempotency" in approvals.status(old, client=r)["continuation_error"]
+
+
+def test_a_failure_recorded_before_the_set_existed_is_still_redriven(r):
+    """The runner that recorded the user's first Copilot decision as failed predates the failed set: only the
+    approval hash carries `continuation_error`. A start sweeps for those once, so no decision is stranded by the
+    deploy that introduced the set."""
+    rid = _ask(r); _decide(r, rid)
+    r.hset(f"approvals:req:{rid}", "continuation_error", "ToolError: the old runner's failure")   # legacy shape
+    done = _ask(r); _decide(r, done)
+    r.hset(f"approvals:req:{done}", mapping={"continuation_error": "stale", "released_request_id": "wfr-x"})
+    assert continuations.failed(client=r) == [rid]                                   # legacy found, released one not
+    started = continuations.redrive_failed(client=r)
+    assert len(started) == 1 and approvals.status(rid, client=r)["released_request_id"] == started[0]
+    assert "continuation_error" not in approvals.status(rid, client=r) and continuations.failed(client=r) == []

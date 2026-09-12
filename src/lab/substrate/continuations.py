@@ -114,8 +114,16 @@ def _record_failure(request_id: str, error: Exception, *, client) -> None:
 
 
 def failed(*, client) -> list[str]:
-    """The approvals whose continuation failed and has not since succeeded."""
-    return sorted(str(m) for m in (client.smembers(FAILED_KEY) or ()))
+    """The approvals whose continuation failed and has not since succeeded: the set, plus any approval whose
+    hash carries a `continuation_error` and no released run — a failure the runner recorded before the set
+    existed (12 Sep 2026: the user's first Copilot decision), swept so the deploy that fixes a cause completes
+    it too. A scan over the approval hashes is bounded by the lab's own approval count."""
+    marked = {str(m) for m in (client.smembers(FAILED_KEY) or ())}
+    for key in client.scan_iter(match="approvals:req:*"):
+        st = client.hgetall(key) or {}
+        if st.get("continuation_error") and not st.get("released_request_id") and not st.get("continuation_abandoned"):
+            marked.add(str(key).rsplit(":", 1)[-1])
+    return sorted(marked)
 
 
 def redrive_failed(*, client, now: datetime | None = None) -> list[str]:
@@ -135,6 +143,7 @@ def redrive_failed(*, client, now: datetime | None = None) -> list[str]:
         if decided is not None and decided < cutoff:
             _record_failure(rid, RuntimeError("not redriven: decided before the submit idempotency window "
                                               f"({workflows.IDEMPOTENCY_TTL} s); re-run intake"), client=client)
+            client.hset(f"approvals:req:{rid}", "continuation_abandoned", decided.isoformat())   # never swept again
             client.srem(FAILED_KEY, rid)
             continue
         print(f"redriving the continuation of {rid}", flush=True)
