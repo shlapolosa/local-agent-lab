@@ -859,6 +859,62 @@ change of speaker OR of language, because that switch is the evidence). `soniox-
 provider asked for the English half of its unified token stream — a separate registry entry, not a
 flag, because the verbatim record and the rendering are different artifacts.
 
+**`enable_language_identification` is not optional on Soniox, and leaving it off cost five distinct
+defects** (root-caused 12 Sep 2026 by sending the SAME 91.8-second bilingual recording twice,
+differing only in that boolean). Without it the provider returns **no `language` field at all** — so
+the port's per-segment language is empty, and `tokenmap`, which breaks a speaker's run at a change of
+language, could not see the code-switch this lab exists to make visible. Worse, it also stopped
+marking the translated Arabic as `original`, returning it under `translation_status: none` in Arabic
+script with a `translation` run after it: a payload in which NOTHING says which words the rendering
+replaces, and no heuristic recovers it. With the flag on, the same audio came back clean — 335
+`none`/en, 53 `original`/ar, 47 `translation`/en, strictly alternating. **One missing boolean;
+`request_body` now always sends it.**
+
+**The stream has THREE kinds of token, and the `soniox-en` lane asked for the wrong one.**
+`soniox_map.WANTED` names the three renderings: `original` = `none + original`, the verbatim record;
+**`english` = `none + translation`, every word in English — what a person reads and what minutes are
+written from**; `translation` = the rendered spans ALONE, a side-by-side column and nothing more. The
+lane asked for the last, so a mostly-English meeting came back as 21 words of 219 and read like a bad
+recording rather than a wrong filter. Four further rules the live payload settled, none of them in
+the published schema:
+- **The tokens are SUB-WORD and carry their own leading space** (`"Ass"`, `"al"`, `"amu"`, `" al"`),
+  so they CONCATENATE — `group_into_segments(concat=True)`, per provider, because ElevenLabs drops
+  its own `spacing` entries and needs the spaces put back. Getting it backwards is silent and still
+  looks like a transcript: the space join turned "Peace be upon you" into "Pe ace be up on y ou".
+  A **whitespace-only token is a word BOUNDARY** in that stream, not noise — the blank-token filter
+  written for word streams deleted one and shipped "going to theright direction".
+- **A rendering carries NO timestamps** (`start_ms: 0, end_ms: 0`) and is emitted right after the run
+  it renders, so it BORROWS that run's span — the run IMMEDIATELY before, one contiguous group of the
+  same status AND speaker. Without the borrow the English rendering rewinds to zero on every Arabic
+  span and `Transcript.__post_init__` refuses it. Keyed on status alone, two translated turns by
+  different speakers pool into one span and each rendering is laid over the other's talk — which
+  raises nothing, and doubles both speakers' share of the recording.
+- **A rendering never shares a segment with speech** (`Tok.kind`). Both carry the same speaker and,
+  once translated, the same language, so kind is the only thing left holding them apart — and a
+  segment is quoted to a human at the speaker-naming approval as words that speaker said.
+- **Speech nothing rendered is KEPT** in the English transcript. Its script then shows in the digest,
+  which is a visible imperfection; silently losing speech is not — and because the mode's success
+  metric is "no Arabic script", losing it would read as a win.
+
+**Measured, five lanes plus Microsoft's own transcript, one 91.8 s recording**
+(`var/out/bakeoff/20260912_114824/`): reference 194 words · munsit 131 · assemblyai 198 ·
+elevenlabs 203 · **soniox 216 at 7.6 % Arabic script, the only lane reporting `code_switched`** ·
+**soniox-en 223 at 0.0 %**. The decisive span is the Arabic question at 52 s: Microsoft's transcript
+DROPS it, munsit returns fragments ("Attia", "thing um"), ElevenLabs and AssemblyAI each keep the
+English words around it and lose the Arabic half — **Soniox is the only provider that captured it**,
+verbatim in Arabic and rendered in English. **So the planned governed translate step is not needed
+for this provider**: it is one call, and the speaker survives onto the translated tokens, which is
+what keeps a rendered transcript attributable.
+
+**Every Soniox fixture in this repo had been typed from the published schema, and that is how three
+of the defects above passed review** — the code and the tests shared the same wrong assumptions and
+agreed with each other. Two things changed: `tests/fixtures/soniox_response.json` is 111 contiguous
+tokens of a REAL response (contiguous because a spliced slice invents word boundaries the stream does
+not have), guarded by a test that fails if a later trim removes the sub-word tokens, the `none` bulk,
+the timestamp-less renderings or the whitespace boundary; and `scripts/speech_bakeoff.py` now saves
+`<provider>.raw.json` per lane, in a `finally` — the payload is worth most on the run that failed to
+map.
+
 **The transliteration finding (7 Sep 2026), which drives the whole comparison.** Munsit heard
 English correctly and wrote it in ARABIC LETTERS: `اكشن ايتمز` is a faithful phonetic rendering of
 "action items". Verified against Microsoft's own transcript of the same recording. This is

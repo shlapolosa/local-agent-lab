@@ -109,14 +109,24 @@ def test_assembly_asks_for_detection_unless_exactly_one_language_is_expected():
 
 
 # ------------------------------------------------------------------ Soniox
+# CORRECTED 12 Sep 2026 against the live API. This fixture was written from the published schema
+# and got the token SHAPE wrong: Soniox emits SUB-WORD tokens whose leading space is the word
+# boundary (`"Ass"`, `"al"`, `"amu"`, `" al"`, …), and it sends `translation_status: "none"` on
+# untranslated speech rather than omitting the field. The mapper held the same two wrong
+# assumptions, so code and fixture agreed with each other and the pair passed for months — which is
+# the argument for recording a real response rather than typing one from docs.
 SONIOX = {
     "tokens": [
-        {"text": "action", "start_ms": 0, "end_ms": 400, "speaker": "1", "language": "en"},
-        {"text": "items", "start_ms": 400, "end_ms": 800, "speaker": "1", "language": "en"},
-        {"text": "ان شاء الله", "start_ms": 800, "end_ms": 1200, "speaker": "1", "language": "ar"},
-        {"text": "God willing", "start_ms": 800, "end_ms": 1200, "speaker": "1", "language": "en",
+        {"text": "action", "start_ms": 0, "end_ms": 400, "speaker": "1", "language": "en",
+         "translation_status": "none"},
+        {"text": " items", "start_ms": 400, "end_ms": 800, "speaker": "1", "language": "en",
+         "translation_status": "none"},
+        {"text": " ان شاء الله", "start_ms": 800, "end_ms": 1200, "speaker": "1", "language": "ar",
+         "translation_status": "original"},
+        {"text": " God willing", "start_ms": 800, "end_ms": 1200, "speaker": "1", "language": "en",
          "translation_status": "translation"},
-        {"text": "yes", "start_ms": 1300, "end_ms": 1600, "speaker": "2", "language": "en"},
+        {"text": " yes", "start_ms": 1300, "end_ms": 1600, "speaker": "2", "language": "en",
+         "translation_status": "none"},
     ],
 }
 
@@ -125,6 +135,14 @@ def test_soniox_original_keeps_what_was_actually_said():
     t = S.to_transcript(SONIOX, want=S.ORIGINAL)
     assert t.text == "action items ان شاء الله yes"
     assert t.provider == "soniox-original"
+
+
+def test_soniox_english_is_every_word_in_english():
+    """The rendering a person reads: untranslated speech PLUS the translated Arabic, no Arabic
+    script. Absent until 12 Sep 2026, which is why `soniox-en` returned only the rendered spans."""
+    t = S.to_transcript(SONIOX, want=S.ENGLISH)
+    assert t.text == "action items God willing yes"
+    assert t.provider == "soniox-english"
 
 
 def test_soniox_translation_keeps_only_the_rendering():

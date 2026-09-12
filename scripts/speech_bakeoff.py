@@ -38,6 +38,7 @@ from lab.core.speech import compare                                          # n
 from lab.platform import config                                              # noqa: E402
 from lab.substrate import container                                          # noqa: E402
 from lab.substrate.mcp.speech import audio as audiotool                      # noqa: E402
+from lab.substrate.mcp.speech.http import UrllibTransport                    # noqa: E402
 
 DEFAULT_LANGUAGES = ("ar", "en")
 
@@ -93,7 +94,7 @@ def main() -> int:
                  for n in names for i in range(args.repeat)]:
         started = time.monotonic()
         try:
-            got = run_one(name.split("#")[0], clip, languages)
+            got = run_one(name.split("#")[0], clip, languages, outdir, label=name)
         except Skipped as s:
             digests[name] = {"skipped": str(s)}
             print(f"  {name:<12} SKIPPED — {s}")
@@ -121,15 +122,48 @@ class Skipped(RuntimeError):
     """This provider was not configured — a fact to report, never a failure to raise."""
 
 
-def run_one(name: str, clip: AudioClip, languages: tuple[str, ...]) -> Transcript:
-    box = container.speech_transcriber(name)
-    unavailable = box.capabilities().get("transcription")
-    if unavailable is not None:
-        raise Skipped(str(unavailable))
-    ready = as_audio(clip, box)
-    for warning in getattr(box, "warnings", lambda **_k: ())(languages=languages):
-        print(f"     ! {warning}")
-    return box.transcribe(ready, languages=languages, diarize=True)
+class Recording:
+    """The injected transport, wrapped so every RESPONSE is kept beside the transcript.
+
+    This exists because of how three Soniox mapping defects survived review for a week: the fixtures
+    had been typed from the published schema, so the code and the tests shared the same three wrong
+    assumptions about the payload and agreed with each other. Nothing in the repo held a real
+    response to check against. One `write_text` in the probe closes that — a bake-off run now leaves
+    `<provider>.raw.json`, which is where the next fixture should come from.
+
+    Responses only. The request body is the AUDIO (megabytes) and the headers carry the API key, so
+    neither is recorded — the method, url and status are enough to read the exchange.
+    """
+
+    def __init__(self, inner, dest: Path) -> None:
+        self._inner, self._dest, self._seen = inner, dest, []
+
+    def __call__(self, method, url, headers, body=None, timeout=None):
+        r = self._inner(method, url, headers, body, timeout)
+        self._seen.append({"method": method, "url": url, "status": r.status, "body": r.body})
+        return r
+
+    def save(self) -> None:
+        if self._seen:
+            self._dest.write_text(json.dumps(self._seen, indent=1, ensure_ascii=False) + "\n",
+                                  encoding="utf-8")
+
+
+def run_one(name: str, clip: AudioClip, languages: tuple[str, ...], outdir: Path,
+            label: str = "") -> Transcript:
+    tape = Recording(UrllibTransport(), outdir / f"{label or name}.raw.json")
+    box = container.speech_transcriber(name, transport=tape)
+    try:
+        unavailable = box.capabilities().get("transcription")
+        if unavailable is not None:
+            raise Skipped(str(unavailable))
+        ready = as_audio(clip, box)
+        for warning in getattr(box, "warnings", lambda **_k: ())(languages=languages):
+            print(f"     ! {warning}")
+        return box.transcribe(ready, languages=languages, diarize=True)
+    finally:
+        # In `finally` deliberately: the payload is most valuable on the run that FAILED to map.
+        tape.save()
 
 
 def as_audio(clip: AudioClip, box) -> AudioClip:

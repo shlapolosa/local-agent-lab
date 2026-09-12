@@ -46,7 +46,13 @@ SPEECH_PROVIDERS: dict[str, str] = {
     "soniox-en": "lab.substrate.mcp.speech.soniox_repository",
 }
 # The overrides a named provider is built with, when the module alone does not say which it is.
-SPEECH_PROVIDER_OPTIONS: dict[str, dict] = {"soniox-en": {"want": "translation"}}
+# `soniox-en` asks for the ENGLISH rendering, not the TRANSLATION one — a distinction that cost a
+# whole lane. The unified stream carries untranslated speech, the Arabic as spoken, and the Arabic
+# rendered; "translation" is the last of those ALONE, so on a mostly-English meeting this lane
+# returned 21 words out of 219 and looked like a bad recording rather than a wrong filter. "english"
+# is untranslated speech PLUS the rendering — every word, all of it in English, which is what the
+# name promises. See soniox_map.WANTED.
+SPEECH_PROVIDER_OPTIONS: dict[str, dict] = {"soniox-en": {"want": "english"}}
 
 # The governed CORPUS port's adapters. Postgres is the only one today and it is the one that does
 # not change on the Azure move — Azure Database for PostgreSQL runs pgvector — but the entry exists

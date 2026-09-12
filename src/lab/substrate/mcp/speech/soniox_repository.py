@@ -6,8 +6,11 @@ the speaker on the translated tokens as well as the original ones.
 
 `want` is the adapter's own setting, not the port's: the port returns ONE transcript, and the
 verbatim record and the English rendering are different artifacts. Building the adapter twice — once
-for each half — is how the bake-off compares them, and it keeps the port free of a vendor's idea of
-a dual answer.
+for each — is how the bake-off compares them, and it keeps the port free of a vendor's idea of
+a dual answer. THREE renderings are reachable (`soniox_map.WANTED`), and the middle one is the whole
+point: `english` is untranslated speech plus the rendered Arabic, which is the transcript a person
+reads. `translation` alone is a bake-off column, not a transcript — asking for it by mistake is what
+made this lane return 21 words of a 219-word meeting.
 """
 from __future__ import annotations
 
@@ -28,9 +31,12 @@ class SonioxTranscriber:
 
     def __init__(self, client: SonioxClient, *, want: str = M.ORIGINAL, translate_to: str = "",
                  sleep=None) -> None:
-        if want not in (M.ORIGINAL, M.TRANSLATION):
-            raise SpeechError(f"want must be {M.ORIGINAL!r} or {M.TRANSLATION!r}, not {want!r}")
-        if want == M.TRANSLATION and not translate_to:
+        if want not in M.WANTED:
+            raise SpeechError(f"want must be one of {sorted(M.WANTED)}, not {want!r}")
+        if want in (M.TRANSLATION, M.ENGLISH) and not translate_to:
+            # ENGLISH is untranslated speech PLUS the rendering, so it needs the rendering to exist:
+            # with no target language the provider translates nothing and this mode silently
+            # degrades to the verbatim record under a name that promises English.
             raise SpeechError("asking for the translation without a target language returns nothing")
         self._client, self._want, self._to, self._sleep = client, want, translate_to, sleep
 
@@ -53,6 +59,13 @@ class SonioxTranscriber:
         if self._want == M.TRANSLATION:
             return (f"these segments are a TRANSLATION into {self._to!r}, not what was said — "
                     "the verbatim record is the same run asked for its original half",)
+        if self._want == M.ENGLISH:
+            # Not the same warning, and the difference matters to a reader: this transcript is
+            # mostly verbatim, with the spans that were spoken in another language rendered into
+            # this one. Saying "this is a translation" would overstate it; saying nothing would
+            # let a rendered sentence be quoted as words somebody said.
+            return (f"the spans not spoken in {self._to!r} appear here RENDERED into it, not as "
+                    "said — the verbatim record is the same run asked for its original half",)
         return ()
 
     def transcribe(self, audio: AudioClip, *, languages: tuple[str, ...] = (), diarize: bool = True,

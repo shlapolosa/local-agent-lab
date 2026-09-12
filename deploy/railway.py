@@ -1182,11 +1182,13 @@ WORKLOADS = {
         "restart": "ALWAYS",
         "env": {"WF_CONSUMER": "1"},
         "markers": ("consumer ready", "request "),
-        # TWO, because this is the workload SPEECH_LANES fans out: three lanes submitted together
-        # would otherwise queue behind each other in one process, and a provider that HANGS rather
-        # than fails blocks the rest for its whole 900 s timeout. Two replicas halve that exposure
-        # and cost one more small container. Not one per lane: the point is to overlap the slow
-        # part — the provider call — not to hold three recordings in memory at once.
+        # TWO, because this is the workload SPEECH_LANES fans out: lanes submitted together would
+        # otherwise queue behind each other in one process, and a provider that HANGS rather than
+        # fails blocks the rest for its whole 900 s timeout. Two replicas halve that exposure and
+        # cost one more small container. Not one per lane — the point is to overlap the slow part
+        # (the provider call), not to hold every recording in memory at once — and deliberately NOT
+        # re-raised when a lane was added: four lanes over two replicas is two rounds of the slow
+        # part, which is the cost the shape is meant to bound, not a regression in it.
         "replicas": 2,
     },
     # Started by the continuation runner when an organiser answers, not normally by a person.
