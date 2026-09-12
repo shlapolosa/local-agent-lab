@@ -27,10 +27,11 @@ class FakeAgent:
         return self.replies.pop(0) if self.replies else "{}"
 
 
-def gated(step_number, out):
+def gated(step_number, out, context=None):
+    import functools
     step = step_for(step_number)
     return gate(out, validator=step.validator(), normalise=step.normalise,
-                complete=step.complete)
+                complete=functools.partial(step.complete, context=context))
 
 
 # ---------------------------------------------------------------- the registry
@@ -490,3 +491,30 @@ def test_but_an_unnamed_owner_must_actually_REACH_a_human():
     from lab.workloads.usecase.steps import schema
     assert schema("frame")["properties"]["accountable_owner"].get("minLength"), \
         "an EMPTY owner is the schema's job, and this rule relies on that"
+
+
+# ------------------------------------------------- a capability id is a lookup, not a paraphrase
+SHOWN = {"capabilities": [{"id": "cap-a1", "label": "Referral Triage", "path": "Care > Referral Triage"},
+                          {"id": "cap-b2", "label": "Slot Booking", "path": "Care > Slot Booking"}]}
+HEAT = {"commodity": False, "mature": True, "meets_target": False, "source": "capability map v0.29"}
+
+
+def test_a_matched_capability_id_must_be_one_the_step_was_shown():
+    """A reasoning model writes the label where the key belongs (the minutes workload measured
+    nine of nine, 12 Sep 2026); the label is right, so recall passes and the design would build
+    on an id nothing can look up. The gate names the id, the way step 21 names a component."""
+    good = {"matched": [{"function": "triage referral", "capability_id": "cap-a1",
+                         "capability_label": "Referral Triage", "confidence": "lookup"}],
+            "functions_without_capability": [], "capabilities_without_function": [], "heat_map": HEAT}
+    assert gated("5", good, SHOWN) == []
+    bad = gated("5", dict(good, matched=[dict(good["matched"][0], capability_id="Referral Triage")]), SHOWN)
+    assert bad and "Referral Triage" in bad[0] and "not ids" in bad[0]
+
+
+def test_without_a_shown_list_the_id_check_cannot_run_and_says_nothing_false():
+    """No context (a unit test, an old caller) means no list to check against — the gate does not
+    invent a refusal, and the other rules still apply."""
+    out = {"matched": [{"function": "f", "capability_id": "whatever", "capability_label": "x",
+                        "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [], "heat_map": HEAT}
+    assert gated("5", out) == []

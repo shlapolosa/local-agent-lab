@@ -99,7 +99,7 @@ def search_of(cfg, scheme: str):
     return search
 
 
-async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set, float, str]:
+async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set, float, str, list]:
     """One matcher over one case: the capabilities it returned, the seconds it took, and why it
     stopped if it did."""
     d = Derivation(available={"elements": elements, "capabilities": corpus})
@@ -112,9 +112,14 @@ async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set
         note = f"gate: {refused}"
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
         note = f"{type(exc).__name__}: {exc}"
-    got = {str(m.get("capability_label") or "").strip()
-           for m in (d.derived.get("coverage_map") or {}).get("matched") or []}
-    return {g for g in got if g}, time.time() - started, note or d.pending.get("5", "")
+    matched = (d.derived.get("coverage_map") or {}).get("matched") or []
+    got = {str(m.get("capability_label") or "").strip() for m in matched}
+    # What recall cannot see: an id that is not in the map. A reasoning model writes the label
+    # where the key belongs (measured 12 Sep 2026); the label scores, the id would not join.
+    ids = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
+    bad_ids = sorted({str(m.get("capability_id")) for m in matched
+                      if str(m.get("capability_id", "")).strip() not in ids})
+    return {g for g in got if g}, time.time() - started, note or d.pending.get("5", ""), bad_ids
 
 
 def score(got: set, expected: set) -> dict:
@@ -250,11 +255,13 @@ async def main() -> int:
             expected = set(json.loads((case / "expected.json").read_text())["applicable"])
             elements = json.loads((case / "elements.json").read_text())
             for run in range(args.runs):
-                got, seconds, note = await one_run(cfg, corpus, elements, matcher, args.scheme)
-                row = score(got, expected) | {"seconds": seconds, "note": note, "run": run}
+                got, seconds, note, bad_ids = await one_run(cfg, corpus, elements, matcher, args.scheme)
+                row = score(got, expected) | {"seconds": seconds, "note": note, "run": run,
+                                              "invalid_ids": bad_ids}
                 results.setdefault(matcher, {}).setdefault(case.name, []).append(row)
                 print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
                       f"P {row['precision']:.2f} R {row['recall']:.2f}  {seconds:4.0f}s"
+                      f"{'  bad-ids ' + str(len(bad_ids)) if bad_ids else ''}"
                       f"{'  ' + note[:50] if note else ''}", flush=True)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)

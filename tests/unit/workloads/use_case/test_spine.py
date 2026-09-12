@@ -1139,8 +1139,12 @@ def test_every_level_is_kept_not_just_the_last():
 def test_a_level_that_matches_nothing_stops_the_drill_and_keeps_what_answered():
     from lab.workloads.use_case_screening import workflow as W
     with spine(W, _screening_router()) as h:
+        # "Nothing matched" is said honestly: the function is reported unmatched. (The second,
+        # never-reached answer used to be reached — the first was refused as "check not done"
+        # and the retry's invented id passed; ids are checked now, so the fixture had to mean it.)
+        nothing = _covers() | {"functions_without_capability": ["triage"]}
         h.cfg["agents"] = {"coverage_map": ScriptedAgent(
-            _covers(), _covers(_match("x", "c9", "Never reached")))}
+            nothing, _covers(_match("x", "c9", "Never reached")))}
         out = asyncio.run(_drill(h, _Derivation(
             h, candidates=[_level("c1", "Patient Management", 1)])))
     assert out["capability_depth"] == 1

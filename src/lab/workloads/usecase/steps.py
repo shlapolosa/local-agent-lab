@@ -132,6 +132,18 @@ def _coverage_map(out: dict, context: Mapping[str, Any] | None = None) -> list[s
         if not str(match.get("capability_id", "")).strip():
             bad.append(f'{match.get("function")!r} names no capability id — a capability must be '
                        f'looked up, never invented to justify the use case')
+    # The id must be one this step was SHOWN, checked the way step 21 checks a component id: a
+    # reasoning model substitutes the human-readable label for the key (measured by the minutes
+    # workload, 12 Sep 2026 — nine of nine identifiers), and recall cannot see it because the label
+    # is right. A capability id nothing can look up is a match the design cannot build on.
+    known = {str(row.get("id", "")) for row in (context or {}).get("capabilities") or []
+             if isinstance(row, Mapping) and row.get("id")}
+    unknown = sorted({str(m.get("capability_id")) for m in out.get("matched") or []
+                      if str(m.get("capability_id", "")).strip()
+                      and str(m.get("capability_id")) not in known})
+    if unknown and known:
+        bad.append(f"{unknown} are not ids among the capabilities this step was shown — use the "
+                   f"`id` column, not the label; a match is a lookup, not a paraphrase")
     if "capabilities_without_function" not in out:
         bad.append("coverage must be reported BOTH ways, even where the second direction is empty")
     # The heat-map position is what step 16's reject rule reads. Required whenever anything
