@@ -145,10 +145,12 @@ def redrive_failed(*, client, now: datetime | None = None) -> list[str]:
 
 
 def _when(text: str | None) -> datetime | None:
+    """`decided_at` as an aware instant (a naive stamp is read as UTC), or None when it is not a stamp."""
     try:
-        return datetime.fromisoformat(str(text)) if text else None
+        t = datetime.fromisoformat(str(text)) if text else None
     except ValueError:
         return None
+    return t.replace(tzinfo=timezone.utc) if t is not None and t.tzinfo is None else t
 
 
 def _on_start(r) -> None:
