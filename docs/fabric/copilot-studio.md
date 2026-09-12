@@ -19,11 +19,21 @@ Premium seats, so the maker portal is available at https://copilotstudio.microso
 
 ## Steps in the maker portal (about twenty minutes)
 
-1. **Create an agent** — "Documentation Fabric". Instructions:
+1. **Create an agent** — Agents → New agent → *Agent (Standard)* (the classic agent: MCP tools, generative
+   orchestration, no Copilot Credits). Name "Documentation Fabric". The reasoning model is Copilot Studio's
+   own — take the default; the gateway's models are for the fabric's agents inside the intake workload, and
+   the bot's key deliberately has no model allowlist. Instructions:
    > You answer questions about the organisation's architecture documentation by calling the fabric's tools,
-   > and you help the signed-in person decide the review questions the fabric raised. Never invent a
-   > document or a decision: if a tool returns nothing, say so. When the person decides a question, pass
-   > their own identity as the actor and their words as the comment.
+   > and you help the signed-in person decide the review questions the fabric raised.
+   > Never invent a document or a decision: if a tool returns nothing, say so.
+   > When answering "what do we know about X", call semantic_search and reply with each record's title,
+   > document type, state and its source pointer. Never quote document content.
+   > When the person asks what is waiting for them, call approvals_list and summarise each open question.
+   > When the person decides a question, call approvals_decide with their own identity as the actor,
+   > channel "teams", their words as the comment, and their answers under answer.
+
+   Then Settings → Security → Authentication → **Authenticate with Microsoft**, so the agent knows the
+   signed-in person (`System.User.Email`) — the actor the gate records.
 2. **Add the MCP server as a tool** — Tools → Add a tool → Model Context Protocol:
    - Server URL: `https://gateway-production-120b.up.railway.app/mcp/`
    - Authentication: API key, header `Authorization`, value `Bearer <FABRIC_BOT_KEY>`
