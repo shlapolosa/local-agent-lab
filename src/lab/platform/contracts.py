@@ -228,15 +228,18 @@ class SemanticTools(ToolCatalogue):
     vocab_link = "semantic_vocab_link"
     vocab_propose = "semantic_vocab_propose"
     embed = "semantic_embed"
+    reindex = "semantic_reindex"
     similar = "semantic_similar"
     search = "semantic_search"
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
-    # THREE GRANTS. `READ` is what every team had before the fabric and every query the products answer.
-    # `PIPELINE` is what the intake and publish workloads write — at a rung, with provenance — and no
-    # other team. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
+    # FOUR GRANTS. `READ` is what every team had before the fabric and every query the products answer.
+    # `PIPELINE` is what the intake and publish workloads write — per artifact, at a rung, with provenance —
+    # and the curator. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
     # own human (the review app, the Teams bot), never a workload: an agent that could promote its own
-    # suggestion to H would make the ladder decorative. WRITE = PIPELINE + PROMOTE so the split ratchet
+    # suggestion to H would make the ladder decorative. `REINDEX` is an OPERATOR's whole-catalog sweep
+    # (one gateway embed per row) after an embedder switch — the curator's, never prompt-reachable from a
+    # workload agent. WRITE = PIPELINE + PROMOTE + REINDEX so the split ratchet
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, questions, ask,
@@ -244,8 +247,9 @@ class SemanticTools(ToolCatalogue):
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed)
     PROMOTE = (promote,)
-    WRITE = PIPELINE + PROMOTE
-    GRANTS = (READ, PIPELINE, PROMOTE)
+    REINDEX = (reindex,)
+    WRITE = PIPELINE + PROMOTE + REINDEX
+    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX)
 
 
 class EATools(ToolCatalogue):

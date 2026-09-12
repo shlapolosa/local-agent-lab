@@ -79,3 +79,26 @@ def test_cosine_is_defined_on_zero_vectors_and_refuses_a_mismatch():
     assert cosine([0.0, 0.0], [1.0, 0.0]) == 0.0
     with pytest.raises(ValueError):
         cosine([1.0], [1.0, 0.0])
+
+
+def test_describe_is_title_type_and_subjects_and_never_a_body():
+    from lab.core.semantic.fabric.catalog import describe, subject_labels
+    links = [{"predicate": "subject", "rung": "X", "object": "urn:c#Care"},
+             {"predicate": "documentType", "rung": "H", "object": "urn:fabric:scheme:doc-types#minutes"},
+             {"predicate": "subject", "rung": "S", "object": "http://x/concept/Claims"},
+             {"predicate": "subject", "rung": "X", "object": "urn:c#a3f9e1", "label": "Claims Intake"}]
+    assert subject_labels(links) == ["Care", "Claims", "Claims Intake"]
+    assert describe("ADR-14", "urn:fabric:scheme:doc-types#decision-record", ["Care"]) == "ADR-14 · decision-record · Care"
+    assert describe("", "", []) == "" and describe("Notes", "", ["", "A"]) == "Notes · A"
+
+
+def test_unindexed_lists_rows_without_a_vector_in_this_space_and_skips_the_withdrawn():
+    c = MemoryCatalog()
+    a = c.put(CatalogEntry("urn:fabric:artifact:A", P, title="a"))
+    b = c.put(CatalogEntry("urn:fabric:artifact:B", {"source": "lab", "ref": "art://1/b"}, title="b"))
+    w = c.put(CatalogEntry("urn:fabric:artifact:W", {"source": "lab", "ref": "art://1/w"}, title="w", state="withdrawn"))
+    c.put_embedding(a.iri, [1.0, 0.0], "old-model")
+    c.put_embedding(b.iri, [1.0, 0.0], "new-model")
+    assert [e.iri for e in c.unindexed("new-model")] == [a.iri]          # another space counts as missing
+    assert [e.iri for e in c.unindexed("old-model")] == [b.iri]
+    assert w.iri not in {e.iri for e in c.unindexed("nothing")}

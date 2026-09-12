@@ -130,16 +130,18 @@ def test_the_two_fabric_agents_are_registered_for_intake():
 
 
 def test_semantic_tools_split_read_pipeline_and_promote():
-    """The three grants partition the server: READ is every query (what every team had, plus the products'
-    reads); PIPELINE is what the intake/publish workloads write at a rung; PROMOTE is a person's decision and
-    reaches no workload. WRITE = PIPELINE + PROMOTE so the guarded-write ratchet covers the catalogue."""
+    """The grants partition the server: READ is every query (what every team had, plus the products' reads);
+    PIPELINE is what the intake/publish workloads write at a rung; PROMOTE is a person's decision and REINDEX
+    an operator's sweep, neither reaching a workload. WRITE = the three non-READ grants so the guarded-write
+    ratchet covers the catalogue."""
     from lab.platform.contracts import SemanticTools as T
-    grants = [set(T.READ), set(T.PIPELINE), set(T.PROMOTE)]
+    grants = [set(g) for g in T.GRANTS]
     assert set.union(*grants) == T.names() and all(a.isdisjoint(b) for a in grants for b in grants if a is not b)
-    assert T.PROMOTE == ("semantic_promote",) and set(T.WRITE) == set(T.PIPELINE) | set(T.PROMOTE)
+    assert set(T.WRITE) == set(T.PIPELINE) | set(T.PROMOTE) | set(T.REINDEX)
+    assert T.PROMOTE == ("semantic_promote",) and T.REINDEX == ("semantic_reindex",)
     assert {"semantic_catalog_get", "semantic_impact", "semantic_search", "semantic_query"} <= set(T.READ)
     assert {"semantic_catalog_upsert", "semantic_edge_assert", "semantic_embed"} <= set(T.PIPELINE)
-    assert T.GRANTS == (T.READ, T.PIPELINE, T.PROMOTE)
+    assert T.READ in T.GRANTS and T.REINDEX in T.GRANTS
 
 
 

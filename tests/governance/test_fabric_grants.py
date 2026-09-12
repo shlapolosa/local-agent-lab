@@ -95,3 +95,12 @@ def test_the_intake_holds_no_collaboration_write():
 
 def test_the_producing_processes_are_every_process_but_the_fabrics_own():
     assert set(PRODUCING_PROCESSES) == set(PROCESSES) - {intake.PROCESS, publish.PROCESS}
+
+
+def test_reindex_is_an_operators_sweep_and_reaches_no_workload():
+    """A whole-catalog re-embed has a blast radius unlike a per-artifact pipeline write: it is the curator's
+    (an operator's) and never prompt-reachable from a workload agent or the bot."""
+    for name in ("fabric-intake", "fabric-publish", "fabric-bot"):
+        assert SemanticTools.reindex not in _all(GRANTS[name]), name
+    assert SemanticTools.reindex in _all(GRANTS["fabric-curator"])
+    assert SemanticTools.reindex not in SemanticTools.PIPELINE and SemanticTools.REINDEX == (SemanticTools.reindex,)

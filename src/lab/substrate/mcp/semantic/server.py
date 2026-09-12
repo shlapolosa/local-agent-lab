@@ -325,15 +325,24 @@ def semantic_embed(iri: str, text: str) -> dict:
 
 
 @server.tool()
+def semantic_reindex() -> dict:
+    """Embed every catalog row the current embedder's space lacks, from its facets (title · type · subjects).
+    What a switched embedder costs: one call. Counts only."""
+    return fabric().reindex()
+
+
+@server.tool()
 def semantic_similar(iri: str = "", text: str = "", limit: int = 5) -> list:
     """Nearest indexed artifacts to an indexed artifact (`iri`) or to a text, joined with the catalog and
-    scored — a PROPOSAL for overlap/association, never a decision."""
+    scored — a PROPOSAL for overlap/association, never a decision. The RAW index, withdrawn records included;
+    `semantic_search` is the filtered facade."""
     return fabric().similar(iri=iri, text=text, limit=limit)
 
 
 @server.tool()
 def semantic_search(text: str, limit: int = 10, document_type: str = "", state: str = "") -> list:
-    """The facade: similarity over the index filtered by catalog facets (document type, lifecycle state)."""
+    """The facade: similarity over the index filtered by catalog facets (document type, lifecycle state).
+    Withdrawn records are hidden unless `state="withdrawn"` is asked for."""
     return fabric().search(text, limit=limit, document_type=document_type, state=state)
 
 

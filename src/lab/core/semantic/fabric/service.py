@@ -23,7 +23,8 @@ from lab.core import ids
 from lab.core.delivery import DeliveryContext
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
-from lab.core.semantic.fabric.catalog import FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, pointer_key
+from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
+                                              pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
 from lab.core.semantic.fabric.rungs import (CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, GRAPH_RUNGS,
                                              PROV_GRAPH, graph_iri)
@@ -142,8 +143,15 @@ class FabricService:
             return None
         iri = e.iri
         a = URIRef(iri)
-        links = [{"predicate": _short(p), "object": str(o), "rung": r}
-                 for r, (_, p, o) in G.find(self.ds, a) if p in _LINKS]
+        links = []
+        for r, (_, p, o) in G.find(self.ds, a):
+            if p not in _LINKS:
+                continue
+            link = {"predicate": _short(p), "object": str(o), "rung": r}
+            label = self.ds.value(o, SKOS.prefLabel) if isinstance(o, URIRef) else None
+            if label is not None:                     # a concept reads by its label, not its hashed id
+                link["label"] = str(label)
+            links.append(link)
         return {**e.to_dict(), "links": links}
 
     def catalog_upsert(self, pointer: dict, *, iri: str = "", title: str = "", produced_by: str = "",
@@ -411,6 +419,11 @@ class FabricService:
             row = self.catalog_get(iri)
             if row is not None:
                 out.append({**row, "score": score})
+        # a TEXT query that finds nothing while rows exist outside this space: the index is empty for this
+        # embedder — say so, never []. (By iri the source itself is in the space, so an empty answer is real.)
+        if not out and not exclude and self.catalog.unindexed(model):
+            raise RuntimeError(f"no artifact is indexed in {model}'s space — the embedder changed; "
+                               "call semantic_reindex")
         return out
 
     def similar(self, *, iri: str = "", text: str = "", limit: int = 5) -> list[dict]:
@@ -425,12 +438,29 @@ class FabricService:
         raise ValueError("similar needs an iri or a text")
 
     def search(self, text: str, *, limit: int = 10, document_type: str = "", state: str = "") -> list[dict]:
+        """The facade: the index filtered by facets. A withdrawn record is not knowledge any more, so it is
+        hidden unless that state is asked for — `similar` stays the raw index."""
         hits = self.similar(text=text, limit=limit * 4)      # over-fetch, then filter by facet
         if document_type:
             hits = [h for h in hits if h["document_type"] == document_type]
-        if state:
-            hits = [h for h in hits if h["state"] == state]
+        hits = [h for h in hits if h["state"] == state] if state else [h for h in hits if h["state"] != "withdrawn"]
         return hits[:limit]
+
+    def reindex(self) -> dict:
+        """Embed every row the CURRENT embedder's space lacks, from its facets (`describe`). This is what a
+        switched embedder costs the fabric: one call, no content — the vectors are derived, the catalog is
+        the source. A row the embedder refuses is counted and skipped, never the end of the sweep."""
+        emb = self._need_embedder()
+        indexed, skipped, reason = 0, 0, ""
+        for e in self.catalog.unindexed(emb.model):
+            row = self.catalog_get(e.iri) or {}
+            try:
+                self.embed(e.iri, describe(e.title, e.document_type, subject_labels(row.get("links") or [])))
+                indexed += 1
+            except Exception as exc:                         # noqa: BLE001 — one refused row, one count
+                skipped += 1
+                reason = reason or f"{type(exc).__name__}: {exc}"   # the FIRST cause travels with the report
+        return {"model": emb.model, "indexed": indexed, "skipped": skipped, **({"reason": reason} if reason else {})}
 
     # ----------------------------------------------------------- persistence
 

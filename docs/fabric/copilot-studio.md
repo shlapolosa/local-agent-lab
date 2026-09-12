@@ -22,15 +22,18 @@ Premium seats, so the maker portal is available at https://copilotstudio.microso
 1. **Create an agent** — Agents → New agent → *Agent (Standard)* (the classic agent: MCP tools, generative
    orchestration, no Copilot Credits). Name "Documentation Fabric". The reasoning model is Copilot Studio's
    own — take the default; the gateway's models are for the fabric's agents inside the intake workload, and
-   the bot's key deliberately has no model allowlist. Instructions:
-   > You answer questions about the organisation's architecture documentation by calling the fabric's tools,
-   > and you help the signed-in person decide the review questions the fabric raised.
-   > Never invent a document or a decision: if a tool returns nothing, say so.
-   > When answering "what do we know about X", call semantic_search and reply with each record's title,
-   > document type, state and its source pointer. Never quote document content.
-   > When the person asks what is waiting for them, call approvals_list and summarise each open question.
-   > When the person decides a question, call approvals_decide with their own identity as the actor,
-   > channel "teams", their words as the comment, and their answers under answer.
+   the bot's key deliberately has no model allowlist. Instructions (paste the block as-is, no quote marks):
+
+   ```
+   You answer questions about the organisation's architecture documentation by calling the fabric's tools,
+   and you help the signed-in person decide the review questions the fabric raised.
+   Never invent a document or a decision: if a tool returns nothing, say so.
+   When answering "what do we know about X", call semantic_search and reply with each record's title,
+   document type, state and its source pointer. Never quote document content.
+   When the person asks what is waiting for them, call approvals_list and summarise each open question.
+   When the person decides a question, call approvals_decide with their own identity as the actor,
+   channel "teams", their words as the comment, and their answers under answer.
+   ```
 
    Then Settings → Security → Authentication → **Authenticate with Microsoft**, so the agent knows the
    signed-in person (`System.User.Email`) — the actor the gate records.
@@ -40,7 +43,8 @@ Premium seats, so the maker portal is available at https://copilotstudio.microso
    The tool list arrives from the gateway's registry, filtered by the team's grant: `semantic_search`,
    `semantic_similar`, `semantic_impact`, `semantic_catalog_get`, `semantic_query`, `approvals_list`,
    `approvals_get`, `approvals_decide` and the rest of READ.
-3. **Three topics** (generative orchestration handles the rest):
+3. **Three intents** — with generative orchestration and the MCP tools these need NO authored topics; the
+   instructions above name the tool for each. Author a topic only to pin a wording or add a card:
    - *What do we know about …* → `semantic_search(text, limit=5)`; answer with title, type, state and the
      source link (`pointer`), never content.
    - *What is waiting for me* → `approvals_list(kind="draft-review")` and `kind="association"`, then
@@ -50,6 +54,15 @@ Premium seats, so the maker portal is available at https://copilotstudio.microso
      Teams conversation — the gate refuses a blank one, and the audit log names them.
 4. **Publish to Teams** (Channels → Microsoft Teams). The existing incoming-webhook cards keep arriving; the
    bot is where a person answers them.
+
+## If "what do we know" answers nothing
+
+`semantic_search` ranks within the CURRENT embedder's space. When the deploy profile switches the embedding
+model (12 Sep 2026: `nomic-embed-text` → `text-embedding-3-large`), semantic-mcp re-dimensions the index at
+boot, drops the old vectors and says so in its log; every search then REFUSES with "call semantic_reindex"
+rather than answering nothing. `semantic_reindex` is the curator's grant (`SemanticTools.REINDEX`, never a
+workload's or the bot's): re-run `scripts/provision_fabric_agents.py` so the tenant's grant matches the
+contract, then call it once with the curator key — one call, facets only, no content.
 
 ## What happens after a decision
 

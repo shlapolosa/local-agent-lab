@@ -247,5 +247,7 @@ def test_a_missing_required_tool_is_refused_at_preflight_for_zero_tokens():
 
 def test_helpers():
     assert W._label_of({"source": "lab", "ref": "art://a/b/minutes.json"}) == "minutes.json"
-    assert W._describe({"pointer": DOC, "title": "T", "document_type": "urn:x#minutes", "subjects": ["a"]}) == "T · minutes · a"
+    # the LINKED labels, never the agent's raw terms: a re-index from the catalog reproduces this text exactly
+    assert W._describe({"pointer": DOC, "title": "T", "document_type": "urn:x#minutes", "subjects": ["a", "zz"],
+                        "linked": [{"term": "a", "label": "Alpha"}]}) == "T · minutes · Alpha"
     assert W.DECISION_RECORD == "urn:fabric:scheme:doc-types#decision-record"

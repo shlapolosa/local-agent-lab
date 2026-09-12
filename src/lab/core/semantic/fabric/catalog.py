@@ -10,7 +10,7 @@ import math
 import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Protocol, runtime_checkable
+from typing import Iterable, Protocol, runtime_checkable
 from urllib.parse import quote
 
 from lab.core.ids import POINTER_ID_FIELDS      # one home, rdflib-free: the contract and the row agree on it
@@ -106,6 +106,23 @@ class Catalog(Protocol):
     def embedding(self, iri: str) -> tuple[list[float], str] | None: ...
     def similar(self, vector: list[float], limit: int = 5, *, exclude: str = "",
                 model: str = "") -> list[tuple[str, float]]: ...
+    def unindexed(self, model: str) -> list[CatalogEntry]:
+        """Rows with no vector in `model`'s space (none, or another model's) — never the withdrawn."""
+        ...
+
+
+def subject_labels(links: Iterable[dict]) -> list[str]:
+    """The subject concepts a record is linked to, by label when the link carries one (a reference concept's
+    id is a hash of its label path — unreadable) and by local name otherwise."""
+    return [l.get("label") or str(l["object"]).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+            for l in links if l.get("predicate") == "subject"]
+
+
+def describe(title: str, document_type: str, subjects: Iterable[str]) -> str:
+    """The ONE descriptive text the index is built on — title · type · subjects. Never a body: the index
+    proposes neighbours from facets, so re-indexing after an embedder switch needs nothing but the catalog."""
+    parts = [title, document_type.rsplit("#", 1)[-1] if document_type else "", *subjects]
+    return " · ".join(p for p in parts if p)
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -149,9 +166,13 @@ class MemoryCatalog:
                   if iri != exclude and (not model or m == model)]
         return sorted(scored, key=lambda t: -t[1])[:max(int(limit), 0)]
 
+    def unindexed(self, model: str) -> list[CatalogEntry]:
+        return [e for e in self._rows.values()
+                if e.state != "withdrawn" and (e.iri not in self._vectors or self._vectors[e.iri][1] != model)]
+
     def __len__(self) -> int:
         return len(self._rows)
 
 
 __all__ = ["Catalog", "CatalogEntry", "MemoryCatalog", "POINTER_ID_FIELDS", "STATES", "STATE_IRI", "FIELDS",
-           "MAX_TITLE", "CUSTODY", "pointer_id", "pointer_key", "custody_iri", "cosine"]
+           "MAX_TITLE", "CUSTODY", "pointer_id", "pointer_key", "custody_iri", "cosine", "describe", "subject_labels"]

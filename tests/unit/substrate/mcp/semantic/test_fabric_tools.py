@@ -120,6 +120,10 @@ def test_an_artifacts_life_through_the_tools():
     assert [n["iri"] for n in near] == [d["iri"]] and "score" in near[0]
     assert call("semantic_search", text="ADR-14 Event bus · decision record", document_type="")[0]["iri"] == d["iri"]
     assert call("semantic_search", text="x", state="published") == []
+    # a switched embedder is one governed call away from a readable index again
+    srv.F.catalog.put_embedding(d["iri"], srv.F.catalog.embedding(d["iri"])[0], "retired-model")
+    assert call("semantic_reindex") == {"model": "test-embed", "indexed": 1, "skipped": 0}
+    assert srv.F.catalog.embedding(d["iri"])[1] == "test-embed"
     # a person confirms the classification and publishes
     p = call("semantic_promote", subject=d["iri"], predicate="urn:fabric:ont#documentType",
              object="urn:fabric:scheme:doc-types#decision-record", actor="reviewer@x", method="draft-review")

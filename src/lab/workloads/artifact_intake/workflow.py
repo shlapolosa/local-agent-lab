@@ -19,6 +19,7 @@ import re
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
+from lab.core.semantic.fabric.catalog import describe
 from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DECISION_RECORD, DELIVERED_UNDER, REFERENCES
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, EXTRACTED, SUGGESTED
 from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIPT_TO_MINUTES, ApprovalKind,
@@ -62,12 +63,10 @@ def _label_of(pointer: dict) -> str:
 
 
 def _describe(state: dict) -> str:
-    """The descriptive text the index is built on — title · type · subjects. Never a body."""
-    parts = [state.get("title") or _label_of(state["pointer"])]
-    if state.get("document_type"):
-        parts.append(state["document_type"].rsplit("#", 1)[-1])
-    parts.extend(state.get("subjects") or [])
-    return " · ".join(p for p in parts if p)
+    """The index's descriptive text, spelled in ONE place (`catalog.describe`) from the LINKED concepts' labels —
+    never the agent's raw terms — so a re-index from the catalog alone reproduces it exactly."""
+    return describe(state.get("title") or _label_of(state["pointer"]), state.get("document_type") or "",
+                    [l["label"] for l in state.get("linked") or []])
 
 
 def _type_label(cfg, iri: str | None) -> str:

@@ -8,6 +8,7 @@ composition root calls with settings from `lab.platform.config`."""
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from typing import Any, Callable, Sequence
 
@@ -17,16 +18,33 @@ from lab.platform import config
 __all__ = ["PostgresCatalog", "MIGRATIONS", "migrations", "CatalogUnreachable", "build"]
 
 
+INDEX = "fabric_embedding_hnsw_halfvec"
+LEGACY_INDEX = "fabric_embedding_hnsw"          # over `vector` — cannot serve the halfvec expression; retired once
+
+
+def _ranked_by(dim: int) -> str:
+    """The ONE expression the index is built on and `similar` orders by — they must be byte-identical or
+    the planner ignores the index and nothing fails."""
+    return f"embedding::halfvec({int(dim)})"
+
+
+def _index(dim: int) -> str:
+    """hnsw over `halfvec`: pgvector indexes at most 2000 dims of `vector` but 4000 of `halfvec` (pgvector ≥ 0.7,
+    the floor `ALTER EXTENSION vector UPDATE` applies), and a vendor model is 3072 wide — ONE statement for
+    every width. Half precision costs nothing a facet-text index can measure. The name carries the
+    definition, because `IF NOT EXISTS` matches by name and would keep a stale definition forever."""
+    return f"CREATE INDEX IF NOT EXISTS {INDEX} ON fabric_embedding USING hnsw (({_ranked_by(dim)}) halfvec_cosine_ops)"
+
+
 def migrations(dim: int) -> tuple[str, ...]:
     """The tables, with the embedding column DIMENSIONED so pgvector can index it (an undimensioned
     `VECTOR` is a sequential scan forever) — the dimension is the embedder's (`REFERENCE_EMBED_DIM`)."""
-    return MIGRATIONS[:-1] + (MIGRATIONS[-1] % {"dim": int(dim)},) + (
-        "CREATE INDEX IF NOT EXISTS fabric_embedding_hnsw ON fabric_embedding USING hnsw (embedding vector_cosine_ops)",
-    )
+    return MIGRATIONS[:-1] + (MIGRATIONS[-1] % {"dim": int(dim)}, f"DROP INDEX IF EXISTS {LEGACY_INDEX}", _index(dim))
 
 
 MIGRATIONS: tuple[str, ...] = (
     "CREATE EXTENSION IF NOT EXISTS vector",
+    "ALTER EXTENSION vector UPDATE",              # `halfvec` needs 0.7+; CREATE never upgrades an installed one
     """CREATE TABLE IF NOT EXISTS fabric_artifact (
          iri TEXT PRIMARY KEY,
          pointer JSONB NOT NULL,
@@ -108,6 +126,29 @@ class PostgresCatalog:
 
     def ensure_schema(self) -> None:
         self._write([(sql, ()) for sql in migrations(self.dim)])
+        self._migrate_width()
+
+    def _migrate_width(self) -> None:
+        """The embedder was switched (12 Sep 2026: 768 → 3072 under a live index) and `CREATE TABLE IF NOT
+        EXISTS` cannot notice. Vectors are compared within ONE model's space, so the old rows answer nothing
+        and cannot be widened; they are derived from the catalog, so they are dropped and the index rebuilt —
+        LOUDLY, naming the one call that fills it again. Never a silent empty answer.
+        Deliberately unlike the reference layer (undimensioned column, per-row model, no ANN index): the fabric
+        wants the index, so a switch is a blackout the size of one `semantic_reindex`. Check-then-act across two
+        connections — one replica today; a second one would need `pg_advisory_lock` around this."""
+        rows = self._rows("SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
+                          "WHERE attrelid = 'fabric_embedding'::regclass AND attname = 'embedding'")
+        declared = str(rows[0][0]) if rows else ""
+        if not declared or declared == f"vector({self.dim})":
+            return
+        held = self._rows("SELECT COUNT(*) FROM fabric_embedding")
+        self._write([("DELETE FROM fabric_embedding", ()),
+                     (f"DROP INDEX IF EXISTS {INDEX}", ()),
+                     (f"ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR({self.dim})", ()),
+                     (_index(self.dim), ())])
+        print(f"fabric catalog: the index was {declared} and the embedder is {self.dim} wide — dropped "
+              f"{held[0][0] if held else '?'} vector(s) of the old space; call semantic_reindex to fill it",
+              file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------------- port
 
@@ -163,12 +204,19 @@ class PostgresCatalog:
         """Nearest rows within ONE embedding space (`model`), by cosine, over the hnsw index."""
         if int(limit) <= 0:
             return []
-        rows = self._rows("""
-            SELECT iri, 1 - (embedding <=> %s::vector) AS score FROM fabric_embedding
+        by, d = _ranked_by(self.dim), self.dim
+        rows = self._rows(f"""
+            SELECT iri, 1 - ({by} <=> %s::halfvec({d})) AS score FROM fabric_embedding
              WHERE iri <> %s AND (%s = '' OR model = %s)
-             ORDER BY embedding <=> %s::vector LIMIT %s""",
+             ORDER BY {by} <=> %s::halfvec({d}) LIMIT %s""",
                           (_literal(vector), exclude, model, model, _literal(vector), int(limit)))
         return [(r[0], float(r[1])) for r in rows]
+
+    def unindexed(self, model: str) -> list[CatalogEntry]:
+        rows = self._rows("SELECT " + ", ".join(f"a.{c}" for c in _COLUMNS) + """ FROM fabric_artifact a
+             LEFT JOIN fabric_embedding e ON e.iri = a.iri AND e.model = %s
+             WHERE e.iri IS NULL AND a.state <> 'withdrawn' ORDER BY a.created_at""", (model,))
+        return [_entry(r) for r in rows]
 
 
 def build(**overrides: Any) -> PostgresCatalog:

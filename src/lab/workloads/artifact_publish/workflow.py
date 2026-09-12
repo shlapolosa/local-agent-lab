@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
+from lab.core.semantic.fabric.catalog import describe, subject_labels
 from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalTools, CollabTools, SemanticTools
 from lab.workloads import gateway
 
@@ -27,12 +28,8 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", 
 
 
 def _describe(row: dict) -> str:
-    parts = [row.get("title") or row["iri"].rsplit(":", 1)[-1]]
-    if row.get("document_type"):
-        parts.append(str(row["document_type"]).rsplit("#", 1)[-1])
-    parts.extend(l["object"].rsplit("#", 1)[-1].rsplit("/", 1)[-1] for l in row.get("links") or []
-                 if l.get("predicate") == "subject")
-    return " · ".join(p for p in parts if p)
+    return describe(row.get("title") or row["iri"].rsplit(":", 1)[-1], str(row.get("document_type") or ""),
+                    subject_labels(row.get("links") or []))
 
 
 def build_workflow(cfg):

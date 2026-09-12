@@ -124,6 +124,14 @@ def test_upsert_refuses_a_body_sized_title_and_a_bad_pointer(fab):
     assert len(fab.catalog) == 0
 
 
+def test_get_labels_a_subject_link_so_a_person_and_the_index_read_the_concept(fab):
+    d = fab.catalog_upsert(DOC, title="ADR")["iri"]
+    fab.vocab_link(d, terms=["Care Delivery"])
+    subj = [l for l in fab.catalog_get(d)["links"] if l["predicate"] == "subject"]
+    assert subj and subj[0]["label"] == "Care Delivery"
+    assert all("label" not in l for l in fab.catalog_get(d)["links"] if l["predicate"] != "subject")
+
+
 def test_get_joins_the_row_with_its_links_by_rung(fab):
     row = fab.catalog_upsert(LAB, produced_by="transcript_to_minutes", context="meeting:AAMk1")
     got = fab.catalog_get(row["iri"])
@@ -309,3 +317,54 @@ def test_retracting_a_facet_edge_clears_the_rows_column(fab):
     fab.catalog.put(fab.catalog.get(a).with_(document_type="urn:fabric:scheme:doc-types#minutes"))   # drifted row, no triple
     assert fab.graph_retract(a, "urn:fabric:ont#documentType", "urn:fabric:scheme:doc-types#minutes", actor="p", reason="drift") is False
     assert fab.catalog.get(a).document_type == ""
+
+
+def test_reindex_embeds_every_row_the_current_space_lacks_from_its_facets(fab):
+    a = fab.catalog_upsert(LAB, title="Minutes of the bus meeting", produced_by="transcript_to_minutes")["iri"]
+    b = fab.catalog_upsert(DOC, title="ADR on the event bus")["iri"]
+    fab.vocab_link(b, terms=["Care Delivery"])
+    fab.embed(a, "stale")
+    fab.catalog.put_embedding(a, fab.catalog.embedding(a)[0], "retired-model")      # the embedder was switched
+    w = fab.catalog_upsert({"source": "lab", "ref": "art://1/w"}, title="gone")["iri"]
+    fab.catalog_state(w, "withdrawn")
+    report = fab.reindex()
+    assert report == {"model": "test-embed", "indexed": 2, "skipped": 0}
+    assert fab.catalog.embedding(a)[1] == "test-embed" and fab.catalog.embedding(w) is None
+    texts = [t for (ts, purpose) in fab.embedder.calls for t in ts if purpose == "document"]
+    assert "ADR on the event bus · Care Delivery" in texts and "Minutes of the bus meeting · minutes" in texts
+    assert fab.reindex()["indexed"] == 0                                             # idempotent
+
+
+def test_reindex_counts_a_row_the_embedder_refuses_instead_of_stopping(fab):
+    a = fab.catalog_upsert(LAB, title="A")["iri"]; fab.catalog_upsert(DOC, title="B")
+    calls = fab.embedder.embed
+
+    def flaky(texts, *, purpose):
+        if texts[0].startswith("A"):
+            raise RuntimeError("upstream 500")
+        return calls(texts, purpose=purpose)
+    fab.embedder.embed = flaky
+    report = fab.reindex()
+    assert (report["indexed"], report["skipped"]) == (1, 1) and "upstream 500" in report["reason"]
+    assert fab.catalog.embedding(a) is None
+    fab.embedder.embed = calls
+    assert "reason" not in fab.reindex()                                            # a clean sweep carries none
+
+
+def test_search_says_the_index_is_empty_rather_than_answering_nothing(fab):
+    """The person asking is not the one reading semantic-mcp's log: after an embedder switch the index is
+    empty, and that must not read as 'your query matched nothing'."""
+    assert fab.search("anything") == []                                             # nothing catalogued: honestly empty
+    a = fab.catalog_upsert(LAB, title="A")["iri"]
+    with pytest.raises(RuntimeError, match="semantic_reindex"):
+        fab.search("anything")
+    fab.embed(a, "A")
+    assert [h["iri"] for h in fab.search("zzz")] == [a]                             # indexed: ranked, never refused
+
+
+def test_search_hides_withdrawn_records_unless_that_state_is_asked_for(fab):
+    a = fab.catalog_upsert(LAB, title="kept")["iri"]; w = fab.catalog_upsert(DOC, title="gone")["iri"]
+    fab.embed(a, "kept"); fab.embed(w, "gone"); fab.catalog_state(w, "withdrawn")
+    assert [h["iri"] for h in fab.search("gone")] == [a]
+    assert [h["iri"] for h in fab.search("gone", state="withdrawn")] == [w]
+    assert [h["iri"] for h in fab.similar(text="gone")][0] == w           # similar is the raw index, unfiltered

@@ -68,9 +68,11 @@ def test_the_vector_column_is_dimensioned_and_indexed():
     assert not any("%(dim)" in sql for sql in ddl)
 
 
-def test_ensure_schema_applies_every_migration_and_commits():
+def test_ensure_schema_applies_every_migration_and_commits_then_checks_the_width():
     c = catalog(); c.ensure_schema()
-    assert [s for s in c.log if s != "commit"].__len__() == len(migrations(2)) and c.log[-1] == "commit"
+    applied = [s for s in c.log if isinstance(s, tuple)]
+    assert [a[0] for a in applied[:len(migrations(2))]] == [" ".join(m.split()) for m in migrations(2)]
+    assert c.log[len(migrations(2))] == "commit" and "format_type" in applied[-1][0]
 
 
 def test_get_and_by_pointer_map_a_row_to_an_entry():
@@ -145,3 +147,55 @@ def test_build_reads_the_configured_url_and_takes_overrides(monkeypatch):
     c = catalog_pg.build()
     assert c.dsn == "postgres://configured" and callable(c._connect)
     assert catalog_pg.build(dsn="postgres://other").dsn == "postgres://other"
+
+
+def test_the_index_is_hnsw_over_halfvec_so_a_wide_vendor_model_can_be_indexed():
+    """pgvector's hnsw takes at most 2000 dims over `vector`; `halfvec` takes 4000 (0.7+). One path for
+    every width (measured 12 Sep 2026: the embedder switched from 768 to 3072 wide under a live index)."""
+    ddl = migrations(3072)
+    idx = next(s for s in ddl if "USING hnsw" in s)
+    assert "halfvec(3072)" in idx and "halfvec_cosine_ops" in idx
+    c = catalog(dim=3072)
+    c.similar([0.0] * 3072, limit=1, model="m")
+    sim = next(s for s in c.log if isinstance(s, tuple) and "ORDER BY" in s[0])
+    assert "::halfvec(3072)" in sim[0] and "1 - (embedding::halfvec(3072) <=> %s::halfvec(3072))" in sim[0]
+
+
+def test_ensure_schema_migrates_the_index_when_the_embedder_width_changed(capsys):
+    """A switched embedder leaves an index no query can enter (vectors are compared within one model's space):
+    the derived vectors are dropped, the column re-dimensioned, the index rebuilt — and it SAYS so."""
+    c = catalog({"format_type": [("vector(768)",)], "COUNT(*) FROM fabric_embedding": [(6,)]}, dim=3072)
+    c.ensure_schema()
+    sql = [s[0] for s in c.log if isinstance(s, tuple)]
+    assert any("DELETE FROM fabric_embedding" in s for s in sql)
+    assert any("ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR(3072)" in s for s in sql)
+    assert any("DROP INDEX IF EXISTS fabric_embedding_hnsw_halfvec" in s for s in sql)
+    drop = sql.index(next(s for s in sql if "DROP INDEX IF EXISTS fabric_embedding_hnsw_halfvec" in s))
+    rebuilt = max(i for i, s in enumerate(sql) if "CREATE INDEX" in s and "halfvec(3072)" in s)
+    assert drop < rebuilt and sql.index(next(s for s in sql if "DELETE FROM" in s)) < drop
+    err = capsys.readouterr().err
+    assert "768" in err and "3072" in err and "6" in err and "semantic_reindex" in err
+    same = catalog({"format_type": [("vector(3072)",)]}, dim=3072)
+    same.ensure_schema()
+    assert not any(isinstance(s, tuple) and "ALTER TABLE" in s[0] for s in same.log)
+    assert not capsys.readouterr().err
+
+
+def test_unindexed_asks_for_rows_without_a_vector_in_this_model_and_never_the_withdrawn():
+    c = catalog({"LEFT JOIN fabric_embedding": [ROW]})
+    rows = c.unindexed("m")
+    assert [r.iri for r in rows] == ["urn:fabric:artifact:A"]
+    q = next(s for s in c.log if isinstance(s, tuple) and "LEFT JOIN" in s[0])
+    assert "e.model = %s" in q[0] and "state <> 'withdrawn'" in q[0] and q[1] == ("m",)
+
+
+def test_the_halfvec_index_retires_the_legacy_one_and_serves_exactly_the_expression_similar_orders_by():
+    """`IF NOT EXISTS` matches by NAME: a renamed definition under the old name would never replace it, and a
+    same-width deployment would keep an index the halfvec query cannot use — a silent sequential scan."""
+    ddl = migrations(768)
+    drop = next(i for i, s in enumerate(ddl) if "DROP INDEX IF EXISTS fabric_embedding_hnsw" in s)
+    create = next(i for i, s in enumerate(ddl) if "CREATE INDEX IF NOT EXISTS fabric_embedding_hnsw_halfvec" in s)
+    assert drop < create and any("ALTER EXTENSION vector UPDATE" in s for s in ddl)     # the 0.7 floor, applied
+    c = catalog(dim=768); c.similar([0.0] * 768, limit=1)
+    order_by = next(s[0] for s in c.log if isinstance(s, tuple) and "ORDER BY" in s[0]).split("ORDER BY", 1)[1]
+    assert order_by.strip().startswith("embedding::halfvec(768) <=>") and "(embedding::halfvec(768))" in ddl[create]
