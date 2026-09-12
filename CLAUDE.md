@@ -939,6 +939,32 @@ for the next system). **So never rank speech providers on WER here.** `lab.core.
 holds the metric that matters — **script mix**, the share of LETTERS in Arabic script, which needs no
 reference transcript — plus `digest` and a timeline-aligned `side_by_side`.
 
+**The tenant's own transcript SILENTLY DROPS a language, and that is the finding the whole exercise
+was for** (measured 12 Sep 2026 on a deliberately bilingual meeting, two speakers, one describing a
+building in Arabic while the other spoke English). Microsoft's Teams transcript returned **53 words:
+the English turns only**. Both of the Arabic speaker's turns — the gym, the facilities, the pool, nine
+floors, the room converting to two bedrooms, fully furnished — are absent, and nothing marks the
+omission: it reads as a complete, fluent transcript of a shorter meeting. Its 0 % Arabic script is
+ABSENCE, not translation. The same audio, same minute, through this lab:
+
+| source | words | Arabic script | the Arabic speaker's turns |
+|---|---|---|---|
+| **soniox-en** | **97** | 0.0 % | **both, rendered into English** |
+| elevenlabs | 87 | 25.8 % | both, verbatim in Arabic |
+| assemblyai | 86 | 30.2 % | both, verbatim in Arabic |
+| **Teams (the tenant)** | **53** | 0.0 % | **neither** |
+| munsit | 25 | 84.5 % | partial, and attributed to the WRONG speaker |
+
+Note what the two 0 % rows mean — one translated everything, the other lost it — which is why the
+metric is never read alone: **script mix says what SCRIPT the words are in, coverage says whether the
+words are there at all, and a provider can score perfectly on the first by failing the second.** The
+minutes make the same point one layer up: every lane produced a plausible summary and correctly found
+0 decisions and 0 actions, but only the English rendering produced CONCEPTS a person or a downstream
+join can use — the verbatim lanes emitted `المسبح` and, from ElevenLabs, hybrids like `the العمارة`
+that no vocabulary can match on, and munsit's summary confidently credited the wrong speaker with the
+wrong half of the meeting. **A summary that reads well is not evidence of a transcript that is right;
+three of the four read well.**
+
 **The bake-off**: `scripts/speech_bakeoff.py <recording> [--reference teams.vtt] [--repeat N]` runs
 one recording through every CONFIGURED provider and writes per-provider transcripts, a side-by-side
 comparison and `digests.json` into `var/out/bakeoff/<stamp>/`. A provider with no API key is SKIPPED
