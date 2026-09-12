@@ -139,8 +139,13 @@ def _reconcile(litellm, team_id, alias, tools, stores=(), models=(AGENT_MODEL, "
     old ACL because its id was already in `.env`, and the workload failed at its last step having
     produced correct minutes, while provisioning printed "Grants written" and had written nothing.
     """
-    litellm("/team/update", {"team_id": team_id, "object_permission": _grants(tools, stores),
-                             "models": list(models)})
+    body = {"team_id": team_id, "object_permission": _grants(tools, stores)}
+    if models:
+        # A team declared with NO models (the submitter's: it starts runs and calls no model) keeps
+        # its empty list untouched — LiteLLM reads an empty `models` as "every model", so writing
+        # one would hand a submit-only identity the whole catalogue.
+        body["models"] = list(models)
+    litellm("/team/update", body)
     return team_id
 
 
