@@ -896,6 +896,12 @@ def version_report():
 # (no PUBLIC_GATEWAY_URL in the profile, or unreachable) is reported and the deploy proceeds: a gate
 # that blocks the repair of the thing it cannot reach would be worse than none.
 QUIET_POLL_S = 30
+#: How long an UNREACHABLE front door is waited for before the gate gives up asking. Two rolls
+#: close together produce exactly this: the gateway is still restarting from the previous deploy,
+#: the gate cannot ask, and "cannot ask → proceed" let a deploy through over a board it never saw
+#: (measured by the meeting session, 12 Sep 2026). A restart is a few minutes; a gateway that is
+#: down for longer than this is the thing being repaired, and the deploy proceeds with a line.
+QUIET_UNREACHABLE_WAIT_S = 300
 
 
 def open_runs(profile: dict):
@@ -924,12 +930,22 @@ def quiet_board(profile: dict, wait_s: int | None = None) -> bool:
         print("  quiet gate: no PUBLIC_GATEWAY_URL in the profile — cannot ask, proceeding")
         return True
     budget = int(os.environ.get("LAB_DEPLOY_WAIT_S", "1800")) if wait_s is None else wait_s
-    waited = 0
+    waited = unreachable = 0
     while True:
         runs = open_runs(profile)
+        if runs is None:                                   # cannot ask (yet): a restart in progress?
+            if unreachable >= QUIET_UNREACHABLE_WAIT_S:
+                print(f"  quiet gate: front door unreachable for {unreachable}s — proceeding "
+                      f"unasked (the gateway itself may be what this deploy repairs)", flush=True)
+                return True
+            print(f"  quiet gate: front door unreachable — waiting for it … {unreachable}/"
+                  f"{QUIET_UNREACHABLE_WAIT_S}s", flush=True)
+            time.sleep(QUIET_POLL_S)
+            unreachable += QUIET_POLL_S
+            continue
         if not runs:
-            if waited:
-                print(f"  quiet gate: board quiet after {waited}s")
+            if waited or unreachable:
+                print(f"  quiet gate: board quiet after {waited + unreachable}s")
             return True
         names = ", ".join(f"{r.get('process')}/{r.get('request_id')}" for r in runs[:4])
         if waited >= budget:

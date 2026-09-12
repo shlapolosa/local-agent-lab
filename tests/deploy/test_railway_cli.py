@@ -916,8 +916,22 @@ def test_force_skips_the_gate_and_an_unaskable_front_door_does_not_block_a_repai
     assert rw.quiet_board(_profile(), wait_s=0) is True
     monkeypatch.delenv("LAB_DEPLOY_FORCE")
     assert rw.quiet_board({"LITELLM_MASTER_KEY": "k"}, wait_s=0) is True      # no URL: cannot ask
-    monkeypatch.setattr(rw, "open_runs", lambda profile: None)               # unreachable
+    monkeypatch.setattr(rw, "open_runs", lambda profile: None)               # unreachable, for good
+    monkeypatch.setattr(rw.time, "sleep", lambda s: None)
     assert rw.quiet_board(_profile(), wait_s=0) is True
+
+
+def test_an_unreachable_front_door_is_waited_for_before_the_gate_gives_up_asking(monkeypatch):
+    """Two rolls close together: the gateway is still restarting from the previous deploy, so the
+    gate cannot ask — and used to proceed at once over a board it never saw. Now it waits out the
+    restart; a run that is open when the door answers still holds the deploy."""
+    answers = iter([None, None, [{"process": "p", "request_id": "wfr-5"}], []])
+    slept = []
+    monkeypatch.setattr(rw, "open_runs", lambda profile: next(answers))
+    monkeypatch.setattr(rw.time, "sleep", lambda s: slept.append(s))
+    assert rw.quiet_board(_profile(), wait_s=600) is True
+    assert slept == [rw.QUIET_POLL_S] * 3, "two unreachable polls, one busy poll, then quiet"
+    assert rw.QUIET_UNREACHABLE_WAIT_S >= 180, "a gateway restart takes minutes"
 
 
 def test_open_runs_asks_the_front_door_with_the_master_key_and_says_when_it_cannot(monkeypatch, capsys):
