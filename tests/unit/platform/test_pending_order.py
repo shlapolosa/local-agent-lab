@@ -9,18 +9,18 @@ from lab.substrate import approvals
 from lab.platform import workflows
 
 
-def test_approvals_pending_keeps_insertion_order_within_one_second():
+def test_approvals_pending_keeps_insertion_order_within_one_second(monkeypatch):
     fake = FakeRedis()
     with patched_client(fake):
-        approvals._now = lambda: "2026-09-03T10:00:00"        # frozen display clock
+        monkeypatch.setattr(approvals, "_now", lambda: "2026-09-03T10:00:00")   # frozen display clock, RESTORED
         ids = [approvals.request("adoit_import", f"subj-{i}", {}, "tester") for i in range(6)]
         assert [s["request_id"] for s in approvals.pending()] == ids
 
 
-def test_workflows_pending_keeps_insertion_order_within_one_second():
+def test_workflows_pending_keeps_insertion_order_within_one_second(monkeypatch):
     fake = FakeRedis()
     with patched_client(fake):
-        workflows._now = lambda: "2026-09-03T10:00:00"
+        monkeypatch.setattr(workflows, "_now", lambda: "2026-09-03T10:00:00")
         ids = [workflows.request("visio_to_archimate", {"diagram": f"art://{i}/x.vsdx"}, "tester")
                for i in range(6)]
         assert [s["request_id"] for s in workflows.pending()] == ids
