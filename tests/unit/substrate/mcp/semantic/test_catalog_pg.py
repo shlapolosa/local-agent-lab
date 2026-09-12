@@ -68,11 +68,15 @@ def test_the_vector_column_is_dimensioned_and_indexed():
     assert not any("%(dim)" in sql for sql in ddl)
 
 
-def test_ensure_schema_applies_every_migration_and_commits_then_checks_the_width():
+def test_ensure_schema_applies_tables_then_checks_the_width_then_indexes():
+    """The index is created LAST: its halfvec cast is at the NEW width, and on a column still at the old one
+    it fails — which is exactly how the first deploy of this migration crashed semantic-mcp at boot."""
+    from lab.substrate.mcp.semantic.catalog_pg import tables
     c = catalog(); c.ensure_schema()
-    applied = [s for s in c.log if isinstance(s, tuple)]
-    assert [a[0] for a in applied[:len(migrations(2))]] == [" ".join(m.split()) for m in migrations(2)]
-    assert c.log[len(migrations(2))] == "commit" and "format_type" in applied[-1][0]
+    applied = [s[0] for s in c.log if isinstance(s, tuple)]
+    assert applied[:len(tables(2))] == [" ".join(m.split()) for m in tables(2)]
+    assert "format_type" in applied[len(tables(2))] and "CREATE INDEX" in applied[-1] and c.log[-1] == "commit"
+    assert migrations(2) == tables(2) + (applied[-1],)
 
 
 def test_get_and_by_pointer_map_a_row_to_an_entry():
@@ -171,8 +175,9 @@ def test_ensure_schema_migrates_the_index_when_the_embedder_width_changed(capsys
     assert any("ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR(3072)" in s for s in sql)
     assert any("DROP INDEX IF EXISTS fabric_embedding_hnsw_halfvec" in s for s in sql)
     drop = sql.index(next(s for s in sql if "DROP INDEX IF EXISTS fabric_embedding_hnsw_halfvec" in s))
-    rebuilt = max(i for i, s in enumerate(sql) if "CREATE INDEX" in s and "halfvec(3072)" in s)
-    assert drop < rebuilt and sql.index(next(s for s in sql if "DELETE FROM" in s)) < drop
+    alter = sql.index(next(s for s in sql if "ALTER TABLE" in s))
+    creates = [i for i, s in enumerate(sql) if "CREATE INDEX" in s and "halfvec(3072)" in s]
+    assert len(creates) == 1 and sql.index(next(s for s in sql if "DELETE FROM" in s)) < drop < alter < creates[0]
     err = capsys.readouterr().err
     assert "768" in err and "3072" in err and "6" in err and "semantic_reindex" in err
     same = catalog({"format_type": [("vector(3072)",)]}, dim=3072)

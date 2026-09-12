@@ -15,7 +15,7 @@ from typing import Any, Callable, Sequence
 from lab.core.semantic.fabric.catalog import CatalogEntry, pointer_key
 from lab.platform import config
 
-__all__ = ["PostgresCatalog", "MIGRATIONS", "migrations", "CatalogUnreachable", "build"]
+__all__ = ["PostgresCatalog", "MIGRATIONS", "migrations", "tables", "CatalogUnreachable", "build"]
 
 
 INDEX = "fabric_embedding_hnsw_halfvec"
@@ -36,10 +36,17 @@ def _index(dim: int) -> str:
     return f"CREATE INDEX IF NOT EXISTS {INDEX} ON fabric_embedding USING hnsw (({_ranked_by(dim)}) halfvec_cosine_ops)"
 
 
-def migrations(dim: int) -> tuple[str, ...]:
+def tables(dim: int) -> tuple[str, ...]:
     """The tables, with the embedding column DIMENSIONED so pgvector can index it (an undimensioned
     `VECTOR` is a sequential scan forever) — the dimension is the embedder's (`REFERENCE_EMBED_DIM`)."""
-    return MIGRATIONS[:-1] + (MIGRATIONS[-1] % {"dim": int(dim)}, f"DROP INDEX IF EXISTS {LEGACY_INDEX}", _index(dim))
+    return MIGRATIONS[:-1] + (MIGRATIONS[-1] % {"dim": int(dim)}, f"DROP INDEX IF EXISTS {LEGACY_INDEX}")
+
+
+def migrations(dim: int) -> tuple[str, ...]:
+    """Everything `ensure_schema` applies, in order — the index LAST, after the width check has run: an index
+    expression cast to the new width fails on a column still at the old one (measured 12 Sep 2026: the boot
+    died on `expected 3072 dimensions, not 768` and the fabric was down until the order was fixed)."""
+    return tables(dim) + (_index(dim),)
 
 
 MIGRATIONS: tuple[str, ...] = (
@@ -125,8 +132,9 @@ class PostgresCatalog:
             raise CatalogUnreachable(f"{type(exc).__name__}: {exc}") from exc
 
     def ensure_schema(self) -> None:
-        self._write([(sql, ()) for sql in migrations(self.dim)])
-        self._migrate_width()
+        self._write([(sql, ()) for sql in tables(self.dim)])
+        self._migrate_width()                                  # BEFORE the index: its cast needs the new width
+        self._write([(_index(self.dim), ())])
 
     def _migrate_width(self) -> None:
         """The embedder was switched (12 Sep 2026: 768 → 3072 under a live index) and `CREATE TABLE IF NOT
@@ -144,8 +152,7 @@ class PostgresCatalog:
         held = self._rows("SELECT COUNT(*) FROM fabric_embedding")
         self._write([("DELETE FROM fabric_embedding", ()),
                      (f"DROP INDEX IF EXISTS {INDEX}", ()),
-                     (f"ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR({self.dim})", ()),
-                     (_index(self.dim), ())])
+                     (f"ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR({self.dim})", ())])
         print(f"fabric catalog: the index was {declared} and the embedder is {self.dim} wide — dropped "
               f"{held[0][0] if held else '?'} vector(s) of the old space; call semantic_reindex to fill it",
               file=sys.stderr, flush=True)
