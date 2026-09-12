@@ -368,3 +368,26 @@ def test_search_hides_withdrawn_records_unless_that_state_is_asked_for(fab):
     assert [h["iri"] for h in fab.search("gone")] == [a]
     assert [h["iri"] for h in fab.search("gone", state="withdrawn")] == [w]
     assert [h["iri"] for h in fab.similar(text="gone")][0] == w           # similar is the raw index, unfiltered
+
+
+def test_a_pointer_with_spaces_is_catalogued_and_every_graph_still_serialises(fab):
+    ref = "art://89df6f4cd2a6/meeting-2 test-20260912_180136-Meeting Recording.mp4.minutes.json"
+    row = fab.catalog_upsert({"source": "lab", "ref": ref}, title="minutes", produced_by="transcript_to_minutes")
+    assert fab.catalog_get(row["iri"])["pointer"]["ref"] == ref                    # the row keeps the real ref
+    for name in PERSISTED_GRAPHS:
+        fab.snapshot(name)                                                        # nothing refuses to serialise
+    from lab.core.semantic.fabric.service import DCAT
+    assert "%20" in str(fab.ds.value(URIRef(row["iri"]), DCAT.accessURL))
+
+
+def test_a_write_the_store_cannot_persist_is_undone_not_kept_in_memory(fab):
+    """A conforming write that fails to persist would survive in memory and vanish on restart — the person's
+    decision recorded nowhere durable. It is undone and the failure raised instead."""
+    d = fab.catalog_upsert(DOC, title="ADR")["iri"]
+    fab.catalog_assert(d, "document_type", "urn:fabric:scheme:doc-types#decision-record", rung="S", method="m", confidence=0.7)
+    fab._on_write = lambda touched: (_ for _ in ()).throw(RuntimeError("artifact store down"))
+    with pytest.raises(RuntimeError, match="artifact store down"):
+        fab.promote(d, "urn:fabric:ont#documentType", "urn:fabric:scheme:doc-types#decision-record",
+                    actor="maria@x", method="review")
+    links = {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}
+    assert ("documentType", "S") in links and ("documentType", "H") not in links

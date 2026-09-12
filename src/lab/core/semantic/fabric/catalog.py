@@ -42,12 +42,24 @@ def pointer_key(pointer: dict) -> str:
     return f"{pointer['source']}:{ident}"
 
 
+#: every character an IRI may carry unencoded (RFC 3986 reserved + unreserved, and `%` so an already-encoded
+#: id stays itself). What is NOT here — space, `<>"{}|\^\`` — is what rdflib refuses to serialise.
+_IRI_SAFE = "!#$%&'()*+,/:;=?@[]-._~"
+
+
+def iri_safe(ident: str) -> str:
+    """An absolute id made serialisable: only the characters no IRI may carry are percent-encoded, so a
+    legal IRI passes through unchanged. Measured 12 Sep 2026: a minutes ref with spaces in its file name went
+    into graph C verbatim and every persist of the fabric failed until it was encoded."""
+    return quote(ident, safe=_IRI_SAFE)
+
+
 def custody_iri(pointer: dict) -> str:
     """The IRI the graph points at for custody (`dcat:accessURL`): the item id itself when it IS an
-    absolute IRI (`art://`, `collab://`), else a fabric custody IRI over the pointer key — a bare work-item
-    or EA object id must never be minted as a relative IRI that happens to reparse."""
+    absolute IRI (`art://`, `collab://`) — made serialisable — else a fabric custody IRI over the pointer
+    key: a bare work-item or EA object id must never be minted as a relative IRI that happens to reparse."""
     ident = pointer_id(pointer)
-    return ident if _SCHEME.match(ident) else CUSTODY + quote(pointer_key(pointer), safe="")
+    return iri_safe(ident) if _SCHEME.match(ident) else CUSTODY + quote(pointer_key(pointer), safe="")
 
 
 def _now() -> str:
@@ -175,4 +187,4 @@ class MemoryCatalog:
 
 
 __all__ = ["Catalog", "CatalogEntry", "MemoryCatalog", "POINTER_ID_FIELDS", "STATES", "STATE_IRI", "FIELDS",
-           "MAX_TITLE", "CUSTODY", "pointer_id", "pointer_key", "custody_iri", "cosine", "describe", "subject_labels"]
+           "MAX_TITLE", "CUSTODY", "pointer_id", "pointer_key", "custody_iri", "iri_safe", "cosine", "describe", "subject_labels"]

@@ -102,3 +102,14 @@ def test_unindexed_lists_rows_without_a_vector_in_this_space_and_skips_the_withd
     assert [e.iri for e in c.unindexed("new-model")] == [a.iri]          # another space counts as missing
     assert [e.iri for e in c.unindexed("old-model")] == [b.iri]
     assert w.iri not in {e.iri for e in c.unindexed("nothing")}
+
+
+def test_a_scheme_id_with_characters_an_iri_cannot_carry_is_percent_encoded():
+    """Measured 12 Sep 2026: a minutes ref with SPACES in its name went into graph C verbatim; rdflib refused
+    to serialise it and every persist failed from then on. A name with spaces is legitimate input."""
+    from lab.core.semantic.fabric.catalog import custody_iri
+    ref = "art://89df6f4cd2a6/meeting-2 test-20260912.mp4.minutes.json"
+    iri = custody_iri({"source": "lab", "ref": ref})
+    assert iri == "art://89df6f4cd2a6/meeting-2%20test-20260912.mp4.minutes.json"
+    assert custody_iri({"source": "lab", "ref": 'art://x/a<b>"c{d}|e\\f^g`h'}) == "art://x/a%3Cb%3E%22c%7Bd%7D%7Ce%5Cf%5Eg%60h"
+    assert custody_iri({"source": "collab", "handle": "collab://item/d/i%20x?v=1#f"}) == "collab://item/d/i%20x?v=1#f"

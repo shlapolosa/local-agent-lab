@@ -40,13 +40,24 @@ GROUP = approvals.DEC_GROUPS[0]
 CONSUMER = "1"
 
 
-def _handle(entry_id: str, fields: dict, *, client) -> str | None:
-    """One decision. Returns the request id of the run it started, or None.
+#: approvals whose continuation FAILED and released nothing — redriven by the runner's next start, so the
+#: deploy that fixes the cause completes the decision instead of leaving a person's answer stranded.
+FAILED_KEY = "approvals:continuation-failed"
 
-    ALWAYS acks, even when it starts nothing. An entry left unacked is redelivered forever and every
-    later decision queues up behind it, so a single malformed continuation would stop the whole
-    mechanism for everyone. A failure is recorded on the request, where a human can see it.
-    """
+
+def _handle(entry_id: str, fields: dict, *, client) -> str | None:
+    """One decision from the stream. ALWAYS acks, even when it starts nothing. An entry left unacked is
+    redelivered forever and every later decision queues up behind it, so a single malformed continuation
+    would stop the whole mechanism for everyone. A failure is recorded on the request, where a human can
+    see it — and remembered, so `redrive_failed` can retry it."""
+    try:
+        return _continue(fields, client=client)
+    finally:
+        approvals.ack_decision(GROUP, entry_id, client=client)
+
+
+def _continue(fields: dict, *, client) -> str | None:
+    """One decision, from the stream or redriven. Returns the request id of the run it started, or None."""
     rid = fields.get("request_id", "")
     started = None
     try:
@@ -80,24 +91,48 @@ def _handle(entry_id: str, fields: dict, *, client) -> str | None:
         # decision into the design run without a listing nothing exposes.
         client.hset(f"approvals:req:{rid}", mapping={"released_request_id": started,
                                                      "released_process": cont.process})
+        client.hdel(f"approvals:req:{rid}", "continuation_error")
+        client.srem(FAILED_KEY, rid)
         print(f"{rid} approved -> {cont.process} {started}"
               f"{' (already queued)' if duplicate else ''}", flush=True)
         return None if duplicate else started
     except Exception as e:                               # noqa: BLE001 — the stream must not wedge
         _record_failure(rid, e, client=client)
         return None
-    finally:
-        approvals.ack_decision(GROUP, entry_id, client=client)
 
 
 def _record_failure(request_id: str, error: Exception, *, client) -> None:
-    """Put the failure where a human will find it: on the approval they just answered."""
+    """Put the failure where a human will find it: on the approval they just answered — and in the set
+    the next start redrives."""
     text = f"{type(error).__name__}: {error}"[:300]
     print(f"continuation for {request_id} failed — {text}", file=sys.stderr, flush=True)
     try:
         client.hset(f"approvals:req:{request_id}", mapping={"continuation_error": text})
+        client.sadd(FAILED_KEY, request_id)
     except Exception:                                    # noqa: BLE001 — never fail while failing
         pass
+
+
+def failed(*, client) -> list[str]:
+    """The approvals whose continuation failed and has not since succeeded."""
+    return sorted(str(m) for m in (client.smembers(FAILED_KEY) or ()))
+
+
+def redrive_failed(*, client) -> list[str]:
+    """Retry every failed continuation from the approval's own recorded state (the stream entry was acked
+    long ago). One that already released a run is only forgotten. Returns the run ids started."""
+    started = []
+    for rid in failed(client=client):
+        state = approvals.status(rid, client=client)
+        if state.get("released_request_id"):
+            client.srem(FAILED_KEY, rid)
+            continue
+        print(f"redriving the continuation of {rid}", flush=True)
+        fields = {"request_id": rid, "decision": state.get("status", ""), "actor": state.get("decided_by", "")}
+        run = _continue(fields, client=client)
+        if run:
+            started.append(run)
+    return started
 
 
 def run_once(*, client=None, pending_only: bool = False) -> list[str]:
@@ -125,7 +160,7 @@ def main() -> None:
         # Crash hygiene: anything this consumer took before but never acked. An approved answer that
         # started no run is the most confusing failure this lab has — the human did their part and
         # the lab looks idle.
-        on_start=lambda: run_once(client=r, pending_only=True),
+        on_start=lambda: (run_once(client=r, pending_only=True), redrive_failed(client=r)),
         read=lambda: approvals.decision_events(GROUP, CONSUMER, block_ms=streams.BLOCK_MS,
                                                count=10, client=r),
         handle=lambda eid, fields: _handle(eid, fields, client=r))

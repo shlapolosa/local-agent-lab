@@ -124,7 +124,11 @@ class FabricService:
         if not report.conforms:
             undo()
             raise ValueError("refused by the fabric's shapes: " + "; ".join(report.messages))
-        self._on_write(tuple(dict.fromkeys(touched)))
+        try:
+            self._on_write(tuple(dict.fromkeys(touched)))
+        except Exception:
+            undo()                    # a write the store did not take must not survive in memory: a restart
+            raise                     # would lose it silently, and the caller was told it failed
 
     def _undo_assertion(self, a: G.Assertion) -> None:
         self.ds.graph(graph_iri(a.rung)).remove((a.subject, a.predicate, a.object))

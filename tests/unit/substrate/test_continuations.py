@@ -316,3 +316,35 @@ def test_a_non_fabric_kind_never_reaches_the_curator(monkeypatch, r):
     rid = _ask(r)                                                    # a speaker question
     _decide(r, rid)
     assert len(_drain(r)) == 1
+
+
+def test_a_failed_continuation_is_redriven_on_the_next_start_and_forgotten_once_it_succeeds(r, monkeypatch):
+    """A continuation that failed because of a defect is retried by the deploy that fixes it: the failure
+    is remembered in one set, the runner's crash-hygiene pass re-handles what is there, and a success
+    clears it. A cause that is not fixed fails again — once per start, recorded, never a wedge."""
+    rid = _ask(r)
+    _decide(r, rid)
+    calls = {"n": 0}
+    real = workflows.submit
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("semantic-mcp refused")
+        return real(*a, **kw)
+    monkeypatch.setattr(continuations.workflows, "submit", flaky)
+    assert _drain(r) == [] and "semantic-mcp refused" in approvals.status(rid, client=r)["continuation_error"]
+    assert continuations.failed(client=r) == [rid]
+    assert _drain(r) == [], "acked: the stream itself redelivers nothing"
+    started = continuations.redrive_failed(client=r)
+    assert len(started) == 1 and approvals.status(rid, client=r)["released_request_id"] == started[0]
+    assert continuations.failed(client=r) == [] and "continuation_error" not in approvals.status(rid, client=r)
+    assert continuations.redrive_failed(client=r) == []                             # nothing left to redrive
+
+
+def test_a_redrive_never_releases_a_second_run_for_an_approval_that_already_released_one(r):
+    rid = _ask(r); _decide(r, rid)
+    started = _drain(r)
+    r.sadd(continuations.FAILED_KEY, rid)                                            # a stale mark
+    assert continuations.redrive_failed(client=r) == [] and continuations.failed(client=r) == []
+    assert approvals.status(rid, client=r)["released_request_id"] == started[0]
