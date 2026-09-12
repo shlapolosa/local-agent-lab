@@ -216,13 +216,22 @@ def deploy_profile() -> dict:
     return load_env_for_cloud() if os.path.exists(os.path.join(ROOT, ".env")) else {}
 
 
+def embedder_enabled(base_env: dict) -> bool:
+    """The substrate runs its OWN embedding model only while the corpus embeds with it. Since 12 Sep
+    2026 the corpus embeds with a vendor model through the gateway (REFERENCE_EMBED_MODEL names it),
+    and an idle ollama box is metered for nothing — so the profile decides, the same way a channel's
+    settings decide whether the channel is deployed. Unset means the substrate's own, as before."""
+    return base_env.get("REFERENCE_EMBED_MODEL", EMBED_MODEL) in ("", EMBED_MODEL)
+
+
 def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
-    """Service names the substrate owns, in deploy order (redis first, jaeger last). A channel is
-    included when it is configured OR already deployed — so `down`/`status` still see a channel
-    whose settings have since been removed from `.env`, instead of orphaning it."""
+    """Service names the substrate owns, in deploy order (redis first, jaeger last). A channel — and
+    the embedder — is included when it is configured OR already deployed, so `down`/`status` still
+    see one whose settings have since changed in `.env`, instead of orphaning it."""
     table = substrate_services(base_env)
     chans = [n for n in CHANNELS if n in table or n in (ids or {})]
-    return [REDIS_NAME, EMBED_NAME] + list(SUBSTRATE) + chans + [JAEGER_NAME]
+    embed = [EMBED_NAME] if embedder_enabled(base_env) or EMBED_NAME in (ids or {}) else []
+    return [REDIS_NAME] + embed + list(SUBSTRATE) + chans + [JAEGER_NAME]
 
 # --- per-role environment ALLOWLIST (least privilege; review B-H2) ---
 # A service receives ONLY the `.env` keys (after `# CLOUD:` override + $VAR expansion, plus the
@@ -1083,7 +1092,11 @@ def substrate_up():
         if name not in table:
             print(f"  {name:13} skipped  (not configured: {', '.join(CHANNELS[name]['requires'])})")
     ensure_redis()                                         # first: gateway/MCP/review depend on it
-    ensure_embedder()                                      # the gateway's embedding model
+    if embedder_enabled(base):
+        ensure_embedder()                                  # the substrate's own embedding model
+    else:
+        print(f"  {EMBED_NAME:13} skipped  (REFERENCE_EMBED_MODEL={base.get('REFERENCE_EMBED_MODEL')!r} "
+              f"is served by a vendor through the gateway; an existing service is left to `down`)")
     for name, spec in table.items():
         sid, created = ensure_service(name)
         print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")

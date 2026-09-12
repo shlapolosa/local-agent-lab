@@ -581,3 +581,15 @@ def test_the_embedder_serves_a_query_beside_a_publish_batch_not_behind_it():
     """ollama serialises requests by default: during the v0.28 publish every live relevance query
     queued behind a 32-text batch (~90 s) and the matcher's search timed out (11 Sep 2026)."""
     assert "OLLAMA_NUM_PARALLEL=4" in railway.EMBED_CMD
+
+
+def test_the_substrate_runs_its_own_embedder_only_while_the_corpus_embeds_with_it():
+    """Since 12 Sep 2026 the corpus embeds with a vendor model through the gateway; an idle ollama
+    box is metered for nothing. The profile decides — and a service already deployed is still
+    listed, so `down` can remove it rather than orphan it."""
+    vendor = {"REFERENCE_EMBED_MODEL": "text-embedding-3-large"}
+    assert railway.embedder_enabled({}) and railway.embedder_enabled({"REFERENCE_EMBED_MODEL": railway.EMBED_MODEL})
+    assert not railway.embedder_enabled(vendor)
+    assert "embedder" not in railway.substrate_names(vendor)
+    assert "embedder" in railway.substrate_names(vendor, {"embedder": "svc-embedder"})
+    assert railway.substrate_names({})[1] == "embedder"

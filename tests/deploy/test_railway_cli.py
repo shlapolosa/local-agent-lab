@@ -935,3 +935,14 @@ def test_open_runs_asks_the_front_door_with_the_master_key_and_says_when_it_cann
         raise urllib.error.URLError("refused")
     monkeypatch.setattr(rw.urllib.request, "urlopen", down)
     assert rw.open_runs(_profile()) is None and "unreachable" in capsys.readouterr().err
+
+
+def test_substrate_up_with_a_vendor_embedding_model_creates_no_embedder():
+    """Since 12 Sep 2026 the corpus embeds with a vendor model through the gateway; the substrate's
+    own ollama box is not deployed for it — and the skip is said, not silent."""
+    fake = FakeRailway(services={}, status={})
+    with env_file(ENV_TEXT + "REFERENCE_EMBED_MODEL=text-embedding-3-large\n"), railway(fake) as out:
+        rw.substrate_up()
+    created = [v["in"]["name"] for op, v, _ in fake.calls if op == "serviceCreate"]
+    assert "redis" in created and rw.EMBED_NAME not in created
+    assert f"{rw.EMBED_NAME:13} skipped" in out.getvalue()
