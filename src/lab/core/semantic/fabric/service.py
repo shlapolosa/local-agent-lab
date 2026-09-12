@@ -24,7 +24,7 @@ from lab.core.delivery import DeliveryContext
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
-                                              pointer_key, subject_labels)
+                                              iri_safe, pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
 from lab.core.semantic.fabric.rungs import (CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, GRAPH_RUNGS,
                                              PROV_GRAPH, graph_iri)
@@ -124,11 +124,29 @@ class FabricService:
         if not report.conforms:
             undo()
             raise ValueError("refused by the fabric's shapes: " + "; ".join(report.messages))
+        self._persist(touched, undo)
+
+    def _persist(self, touched: Iterable[str], undo: Callable[[], None]) -> None:
+        """Hand the touched graphs to the store; a write it did not take must not survive in memory — a restart
+        would lose it silently while the caller was told it failed. Sound because `RungStore.save` moves its
+        pointer hash only after every snapshot is stored: undoing memory restores agreement with the durable copy."""
         try:
             self._on_write(tuple(dict.fromkeys(touched)))
         except Exception:
-            undo()                    # a write the store did not take must not survive in memory: a restart
-            raise                     # would lose it silently, and the caller was told it failed
+            undo()
+            raise
+
+    def _invalidations(self) -> set:
+        prov = self.ds.graph(PROV_GRAPH)
+        return {(a, o) for a, _, o in prov.triples((None, G.PROV.wasInvalidatedBy, None))}
+
+    def _uninvalidate(self, before: set) -> None:
+        """Take back the PROV invalidations a supersede wrote — an undone retraction must not leave a live
+        triple whose assertion record says it was invalidated."""
+        prov = self.ds.graph(PROV_GRAPH)
+        for a, o in self._invalidations() - before:
+            prov.remove((a, G.PROV.wasInvalidatedBy, o))
+            prov.remove((a, G.PROV.invalidatedAtTime, None))
 
     def _undo_assertion(self, a: G.Assertion) -> None:
         self.ds.graph(graph_iri(a.rung)).remove((a.subject, a.predicate, a.object))
@@ -269,6 +287,9 @@ class FabricService:
 
     def graph_assert(self, subject: str, predicate: str, obj: Any, *, rung: str, method: str, actor: str = "",
                      confidence: float | None = None, supersede: bool = False) -> dict:
+        for what, value in (("subject", subject), ("predicate", predicate)):
+            if not isinstance(value, str) or iri_safe(value) != value:
+                raise ValueError(f"{what} is not a serialisable IRI: {value!r}")
         s, p, o = URIRef(subject), URIRef(predicate), term(obj)
         prior = G.find(self.ds, s, p) if supersede else []
         for r, (_, _, old) in prior:
@@ -276,6 +297,7 @@ class FabricService:
                 return {"assertion": "", "rung": rung, "subject": subject, "predicate": predicate,
                         "object": str(o), "unchanged": True}
         retracted = [(r, old) for r, (_, _, old) in prior]
+        before = self._invalidations()
         for r, old in retracted:
             G.retract(self.ds, s, p, old, actor=actor or method, reason=f"superseded at rung {rung}")
         made = G.assert_triple(self.ds, s, p, o, rung=rung, method=method, actor=actor, confidence=confidence)
@@ -284,6 +306,7 @@ class FabricService:
             self._undo_assertion(made)
             for r, old in retracted:
                 self.ds.graph(graph_iri(r)).add((s, p, old))
+            self._uninvalidate(before)
         self._commit((rung, "prov", *[r for r, _ in retracted]), undo, subjects=(s,))
         return {"assertion": str(made.id), "rung": rung, "subject": subject, "predicate": predicate,
                 "object": str(o), "unchanged": False}
@@ -299,23 +322,22 @@ class FabricService:
         # measured live: a retracted type left `minutes` on the row).
         facet = next((f for f, (pred, _) in FACETS.items() if pred == p), None)
         row = self.catalog.get(subject) if facet else None
-        if row is not None and getattr(row, facet) == str(o):
-            self.catalog.put(row.with_(**{facet: ""}))
+        clears = row is not None and getattr(row, facet) == str(o)
         hits = G.find(self.ds, s, p, o)
         if not hits:
+            if clears:
+                self.catalog.put(row.with_(**{facet: ""}))
             return False
-        prov = self.ds.graph(PROV_GRAPH)
-        invalidated_before = {(aid, x, y) for aid, x, y in prov.triples((None, G.PROV.wasInvalidatedBy, None))}
+        before = self._invalidations()
         G.retract(self.ds, s, p, o, actor=actor, reason=reason)
 
         def undo():
             for r, _ in hits:
                 self.ds.graph(graph_iri(r)).add((s, p, o))
-            for aid, x, y in list(prov.triples((None, G.PROV.wasInvalidatedBy, None))):
-                if (aid, x, y) not in invalidated_before:
-                    prov.remove((aid, G.PROV.wasInvalidatedBy, y))
-                    prov.remove((aid, G.PROV.invalidatedAtTime, None))
+            self._uninvalidate(before)
         self._commit((*[r for r, _ in hits], "prov"), undo, subjects=(s,))
+        if clears:                                   # the row follows the graph, never leads it
+            self.catalog.put(row.with_(**{facet: ""}))
         return True
 
     def _join(self, hits: list[tuple[URIRef, int, str]]) -> list[dict]:
@@ -370,7 +392,7 @@ class FabricService:
             g.add((c, SKOS.definition, Literal(definition)))
         if broader:
             g.add((c, SKOS.broader, URIRef(broader)))
-        self._on_write(("candidates",))
+        self._persist(("candidates",), lambda: g.remove((c, None, None)))
         return {"iri": str(c), "label": label.strip()}
 
     # ------------------------------------------------------------------ gate
@@ -390,11 +412,14 @@ class FabricService:
             return {**r, "from": "candidates"}
         p, o = URIRef(predicate), term(obj)
         current = next((r for r, _ in G.find(self.ds, s, p, o)), None)
+        before = self._invalidations()
         made = G.promote(self.ds, s, p, o, to=to, actor=actor, method=method)
 
         def undo():
             self._undo_assertion(made)
-            self.ds.graph(graph_iri(current)).add((s, p, o))
+            if current:
+                self.ds.graph(graph_iri(current)).add((s, p, o))
+            self._uninvalidate(before)
         self._commit((current, to, "prov"), undo, subjects=(s,))
         return {"assertion": str(made.id), "rung": to, "from": current, "subject": subject,
                 "predicate": predicate, "object": str(o)}

@@ -29,6 +29,7 @@ from __future__ import annotations
 import sys
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 from lab.platform import config, streams, workflows
 from lab.platform.contracts import PROCESSES, Decision, continuation_of
@@ -59,7 +60,6 @@ def _handle(entry_id: str, fields: dict, *, client) -> str | None:
 def _continue(fields: dict, *, client) -> str | None:
     """One decision, from the stream or redriven. Returns the request id of the run it started, or None."""
     rid = fields.get("request_id", "")
-    started = None
     try:
         if fields.get("decision") != Decision.APPROVE:
             return None                                  # decline releases nothing; update stays open
@@ -118,21 +118,42 @@ def failed(*, client) -> list[str]:
     return sorted(str(m) for m in (client.smembers(FAILED_KEY) or ()))
 
 
-def redrive_failed(*, client) -> list[str]:
+def redrive_failed(*, client, now: datetime | None = None) -> list[str]:
     """Retry every failed continuation from the approval's own recorded state (the stream entry was acked
-    long ago). One that already released a run is only forgotten. Returns the run ids started."""
+    long ago). Forgotten FIRST, so the set always drains: a fresh failure re-adds it, an approval with nothing
+    to continue or one that already released a run stays forgotten. A decision older than the submit
+    idempotency window is not retried — `submit` could no longer tell a redrive from a second run for one
+    human decision — and says so on the approval. Returns the run ids started."""
     started = []
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(seconds=workflows.IDEMPOTENCY_TTL)
     for rid in failed(client=client):
+        client.srem(FAILED_KEY, rid)
         state = approvals.status(rid, client=client)
-        if state.get("released_request_id"):
+        if state.get("released_request_id") or not state:
+            continue
+        decided = _when(state.get("decided_at"))
+        if decided is not None and decided < cutoff:
+            _record_failure(rid, RuntimeError("not redriven: decided before the submit idempotency window "
+                                              f"({workflows.IDEMPOTENCY_TTL} s); re-run intake"), client=client)
             client.srem(FAILED_KEY, rid)
             continue
         print(f"redriving the continuation of {rid}", flush=True)
-        fields = {"request_id": rid, "decision": state.get("status", ""), "actor": state.get("decided_by", "")}
-        run = _continue(fields, client=client)
+        run = _continue(approvals.decision_fields(state), client=client)
         if run:
             started.append(run)
     return started
+
+
+def _when(text: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(text)) if text else None
+    except ValueError:
+        return None
+
+
+def _on_start(r) -> None:
+    run_once(client=r, pending_only=True)
+    redrive_failed(client=r)
 
 
 def run_once(*, client=None, pending_only: bool = False) -> list[str]:
@@ -160,7 +181,7 @@ def main() -> None:
         # Crash hygiene: anything this consumer took before but never acked. An approved answer that
         # started no run is the most confusing failure this lab has — the human did their part and
         # the lab looks idle.
-        on_start=lambda: (run_once(client=r, pending_only=True), redrive_failed(client=r)),
+        on_start=lambda: _on_start(r),
         read=lambda: approvals.decision_events(GROUP, CONSUMER, block_ms=streams.BLOCK_MS,
                                                count=10, client=r),
         handle=lambda eid, fields: _handle(eid, fields, client=r))

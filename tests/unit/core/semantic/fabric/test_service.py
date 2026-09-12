@@ -391,3 +391,42 @@ def test_a_write_the_store_cannot_persist_is_undone_not_kept_in_memory(fab):
                     actor="maria@x", method="review")
     links = {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}
     assert ("documentType", "S") in links and ("documentType", "H") not in links
+
+
+def _store_down(fab):
+    def fail(touched):
+        raise RuntimeError("artifact store down")
+    fab._on_write = fail
+
+
+def test_every_write_path_undoes_what_the_store_did_not_take(fab):
+    d = fab.catalog_upsert(DOC, title="ADR")["iri"]
+    m = fab.catalog_upsert(LAB, title="Minutes")["iri"]
+    fab.catalog_assert(d, "document_type", "urn:fabric:scheme:doc-types#decision-record", rung="S", method="m", confidence=0.7)
+    fab.graph_assert(d, "urn:fabric:ont#references", m, rung="X", method="link")
+    _store_down(fab)
+    # upsert: no row, no mirror
+    with pytest.raises(RuntimeError):
+        fab.catalog_upsert({"source": "lab", "ref": "art://1/new"}, title="new")
+    assert fab.catalog_get(pointer={"source": "lab", "ref": "art://1/new"}) is None
+    # retract: the triple is back AND the row's column is not cleared
+    with pytest.raises(RuntimeError):
+        fab.graph_retract(d, "urn:fabric:ont#documentType", "urn:fabric:scheme:doc-types#decision-record", actor="x", reason="r")
+    assert fab.catalog_get(d)["document_type"].endswith("#decision-record")
+    assert ("documentType", "S") in {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}
+    # supersede: the old triple is back with NO dangling invalidation on its assertion record
+    with pytest.raises(RuntimeError):
+        fab.graph_assert(d, "urn:fabric:ont#references", "urn:fabric:artifact:other", rung="X", method="link", supersede=True)
+    prov = fab.ds.graph(PROV_GRAPH)
+    assert not list(prov.triples((None, G.PROV.wasInvalidatedBy, None)))
+    assert ("references", "X") in {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}
+    # propose: no candidate survives in memory
+    with pytest.raises(RuntimeError):
+        fab.vocab_propose(label="Ghost", actor="steward@x")
+    assert not list(fab.ds.graph(CANDIDATES_GRAPH).triples((None, None, Literal("Ghost"))))
+
+
+def test_an_unserialisable_subject_is_refused_legibly_before_it_reaches_the_graph(fab):
+    d = fab.catalog_upsert(DOC, title="ADR")["iri"]
+    with pytest.raises(ValueError, match="serialisable IRI"):
+        fab.graph_assert("art://x/a b", "urn:fabric:ont#references", d, rung="X", method="link")

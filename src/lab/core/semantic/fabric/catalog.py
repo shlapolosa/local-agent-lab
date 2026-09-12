@@ -42,16 +42,17 @@ def pointer_key(pointer: dict) -> str:
     return f"{pointer['source']}:{ident}"
 
 
-#: every character an IRI may carry unencoded (RFC 3986 reserved + unreserved, and `%` so an already-encoded
-#: id stays itself). What is NOT here — space, `<>"{}|\^\`` — is what rdflib refuses to serialise.
-_IRI_SAFE = "!#$%&'()*+,/:;=?@[]-._~"
+#: what no IRI may carry: exactly the characters rdflib refuses to serialise, plus the C0 controls N-Quads cannot
+#: hold. Everything else — including non-ASCII, which an IRI is DEFINED to carry — stays as it is, so a person
+#: reading the graph still reads the file name; `%` is untouched, so encoding is idempotent.
+_IRI_ILLEGAL = frozenset('<>" {}|\\^`') | frozenset(chr(c) for c in range(0x20)) | {"\x7f"}
 
 
 def iri_safe(ident: str) -> str:
     """An absolute id made serialisable: only the characters no IRI may carry are percent-encoded, so a
     legal IRI passes through unchanged. Measured 12 Sep 2026: a minutes ref with spaces in its file name went
     into graph C verbatim and every persist of the fabric failed until it was encoded."""
-    return quote(ident, safe=_IRI_SAFE)
+    return "".join(quote(ch, safe="") if ch in _IRI_ILLEGAL else ch for ch in ident)
 
 
 def custody_iri(pointer: dict) -> str:

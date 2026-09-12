@@ -123,6 +123,14 @@ def _end(r, key, fields, state, *, release=True):
     return fields
 
 
+def decision_fields(state: dict) -> dict:
+    """The decision EVENT's fields, re-derived from an approval's recorded state — the one place that knows
+    the hash's names beside the stream's (`status` is the decision, `decided_by` the actor)."""
+    return {"request_id": state.get("request_id", ""), "decision": state.get("status", ""),
+            "actor": state.get("decided_by", ""), "channel": state.get("channel", ""),
+            "comment": state.get("comment", "")}
+
+
 def decide(request_id, decision, actor, channel, comment="", *, answer=None, client=None):
     """Record a decision from any channel. 'update' = changes requested (stays open). This is the raw
     RECORDER — it does not ask whether a human made the decision or whether the request is still open;

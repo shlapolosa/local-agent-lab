@@ -348,3 +348,17 @@ def test_a_redrive_never_releases_a_second_run_for_an_approval_that_already_rele
     r.sadd(continuations.FAILED_KEY, rid)                                            # a stale mark
     assert continuations.redrive_failed(client=r) == [] and continuations.failed(client=r) == []
     assert approvals.status(rid, client=r)["released_request_id"] == started[0]
+
+
+def test_a_redrive_forgets_what_it_cannot_continue_and_what_is_too_old_to_retry_safely(r, capsys):
+    """The failed set must drain: an approval with nothing to continue is forgotten, and one decided longer ago
+    than the submit idempotency window is forgotten WITH a reason — a redrive past that window could queue a
+    second run for one human decision."""
+    r.sadd(continuations.FAILED_KEY, "apr-gone")                                   # hash removed meanwhile
+    plain = _ask(r, {"question": {"prompt": "?", "items": []}}); _decide(r, plain, answer=None)   # no continuation
+    old = _ask(r); _decide(r, old)
+    r.hset(f"approvals:req:{old}", "decided_at", "2026-01-01T00:00:00+00:00")
+    r.sadd(continuations.FAILED_KEY, plain, old)
+    assert continuations.redrive_failed(client=r) == []
+    assert continuations.failed(client=r) == []
+    assert old in capsys.readouterr().err and "idempotency" in approvals.status(old, client=r)["continuation_error"]

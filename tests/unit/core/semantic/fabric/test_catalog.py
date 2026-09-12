@@ -113,3 +113,11 @@ def test_a_scheme_id_with_characters_an_iri_cannot_carry_is_percent_encoded():
     assert iri == "art://89df6f4cd2a6/meeting-2%20test-20260912.mp4.minutes.json"
     assert custody_iri({"source": "lab", "ref": 'art://x/a<b>"c{d}|e\\f^g`h'}) == "art://x/a%3Cb%3E%22c%7Bd%7D%7Ce%5Cf%5Eg%60h"
     assert custody_iri({"source": "collab", "handle": "collab://item/d/i%20x?v=1#f"}) == "collab://item/d/i%20x?v=1#f"
+
+
+def test_iri_safe_is_idempotent_and_keeps_what_an_iri_may_carry():
+    from lab.core.semantic.fabric.catalog import iri_safe
+    for x in ("art://x/a b", "art://x/a%20b", "collab://item/d/ملف عربي.docx", "art://x/résumé.pdf", "urn:fabric:x"):
+        assert iri_safe(iri_safe(x)) == iri_safe(x)
+    assert iri_safe("collab://item/d/ملف عربي.docx") == "collab://item/d/ملف%20عربي.docx"     # non-ASCII stays readable
+    assert iri_safe("art://x/tab\there") == "art://x/tab%09here"
