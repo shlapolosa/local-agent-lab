@@ -246,9 +246,21 @@ def build_workflow(cfg):
                     "the recording produced no speaker separation — it was transcribed but not "
                     f"diarized, so there is nobody to ask about. Check {SpeechTools.capabilities}, "
                     "and for a room on one microphone check the recording itself.")
-            # The provider that ANSWERED, not the one that was asked for: a lane left unset is
-            # still a lane, and every artifact and message downstream needs to name it.
+            # TWO NAMES, and they are not interchangeable — this cost a lane's minutes on
+            # 12 Sep 2026. `lane` is the REGISTRY KEY the run was submitted with (`soniox-en`) and is
+            # the only thing `ProcessSpec.validate` accepts; `provider` is the transcript's own
+            # DESCRIPTIVE label for the rendering it produced (`soniox-english`). For three of the
+            # four providers the two strings are identical, so letting the label overwrite the lane
+            # went unnoticed — until the soniox lane's approval released
+            # `provider must be one of [...], not 'soniox-english'` into a field nobody watches,
+            # while the other three delivered normally.
+            #
+            # The label still earns its place: it names the artifacts and the card a human reads, and
+            # "soniox-english" tells them more than "soniox-en". So both are kept, and a run that
+            # named no lane keeps none — an absent lane is honest, where inventing one from a label
+            # that may not be a registry key at all is the bug above in a different disguise.
             state = state | {"transcript_ref": got["transcript_ref"], "speech": got,
+                             "lane": state.get("provider") or "",
                              "provider": got.get("provider") or state.get("provider") or ""}
         await ctx.send_message(state)
 
@@ -335,7 +347,7 @@ def build_workflow(cfg):
                                 inputs={"transcript": state["transcript_ref"],
                                         "owner": state["owner"],
                                         "recording": state["recording"],
-                                        "provider": state.get("provider") or "",
+                                        "provider": state.get("lane") or "",
                                         "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await gateway.call(cfg, ApprovalTools.ask, {

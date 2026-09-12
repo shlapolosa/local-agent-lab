@@ -495,3 +495,49 @@ def test_the_continuation_is_something_the_minutes_run_would_actually_accept(gw,
     answered = dict(cont.inputs) | {cont.answer_input: {"SPEAKER_00": {"tag": "a vendor"}}}
     validated = TRANSCRIPT_TO_MINUTES.validate(answered)
     assert validated["chat_id"] == CHAT and validated["recording"] == HANDLE
+
+
+# ------------------------------------------------------------------ the lane vs the label
+def test_the_continuation_carries_the_LANE_not_the_transcripts_own_label(gw, monkeypatch):
+    """Two namespaces that look like one, and only one provider tells them apart.
+
+    A LANE is a registry key — `munsit`, `elevenlabs`, `assemblyai`, `soniox`, `soniox-en` — and it is
+    what `ProcessSpec.validate` accepts. A transcript's `provider` is a DESCRIPTIVE label of the
+    rendering it produced: `soniox-english`, `soniox-original`, `soniox-translation`. For three of the
+    four providers the two strings are identical, so the code could substitute one for the other and
+    nothing complained for months.
+
+    Measured live 12 Sep 2026: the soniox lane's speaker card was approved and the continuation
+    refused itself with `provider must be one of [...], not 'soniox-english'`. Three lanes delivered
+    their minutes to the meeting chat and the fourth silently produced nothing — the approval was
+    answered, and what it released was an error message nobody was watching.
+    """
+    gw.answers[SpeechTools.transcribe] = dict(gw.answers[SpeechTools.transcribe],
+                                              provider="soniox-english")
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    _run(inputs={"owner": OWNER, "recording": HANDLE, "provider": "soniox-en"})
+    asked = gw.args_for(ApprovalTools.ask)
+    assert asked["continuation"]["inputs"]["provider"] == "soniox-en", \
+        "the continuation must name a lane the process contract accepts"
+
+
+def test_the_card_still_shows_the_rendering_the_human_is_looking_at(gw, monkeypatch):
+    """The descriptive label is not noise — four cards for one meeting arrive together and the person
+    answering has to tell them apart, and `soniox-english` says more than `soniox-en`. So the fix is
+    to carry BOTH, not to replace one with the other."""
+    gw.answers[SpeechTools.transcribe] = dict(gw.answers[SpeechTools.transcribe],
+                                              provider="soniox-english")
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    _run(inputs={"owner": OWNER, "recording": HANDLE, "provider": "soniox-en"})
+    assert "soniox-english" in gw.args_for(ApprovalTools.ask)["subject"]
+
+
+def test_a_run_with_no_lane_asks_the_continuation_for_no_lane(gw, monkeypatch):
+    """A deployment running ONE provider submits without naming a lane, and the continuation must not
+    invent one from the transcript's label — `provider` is optional, and an absent lane is the honest
+    answer rather than a guess that might not be a registry key at all."""
+    gw.answers[SpeechTools.transcribe] = dict(gw.answers[SpeechTools.transcribe],
+                                              provider="soniox-original")
+    monkeypatch.setattr(W.gateway, "call_tools", _with_meetings(gw))
+    _run(inputs={"owner": OWNER, "recording": HANDLE})
+    assert gw.args_for(ApprovalTools.ask)["continuation"]["inputs"]["provider"] == ""
