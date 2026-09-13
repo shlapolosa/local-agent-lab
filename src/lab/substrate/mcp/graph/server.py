@@ -135,7 +135,8 @@ def _item(i) -> dict:
             "handle": None if i.folder else str(i.handle),     # a folder holds no content to fetch
             # the folder it sits in, addressable — this is what collab_put wants as its `folder`
             "parent": i.parent or None,
-            "parent_handle": str(i.parent_handle) if i.parent else None}
+            "parent_handle": str(i.parent_handle) if i.parent else None,
+            "label": i.label, "author": i.author}          # looked up from the item: the fabric's owner/label facts
 # Deliberately NOT here: `DriveItem.url`. A listing's results land in an agent's context, and a
 # personal drive's URL embeds its owner — so it is returned only by `collab_put`, whose caller is
 # announcing a file it just wrote to a person. Add it to a listing when something needs it, not

@@ -318,3 +318,15 @@ def test_an_already_encoded_drive_id_is_not_encoded_twice():
 def test_an_expiry_is_always_emitted_in_the_utc_form_graph_accepts():
     stamped = graph_map.expiry_for("/drives/d/root", "2026-09-05T12:00:00+02:00", now=at())
     assert stamped == "2026-09-05T10:00:00Z"
+
+
+def test_a_drive_item_carries_its_label_and_author_when_the_provider_gives_them():
+    """WP14: the sensitivity label and the author are LOOKED UP from the item — the fabric never guesses either."""
+    from lab.substrate.mcp.graph import graph_map
+    js = {"id": "01X", "name": "ADR-14.docx", "parentReference": {"driveId": "b!d", "id": "01P", "path": "/drives/b!d/root:/EA"},
+          "sensitivityLabel": {"displayName": "Confidential", "id": "lbl-1"},
+          "createdBy": {"user": {"email": "ann@x", "displayName": "Ann"}}}
+    i = graph_map.drive_item(js)
+    assert (i.label, i.author) == ("Confidential", "ann@x")
+    bare = graph_map.drive_item({"id": "01Y", "name": "n", "parentReference": {"driveId": "b!d"}})
+    assert (bare.label, bare.author) == ("", "")

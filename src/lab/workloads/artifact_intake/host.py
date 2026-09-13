@@ -12,6 +12,7 @@ import json
 import sys
 
 from lab.core.semantic.fabric.ontology import DocumentTypes
+from lab.core.semantic.fabric.owners import OwnerMap
 from lab.platform import config, container
 from lab.platform.contracts import ARTIFACT_INTAKE
 from lab.workloads.artifact_intake import agents as A
@@ -54,7 +55,8 @@ async def run_once(root, pointer: dict, event_id: str, *, context: str = "", pro
         return make_cfg(credential=tools_cred, traceparent=c.traceparent_header, agents=agents,
                         schemas={"classifier": A.schema("classifier"), "synthesis": A.schema("synthesis")},
                         doc_types=DocumentTypes().types(), threshold=config.FABRIC_ASSOCIATION_THRESHOLD,
-                        default_label=config.FABRIC_DEFAULT_LABEL, tracer=c.tracer, root_ctx=c.root_ctx,
+                        default_label=config.FABRIC_DEFAULT_LABEL, owners=OwnerMap.load(config.FABRIC_OWNER_MAP),
+                        tracer=c.tracer, root_ctx=c.root_ctx,
                         mcp_url=c.mcp_url, run_id=c.run_id)
 
     return await governed_run(

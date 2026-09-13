@@ -12,6 +12,7 @@ import json
 import pytest
 
 from fixtures.workflow import Router, run_spine, spine
+from lab.core.semantic.fabric.owners import OwnerMap
 from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalKind, ApprovalTools, SemanticTools
 from lab.workloads.artifact_intake import agents as A
 from lab.workloads.artifact_intake import workflow as W
@@ -83,7 +84,7 @@ class Fabric:
         return {k: v for k, v in t.items() if v is not None}
 
 
-def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, default_label="", tools=None):
+def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, default_label="", tools=None, owners=None):
     # `None` for a tool = the gateway does NOT expose it (a missing grant, a version skew): unlisted, not just unanswered
     hidden = {k for k, v in (tools or {}).items() if v is None}
     router = Router(fab.tools(**(tools or {})), hidden=hidden, full=True)
@@ -91,7 +92,9 @@ def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, def
     h = ctx.__enter__()
     h.cfg.update({"agents": {k: v for k, v in (("classifier", classifier), ("synthesis", synthesis)) if v},
                   "schemas": {"classifier": A.schema("classifier"), "synthesis": A.schema("synthesis")},
-                  "doc_types": DOC_TYPES, "threshold": threshold, "default_label": default_label})
+                  "doc_types": DOC_TYPES, "threshold": threshold, "default_label": default_label,
+                  # the shipped map's lab rule: a lab product's owner is the person who asked for the run
+                  "owners": owners or OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}})})
     h.close = lambda: ctx.__exit__(None, None, None)
     return h
 
@@ -269,3 +272,40 @@ def test_a_revised_record_tells_the_reviewer_it_is_a_new_version():
         h.close()
     ask = h.router.called(ApprovalTools.ask)[0]
     assert "NEW VERSION wfr-2" in ask["prompt"] and "wfr-1" in ask["prompt"]
+
+
+def test_owner_and_label_are_looked_up_at_c_and_an_unresolved_owner_is_asked():
+    from lab.core.semantic.fabric.owners import OwnerMap
+    owners = OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}, "collab": {"drive-1/EA": "ea@x"}})
+    # a lab product: the run's requester, method `requester`
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "document_type": "urn:fabric:scheme:doc-types#minutes"}),
+                synthesis=FakeAgent(RECORDS), owners=owners)
+    try:
+        run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:AAMk1",
+                         "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+    finally:
+        h.close()
+    owner = [a for a in fab.asserts if a["field"] == "owner"]
+    assert owner and (owner[0]["value"], owner[0]["rung"], owner[0]["method"]) == ("urn:fabric:person:a@x.org", "C", "requester")
+    # a library document: the folder rule wins, the item's label is the label (method item-label)
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), owners=owners, default_label="Internal",
+                tools={"collab_item": {"name": "ADR-14.docx", "path": "EA/decisions", "modified": "2026-09-11T00:00:00Z",
+                                       "label": "Confidential", "author": "ann@x"}})
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    by = {a["field"]: a for a in fab.asserts if a["field"] in ("owner", "sensitivity_label")}
+    assert (by["owner"]["value"], by["owner"]["method"]) == ("urn:fabric:person:ea@x", "owner-map")
+    assert (by["sensitivity_label"]["value"], by["sensitivity_label"]["method"]) == ("Confidential", "item-label")
+    # nobody: no rule, no author → no owner asserted, the review asks the steward
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), owners=OwnerMap.empty())
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert not [a for a in fab.asserts if a["field"] == "owner"]
+    assert "owner" in [i["label"] for i in h.router.called(ApprovalTools.ask)[0]["items"]]

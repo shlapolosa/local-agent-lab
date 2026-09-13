@@ -361,3 +361,5 @@ FABRIC_SWEEP_FIRST_S = int(_e("FABRIC_SWEEP_FIRST_S", "180"))
 # own — those pointing at a receiver on GRAPH_NOTIFICATION_ALLOWLIST — when this much life is left.
 FABRIC_RENEW_WITHIN_S = int(_e("FABRIC_RENEW_WITHIN_S", str(2 * 86400)))
 FABRIC_DEFAULT_LABEL = _e("FABRIC_DEFAULT_LABEL", "")
+#: the owner map (FR-2.2.2): folder/drive → owner, process → owner|requester; read once by the intake host
+FABRIC_OWNER_MAP = _e("FABRIC_OWNER_MAP", str(REPO_ROOT / "config" / "fabric-owners.json"))

@@ -20,6 +20,8 @@ import re
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.core.semantic.fabric.catalog import describe
+from lab.core.semantic.fabric.owners import OwnerMap
+from lab.core.semantic.fabric.service import PERSON
 from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DECISION_RECORD, DELIVERED_UNDER, REFERENCES
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, EXTRACTED, SUGGESTED
 from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIPT_TO_MINUTES, ApprovalKind,
@@ -45,14 +47,14 @@ PROMPT_REVIEW = ("Review this artifact's record before it is published: is the d
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
              schemas: dict | None = None, doc_types: dict | None = None, threshold: float = 0.75,
-             default_label: str = "", tracer=None, root_ctx=None, run_id: str = ""):
+             default_label: str = "", owners: OwnerMap | None = None, tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment.
     `agents` and `schemas` are keyed `classifier` / `synthesis`; an absent agent makes its step a pass-through."""
     from lab.platform import config
     return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "credential": credential, "agents": dict(agents or {}), "schemas": dict(schemas or {}),
             "doc_types": dict(doc_types or {}), "threshold": float(threshold), "default_label": default_label,
-            "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
+            "owners": owners or OwnerMap.empty(), "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
 
 
 # ------------------------------------------------------------------------------------------ helpers
@@ -91,7 +93,7 @@ def build_workflow(cfg):
                 try:
                     item = await gateway.call(cfg, CollabTools.item, {"handle": pointer["handle"]})
                     title = str(item.get("name") or "")
-                    hints = {k: item.get(k) for k in ("path", "modified", "created", "size") if item.get(k)}
+                    hints = {k: item.get(k) for k in ("path", "modified", "created", "size", "label", "author") if item.get(k)}
                 except Exception as e:                  # noqa: BLE001 — a title is a convenience
                     hints = {"title_lookup": f"{type(e).__name__}: {e}"}
             title = title or _label_of(pointer)
@@ -141,11 +143,20 @@ def build_workflow(cfg):
                     await gateway.call(cfg, SemanticTools.vocab_propose,
                                        {"label": term, "actor": "classifier-agent",
                                         "definition": f"proposed while classifying {state['title']}"})
-            if cfg.get("default_label"):
+            # owner and label are LOOKED UP at C (FR-2.2.2): the item's own label, else the site default; the owner
+            # map, else the run's requester, else the item's author — never the model. Unresolved → the review asks.
+            hints = state.get("hints") or {}
+            label, how = (hints.get("label"), "item-label") if hints.get("label") else (cfg.get("default_label"), "site-default")
+            if label:
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
-                    "iri": state["iri"], "field": "sensitivity_label", "value": cfg["default_label"],
-                    "rung": CONSTRUCTED, "method": "site-default"})
-            state = state | {"subjects": subjects, "linked": linked, "missed": missed,
+                    "iri": state["iri"], "field": "sensitivity_label", "value": label, "rung": CONSTRUCTED, "method": how})
+            owner, method = cfg["owners"].resolve(state["pointer"], produced_by=state.get("produced_by") or "",
+                                                  requester=state.get("requester") or "", path=str(hints.get("path") or ""),
+                                                  author=str(hints.get("author") or ""))
+            if owner:
+                await gateway.call(cfg, SemanticTools.catalog_assert, {
+                    "iri": state["iri"], "field": "owner", "value": PERSON + owner, "rung": CONSTRUCTED, "method": method})
+            state = state | {"subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
                              "confidence": confidence, "rationale": (suggestion or {}).get("rationale", "")}
         await ctx.send_message(state)
 
@@ -255,6 +266,8 @@ def build_workflow(cfg):
                       "samples": [f"suggested: {_type_label(cfg, state.get('document_type'))}"
                                   + (f" ({state['confidence']:.2f})" if state.get("type_rung") == SUGGESTED else " (fact)"),
                                   state.get("rationale") or ""]}]
+            if not state.get("owner"):
+                items.append({"label": "owner", "samples": ["unresolved: no owner-map rule, no requester, no author — type the owner's email"]})
             kind = ApprovalKind.DRAFT_REVIEW
             if not state.get("context"):
                 kind = ApprovalKind.ASSOCIATION

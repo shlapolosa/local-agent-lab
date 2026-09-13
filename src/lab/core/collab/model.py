@@ -183,6 +183,8 @@ class DriveItem:
     path: str = ""
     parent: str = ""
     url: str = ""
+    label: str = ""      # the provider's sensitivity label (display name), when it exposes one — looked up, never guessed
+    author: str = ""     # who created the item, as the provider records it — an owner of last resort a person can correct
 
     def __post_init__(self) -> None:
         _require_id("drive item", self.id)

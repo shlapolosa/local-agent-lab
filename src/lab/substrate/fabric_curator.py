@@ -12,6 +12,7 @@ previous value superseded; `none` for a context marks the record unassociated.""
 from __future__ import annotations
 
 from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DELIVERED_UNDER, DOCUMENT_TYPE, short
+from lab.core.semantic.fabric.service import PERSON
 from lab.platform.contracts import ApprovalKind, SemanticTools, answer_value, continuation_of
 from lab.substrate import answer_appliers, fabric_gateway
 
@@ -52,6 +53,10 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
             else:
                 calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "document_type", "value": value,
                                                              "rung": "H", "method": METHOD, "actor": actor}))
+        elif label == "owner":
+            person = value if value.startswith(PERSON) else PERSON + value.strip()
+            calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "owner", "value": person,
+                                                         "rung": "H", "method": METHOD, "actor": actor}))
         elif label == "context":
             if value.strip().lower() == "none":
                 calls.append((SemanticTools.catalog_state, {"iri": iri, "state": "pending", "unassociated": True}))

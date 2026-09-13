@@ -601,3 +601,11 @@ def test_every_TEXT_extension_this_server_mints_has_a_storage_reader():
             f"collab_fetch mints .{ext} for {kind} but no storage reader accepts it")
         assert filetypes.content_type_for(f"x.{ext}") == media, (
             f"the file-type table and this server disagree on what .{ext} is")
+
+
+def test_an_item_answer_carries_label_and_author_but_never_the_url():
+    from lab.core.collab.model import DriveItem
+    from lab.substrate.mcp.graph import server as S
+    i = DriveItem(id="01X", name="ADR-14.docx", drive_id="b!d", label="Confidential", author="ann@x", url="https://x/y")
+    out = S._item(i)
+    assert (out["label"], out["author"]) == ("Confidential", "ann@x") and "url" not in out

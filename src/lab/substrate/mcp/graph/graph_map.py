@@ -136,7 +136,9 @@ def drive_item(js: dict, drive_id: str = "") -> DriveItem:
                      parent=encode_id(parent["id"]) if parent.get("id") else "",
                      # what a person clicks. Graph returns it on every driveItem; it is not an id and
                      # must never be treated as one — it is for a message, not for a lookup.
-                     url=str(js.get("webUrl") or ""))
+                     url=str(js.get("webUrl") or ""),
+                     label=str((js.get("sensitivityLabel") or {}).get("displayName") or ""),
+                     author=str(((js.get("createdBy") or {}).get("user") or {}).get("email") or ""))
 
 
 def _folder_path(parent: dict) -> str:

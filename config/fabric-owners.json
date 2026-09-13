@@ -1,0 +1,13 @@
+{
+  "_comment": "The fabric's owner map (FR-2.2.2): collab rules are '<drive id>' or '<drive id>/<folder prefix>' -> owner; lab rules are '<process>' -> owner, or 'requester' for the person who asked for the run. Read once by the intake host (FABRIC_OWNER_MAP).",
+  "collab": {
+    "b!y9BJ7yalzUSz1u5cN7bbvlP7PaVFkaVHi4JMysAky3eDDCUS2cXCQ7J-EKvoJ9vn": "socrateshlapolosa@socratesbusiness.onmicrosoft.com"
+  },
+  "lab": {
+    "use_case_screening": "requester",
+    "use_case_design": "requester",
+    "use_case_investment": "requester",
+    "transcript_to_minutes": "requester",
+    "visio_to_archimate": "requester"
+  }
+}

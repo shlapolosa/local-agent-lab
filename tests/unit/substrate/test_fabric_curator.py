@@ -68,3 +68,10 @@ def test_the_fabric_kinds_are_registered_as_appliers_and_nothing_else_is():
     assert answer_appliers.applier_for("speaker-mapping") is None
     with pytest.raises(ValueError):
         answer_appliers.register(("draft-review",), lambda s, a: None)
+
+
+def test_an_owner_answer_is_asserted_at_h_as_a_person_iri():
+    calls = C.plan(ROW, {"owner": {"value": "maria@x"}}, "steward@x")
+    assert calls == [(SemanticTools.catalog_assert, {"iri": IRI, "field": "owner", "value": "urn:fabric:person:maria@x",
+                                                     "rung": "H", "method": C.METHOD, "actor": "steward@x"})]
+    assert C.plan(ROW, {"owner": {"value": "urn:fabric:person:maria@x"}}, "steward@x")[0][1]["value"] == "urn:fabric:person:maria@x"
