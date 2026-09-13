@@ -256,6 +256,18 @@ host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` 
 that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
 agents.
 
+**A screening step whose tenant corpus is unpublished records a DECLARED default (13 Sep 2026).**
+Steps 6, 8 and 11 read corpora this tenant does not have (the as-is landscape, the business service
+levels, the source classification). Rather than stay pending and fail readiness gate C on every case,
+each records the conservative reading of not knowing — `lab.workloads.usecase.fallbacks`: nothing is
+realised, no service level is committed, every source contracted at the tightest classification —
+validated and gated exactly like an answer, and listed under `defaulted_steps` on the screening
+record and as `screening_defaulted_steps` on both design summaries. Defaulted is neither derived nor
+pending: a reader can see exactly which findings rest on an assumption. A published corpus gets the
+agent's grounded answer with no change. The full chain ran in the cloud on one submission that day:
+screening → criticality approval → design (proceed) → conformance approval → investment (escalated:
+no delegation-of-authority table) → authorisation approval → provisioning (6 work items, staged).
+
 **`ProcessSpec.external` (default true) says whether an OUTSIDE caller may START a process.** Some
 processes are a CONTINUATION of another: `transcript_to_minutes` takes the speaker mapping a HUMAN
 gave as input, so a caller able to start it directly would supply its own attribution and walk past

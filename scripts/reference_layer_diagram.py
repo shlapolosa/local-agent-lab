@@ -25,7 +25,7 @@ OUT = HERE.parent / "var" / "out" / "architecture"
 
 
 def build() -> C4Diagram:
-    d = C4Diagram("local-agent-lab · reference layer & use-case intake (main @ 83442b7+)", width=2600)
+    d = C4Diagram("local-agent-lab · reference layer & use-case intake (main @ 13 Sep 2026)", width=2600)
 
     d.zone("z_people", "PEOPLE & SURFACES", stroke="#D79B00", height=180, comp_fill="#FFE6CC")
     d.zone("z_gov", "GATEWAY · LiteLLM (the single egress)", stroke="#B85450", height=180,
@@ -72,7 +72,7 @@ def build() -> C4Diagram:
     d.component("m_dec", "z_ports", "decision-mcp :9800",
                 "VERIFIED: readiness verdict under\na pin (gate C failed honestly)", fill=DONE, row=1)
     d.component("m_val", "z_ports", "valuation-mcp :9900",
-                "AMBER: valuation_cost join proven\noffline only — never reached live", fill=PART, row=1)
+                "VERIFIED 13 Sep: cost join + benefit\ncalled by a live design run", fill=DONE, row=1)
     d.component("m_lib", "z_ports", "McpReferenceLibrary",
                 "decision/valuation/review read the\ncorpus via reference-mcp, no DSN", fill=DONE, row=1)
     d.component("m_sem", "z_ports", "semantic-mcp :9200",
@@ -86,17 +86,17 @@ def build() -> C4Diagram:
     d.component("w_pin", "z_work", "usecase.reference",
                 "pin · drift · records · attribution;\nevery run pins REFERENCE_ARTIFACTS", fill=DONE)
     d.component("w_des", "z_work", "use_case_design",
-                "AMBER: re-pins, records drift, then\nHALTS at gate C (3 tenant corpora absent)", fill=PART)
+                "VERIFIED 13 Sep: proceed, readiness pass,\n0 pending; conformance ask released investment", fill=DONE)
     d.component("w_gate", "z_work", "step gates [D]",
                 "VERIFIED 11 Sep: step 3 judges the\nowner's NAME; step 21 by catalogue id", fill=DONE, row=1)
     d.component("w_cost", "z_work", "step 23 · cost join",
-                "AMBER: PriceLine × envelope × volume\nproven by spine tests only", fill=PART, row=1)
+                "VERIFIED 13 Sep: valuation_cost under\nthe pin in a live design run", fill=DONE, row=1)
     d.component("w_inv", "z_work", "use_case_investment",
-                "AMBER: deployed, never reached\n(design halts at gate C)", fill=PART, row=1)
+                "VERIFIED 13 Sep: escalates — no delegation-\nof-authority table; approval released", fill=DONE, row=1)
     d.component("w_pro", "z_work", "use_case_provisioning",
-                "AMBER: deployed, never reached\n(design halts at gate C)", fill=PART, row=1)
+                "VERIFIED 13 Sep: 6 work items,\n1 catalog entry, staged", fill=DONE, row=1)
     d.component("w_absent", "z_work", "steps 6 · 8 · 11",
-                "GREY: landscape, service levels,\nsource classification — no corpora", fill=TODO, row=1)
+                "AMBER: corpora unpublished → DECLARED\ndefaults, listed as defaulted_steps", fill=PART, row=1)
 
     # ---------------------------------------------------------------- substrate & scripts
     d.component("cont", "z_sub", "continuations",

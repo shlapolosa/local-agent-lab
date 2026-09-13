@@ -35,7 +35,7 @@ OUT = HERE.parent / "var" / "out" / "architecture"
 
 
 def build() -> C4Diagram:
-    d = C4Diagram("local-agent-lab · worktree heatmap (main @ b72701e+)", width=3000)
+    d = C4Diagram("local-agent-lab · worktree heatmap (main @ 13 Sep 2026)", width=3000)
 
     # ---------------------------------------------------------------- bands, top -> down
     d.zone("z_people", "HUMANS & CLIENT SURFACES", stroke="#D79B00", height=250, comp_fill="#FFE6CC")
@@ -104,7 +104,7 @@ def build() -> C4Diagram:
         ("m_sp", "speech-mcp :9600", "transcribe · diarize", DONE),
         ("m_ref", "reference-mcp :9700", "VERIFIED 11 Sep: pin · lookup · search\n+ vector-store façade via gateway", DONE),
         ("m_dec", "decision-mcp :9800", "VERIFIED: readiness verdict under\na pin (design run, gate C)", DONE),
-        ("m_val", "valuation-mcp :9900", "AMBER: valuation_cost join proven\noffline only — design halts at gate C", PART),
+        ("m_val", "valuation-mcp :9900", "VERIFIED 13 Sep: cost + benefit\ncalled by a live design run", DONE),
     ]:
         d.component(cid, "z_ports", title, desc, fill=fill)
 
@@ -118,11 +118,11 @@ def build() -> C4Diagram:
     d.component("w_scr", "z_work", "use_case_screening",
                 "VERIFIED 11 Sep: leaves matcher,\n7.7 min, pinned, trail recorded", fill=DONE)
     d.component("w_des", "z_work", "use_case_design",
-                "AMBER: started by the approval, re-pins,\nHALTS at gate C: 3 tenant corpora absent", fill=PART)
+                "VERIFIED 13 Sep: proceed, 0 pending,\ncost join + conformance ask live", fill=DONE)
     d.component("w_inv", "z_work", "use_case_investment",
-                "AMBER: deployed, never reached\n(design halts at gate C)", fill=PART)
+                "VERIFIED 13 Sep: escalated (no\nauthority table), approval released", fill=DONE)
     d.component("w_pro", "z_work", "use_case_provisioning",
-                "AMBER: deployed, never reached\n(design halts at gate C)", fill=PART)
+                "VERIFIED 13 Sep: 6 work items,\n1 catalog entry, staged", fill=DONE)
     d.component("w_run", "z_work", "governed_run skeleton",
                 "one root span, one close path\nevery host goes through it", fill=DONE, row=1)
     d.component("w_pre", "z_work", "preflight",
@@ -168,7 +168,7 @@ def build() -> C4Diagram:
                 "minutes · naming (names, not labels)", fill=DONE)
     d.component("c_vis", "z_core", "visio", "parsers · geometry recovery", fill=DONE)
     d.component("c_uc", "z_core", "usecase",
-                "AMBER: gates/predicates live; cost join\n& obligations proven offline only", fill=PART)
+                "gates · predicates · cost join ·\nobligations — all exercised live 13 Sep", fill=DONE)
     d.component("c_ref", "z_core", "reference",
                 "retrieval as data (whole|key|vector)\nrecord passages · pins · drift", fill=DONE)
     d.component("c_ea", "z_core", "EARepository port",
