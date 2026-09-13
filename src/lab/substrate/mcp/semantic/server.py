@@ -347,6 +347,13 @@ def semantic_search(text: str, limit: int = 10, document_type: str = "", state: 
 
 
 @server.tool()
+def semantic_recommend(text: str, limit: int = 5) -> list:
+    """Before you create a document: the PUBLISHED records already on this topic, each with its owner and source
+    pointer — reuse or ask instead of writing a twin. Never content."""
+    return fabric().recommend(text, limit=limit)
+
+
+@server.tool()
 def semantic_validate_shapes() -> dict:
     """Run the fabric's SHACL shapes over its graphs now (metadata-only, owner provenance, assertion
     completeness) — the fitness function, on demand."""

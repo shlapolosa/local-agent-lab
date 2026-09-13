@@ -17,6 +17,7 @@ DCT = Namespace("http://purl.org/dc/terms/")
 #: Reads (`catalog_get` links) report the SHORT form (`short()`); writes send the full IRI. One home for both.
 DELIVERED_UNDER = str(FAB.deliveredUnder)
 REFERENCES = str(FAB.references)
+DUPLICATE_OF = str(FAB.duplicateOf)
 DOCUMENT_TYPE = str(FAB.documentType)
 OWNED_BY = str(FAB.ownedBy)
 SUBJECT = str(DCT.subject)
@@ -94,5 +95,5 @@ class DocumentTypes:
         return None
 
 
-__all__ = ["FabricOntology", "DocumentTypes", "FAB", "DT", "DCT", "DELIVERED_UNDER", "REFERENCES", "DOCUMENT_TYPE",
+__all__ = ["FabricOntology", "DocumentTypes", "FAB", "DT", "DCT", "DELIVERED_UNDER", "REFERENCES", "DUPLICATE_OF", "DOCUMENT_TYPE",
            "OWNED_BY", "SUBJECT", "CONTEXT_IRI", "DECISION_RECORD", "short"]

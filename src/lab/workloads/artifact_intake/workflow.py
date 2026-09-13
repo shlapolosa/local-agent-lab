@@ -47,14 +47,16 @@ PROMPT_REVIEW = ("Review this artifact's record before it is published: is the d
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
              schemas: dict | None = None, doc_types: dict | None = None, threshold: float = 0.75,
-             default_label: str = "", owners: OwnerMap | None = None, tracer=None, root_ctx=None, run_id: str = ""):
+             default_label: str = "", owners: OwnerMap | None = None, overlap_threshold: float = 0.85,
+             tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment.
     `agents` and `schemas` are keyed `classifier` / `synthesis`; an absent agent makes its step a pass-through."""
     from lab.platform import config
     return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "credential": credential, "agents": dict(agents or {}), "schemas": dict(schemas or {}),
             "doc_types": dict(doc_types or {}), "threshold": float(threshold), "default_label": default_label,
-            "owners": owners or OwnerMap.empty(), "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
+            "owners": owners or OwnerMap.empty(), "overlap_threshold": float(overlap_threshold),
+            "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
 
 
 # ------------------------------------------------------------------------------------------ helpers
@@ -250,8 +252,10 @@ def build_workflow(cfg):
             try:
                 await gateway.call(cfg, SemanticTools.embed, {"iri": state["iri"], "text": _describe(state)})
                 near = await gateway.call(cfg, SemanticTools.similar, {"iri": state["iri"], "limit": 3})
+                # only a PUBLISHED twin is a duplicate to adjudicate (FR-3.3.1); a pending one is another draft
                 overlap_ = [{"iri": n.get("iri"), "title": n.get("title"), "score": n.get("score")}
-                            for n in (near or []) if float(n.get("score") or 0) >= cfg["threshold"]]
+                            for n in (near or []) if n.get("state") == "published"
+                            and float(n.get("score") or 0) >= cfg["overlap_threshold"]]
             except Exception as e:                      # noqa: BLE001 — overlap is evidence, not a gate
                 note = f"{type(e).__name__}: {e}"
             state = state | {"overlap": overlap_, "overlap_note": note}
@@ -268,6 +272,10 @@ def build_workflow(cfg):
                                   state.get("rationale") or ""]}]
             if not state.get("owner"):
                 items.append({"label": "owner", "samples": ["unresolved: no owner-map rule, no requester, no author — type the owner's email"]})
+            if state.get("overlap"):
+                items.append({"label": "overlap",
+                              "samples": [f"{o['title']} ({o['score']:.2f}) — answer duplicate-of:{o['iri']} to withdraw this record as its duplicate"
+                                          for o in state["overlap"]] + ["or answer keep"]})
             kind = ApprovalKind.DRAFT_REVIEW
             if not state.get("context"):
                 kind = ApprovalKind.ASSOCIATION

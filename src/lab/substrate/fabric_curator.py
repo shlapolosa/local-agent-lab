@@ -11,7 +11,7 @@ the answer CONFIRMS is promoted (S/X → H, the audit chain kept); what it CORRE
 previous value superseded; `none` for a context marks the record unassociated."""
 from __future__ import annotations
 
-from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DELIVERED_UNDER, DOCUMENT_TYPE, short
+from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DUPLICATE_OF, DELIVERED_UNDER, DOCUMENT_TYPE, short
 from lab.core.semantic.fabric.service import PERSON
 from lab.platform.contracts import ApprovalKind, SemanticTools, answer_value, continuation_of
 from lab.substrate import answer_appliers, fabric_gateway
@@ -53,6 +53,15 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
             else:
                 calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "document_type", "value": value,
                                                              "rung": "H", "method": METHOD, "actor": actor}))
+        elif label == "overlap":
+            if value.strip().lower() == "keep":
+                continue
+            if not value.startswith("duplicate-of:"):
+                raise ValueError("an overlap answer is 'keep' or 'duplicate-of:<record iri>'")
+            calls.append((SemanticTools.edge_assert, {"subject": iri, "predicate": DUPLICATE_OF,
+                                                      "object": value.split(":", 1)[1].strip(), "rung": "H",
+                                                      "method": METHOD, "actor": actor}))
+            calls.append((SemanticTools.catalog_state, {"iri": iri, "state": "withdrawn"}))
         elif label == "owner":
             person = value if value.startswith(PERSON) else PERSON + value.strip()
             calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "owner", "value": person,

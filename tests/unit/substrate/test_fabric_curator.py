@@ -75,3 +75,14 @@ def test_an_owner_answer_is_asserted_at_h_as_a_person_iri():
     assert calls == [(SemanticTools.catalog_assert, {"iri": IRI, "field": "owner", "value": "urn:fabric:person:maria@x",
                                                      "rung": "H", "method": C.METHOD, "actor": "steward@x"})]
     assert C.plan(ROW, {"owner": {"value": "urn:fabric:person:maria@x"}}, "steward@x")[0][1]["value"] == "urn:fabric:person:maria@x"
+
+
+def test_an_overlap_answer_keeps_or_withdraws_as_a_duplicate_of_the_named_record():
+    from lab.core.semantic.fabric.ontology import DUPLICATE_OF
+    assert C.plan(ROW, {"overlap": {"value": "keep"}}, "steward@x") == []
+    calls = C.plan(ROW, {"overlap": {"value": "duplicate-of:urn:fabric:artifact:PUB"}}, "steward@x")
+    assert calls == [(SemanticTools.edge_assert, {"subject": IRI, "predicate": DUPLICATE_OF, "object": "urn:fabric:artifact:PUB",
+                                                  "rung": "H", "method": C.METHOD, "actor": "steward@x"}),
+                     (SemanticTools.catalog_state, {"iri": IRI, "state": "withdrawn"})]
+    with pytest.raises(ValueError, match="keep"):
+        C.plan(ROW, {"overlap": {"value": "maybe"}}, "steward@x")

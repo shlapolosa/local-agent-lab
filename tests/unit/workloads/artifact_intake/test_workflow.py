@@ -94,7 +94,8 @@ def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, def
                   "schemas": {"classifier": A.schema("classifier"), "synthesis": A.schema("synthesis")},
                   "doc_types": DOC_TYPES, "threshold": threshold, "default_label": default_label,
                   # the shipped map's lab rule: a lab product's owner is the person who asked for the run
-                  "owners": owners or OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}})})
+                  "owners": owners or OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}}),
+                  "overlap_threshold": 0.85})
     h.close = lambda: ctx.__exit__(None, None, None)
     return h
 
@@ -309,3 +310,26 @@ def test_owner_and_label_are_looked_up_at_c_and_an_unresolved_owner_is_asked():
         h.close()
     assert not [a for a in fab.asserts if a["field"] == "owner"]
     assert "owner" in [i["label"] for i in h.router.called(ApprovalTools.ask)[0]["items"]]
+
+
+def test_a_near_duplicate_of_a_published_record_becomes_a_review_item():
+    near = [{"iri": "urn:fabric:artifact:PUB", "title": "ADR-14 Event bus", "score": 0.91, "state": "published"},
+            {"iri": "urn:fabric:artifact:PEN", "title": "draft twin", "score": 0.97, "state": "pending"},
+            {"iri": "urn:fabric:artifact:FAR", "title": "unrelated", "score": 0.40, "state": "published"}]
+    fab = Fabric(similar=near)
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        out = run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    ask = h.router.called(ApprovalTools.ask)[0]
+    item = next(i for i in ask["items"] if i["label"] == "overlap")
+    assert any("ADR-14 Event bus" in s and "0.91" in s for s in item["samples"]) and not any("draft twin" in s for s in item["samples"])
+    assert any("duplicate-of:" in s for s in item["samples"]) and out["summary"]["overlap"] == 1
+    fab = Fabric(similar=[{"iri": "urn:fabric:artifact:PUB", "title": "ADR-14", "score": 0.5, "state": "published"}])
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert "overlap" not in [i["label"] for i in h.router.called(ApprovalTools.ask)[0]["items"]]

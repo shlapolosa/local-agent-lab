@@ -56,6 +56,7 @@ async def run_once(root, pointer: dict, event_id: str, *, context: str = "", pro
                         schemas={"classifier": A.schema("classifier"), "synthesis": A.schema("synthesis")},
                         doc_types=DocumentTypes().types(), threshold=config.FABRIC_ASSOCIATION_THRESHOLD,
                         default_label=config.FABRIC_DEFAULT_LABEL, owners=OwnerMap.load(config.FABRIC_OWNER_MAP),
+                        overlap_threshold=config.FABRIC_OVERLAP_THRESHOLD,
                         tracer=c.tracer, root_ctx=c.root_ctx,
                         mcp_url=c.mcp_url, run_id=c.run_id)
 

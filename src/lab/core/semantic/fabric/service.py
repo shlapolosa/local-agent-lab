@@ -69,7 +69,7 @@ FACETS: dict[str, tuple[URIRef, Callable[[Any], URIRef | Literal]]] = {
 _MIRRORED = (RDF.type, DCT.title, DCAT.accessURL, FAB.lifecycleState, FAB.producedBy, FAB.sourceKind,
              FAB.baselineVersion, FAB.unassociated)
 #: the edges `catalog_get` reports beside the row
-_LINKS = (FAB.deliveredUnder, FAB.references, DCT.subject, FAB.documentType, FAB.ownedBy, FAB.sensitivityLabel)
+_LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, DCT.subject, FAB.documentType, FAB.ownedBy, FAB.sensitivityLabel)
 #: persisted name -> named graph: the five rungs, the PROV records, the candidates
 PERSISTED_GRAPHS: dict[str, URIRef] = {"prov": PROV_GRAPH, "candidates": CANDIDATES_GRAPH,
                                        **{r: graph_iri(r) for r in GRAPH_RUNGS}}
@@ -482,6 +482,11 @@ class FabricService:
             hits = [h for h in hits if h["document_type"] == document_type]
         hits = [h for h in hits if h["state"] == state] if state else [h for h in hits if h["state"] != "withdrawn"]
         return hits[:limit]
+
+    def recommend(self, text: str, *, limit: int = 5) -> list[dict]:
+        """"Before you create": what already exists, PUBLISHED, on this topic — with its owner, so a person
+        reuses or asks instead of writing a twin (BR-4)."""
+        return self.search(text, limit=limit, state="published")
 
     def reindex(self) -> dict:
         """Embed every row the CURRENT embedder's space lacks, from its facets (`describe`). This is what a

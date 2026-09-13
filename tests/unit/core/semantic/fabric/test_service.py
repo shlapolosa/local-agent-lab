@@ -443,3 +443,16 @@ def test_a_new_version_of_a_known_product_reopens_the_record_and_keeps_its_basel
     row = fab.catalog_get(first["iri"])
     assert row["state"] == "pending" and row["baseline_version"] == "wfr-1" and row["pointer"]["ref"] == "art://r2/s.json"
     assert "revised" not in fab.catalog_upsert(p2, title="screening.json", produced_by="use_case_screening", context="usecase:u1")
+
+
+def test_a_duplicate_adjudication_is_an_edge_the_shapes_allow_and_the_record_shows(fab):
+    from lab.core.semantic.fabric.ontology import DUPLICATE_OF
+    a = fab.catalog_upsert(LAB, title="A")["iri"]; b = fab.catalog_upsert(DOC, title="B")["iri"]
+    r = fab.graph_assert(a, DUPLICATE_OF, b, rung="H", method="draft-review", actor="steward@x")
+    assert r["rung"] == "H" and ("duplicateOf", "H") in {(l["predicate"], l["rung"]) for l in fab.catalog_get(a)["links"]}
+
+
+def test_recommend_answers_only_with_published_records(fab):
+    a = fab.catalog_upsert(LAB, title="published one")["iri"]; b = fab.catalog_upsert(DOC, title="pending one")["iri"]
+    fab.embed(a, "claims intake"); fab.embed(b, "claims intake"); fab.catalog_state(a, "published", baseline_version="1")
+    assert [h["iri"] for h in fab.recommend("claims intake")] == [a]

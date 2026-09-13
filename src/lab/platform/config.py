@@ -330,6 +330,8 @@ AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"
 FABRIC_EVENTS = _e("FABRIC_EVENTS", "fabric:events")
 #: Below this confidence a suggested delivery association is never committed — it asks (rung 4).
 FABRIC_ASSOCIATION_THRESHOLD = float(_e("FABRIC_ASSOCIATION_THRESHOLD", "0.75"))
+#: a draft this close to a PUBLISHED record is flagged for adjudication (FR-3.3.1) — a separate dial from association
+FABRIC_OVERLAP_THRESHOLD = float(_e("FABRIC_OVERLAP_THRESHOLD", "0.85"))
 #: Which sources' events enter the pipeline at all: `<sourceKind>:<site|project|drive id>` entries.
 #: EMPTY means nothing is admitted — the ingress must escalate, not admit the world by default.
 FABRIC_ALLOWLIST = tuple(a.strip() for a in (_e("FABRIC_ALLOWLIST") or "").split(",") if a.strip())

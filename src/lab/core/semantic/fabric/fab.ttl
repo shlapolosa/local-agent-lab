@@ -41,6 +41,8 @@ fab:references      a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range
 # subject axis = dct:subject -> skos:Concept in a scheme (no fabric property needed)
 
 # --- governance and custody
+fab:duplicateOf     a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Artifact ;
+    rdfs:comment "a person's adjudication (rung H): this record duplicates that one, and is withdrawn" .
 fab:ownedBy         a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Person .
 fab:documentType    a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:DocumentType .
 fab:sensitivityLabel a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
