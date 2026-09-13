@@ -206,9 +206,29 @@ def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
     tool"), the domain refuses to read an unanswered one as false, and a workflow-wide default
     would answer for every step at once — which is the same as not answering at all.
     """
-    steps = [dict(v) for v in (derived.get("facet_vectors") or {}).get("steps") or []
+    steps = [_domain_step(v) for v in (derived.get("facet_vectors") or {}).get("steps") or []
              if str(v.get("id", "")).strip()]
     return {"steps": steps, "criticality": _criticality(state)}
+
+
+#: The facets a domain `Step` takes, by name — the translation at this edge hands the domain exactly
+#: these and nothing the agent's schema adds for a reader (an `overrides` list with its written
+#: justifications stays on the recorded facet-vector output; the first live design run died in the
+#: decision service on that key, 13 Sep 2026).
+_STEP_FIELDS = ("id", "activity", "determinism", "effect", "reversibility", "blast_radius", "audience",
+                "authorisation", "domain", "sensitivity", "trust", "freshness", "determines",
+                "determines_externally", "gate_permits", "predicate_inputs", "conditions")
+
+
+def _domain_step(vector: Mapping[str, Any]) -> dict:
+    """One facet vector as the domain reads it: an override is APPLIED to its facet (that is what
+    an override is — the justified value replaces the default), and only the domain's fields go."""
+    step = {k: vector[k] for k in _STEP_FIELDS if k in vector}
+    for override in vector.get("overrides") or []:
+        facet, to = str(override.get("facet", "")).strip(), override.get("to")
+        if facet in _STEP_FIELDS and facet not in ("id", "activity", "conditions") and to not in (None, ""):
+            step[facet] = to
+    return step
 
 
 async def _risk_and_obligations(cfg, payload: dict, d: Derivation, pin_id: str) -> None:

@@ -1421,3 +1421,24 @@ def test_a_corpus_the_design_run_cannot_read_defers_its_step_and_names_itself_on
     assert any("facet_schema" in k and "no signed release" in v
                for u in h.runlog.updates for k, v in u[1].items()
                if isinstance(v, str))
+
+
+def test_the_domain_is_handed_only_its_own_fields_with_every_override_applied():
+    """The first live design run died in decision-mcp on `overrides` — a key the agent's schema
+    carries for a reader and the domain `Step` does not take. The edge applies each override to
+    its facet (a justified value replacing the default) and drops what the domain never declared."""
+    from lab.workloads.use_case_design.workflow import _workflow_payload
+    from lab.core.usecase.model import Step as DomainStep
+    vectors = {"steps": [{"id": "n1", "activity": "decide", "determinism": "D2", "effect": "none",
+                          "overrides": [{"facet": "effect", "from": "none", "to": "advisory",
+                                         "justification": "the triage band steers a clinician"}],
+                          "conditions": {c: False for c in _all_conditions()}, "notes": "ignored"}]}
+    payload = _workflow_payload({"criticality": {"criticality_class": {"value": "routine"}}}, {"facet_vectors": vectors})
+    step = payload["steps"][0]
+    assert step["effect"] == "advisory" and "overrides" not in step and "notes" not in step
+    assert DomainStep(**step).effect == "advisory"
+
+
+def _all_conditions():
+    from lab.core.usecase.predicates import NAMED_CONDITIONS
+    return sorted(NAMED_CONDITIONS)
