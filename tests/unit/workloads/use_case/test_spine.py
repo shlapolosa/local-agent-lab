@@ -659,9 +659,12 @@ def test_the_derived_band_becomes_what_the_architect_is_asked_to_confirm():
     assert out["criticality_band"] == "business-critical"
 
 
-def test_a_step_whose_corpus_is_missing_is_not_run_at_all():
-    """Asked anyway, it would answer from nothing — and that answer is indistinguishable from a
-    grounded one. Steps 6, 8 and 11 read corpora this instance does not publish."""
+def test_a_step_whose_corpus_is_missing_records_its_declared_default_and_never_runs_the_agent():
+    """Asked anyway, the agent would answer from nothing — and that answer is indistinguishable
+    from a grounded one. Steps 6, 8 and 11 read corpora this instance does not publish; since 13
+    Sep 2026 each records its DECLARED default instead of deferring (the design half was never
+    reached while they stayed pending), listed under `defaulted_steps` so a reader can see what
+    rests on an assumption — and never under `pending_steps`, which means "did not run"."""
     from lab.workloads.use_case_screening import workflow as W
     router, agents = _screening_with_agents()
     with spine(W, router) as h:
@@ -669,10 +672,18 @@ def test_a_step_whose_corpus_is_missing_is_not_run_at_all():
         run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
     screening = [c[1]["spec"] for c in h.router.calls
                  if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
-    for number, key in (("6", "realisation_match"), ("8", "quality_attributes"),
-                        ("11", "source_contracts")):
-        assert key not in screening, f"step {number} ran without its corpus"
-        assert "needs" in screening["pending_steps"][number]
+    # Step 6 needs only the elements and the landscape: the landscape is the one thing missing,
+    # so its declared default is recorded and listed as defaulted.
+    assert screening["realisation_match"]["gap_flags"][0]["what"].startswith("DEFAULT")
+    assert screening["realisation_match"]["existing"] is False
+    assert "6" not in screening["pending_steps"] and "landscape" in screening["defaulted_steps"]["6"]
+    # Steps 8 and 11 also need prior evidence (the coverage map, the workflow graph) that this
+    # fixture leaves pending. The default stands in for the CORPUS only, so both are deferred
+    # naming the evidence too — never defaulted over a missing derivation. (Their defaults are
+    # exercised on their own in test_fallbacks.py, and in the cloud where step 5 runs.)
+    assert "8" in screening["pending_steps"] and "coverage_map" in screening["pending_steps"]["8"]
+    assert "11" in screening["pending_steps"] and "workflow_graph" in screening["pending_steps"]["11"]
+    assert set(screening["defaulted_steps"]) == {"6"}
 
 
 def test_an_unavailable_corpus_is_named_in_the_record_rather_than_being_silently_absent():

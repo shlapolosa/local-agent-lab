@@ -456,7 +456,9 @@ def _not_ready(state: dict) -> dict:
     return {"verdict": "not ready", "halted": True,
             "readiness": "fail", "readiness_failed": list(state.get("readiness_failed") or ()),
             "summary": {"verdict": "not ready", "design_attempted": False,
-                        "failed_gates": list(state.get("readiness_failed") or ())}}
+                        "failed_gates": list(state.get("readiness_failed") or ()),
+                        "screening_defaulted_steps": sorted(
+                            (state.get("screening") or {}).get("defaulted_steps") or {})}}
 
 
 async def _finding(cfg, state: dict) -> dict:
@@ -514,7 +516,11 @@ async def _conformance(cfg, state: dict) -> dict:
             "readiness": state.get("readiness", ""),
             "summary": {"verdict": "proceed", "design_attempted": True,
                         "pending_steps": len((state.get("design") or {}).get("pending_steps")
-                                             or ())}}
+                                             or ()),
+                        # Which screening findings rest on a declared default (an unpublished
+                        # tenant corpus), so the conformance reviewer sees it before the design.
+                        "screening_defaulted_steps": sorted(
+                            (state.get("screening") or {}).get("defaulted_steps") or {})}}
 
 
 async def run_workflow(cfg, inputs: dict) -> dict:

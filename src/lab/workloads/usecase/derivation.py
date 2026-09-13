@@ -22,7 +22,8 @@ from typing import Any, Mapping
 
 from lab.workloads import gateway
 from lab.workloads.usecase import agents as A
-from lab.workloads.usecase.gates import run_gated
+from lab.workloads.usecase import fallbacks
+from lab.workloads.usecase.gates import GateFailed, gate, run_gated
 from lab.workloads.usecase.steps import Step
 
 __all__ = ["Derivation"]
@@ -41,6 +42,7 @@ class Derivation:
     available: dict[str, Any] = field(default_factory=dict)
     derived: dict[str, Any] = field(default_factory=dict)
     pending: dict[str, str] = field(default_factory=dict)
+    defaulted: dict[str, str] = field(default_factory=dict)   # step number -> what stood in, and why
 
     def record(self, key: str, out: Any, number: str = "") -> None:
         """A derived output, immediately readable by the steps after it. The invariant, in one
@@ -80,6 +82,22 @@ class Derivation:
         pool = {**self.available, **(context or {})}
         needs = sorted(set(A.CONTEXT_FOR.get(step.key, ())) - set(pool))
         if needs:
+            # A step whose ONLY missing input is a corpus this tenant has not published records
+            # its declared default instead of deferring — validated and gated exactly like an
+            # answer, listed as DEFAULTED so a reader can see what rests on it (13 Sep 2026: the
+            # design half was never reached while three tenant corpora stayed unpublished).
+            corpus = fallbacks.CORPUS_FOR.get(step.key)
+            if corpus and needs == [corpus]:
+                out = fallbacks.fallback(step.key, pool)
+                problems = gate(out, validator=step.validator(), normalise=step.normalise,
+                                complete=functools.partial(step.complete, context=pool))
+                if problems:                   # a default that fails its own gate is a bug here
+                    raise GateFailed(step.number, [f"the declared default failed its gate: {p}"
+                                                   for p in problems])
+                self.record(step.key, out, step.number)
+                self.defaulted[step.number] = (f"{label or step.key} — {corpus} is not published; "
+                                               f"the declared default was recorded instead")
+                return True
             self.defer(step.number, f"{label or step.key} — needs {needs}")
             return False
         context_seen = A.context_for(step.key, pool)
@@ -96,4 +114,5 @@ class Derivation:
     def package(self, **base: Any) -> dict:
         """The record this half produced: what was asked of it, what it derived, and what it did
         not. `pending_steps` is first because it is what a reader must not miss."""
-        return {"pending_steps": dict(self.pending), **base, **self.derived}
+        return {"pending_steps": dict(self.pending), "defaulted_steps": dict(self.defaulted),
+                **base, **self.derived}

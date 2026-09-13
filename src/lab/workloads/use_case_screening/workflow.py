@@ -330,6 +330,10 @@ def build_workflow(cfg):
             derived, pending = d.derived, d.pending
 
             screening = {"pending_steps": pending,
+                         # Steps that recorded their DECLARED default because this tenant has not
+                         # published the corpus they read — listed apart from pending (did not run)
+                         # and from derived, so a reader sees what rests on an assumption.
+                         "defaulted_steps": dict(d.defaulted),
                          "corpora_unavailable": dict(state.get("corpora_unavailable") or {}),
                          # How deep the capability match actually reached, and the trail it took —
                          # a final L3 list alone cannot be checked, because a leaf under a branch
@@ -359,6 +363,7 @@ def build_workflow(cfg):
                 "attachments": len(state.get("attachments") or ()),
                 "intake_groups": len(state.get("intake") or {}),
                 "pending_steps": len(PENDING_STEPS),
+                "defaulted_steps": sorted((state.get("screening") or {}).get("defaulted_steps") or {}),
                 "criticality_band": band,
             }
             # What approving RELEASES. Carried on the approval rather than as a static edge, because
