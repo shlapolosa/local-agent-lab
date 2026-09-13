@@ -183,19 +183,40 @@ class TeamsChannel:
         print(f'[teams] card sent for {fields.get("request_id")}', flush=True)
         approvals.ack(self.name, eid)
 
+    def probe(self):
+        """Post ONE minimal card that touches no approval — proves the webhook flow is alive. Measured need
+        (13 Sep 2026): a person saw no fabric card and nothing could say whether none was raised, none was
+        sent, or the flow was dead. Ids and a timestamp only."""
+        payload = {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
+                   "content": {"type": "AdaptiveCard", "version": "1.4", "body": [
+                       {"type": "TextBlock", "text": "fabric channel probe", "weight": "Bolder"},
+                       {"type": "TextBlock", "text": f"teams channel reachable at {_utc_now()} — no action needed", "wrap": True}]}}]}
+        if not self.enabled:
+            print("[teams not configured] would post a probe card"); return
+        self._post(payload)
+        print("[teams] probe sent", flush=True)
+
     def run(self):
         print(f"teams channel: {'enabled' if self.enabled else 'NOT configured (set TEAMS_WEBHOOK_URL) — plumbing only'}")
         if not self.enabled:
             return
+        lag = approvals.channel_lag(self.name)
+        backlog = f"backlog lag={lag['lag']} pending={lag['pending']}" if lag else "backlog unknown"
         # The SHARED loop, and this is the change that matters: a channel used to run an unguarded
         # `while True` with no signal handler, so a Redis blip ended the only thing telling anyone an
         # approval was waiting, and a container stop killed it mid-delivery. The two newer consumers
         # were fixed for exactly that and the fix never came back here, because there was nothing
         # shared to fix.
-        streams.serve(name="teams channel", ready="teams channel serving",
+        streams.serve(name="teams channel", ready=f"teams channel serving  {backlog}",
                       read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS),
                       handle=self.deliver)
 
 
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 if __name__ == "__main__":
-    TeamsChannel().run()
+    import sys
+    TeamsChannel().probe() if "--probe" in sys.argv[1:] else TeamsChannel().run()

@@ -330,6 +330,21 @@ def history(limit=50, *, client=None):
     return [f for _, f in _r(client).xrevrange(DEC, count=limit)]
 
 
+def channel_lag(channel, *, client=None):
+    """How far behind this channel's consumer group is on the request stream — `{pending, lag}` from
+    XINFO GROUPS — or None when the group does not exist yet or the server cannot say. A channel prints it
+    when it comes up: "serving" and "serving with forty cards nobody has seen" must not read the same."""
+    r = _r(client)
+    try:
+        groups = r.xinfo_groups(REQ)
+    except Exception:                                    # noqa: BLE001 — no stream, no XINFO, a double
+        return None
+    for g in groups or []:
+        if str(g.get("name")) == channel:
+            return {"pending": int(g.get("pending") or 0), "lag": int(g.get("lag") or 0)}
+    return None
+
+
 def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=True, client=None):
     """Read this channel's unseen request events (consumer group), returning
     [(entry_id, fields)]; call ack(channel, entry_id) once delivered to the human.

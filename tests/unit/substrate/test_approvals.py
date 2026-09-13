@@ -226,3 +226,15 @@ def test_a_server_without_xautoclaim_still_delivers_what_is_new():
     r = _NoClaim()
     rid = approvals.request("speaker-mapping", "s", {}, "wf", client=r)
     assert [f["request_id"] for _e, f in approvals.channel_events("teams", client=r)] == [rid]
+
+
+def test_channel_lag_reads_the_groups_position_and_is_none_where_the_server_cannot_say():
+    from lab.substrate import approvals as A
+
+    class Introspecting(FakeRedis):
+        def xinfo_groups(self, stream):
+            assert stream == A.REQ
+            return [{"name": "review-app", "pending": 0, "lag": 0}, {"name": "teams", "pending": 3, "lag": 12}]
+    assert A.channel_lag("teams", client=Introspecting()) == {"pending": 3, "lag": 12}
+    assert A.channel_lag("telegram", client=Introspecting()) is None            # no such group yet
+    assert A.channel_lag("teams", client=FakeRedis()) is None                   # the double has no XINFO

@@ -363,3 +363,28 @@ def test_a_question_that_is_not_about_voices_shows_the_choices_not_zero_turns():
                       "answer_labels": ["criticality_class"], "answer_required": True})
     body = _text(card)
     assert "routine · business-critical" in body and "0 turns" not in body
+
+
+def test_a_probe_posts_one_minimal_card_and_says_so(capsys):
+    """WP17: a card that reaches Teams proves the webhook flow is alive without touching an approval — the one
+    check that separates "no fabric card ever arrived" from "no fabric card was ever raised"."""
+    sent = []
+    ch = T.TeamsChannel("https://hook.test/x", post=lambda payload: sent.append(payload) or {"status": 202})
+    ch.probe()
+    assert len(sent) == 1 and sent[0]["type"] == "message"
+    text = json.dumps(sent[0])
+    assert "probe" in text and "fabric" in text and "[teams] probe sent" in capsys.readouterr().out
+    off = T.TeamsChannel(None)
+    off.probe()
+    assert "not configured" in capsys.readouterr().out
+
+
+def test_the_ready_line_reports_the_groups_backlog(monkeypatch, capsys):
+    """A channel that has been off says how far behind it is when it comes back — otherwise "serving" and
+    "serving with 40 cards nobody has seen" print the same line."""
+    ch = _enabled()
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events", lambda name, block_ms: (stop(), [])[1])
+    monkeypatch.setattr(approvals, "channel_lag", lambda name, client=None: {"pending": 3, "lag": 12})
+    ch.run()
+    assert "backlog lag=12 pending=3" in capsys.readouterr().out
