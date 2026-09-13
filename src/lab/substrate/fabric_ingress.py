@@ -114,18 +114,19 @@ def admitted(event: ArtifactChanged, allowlist: tuple[str, ...] = None, *, path:
     return False
 
 
-def _path_of(event: ArtifactChanged) -> str | None:
-    """The item's folder path, asked of the collaboration port ONLY when the allow-list scopes its drive by
-    folder — one governed read per such event, none otherwise. Unknown (a refused lookup) stays None."""
+def _path_of(event: ArtifactChanged, allowlist: tuple[str, ...], *, lookup=None) -> str | None:
+    """The item's folder path, needed ONLY when the allow-list scopes its drive by folder: the reconciler already
+    put it on the pointer (`path`); a webhook event lacks it and ONE governed read answers. A lookup that fails
+    RAISES — the caller's reclaim-then-dead-letter path owns that, never a silent drop acked as "not on the
+    allow-list". None means the drive is not folder-scoped."""
     handle = event.pointer.get("handle") if event.source_kind == "collab" else None
-    if not handle or not needs_path(config.FABRIC_ALLOWLIST, ContentHandle.parse(handle).scope):
+    if not handle or not needs_path(allowlist, ContentHandle.parse(handle).scope):
         return None
-    try:
-        item = asyncio.run(fabric_gateway.call([(CollabTools.item, {"handle": handle})]))[0]
-        return str((item or {}).get("path") or "")
-    except Exception as e:                        # noqa: BLE001 — an unknown path is not admitted, and says why
-        print(f"[ingress] {event.pointer_key}: path lookup failed: {type(e).__name__}: {e}", flush=True)
-        return None
+    if event.pointer.get("path") is not None:
+        return str(event.pointer["path"])
+    go = lookup or fabric_gateway.call
+    item = asyncio.run(go([(CollabTools.item, {"handle": handle})]))[0]
+    return str((item or {}).get("path") or "")
 
 
 def attributed(event: ArtifactChanged, *, client) -> ArtifactChanged:
@@ -143,11 +144,12 @@ def idempotency_key(event: ArtifactChanged) -> str:
     return f"{event.pointer_key}@{event.pointer.get('version', '')}"[:200]
 
 
-def submit_for(event: ArtifactChanged, *, client) -> tuple[str, bool] | None:
+def submit_for(event: ArtifactChanged, *, client, allowlist: tuple[str, ...] | None = None, lookup=None) -> tuple[str, bool] | None:
     """Filter, attribute, then submit ONE intake run. Returns (request_id, duplicate) or None when the
     event was dropped — and says why on stdout, because a dropped event that nobody can explain is the
-    silent failure this module exists to prevent."""
-    if not admitted(event, path=_path_of(event)):
+    silent failure this module exists to prevent. A path lookup that fails raises (see `_path_of`)."""
+    allow = config.FABRIC_ALLOWLIST if allowlist is None else allowlist
+    if not admitted(event, allow, path=_path_of(event, allow, lookup=lookup)):
         print(f"[ingress] dropped {event.pointer_key}: not on FABRIC_ALLOWLIST", flush=True)
         return None
     event = attributed(event, client=client)

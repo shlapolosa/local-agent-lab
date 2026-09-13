@@ -486,7 +486,9 @@ class FabricService:
         return hits[:limit]
 
     def derive(self) -> dict:
-        """Rebuild the derived rung D from the trusted rungs (two rules, `derive.RULES`) and persist it. Counts only."""
+        """Rebuild the derived rung D from the trusted rungs (two rules, `derive.RULES`) and persist it. Counts only.
+        On a persist failure D is left EMPTY in memory (not restored to the previous derivation): D is recomputed,
+        never asserted, so an empty D is honest until the next derivation, where a stale one would not be."""
         out = DR.derive(self.ds)
         self._persist((DERIVED, "prov"), lambda: DR.clear(self.ds))
         return out

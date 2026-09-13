@@ -17,12 +17,12 @@ import json
 from datetime import datetime, timezone
 
 from lab.platform.contracts import ApprovalKind, SemanticTools
-from lab.substrate import fabric_gateway
+from lab.platform.fabric_events import METRICS_KEY as KEY
+from lab.substrate import approvals, fabric_gateway
 from lab.substrate.fabric_projector import write_page
 
 __all__ = ["QUERIES", "KEY", "PAGE", "gather", "compute", "render", "tick"]
 
-KEY = "fabric:metrics"
 PAGE = "fabric-metrics.md"
 PREFIX = ("PREFIX fab: <urn:fabric:ont#> PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> "
           "PREFIX prov: <http://www.w3.org/ns/prov#> ")
@@ -55,13 +55,8 @@ async def gather(*, call=None, client) -> dict:
     (the hashes this substrate already reaches). Counts only."""
     go = call or fabric_gateway.call
     tables = dict(zip(QUERIES, await go([(SemanticTools.query, {"sparql": q}) for q in QUERIES.values()])))
-    decisions: dict[str, dict[str, int]] = {}
-    for key in client.scan_iter(match="approvals:req:*"):
-        st = client.hgetall(key) or {}
-        kind = str(st.get("kind") or "")
-        if kind in {ApprovalKind.DRAFT_REVIEW, ApprovalKind.ASSOCIATION, ApprovalKind.IMPACT_NOTICE}:
-            d = decisions.setdefault(kind, {})
-            d[str(st.get("status") or "pending")] = d.get(str(st.get("status") or "pending"), 0) + 1
+    decisions = approvals.decision_counts((ApprovalKind.DRAFT_REVIEW, ApprovalKind.ASSOCIATION, ApprovalKind.IMPACT_NOTICE),
+                                          client=client)
     return {"tables": tables, "decisions": decisions}
 
 
@@ -75,15 +70,18 @@ def compute(facts: dict) -> dict:
     states = _by(t.get("states") or {"columns": ["state", "n"], "rows": []}, "state")
     total, published = sum(states.values()), states.get("published", 0)
     delivery = _by(t.get("delivery") or {"columns": ["rung", "n"], "rows": []}, "rung")
-    auto, asked = delivery.get("C", 0) + delivery.get("X", 0), delivery.get("H", 0)
+    # established by the pipeline = looked up (C), found in content (X) or DERIVED by a rule (D); asked = H
+    derived = delivery.get("D", 0)
+    auto, asked = delivery.get("C", 0) + delivery.get("X", 0) + derived, delivery.get("H", 0)
     review = d.get(ApprovalKind.DRAFT_REVIEW, {})
-    approved, reworked = review.get("approve", 0), review.get("update", 0) + review.get("decline", 0)
+    # approved AS DRAFTED: a final approve with no update/decline before it (the audit log, not the last status)
+    approved, reworked = review.get("approve", 0) - review.get("reworked", 0), review.get("reworked", 0)
     notice = d.get(ApprovalKind.IMPACT_NOTICE, {})
     dup = _n(t.get("duplicates") or {})
     return {
         "computed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "records": {"total": total, **states},
-        "auto_association_ratio": {"value": _ratio(auto, auto + asked), "auto": auto, "asked": asked},
+        "auto_association_ratio": {"value": _ratio(auto, auto + asked), "auto": auto, "asked": asked, "derived": derived},
         "approved_without_rewrite": {"value": _ratio(approved, approved + reworked), "approved": approved, "reworked": reworked,
                                      "open": review.get("pending", 0)},
         "impact_acknowledged": {"value": _ratio(notice.get("approve", 0), notice.get("approve", 0) + notice.get("decline", 0)),
@@ -107,7 +105,7 @@ def render(m: dict) -> str:
         f"*Computed {m['computed_at']} from the catalog, the graph and the review gate. Numbers, never content.*", "",
         "| Measure | Value | Basis |", "|---|---|---|",
         f"| Records | {r['total']} | " + ", ".join(f"{k} {v}" for k, v in r.items() if k != "total") + " |",
-        f"| Auto-association ratio | {_pct(m['auto_association_ratio'])} | {m['auto_association_ratio']['auto']} established by the pipeline, {m['auto_association_ratio']['asked']} asked of a person |",
+        f"| Auto-association ratio | {_pct(m['auto_association_ratio'])} | {m['auto_association_ratio']['auto']} established by the pipeline ({m['auto_association_ratio']['derived']} of them derived), {m['auto_association_ratio']['asked']} asked of a person |",
         f"| Drafts approved without rewrite | {_pct(m['approved_without_rewrite'])} | {m['approved_without_rewrite']['approved']} approved, {m['approved_without_rewrite']['reworked']} sent back or declined, {m['approved_without_rewrite']['open']} open |",
         f"| Impact notices acknowledged | {_pct(m['impact_acknowledged'])} | {m['impact_acknowledged']['acknowledged']} acknowledged, {m['impact_acknowledged']['declined']} declined, {m['impact_acknowledged']['unacknowledged_changes']} unacknowledged changes |",
         f"| Duplicate rate | {_pct(m['duplicate_rate'])} | {m['duplicate_rate']['duplicates']} duplicates over {m['duplicate_rate']['published']} published |",
@@ -121,5 +119,5 @@ async def tick(*, folder: str, client, call=None) -> dict:
     go = call or fabric_gateway.call
     m = compute(await gather(call=go, client=client))
     client.set(KEY, json.dumps(m))
-    await write_page(PAGE, render(m), folder=folder, call=go)
+    await write_page(PAGE, render(m), folder=folder, call=go, client=client)     # loop-guarded like every fabric write
     return m

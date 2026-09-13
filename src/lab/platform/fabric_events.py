@@ -24,6 +24,7 @@ DEAD = STREAM + ":dead"
 GROUP = "fabric-ingress"
 MAXLEN = 50_000
 MAX_ATTEMPTS = 3
+METRICS_KEY = "fabric:metrics"       # the reconciler's tick writes the measurements here; semantic_metrics reads them
 WRITTEN = "fabric:written:"
 WRITTEN_TTL = 7 * 24 * 60 * 60
 

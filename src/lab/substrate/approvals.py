@@ -326,6 +326,33 @@ def pending(*, client=None):
     return sorted((status(i, client=r) for i in r.smembers("approvals:pending")), key=_order)
 
 
+def decision_counts(kinds, *, client=None):
+    """Per kind: how the DECIDED requests ended, read from the decisions stream — the audit log, which keeps every
+    decision, where the request hash keeps only the last. `reworked` counts requests that were sent back or
+    declined at least once before their final decision (an approve after an update is NOT "approved as drafted");
+    `pending` counts the open ones. Only the kinds asked for."""
+    r = _r(client)
+    wanted = set(kinds)
+    per_request: dict[str, list[str]] = {}
+    for _, f in r.xrange(DEC):
+        rid = f.get("request_id")
+        if rid:
+            per_request.setdefault(rid, []).append(f.get("decision", ""))
+    counts = {k: {"approve": 0, "decline": 0, "update": 0, "reworked": 0, "pending": 0} for k in wanted}
+    for rid, decisions in per_request.items():
+        kind = r.hget(f"approvals:req:{rid}", "kind")
+        if kind not in wanted:
+            continue
+        final = decisions[-1]
+        counts[kind][final] = counts[kind].get(final, 0) + 1
+        if any(d in (Decision.UPDATE, Decision.DECLINE) for d in decisions[:-1]):
+            counts[kind]["reworked"] += 1
+    for st in pending(client=r):
+        if st.get("kind") in wanted and st.get("status") not in APPROVAL_FINAL:
+            counts[st["kind"]]["pending"] += 1
+    return counts
+
+
 def history(limit=50, *, client=None):
     return [f for _, f in _r(client).xrevrange(DEC, count=limit)]
 

@@ -27,12 +27,13 @@ vocabularies + fabric together), are SHACL-checked on every write and shadowed t
   semantic_validate_shapes · semantic_promote the fitness function, and the curator's gate (actor required)
 """
 import json
+from datetime import datetime, timezone
 import os
 
 from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
 from lab.platform import config
-from lab.substrate.fabric_metrics import KEY as METRICS_KEY
+from lab.platform.fabric_events import METRICS_KEY
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
 
@@ -360,7 +361,15 @@ def semantic_metrics() -> dict:
     ratio, drafts approved without rewrite, impact notices acknowledged, duplicate rate, labelled and owned
     share — each with its numerator and denominator. Numbers, never content."""
     raw = server.container.redis().get(METRICS_KEY)
-    return json.loads(raw) if raw else {"note": "not computed yet — the reconciler computes on its sweep tick"}
+    if not raw:
+        return {"note": "not computed yet — the reconciler computes on its sweep tick"}
+    m = json.loads(raw)
+    try:                                   # how old the numbers are, so a reader never mistakes a stale page for now
+        computed = datetime.fromisoformat(m["computed_at"])
+        m["age_seconds"] = max(0, int((datetime.now(timezone.utc) - computed).total_seconds()))
+    except (KeyError, ValueError):
+        m["age_seconds"] = None
+    return m
 
 
 @server.tool()

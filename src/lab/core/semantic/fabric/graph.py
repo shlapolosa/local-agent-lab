@@ -24,8 +24,12 @@ SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
 ASSERTION = "urn:fabric:assertion:"
 
 
-def _now() -> Literal:
+def now() -> Literal:
+    """The moment, as the typed literal every PROV record carries."""
     return Literal(datetime.now(timezone.utc).isoformat(timespec="seconds"), datatype=XSD.dateTime)
+
+
+_now = now
 
 
 @dataclass(frozen=True)

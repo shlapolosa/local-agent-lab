@@ -82,6 +82,8 @@ def decide(item: dict, row: dict | None) -> ArtifactChanged | None:
     pointer = {"source": "collab", "handle": str(item["handle"])}
     if modified:
         pointer["version"] = modified
+    if item.get("path"):                 # the folder the sweep found it in — what a folder-scoped allow-list asks
+        pointer["path"] = str(item["path"])
     return ArtifactChanged(event_id=ids.ulid(), pointer=pointer, source_kind="collab",
                            change="updated" if row else "created", actor_oid="",
                            occurred_at=modified or datetime.now(timezone.utc).isoformat(timespec="seconds"))

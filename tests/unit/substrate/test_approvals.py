@@ -238,3 +238,22 @@ def test_channel_lag_reads_the_groups_position_and_is_none_where_the_server_cann
     assert A.channel_lag("teams", client=Introspecting()) == {"pending": 3, "lag": 12}
     assert A.channel_lag("telegram", client=Introspecting()) is None            # no such group yet
     assert A.channel_lag("teams", client=FakeRedis()) is None                   # the double has no XINFO
+
+
+def test_decision_counts_read_the_audit_log_so_a_rewrite_before_an_approval_is_seen():
+    """BR-8: "approved without rewrite" must see the `update` that preceded an `approve` — the hash keeps only the
+    last status, the decisions stream keeps them all."""
+    from lab.substrate import approvals as A
+    r = FakeRedis()
+    a = A.request("draft-review", "a", {}, "wf", client=r); A.human_decision(a, "approve", "p@x", "review-app", client=r)
+    b = A.request("draft-review", "b", {}, "wf", client=r)
+    A.human_decision(b, "update", "p@x", "review-app", "fix the type", client=r)
+    A.human_decision(b, "approve", "p@x", "review-app", client=r)
+    c = A.request("draft-review", "c", {}, "wf", client=r); A.human_decision(c, "decline", "p@x", "review-app", client=r)
+    A.request("draft-review", "d", {}, "wf", client=r)                                  # still open
+    n = A.request("impact-notice", "n", {}, "wf", client=r); A.human_decision(n, "approve", "p@x", "review-app", client=r)
+    A.request("speaker-mapping", "s", {}, "wf", client=r)                               # not asked for
+    counts = A.decision_counts(("draft-review", "impact-notice"), client=r)
+    assert counts["draft-review"] == {"approve": 2, "decline": 1, "update": 0, "reworked": 1, "pending": 1}
+    assert counts["impact-notice"] == {"approve": 1, "decline": 0, "update": 0, "reworked": 0, "pending": 0}
+    assert "speaker-mapping" not in counts

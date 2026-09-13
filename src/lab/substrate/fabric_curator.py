@@ -11,13 +11,13 @@ the answer CONFIRMS is promoted (S/X → H, the audit chain kept); what it CORRE
 previous value superseded; `none` for a context marks the record unassociated."""
 from __future__ import annotations
 
-from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DT, DUPLICATE_OF, DELIVERED_UNDER, DOCUMENT_TYPE, DocumentTypes, short
+from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DUPLICATE_OF, DELIVERED_UNDER, DOCUMENT_TYPE, DocumentTypes, short
 from lab.core.semantic.fabric.service import PERSON
 from lab.platform.contracts import ApprovalKind, SemanticTools, answer_value, continuation_of
 from lab.substrate import answer_appliers, fabric_gateway
 
 KINDS = (ApprovalKind.ASSOCIATION.value, ApprovalKind.DRAFT_REVIEW.value)
-DOC_TYPES = DocumentTypes()           # the scheme is data in the package; one parse per process
+DOC_TYPES = DocumentTypes()           # stateless; the scheme's parse is cached in core
 METHOD = "review"
 
 
@@ -39,19 +39,6 @@ def _link(row: dict, predicate: str, obj: str) -> str | None:
     return None
 
 
-def _doc_type(value: str) -> str:
-    """A type answered by its IRI, its label or an alt label (a person in chat says "decision record"); anything
-    else is refused NAMING the choices, so the person can answer again."""
-    if value.startswith(str(DT)):
-        return value
-    want = value.strip().casefold()
-    for iri, t in DOC_TYPES.types().items():
-        if want in {t["label"].casefold(), *(a.casefold() for a in t["alt"])}:
-            return iri
-    labels = ", ".join(sorted(t["label"] for t in DOC_TYPES.types().values()))
-    raise ValueError(f"document_type {value!r} is not a known type — answer one of: {labels}")
-
-
 def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
     """The calls that make the fabric say what the person said. Pure."""
     if not actor:
@@ -61,7 +48,7 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
     for label, entry in (answer or {}).items():
         value = answer_value(entry)
         if label == "document_type":
-            value = _doc_type(value)
+            value = DOC_TYPES.resolve(value)
             if _link(row, short(DOCUMENT_TYPE), value) in ("S", "X"):
                 calls.append((SemanticTools.promote, {"subject": iri, "predicate": DOCUMENT_TYPE,
                                                       "object": value, "actor": actor, "method": METHOD}))

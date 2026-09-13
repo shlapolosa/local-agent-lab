@@ -1,6 +1,8 @@
 """The ingress: finished runs and adapter events become ONE intake run each; filtered, attributed, de-duplicated."""
 import json
 
+import pytest
+
 from fixtures.fakes import FakeRedis
 from lab.core import ids
 from lab.platform import config, fabric_events, workflows
@@ -153,3 +155,29 @@ def test_two_runs_over_one_subject_are_two_versions_of_one_product():
     # no subject → the ref is the identity, as before
     bare = {**_minutes_state(), "inputs": {}}
     assert [e for e in ing.events_from_run(bare) if e.source_kind == "lab"][0].pointer_key == "lab:art://abc/minutes.json"
+
+
+def test_a_folder_scoped_drive_takes_the_path_from_the_pointer_else_asks_once_and_a_failed_lookup_is_not_a_drop(monkeypatch):
+    """WP21 review: the reconciler already knows the path (it rides on the pointer); a webhook event lacks it and
+    ONE governed read answers; a lookup that fails must propagate (reclaim, then dead-letter) — never be acked
+    away as "not on the allow-list"."""
+    r = FakeRedis()
+    allow = ("collab:drive-1/Architectures",)
+    asked = []
+
+    async def lookup(calls):
+        asked.extend(calls)
+        return [{"path": "Architectures/2026"}]
+    inside = _event(pointer={"source": "collab", "handle": "collab://item/drive-1/01ABC", "version": "4.0", "path": "Architectures/x"})
+    assert ing.submit_for(inside, client=r, allowlist=allow, lookup=lookup) and asked == []          # path on the pointer
+    outside = _event(pointer={"source": "collab", "handle": "collab://item/drive-1/01ABD", "version": "4.0", "path": "BulkIntakeUploads"})
+    assert ing.submit_for(outside, client=r, allowlist=allow, lookup=lookup) is None
+    bare = _event(pointer={"source": "collab", "handle": "collab://item/drive-1/01ABE", "version": "4.0"})
+    assert ing.submit_for(bare, client=r, allowlist=allow, lookup=lookup) and len(asked) == 1          # asked once
+
+    async def down(calls):
+        raise RuntimeError("gateway restarting")
+    with pytest.raises(RuntimeError, match="gateway restarting"):
+        ing.submit_for(_event(pointer={"source": "collab", "handle": "collab://item/drive-1/01ABF", "version": "5.0"}),
+                       client=r, allowlist=allow, lookup=down)
+    assert ing.submit_for(bare, client=r, allowlist=("collab:drive-1",), lookup=down)                 # drive-wide: never asks

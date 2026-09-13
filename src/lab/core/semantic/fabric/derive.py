@@ -4,13 +4,15 @@ Two rules, each a SELECT that binds the derived subject, object and the record i
 the trusted rungs only (C, X, H — never S: a wrong suggestion must not derive a confident edge). Graph D is
 rebuilt from scratch on every call, so it is idempotent and never stale by more than one derivation; every
 derived triple carries a PROV record at rung D with method `rule:<name>` and `prov:wasDerivedFrom` the record
-it came through. Pure over the Dataset; the service persists."""
+it came through. Rules read the trusted rungs, never each other's output: they are non-transitive and
+order-independent by construction — a rule that needs another rule's result needs a fixpoint loop, added then.
+Pure over the Dataset; the service persists."""
 from __future__ import annotations
 
 from rdflib import RDF, BNode, Dataset, Graph, Literal, URIRef
 
 from lab.core import ids
-from lab.core.semantic.fabric.graph import ASSERTION, FAB, PROV, _now
+from lab.core.semantic.fabric.graph import ASSERTION, FAB, PROV, now
 from lab.core.semantic.fabric.rungs import CONFIRMED, CONSTRUCTED, DERIVED, EXTRACTED, PROV_GRAPH, graph_iri
 
 __all__ = ["RULES", "derive", "clear"]
@@ -40,12 +42,16 @@ def _trusted(ds: Dataset) -> Graph:
 
 
 def clear(ds: Dataset) -> int:
-    """Drop graph D and every PROV record at rung D. Returns how many triples left."""
+    """Drop graph D and the PROV records of the derived triples still there. A D record a person PROMOTED (it
+    carries prov:wasInvalidatedBy the H record) is kept: the audit chain must still say the confirmed edge
+    began as an inference. Returns how many triples were removed."""
     d = ds.graph(graph_iri(DERIVED))
     n = len(d)
     d.remove((None, None, None))
     prov = ds.graph(PROV_GRAPH)
     for aid in list(prov.subjects(FAB.rung, Literal(DERIVED))):
+        if prov.value(aid, PROV.wasInvalidatedBy) is not None:
+            continue
         stmt = prov.value(aid, FAB.asserts)
         prov.remove((aid, None, None))
         if stmt is not None:
@@ -70,7 +76,7 @@ def derive(ds: Dataset) -> dict:
             prov.add((stmt, RDF.predicate, predicate)); prov.add((stmt, RDF.object, o))
             prov.add((aid, RDF.type, FAB.Assertion)); prov.add((aid, FAB.asserts, stmt))
             prov.add((aid, FAB.rung, Literal(DERIVED))); prov.add((aid, FAB.method, Literal(f"rule:{name}")))
-            prov.add((aid, PROV.generatedAtTime, _now())); prov.add((aid, PROV.wasDerivedFrom, via))
+            prov.add((aid, PROV.generatedAtTime, now())); prov.add((aid, PROV.wasDerivedFrom, via))
             n += 1
         counts[name] = n
     return {"derived": sum(counts.values()), "rules": counts}

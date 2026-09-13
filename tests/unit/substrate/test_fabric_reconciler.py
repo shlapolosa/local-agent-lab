@@ -112,3 +112,40 @@ def test_the_first_sweep_waits_out_the_deploy_window(monkeypatch):
     import inspect
     src = inspect.getsource(R.main)
     assert "FABRIC_SWEEP_FIRST_S" in src and "on_start" not in src
+
+
+def test_a_swept_item_carries_its_folder_path_on_the_pointer():
+    ev = R.decide({"folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z", "path": "Architectures/2026"}, None)
+    assert ev.pointer["path"] == "Architectures/2026"
+    assert "path" not in R.decide({"folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z"}, None).pointer
+
+
+def test_run_once_sweeps_first_then_measures_and_remembers_the_numbers(monkeypatch):
+    from lab.platform import config, fabric_events
+    from lab.substrate import fabric_metrics
+    monkeypatch.setattr(config, "FABRIC_ALLOWLIST", ("collab:drive-1",))
+    monkeypatch.setattr(config, "FABRIC_WIKI_FOLDER", "collab://item/drive-1/root")
+    order = []
+
+    async def call(calls):
+        out = []
+        for suffix, args in calls:
+            if suffix == "collab_list":
+                order.append("sweep"); out.append({"items": []})
+            elif suffix == "semantic_query":
+                order.append("measure")
+                name = next(k for k, q in fabric_metrics.QUERIES.items() if q == args["sparql"])
+                out.append({"columns": ["state", "n"], "rows": []} if name == "states"
+                           else {"columns": ["rung", "n"], "rows": []} if name == "delivery"
+                           else {"columns": ["n"], "rows": [["0"]]})
+            elif suffix == "semantic_store_spec":
+                out.append({"spec_ref": "art://m/fabric-metrics.md"})
+            elif suffix == "collab_put":
+                out.append({"handle": "collab://item/drive-1/page", "name": args["name"]})
+            else:
+                out.append(None)
+        return out
+    r = FakeRedis()
+    R.run_once(call=call, client=r)
+    assert order and order[0] == "sweep" and "measure" in order
+    assert r.get(fabric_events.METRICS_KEY) and r.get("fabric:written:collab:collab://item/drive-1/page")   # loop-guarded

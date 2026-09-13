@@ -345,7 +345,8 @@ FABRIC_DB_URL = _e("FABRIC_DB_URL") or _e("DATABASE_URL", "")
 # The intake's two agents share one model setting (both are kimi-k3 class work: classify metadata, draft
 # records from minutes); the sensitivity label written at C when nothing better is known (NFR-3: a
 # label is looked up, never guessed — the site default IS the lookup for a library with one label).
-FABRIC_AGENT_MODEL = _e("FABRIC_AGENT_MODEL", "gpt-5.4-mini")     # Ollama Cloud's weekly cap is out (12 Sep 2026); the minutes agents' choice
+#: the minutes agents' measured choice (their bake-off, 12 Sep 2026); revisit only against a measurement, not a quota
+FABRIC_AGENT_MODEL = _e("FABRIC_AGENT_MODEL", "gpt-5.4-mini")
 # The CURATOR: the virtual key the substrate's fabric consumers act with — the runner applies a person's
 # fabric decision (PROMOTE, which no workload has), the projector writes pages, the reconciler sweeps.
 # Empty = every fabric consumer refuses: an approved fabric question is recorded on its approval as a

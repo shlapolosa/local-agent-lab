@@ -74,7 +74,7 @@ def _short(iri) -> str:
     return short(s) if "#" in s or "/" in s[8:] else s.rsplit(":", 1)[-1] if s.startswith("urn:") else s
 
 
-async def project(state: dict, *, folder: str, call=None) -> dict | None:
+async def project(state: dict, *, folder: str, call=None, client=None) -> dict | None:
     """Write the page for one finished publish run. Returns {ref, handle, name} or None when there is
     nothing to write. `call(calls)` is the gateway transport (injected by a test)."""
     if state.get("status") != WorkflowStatus.DONE.value or state.get("process") != ARTIFACT_PUBLISH.name:
@@ -87,20 +87,29 @@ async def project(state: dict, *, folder: str, call=None) -> dict | None:
     if not row:
         raise LookupError(f"no catalog record {iri}")
     name = f"{slug(row.get('title') or iri.rsplit(':', 1)[-1])}.md"
-    return await write_page(name, page(row), folder=folder, call=go)
+    return await write_page(name, page(row), folder=folder, call=go, client=client, run_id=str(state.get("request_id") or ""))
 
 
-async def write_page(name: str, text: str, *, folder: str, call) -> dict:
+async def write_page(name: str, text: str, *, folder: str, call, client=None, run_id: str = "") -> dict:
     """ONE small Markdown page into the wiki folder, by reference: stored as a lab artifact, then `collab_put`
-    (which replaces a file of the same name). Shared by the record projection and the measurements page."""
+    (which replaces a file of the same name), then MARKED as fabric-written so the ingress drops the change
+    event this write causes — the loop guard is part of the write, not something a caller remembers (a page
+    written without it is ingested by the fabric on the next sweep, every time it is rewritten). Shared by the
+    record projection and the measurements page."""
     stored = (await call([(SemanticTools.store_spec, {"spec": {"text": text}, "name": name})]))[0]
     ref = stored["spec_ref"] if isinstance(stored, dict) else json.loads(stored)["spec_ref"]
     if not folder:
         print(f"[projector] would write {name} ({len(text)} chars) — FABRIC_WIKI_FOLDER unset", flush=True)
         return {"ref": ref, "handle": "", "name": name}
     put = (await call([(CollabTools.put, {"folder": folder, "ref": ref, "name": name})]))[0]
-    return {"ref": ref, "handle": str(put.get("handle") or ""), "name": str(put.get("name") or name),
-            "version": str(put.get("modified") or put.get("version") or "")}
+    out = {"ref": ref, "handle": str(put.get("handle") or ""), "name": str(put.get("name") or name),
+           "version": str(put.get("modified") or put.get("version") or "")}
+    if out["handle"]:
+        # a fabric page is regenerated on every write, so tagging every version of it (an empty stamp is
+        # accepted) is intended — a person's edit to a projection is not a change the fabric ingests
+        fabric_events.mark_written(pointer_key({"source": "collab", "handle": out["handle"]}),
+                                   out["version"], TAG_KIND, run_id, client=client)
+    return out
 
 
 def handle(entry_id: str, fields: dict, *, folder: str, client, call=None) -> dict | None:
@@ -111,16 +120,9 @@ def handle(entry_id: str, fields: dict, *, folder: str, client, call=None) -> di
             return _done(entry_id, client)
         if _already(client, rid):
             return _done(entry_id, client)
-        out = asyncio.run(project(workflows.status(rid, client=client), folder=folder, call=call))
+        out = asyncio.run(project(workflows.status(rid, client=client), folder=folder, call=call, client=client))
         if out is None:
             return _done(entry_id, client)
-        if out["handle"]:
-            # The loop guard: the ingress drops the change event THIS write causes. The version is the
-            # provider's stamp when it reports one; a projection page is fabric-owned and regenerated on
-            # every publish, so tagging every version of it (an empty stamp) is the intended behaviour —
-            # a person's edit to a projection is not a change the fabric ingests.
-            fabric_events.mark_written(pointer_key({"source": "collab", "handle": out["handle"]}),
-                                       out.get("version", ""), TAG_KIND, rid, client=client)
         workflows.annotate(rid, client=client, projection_ref=out["ref"], projection_handle=out["handle"])
         client.set(_key(rid), "1", ex=PROJECTED_TTL_S)
         _done(entry_id, client)

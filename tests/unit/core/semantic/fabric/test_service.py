@@ -456,3 +456,17 @@ def test_recommend_answers_only_with_published_records(fab):
     a = fab.catalog_upsert(LAB, title="published one")["iri"]; b = fab.catalog_upsert(DOC, title="pending one")["iri"]
     fab.embed(a, "claims intake"); fab.embed(b, "claims intake"); fab.catalog_state(a, "published", baseline_version="1")
     assert [h["iri"] for h in fab.recommend("claims intake")] == [a]
+
+
+def test_derive_persists_d_and_a_store_failure_leaves_d_empty_and_raises(fab):
+    from lab.core.semantic.fabric.ontology import SYNTHESISED_FROM
+    m = fab.catalog_upsert(LAB, title="Minutes", produced_by="transcript_to_minutes", context="meeting:AAMk1")["iri"]
+    d = fab.catalog_upsert(DOC, title="ADR")["iri"]
+    fab.graph_assert(d, SYNTHESISED_FROM, m, rung="C", method="drafted-from")
+    out = fab.derive()
+    assert out["derived"] == 1 and ("D", "prov") in fab.written[-1:] or ("D", "prov") == fab.written[-1]
+    assert ("deliveredUnder", "D") in {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}
+    _store_down(fab)
+    with pytest.raises(RuntimeError):
+        fab.derive()
+    assert ("deliveredUnder", "D") not in {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}

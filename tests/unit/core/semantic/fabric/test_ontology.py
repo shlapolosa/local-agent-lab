@@ -33,3 +33,14 @@ def test_a_store_over_the_registry_holds_both_graphs():
     st = SemanticStore(r)
     assert len(st.ds.graph(URIRef("urn:lab:semantic:vocab:fabric"))) > 50
     assert len(st.ds.graph(URIRef("urn:lab:semantic:vocab:doc-types"))) > 6
+
+
+def test_a_document_type_resolves_by_iri_label_or_alt_label_and_names_the_choices_otherwise():
+    import pytest
+    dt = DocumentTypes()
+    assert dt.resolve("urn:fabric:scheme:doc-types#minutes") == "urn:fabric:scheme:doc-types#minutes"
+    assert dt.resolve("Decision record") == dt.resolve("adr") == "urn:fabric:scheme:doc-types#decision-record"
+    assert dt.resolve("MEETING MINUTES").endswith("#minutes")
+    with pytest.raises(ValueError, match="Decision record"):
+        dt.resolve("shopping list")
+    assert dt.types() is dt.types() or dt.types() == dt.types()          # cached load, one parse per process

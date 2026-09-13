@@ -2,6 +2,8 @@
 the Turtle files beside this module — data, not prose, like every other vocabulary in this package."""
 from __future__ import annotations
 
+from functools import lru_cache
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,7 +35,9 @@ def short(iri) -> str:
     return s.rsplit("#", 1)[-1] if "#" in s else s.rsplit("/", 1)[-1]
 
 
+@lru_cache(maxsize=None)
 def _load(name: str) -> Graph:
+    """The package's Turtle, parsed ONCE per process — every caller shares the graph and never mutates it."""
     g = Graph()
     g.parse(HERE / name, format="turtle")
     return g
@@ -88,6 +92,19 @@ class DocumentTypes:
                 "produced_by": str(g.value(c, FAB.producedBy) or ""),
             }
         return out
+
+    def resolve(self, value: str) -> str:
+        """A type given as its IRI, its label or an alt label (a person in chat says "decision record"), to the
+        IRI — case-insensitive; anything else is refused NAMING the choices, so the person can answer again."""
+        if value.startswith(str(DT)):
+            return value
+        want = value.strip().casefold()
+        types = self.types()
+        for iri, t in types.items():
+            if want in {t["label"].casefold(), *(a.casefold() for a in t["alt"])}:
+                return iri
+        raise ValueError(f"document type {value!r} is not a known type — answer one of: "
+                         + ", ".join(sorted(t["label"] for t in types.values())))
 
     def for_process(self, process: str) -> str | None:
         """The type a lab process produces, or None — the deterministic classification path."""

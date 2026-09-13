@@ -121,6 +121,15 @@ def test_an_artifacts_life_through_the_tools():
     assert call("semantic_search", text="ADR-14 Event bus · decision record", document_type="")[0]["iri"] == d["iri"]
     assert call("semantic_search", text="x", state="published") == []
     assert call("semantic_recommend", text="ADR-14 Event bus · decision record") == []      # nothing published yet
+    # d references m and m is delivered under the meeting → rule 1 derives d relatedTo that context (rung D)
+    assert call("semantic_derive") == {"derived": 1, "rules": {"references-context": 1, "synthesised-context": 0}}
+    assert ("relatedTo", "D") in {(l["predicate"], l["rung"]) for l in call("semantic_catalog_get", iri=d["iri"])["links"]}
+    assert "not computed" in call("semantic_metrics")["note"]
+    import json as _json
+    from lab.platform import fabric_events as _fe
+    REDIS.set(_fe.METRICS_KEY, _json.dumps({"computed_at": "2026-09-13T06:00:00+00:00", "records": {"total": 3}}))
+    measured = call("semantic_metrics")
+    assert measured["records"]["total"] == 3 and measured["age_seconds"] > 0
     # a switched embedder is one governed call away from a readable index again
     srv.F.catalog.put_embedding(d["iri"], srv.F.catalog.embedding(d["iri"])[0], "retired-model")
     assert call("semantic_reindex") == {"model": "test-embed", "indexed": 1, "skipped": 0}
