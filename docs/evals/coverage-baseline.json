@@ -1,48 +1,220 @@
 {
-  "recorded": "2026-09-10",
-  "scheme": "healthcare-provider-v2.0",
-  "corpus": "v0.27",
-  "note": "drill from the run the quota cut short (its 429 run excluded); leaves and vector n=2; expected sets = 2 blind-adjudicated cases",
+  "recorded": "2026-09-12",
+  "model": "gpt-5.4-mini-think",
+  "corpus": "v0.29",
+  "schemes": {
+    "healthcare-provider-v2.0": [
+      "intake-agent",
+      "referral-triage",
+      "appointment-no-show",
+      "imaging-order-triage",
+      "medication-reconciliation"
+    ],
+    "insurance-v5.0": [
+      "motor-fnol-triage",
+      "pre-authorisation",
+      "renewal-retention"
+    ]
+  },
+  "note": "8 cases (2 blind-adjudicated + 6 promoted from two-model agreement), n=2 per matcher; text-embedding-3-large index; supersedes the kimi-k3/nomic baseline of 10 Sep",
+  "previous": {
+    "recorded": "2026-09-10",
+    "scheme": "healthcare-provider-v2.0",
+    "corpus": "v0.27",
+    "note": "drill from the run the quota cut short (its 429 run excluded); leaves and vector n=2; expected sets = 2 blind-adjudicated cases",
+    "means": {
+      "drill": {
+        "intake-agent": {
+          "precision": 0.315,
+          "recall": 0.5,
+          "f1": 0.386,
+          "n": 2
+        },
+        "referral-triage": {
+          "precision": 0.57,
+          "recall": 0.4,
+          "f1": 0.47,
+          "n": 1
+        }
+      },
+      "leaves": {
+        "intake-agent": {
+          "precision": 0.354,
+          "recall": 0.5,
+          "f1": 0.414,
+          "n": 2
+        },
+        "referral-triage": {
+          "precision": 0.625,
+          "recall": 0.5,
+          "f1": 0.556,
+          "n": 2
+        }
+      },
+      "vector": {
+        "intake-agent": {
+          "precision": 0.191,
+          "recall": 0.333,
+          "f1": 0.243,
+          "n": 2
+        },
+        "referral-triage": {
+          "precision": 0.5,
+          "recall": 0.35,
+          "f1": 0.412,
+          "n": 2
+        }
+      }
+    }
+  },
   "means": {
     "drill": {
+      "appointment-no-show": {
+        "precision": 0.357,
+        "recall": 0.208,
+        "f1": 0.263,
+        "n": 2
+      },
+      "imaging-order-triage": {
+        "precision": 0.111,
+        "recall": 0.167,
+        "f1": 0.133,
+        "n": 2
+      },
       "intake-agent": {
-        "precision": 0.315,
+        "precision": 0.312,
         "recall": 0.5,
-        "f1": 0.386,
+        "f1": 0.381,
+        "n": 2
+      },
+      "medication-reconciliation": {
+        "precision": 0.25,
+        "recall": 0.167,
+        "f1": 0.2,
         "n": 2
       },
       "referral-triage": {
-        "precision": 0.57,
-        "recall": 0.4,
-        "f1": 0.47,
-        "n": 1
+        "precision": 0.188,
+        "recall": 0.15,
+        "f1": 0.167,
+        "n": 2
+      },
+      "motor-fnol-triage": {
+        "precision": 0.702,
+        "recall": 0.5,
+        "f1": 0.583,
+        "n": 2
+      },
+      "pre-authorisation": {
+        "precision": 0.174,
+        "recall": 0.286,
+        "f1": 0.216,
+        "n": 2
+      },
+      "renewal-retention": {
+        "precision": 0.192,
+        "recall": 0.5,
+        "f1": 0.278,
+        "n": 2
       }
     },
     "leaves": {
-      "intake-agent": {
-        "precision": 0.354,
+      "appointment-no-show": {
+        "precision": 0.643,
+        "recall": 0.375,
+        "f1": 0.474,
+        "n": 2
+      },
+      "imaging-order-triage": {
+        "precision": 0.273,
         "recall": 0.5,
-        "f1": 0.414,
+        "f1": 0.353,
+        "n": 2
+      },
+      "intake-agent": {
+        "precision": 0.375,
+        "recall": 0.583,
+        "f1": 0.452,
+        "n": 2
+      },
+      "medication-reconciliation": {
+        "precision": 0.183,
+        "recall": 0.167,
+        "f1": 0.174,
         "n": 2
       },
       "referral-triage": {
-        "precision": 0.625,
-        "recall": 0.5,
-        "f1": 0.556,
+        "precision": 0.354,
+        "recall": 0.25,
+        "f1": 0.292,
+        "n": 2
+      },
+      "motor-fnol-triage": {
+        "precision": 0.402,
+        "recall": 0.333,
+        "f1": 0.364,
+        "n": 2
+      },
+      "pre-authorisation": {
+        "precision": 0.208,
+        "recall": 0.357,
+        "f1": 0.263,
+        "n": 2
+      },
+      "renewal-retention": {
+        "precision": 0.321,
+        "recall": 0.7,
+        "f1": 0.437,
         "n": 2
       }
     },
     "vector": {
+      "appointment-no-show": {
+        "precision": 0.5,
+        "recall": 0.292,
+        "f1": 0.368,
+        "n": 2
+      },
+      "imaging-order-triage": {
+        "precision": 0.236,
+        "recall": 0.417,
+        "f1": 0.301,
+        "n": 2
+      },
       "intake-agent": {
-        "precision": 0.191,
-        "recall": 0.333,
-        "f1": 0.243,
+        "precision": 0.056,
+        "recall": 0.083,
+        "f1": 0.067,
+        "n": 2
+      },
+      "medication-reconciliation": {
+        "precision": 0.271,
+        "recall": 0.25,
+        "f1": 0.259,
         "n": 2
       },
       "referral-triage": {
-        "precision": 0.5,
-        "recall": 0.35,
-        "f1": 0.412,
+        "precision": 0.643,
+        "recall": 0.45,
+        "f1": 0.529,
+        "n": 2
+      },
+      "motor-fnol-triage": {
+        "precision": 0.417,
+        "recall": 0.278,
+        "f1": 0.333,
+        "n": 2
+      },
+      "pre-authorisation": {
+        "precision": 0.097,
+        "recall": 0.143,
+        "f1": 0.115,
+        "n": 2
+      },
+      "renewal-retention": {
+        "precision": 0.174,
+        "recall": 0.4,
+        "f1": 0.243,
         "n": 2
       }
     }
