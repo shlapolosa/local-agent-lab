@@ -540,3 +540,13 @@ def test_a_facet_refusal_names_every_unanswered_condition_so_the_retry_can_compl
     unanswered = sorted(set(NAMED_CONDITIONS) - set(answered))
     text = "\n".join(bad)
     assert all(c in text for c in unanswered), f"a retry cannot answer what it is not told: {bad}"
+
+
+def test_the_model_is_told_where_a_capability_id_comes_from():
+    """The first live run on the id gate wrote a well-formed id that exists nowhere (13 Sep 2026):
+    nothing had told the model the id is COPIED from the candidate list. The rule lives in the
+    prompt it reads and on the schema field it fills, so the gate refuses what was asked for."""
+    from lab.workloads.usecase.steps import prompt
+    desc = schema("coverage_map")["properties"]["matched"]["items"]["properties"]["capability_id"]["description"]
+    assert "id" in desc and "shown" in desc and "refused" in desc
+    assert "`capability_id` is COPIED" in prompt("coverage_map")

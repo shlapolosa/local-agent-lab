@@ -22,6 +22,12 @@ capability map is a programme, not a use case, and saying so is more useful than
 case fit is the failure this step exists to prevent: it produces a coverage map that looks complete
 and a capability map that quietly disagrees with itself.
 
+**`capability_id` is COPIED, character for character, from the `id` field of a candidate you were
+shown.** It is never composed, abbreviated, recalled from memory or derived from a label — an id
+that is not on the list you were given is refused, and a match whose id nothing can look up is a
+match the design cannot build on. If no candidate fits a function, the function goes in
+`functions_without_capability`; do not reach for an id to fill the gap.
+
 **Check coverage BOTH ways**, and report both even when the second is empty:
 - every function → a capability (or the gap)
 - every capability the use case claims to serve → at least one function

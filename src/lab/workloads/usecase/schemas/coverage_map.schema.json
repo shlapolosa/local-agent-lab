@@ -10,10 +10,12 @@
             "type": "string"
           },
           "capability_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Copied character for character from the `id` field of a candidate this step was shown. Never composed, abbreviated or recalled: an id not on the candidate list is refused."
           },
           "capability_label": {
-            "type": "string"
+            "type": "string",
+            "description": "The `label` of that same candidate, for a reader; the id is what is checked and joined on."
           },
           "confidence": {
             "enum": [
@@ -25,7 +27,7 @@
           "level": {
             "type": "integer",
             "minimum": 1,
-            "description": "Which level of the capability map this match was made at. Written by the drill, not by the agent \u2014 a pass matches at the level it was given."
+            "description": "Which level of the capability map this match was made at. Written by the drill, not by the agent — a pass matches at the level it was given."
           },
           "path": {
             "type": "array",
