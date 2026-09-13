@@ -9,6 +9,9 @@ Offline: a fake Redis, no webhook, no tenant.
 Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/test_meeting_notifier.py
 """
 import json
+import urllib.error
+
+import pytest
 
 from fixtures.fakes import FakeRedis
 from lab.platform import streams, workflows
@@ -243,3 +246,86 @@ def test_recording_a_failure_never_fails_while_failing(capsys):
             raise RuntimeError("redis is down")
 
     N._note_failure(Broken(), "wfr-1", OSError("connection refused"))   # must not raise
+
+
+# ---------------------------------------------------------------- when a retry can never work
+def _http(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://flow.example/hook", code, "no", {}, None)
+
+
+def test_a_webhook_that_REFUSES_the_message_is_dead_lettered_at_once(monkeypatch):
+    """Retrying forever is only right while the failure might stop. A 4xx says the webhook
+    understood this message and will not take it — a wrong url, a revoked flow, a payload it
+    rejects — and no number of retries changes that. Left alone it reclaims every minute for as long
+    as the service runs: one poison message costing a request a minute, forever, announcing nothing.
+    """
+    r = FakeRedis()
+    rid = _finish(r, chat_id="19:a@thread.v2", delivered=DELIVERED)
+    monkeypatch.setattr(N, "post_json", lambda url, payload: (_ for _ in ()).throw(_http(404)))
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)
+    N.run_once(webhook="https://flow.example/hook", client=r)
+    assert r.xpending(workflows.DONE, N.GROUP)["pending"] == 0, "acked — it will never succeed"
+    dead = r.xrange(N.DEAD)
+    assert len(dead) == 1, "and it is somewhere a person can find it"
+    assert dead[0][1]["request_id"] == rid
+    assert "404" in dead[0][1]["reason"]
+    assert workflows.status(rid, client=r).get("notify_dead"), "the run says so too"
+
+
+def test_a_webhook_that_is_DOWN_keeps_being_retried(monkeypatch):
+    """The distinction that makes the rule safe. A 5xx, a timeout, a refused connection — all of
+    them might stop, and a meeting's minutes stay useful for hours, so delaying beats dropping."""
+    r = FakeRedis()
+    _finish(r, chat_id="19:a@thread.v2", delivered=DELIVERED)
+    monkeypatch.setattr(N, "post_json", lambda url, payload: (_ for _ in ()).throw(_http(503)))
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)
+    N.run_once(webhook="https://flow.example/hook", client=r)
+    assert r.xpending(workflows.DONE, N.GROUP)["pending"] == 1, "still queued for the retry"
+    assert not r.xrange(N.DEAD)
+
+
+@pytest.mark.parametrize("code", [408, 429])
+def test_the_two_4xx_codes_that_mean_TRY_AGAIN_are_not_dead_lettered(monkeypatch, code):
+    """408 and 429 are 4xx by number and transient by meaning; treating the class rather than the
+    code would throw away exactly the messages a busy tenant is most likely to delay."""
+    r = FakeRedis()
+    _finish(r, chat_id="19:a@thread.v2", delivered=DELIVERED)
+    monkeypatch.setattr(N, "post_json", lambda url, payload: (_ for _ in ()).throw(_http(code)))
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)
+    N.run_once(webhook="https://flow.example/hook", client=r)
+    assert r.xpending(workflows.DONE, N.GROUP)["pending"] == 1
+    assert not r.xrange(N.DEAD)
+
+
+def test_an_outage_that_never_ends_is_eventually_given_up_on(monkeypatch):
+    """A bound on the transient case too. Something that has failed every attempt for hours is not
+    coming back on its own, and an entry retried forever is an alert nobody raised."""
+    r = FakeRedis()
+    rid = _finish(r, chat_id="19:a@thread.v2", delivered=DELIVERED)
+    monkeypatch.setattr(N, "post_json", lambda url, payload: (_ for _ in ()).throw(_http(503)))
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)
+    monkeypatch.setattr(N, "MAX_TRIES", 3)
+    for _ in range(N.MAX_TRIES):
+        N.run_once(webhook="https://flow.example/hook", client=r)
+    assert r.xpending(workflows.DONE, N.GROUP)["pending"] == 0
+    assert r.xrange(N.DEAD)[0][1]["request_id"] == rid
+
+
+def test_a_send_that_succeeds_clears_the_count(monkeypatch):
+    """So an outage on Monday cannot make Friday's message the one that exhausts the budget."""
+    r = FakeRedis()
+    rid = _finish(r, chat_id="19:a@thread.v2", delivered=DELIVERED)
+    calls = []
+
+    def flaky(url, payload):
+        calls.append(1)
+        if len(calls) < 3:
+            raise _http(503)
+        return ""
+    monkeypatch.setattr(N, "post_json", flaky)
+    monkeypatch.setattr(streams, "RECLAIM_IDLE_MS", 0)
+    monkeypatch.setattr(N, "MAX_TRIES", 5)
+    for _ in range(3):
+        N.run_once(webhook="https://flow.example/hook", client=r)
+    assert not r.xrange(N.DEAD)
+    assert not r.get(N._tries_key(rid)), "the budget is spent per outage, not per lifetime"

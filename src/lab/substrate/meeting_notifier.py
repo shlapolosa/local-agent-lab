@@ -30,6 +30,7 @@ Run: .venv/bin/python -m lab.substrate.meeting_notifier
 from __future__ import annotations
 
 import json
+import urllib.error
 
 from lab.platform import config, streams, workflows
 from lab.platform.webhook import post_json
@@ -38,6 +39,20 @@ from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, WorkflowStatus
 GROUP = "meeting-notifier"
 CONSUMER = "1"
 ANNOUNCED_TTL_S = 86400    # long enough to outlive any retry of one run, short enough not to accumulate
+
+#: Where a message that will never be delivered goes to be found. Leaving it unacked instead means
+#: reclaiming it every minute for as long as the service runs — a poison message costing a request a
+#: minute forever, announcing nothing, and looking exactly like a healthy queue from outside.
+DEAD = "workflow:notify:dead"
+#: How many attempts a TRANSIENT failure gets before it is treated as permanent. The retry arrives
+#: through the reclaim (~60 s), so this is roughly twenty minutes of outage — long enough for a
+#: restart or a deploy, short enough that nothing retries for a day. A meeting's minutes stay useful
+#: for hours, so delaying beats dropping; retrying forever is neither.
+MAX_TRIES = 20
+TRIES_TTL_S = 86400
+#: 4xx codes that mean TRY AGAIN rather than NEVER. Treating the class rather than these two codes
+#: would discard exactly the messages a busy or rate-limited tenant is most likely to delay.
+RETRY_4XX = (408, 429)
 
 
 def announcement(state: dict) -> dict | None:
@@ -91,13 +106,75 @@ def handle(entry_id: str, fields: dict, *, webhook: str, client) -> dict | None:
         else:
             print(f"[notifier] would post: {json.dumps(said)[:200]}", flush=True)
         _mark_announced(client, rid)
+        _clear_tries(client, rid)
         _done(entry_id, client)
         return said
     except Exception as e:                          # noqa: BLE001 — one meeting must not stop the rest
         print(f"[notifier] {rid}: {type(e).__name__}: {e}", flush=True)
         # ...and leave a trace where a person looking at the run will find it, not only on stdout
         _note_failure(client, rid, e)
+        tries = _count_try(client, rid)
+        if _permanent(e) or tries >= MAX_TRIES:
+            _dead_letter(entry_id, rid, e, tries, client=client)
         return None
+
+
+def _permanent(error: Exception) -> bool:
+    """Is retrying this pointless? A 4xx says the webhook UNDERSTOOD the message and will not take
+    it — a wrong url, a revoked flow, a body it rejects — and no number of attempts changes that.
+    Everything else (5xx, a timeout, a refused connection) might stop, and is retried.
+
+    The same split `lab.workloads.gateway.survive_restart` makes, for the same reason: a retry is
+    only honest while the failure might be temporary.
+    """
+    return (isinstance(error, urllib.error.HTTPError)
+            and 400 <= error.code < 500 and error.code not in RETRY_4XX)
+
+
+def _tries_key(request_id: str) -> str:
+    return f"notify:tries:{request_id}"
+
+
+def _count_try(client, request_id: str) -> int:
+    """One more attempt against this run's budget. Cleared by a SUCCESSFUL send, so the budget is
+    spent per OUTAGE and not per lifetime — otherwise a bad Monday decides Friday's message."""
+    if not request_id:
+        return 0
+    try:
+        n = int(client.incr(_tries_key(request_id)))
+        client.expire(_tries_key(request_id), TRIES_TTL_S)
+        return n
+    except Exception:                               # noqa: BLE001 — bookkeeping is never worth the loop
+        return 0
+
+
+def _clear_tries(client, request_id: str) -> None:
+    if request_id:
+        try:
+            client.delete(_tries_key(request_id))
+        except Exception:                           # noqa: BLE001
+            pass
+
+
+def _dead_letter(entry_id: str, request_id: str, error: Exception, tries: int, *, client) -> None:
+    """Stop retrying, and say so somewhere a person will look.
+
+    ACKS, which is the whole point — the entry leaves the pending list and stops being reclaimed.
+    The message is not lost: it is on `DEAD` with its reason and attempt count, and on the run
+    itself, so recovering it is a decision somebody can make rather than one this loop keeps
+    pretending to make every minute.
+    """
+    reason = f"{type(error).__name__}: {error}"[:300]
+    try:
+        client.xadd(DEAD, {"request_id": request_id, "reason": reason, "tries": str(tries)})
+    except Exception:                               # noqa: BLE001 — never fail the loop over a record
+        pass
+    try:
+        workflows.annotate(request_id, client=client, notify_dead=reason)
+    except Exception:                               # noqa: BLE001
+        pass
+    print(f"[notifier] {request_id}: giving up after {tries} attempt(s) — {reason}", flush=True)
+    _done(entry_id, client)
 
 
 def _done(entry_id: str, client) -> None:

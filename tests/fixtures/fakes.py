@@ -108,6 +108,14 @@ class FakeRedis:
         return self.kv.get(k)
 
     @_op
+    def incr(self, k, amount=1):
+        """INCR, because a real Redis has it and a double that silently lacks a command turns a
+        caller's defensive `except` into a disabled feature — which is how the notifier's retry
+        budget passed its own test while counting nothing."""
+        self.kv[k] = str(int(self.kv.get(k, 0)) + amount)
+        return int(self.kv[k])
+
+    @_op
     def delete(self, *keys):
         n = 0
         for k in keys:
