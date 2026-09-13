@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from lab.core.usecase.predicates import NAMED_CONDITIONS
 from lab.workloads.usecase.gates import validator_for
 
 __all__ = ["DESIGN_STEPS", "SCREENING_STEPS", "STEPS", "Step", "schema", "step_for"]
@@ -43,7 +44,21 @@ _ORDER_WORDS = ("first", "then", "next", "finally", "afterwards", "subsequently"
 
 
 def schema(name: str) -> dict:
-    return json.loads((SCHEMAS / f"{name}.schema.json").read_text(encoding="utf-8"))
+    out = json.loads((SCHEMAS / f"{name}.schema.json").read_text(encoding="utf-8"))
+    if name == "facet_vectors":
+        # The nine conditions are declared ONCE, in `predicates.NAMED_CONDITIONS`; the schema the
+        # model reads and the validator checks carries them by name, each required. A free-form
+        # object with two examples left the model to guess the exact strings, and the gate refused
+        # every answer twice in the first live design run (13 Sep 2026).
+        conditions = out["properties"]["steps"]["items"]["properties"]["conditions"]
+        conditions["properties"] = {c: {"type": "boolean"} for c in sorted(NAMED_CONDITIONS)}
+        conditions["required"] = sorted(NAMED_CONDITIONS)
+        conditions["additionalProperties"] = False
+        conditions["description"] = ("Answer EVERY one of these conditions for THIS step, true or "
+                                     "false, using the exact keys listed. An unanswered condition is "
+                                     "refused, never read as false: a guardrail that silently fails "
+                                     "to fire is invisible.")
+    return out
 
 
 def prompt(name: str) -> str:
@@ -280,7 +295,6 @@ def _determinism(out: dict, context: Mapping[str, Any] | None = None) -> list[st
 #: What the published guardrail predicates ask that a facet vector cannot answer — declared beside
 #: the predicate parser, and compared against the corpus by a test, so a new guardrail's condition
 #: becomes required the moment it is published rather than the next time somebody remembers this.
-from lab.core.usecase.predicates import NAMED_CONDITIONS
 
 
 def _facet_vectors(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
@@ -307,10 +321,11 @@ def _facet_vectors(out: dict, context: Mapping[str, Any] | None = None) -> list[
         # describing, and it never sees which guardrails they turn on.
         unanswered = sorted(set(NAMED_CONDITIONS) - set(step.get("conditions") or {}))
         if unanswered:
-            bad.append(f'step {step.get("id")!r} leaves {unanswered[:3]} unanswered '
-                       f'({len(unanswered)} in total) — a guardrail whose condition nobody '
-                       f'answered does not fire, and nothing downstream can tell it was skipped')
-    return bad[:5]
+            # EVERY missing key, by name: the refusal is what the retry answers from, and a list
+            # cut to three left the model unable to comply (13 Sep 2026).
+            bad.append(f'step {step.get("id")!r} leaves these conditions unanswered — answer each '
+                       f'with true or false, under exactly this key: {unanswered}')
+    return bad
 
 
 def _build_surface(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:

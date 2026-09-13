@@ -518,3 +518,25 @@ def test_without_a_shown_list_the_id_check_cannot_run_and_says_nothing_false():
                         "confidence": "lookup"}],
            "functions_without_capability": [], "capabilities_without_function": [], "heat_map": HEAT}
     assert gated("5", out) == []
+
+
+# ------------------------------------------------- step 17: the conditions are named, all of them
+def test_the_facet_schema_names_every_condition_the_gate_will_demand():
+    """One declaration: the schema the model reads and the validator checks carry every named
+    condition as a required boolean, so the model is asked for exactly what the gate refuses
+    without. A free-form object with two examples was unsatisfiable except by luck."""
+    from lab.core.usecase.predicates import NAMED_CONDITIONS
+    conds = schema("facet_vectors")["properties"]["steps"]["items"]["properties"]["conditions"]
+    assert sorted(conds["required"]) == sorted(NAMED_CONDITIONS)
+    assert set(conds["properties"]) == set(NAMED_CONDITIONS) and conds["additionalProperties"] is False
+
+
+def test_a_facet_refusal_names_every_unanswered_condition_so_the_retry_can_comply():
+    from lab.core.usecase.predicates import NAMED_CONDITIONS
+    answered = {c: True for c in sorted(NAMED_CONDITIONS)[:4]}
+    out = {"steps": [{"id": "n1", "activity": "triage", "determinism": "D2", "effect": "advisory",
+                      "conditions": answered}]}
+    bad = gated("17", out)
+    unanswered = sorted(set(NAMED_CONDITIONS) - set(answered))
+    text = "\n".join(bad)
+    assert all(c in text for c in unanswered), f"a retry cannot answer what it is not told: {bad}"

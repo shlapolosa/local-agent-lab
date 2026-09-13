@@ -30,7 +30,11 @@ from lab.workloads import gateway
 __all__ = ["GateFailed", "gate", "json_of", "run_gated", "validator_for"]
 
 #: Enough for a retry to act on. Beyond it, the answer is wrong in kind rather than in detail.
-MAX_REPORTED = 5
+#: How many schema problems a retry is told about. Five was a prose courtesy; it left a model unable
+#: to comply when a schema requires N keys on each of M steps (facet vectors: nine conditions on
+#: every workflow step — 13 Sep 2026, a 4×10 shortfall reported as 5 lines, refused twice). A retry
+#: answers from the refusal, so the refusal carries the whole list; the messages are one line each.
+MAX_REPORTED = 60
 
 
 class GateFailed(ValueError):
