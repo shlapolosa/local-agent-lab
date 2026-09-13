@@ -86,3 +86,15 @@ def test_an_overlap_answer_keeps_or_withdraws_as_a_duplicate_of_the_named_record
                      (SemanticTools.catalog_state, {"iri": IRI, "state": "withdrawn"})]
     with pytest.raises(ValueError, match="keep"):
         C.plan(ROW, {"overlap": {"value": "maybe"}}, "steward@x")
+
+
+def test_a_document_type_may_be_answered_by_its_label_and_an_unknown_one_is_refused_with_the_choices():
+    """WP20: a person in chat says "decision record", not an IRI. Labels and alt labels resolve, case-insensitively;
+    anything else is refused naming the labels, so the person answers again."""
+    def typed(answer):                       # a correction is ASSERTED (value); a confirmation PROMOTED (object)
+        args = C.plan(ROW, {"document_type": {"value": answer}}, "maria@x")[0][1]
+        return args.get("value") or args.get("object")
+    assert typed("Decision record") == "urn:fabric:scheme:doc-types#decision-record"
+    assert typed("adr").endswith("#decision-record") and typed("meeting minutes").endswith("#minutes")
+    with pytest.raises(ValueError, match="Decision record"):
+        C.plan(ROW, {"document_type": {"value": "shopping list"}}, "maria@x")
