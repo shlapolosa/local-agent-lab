@@ -354,7 +354,7 @@ class FabricService:
             e = self.catalog.get(str(node))
             out.append({"iri": str(node), "distance": dist, "rung": rung,
                         "title": e.title if e else "", "document_type": e.document_type if e else "",
-                        "state": e.state if e else ""})
+                        "state": e.state if e else "", "owner": e.owner if e else ""})
         return out
 
     def graph_traverse(self, start: str, predicates: list[str], *, rungs: list[str], depth: int = 3,

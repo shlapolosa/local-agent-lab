@@ -37,7 +37,7 @@ REQUIRED_TOOLS = (SemanticTools.catalog_upsert, SemanticTools.catalog_get, Seman
                   SemanticTools.catalog_state, SemanticTools.vocab_link, SemanticTools.vocab_propose,
                   SemanticTools.impact, SemanticTools.embed, SemanticTools.similar, SemanticTools.edge_assert,
                   SemanticTools.store_spec, StorageTools.read_artifact,
-                  (ApprovalTools.ask, ("subject", "prompt", "items", "process", "kind", "fields",
+                  (ApprovalTools.ask, ("subject", "prompt", "items", "process", "kind", "fields", "answer_required",
                                        "continuation", "artifacts", "requester")))
 
 USECASE_ID = re.compile(r"\bUC-\d{1,6}\b")
@@ -206,7 +206,8 @@ def build_workflow(cfg):
         """What this change may have invalidated — trusted rungs only, read-only, shown to the reviewer."""
         with gateway.node_span(cfg, "impact"):
             hits = await gateway.call(cfg, SemanticTools.impact, {"iri": state["iri"]})
-            state = state | {"impact": [{"iri": h.get("iri"), "title": h.get("title"), "rung": h.get("rung")}
+            state = state | {"impact": [{"iri": h.get("iri"), "title": h.get("title"), "rung": h.get("rung"),
+                                         "state": h.get("state"), "owner": h.get("owner")}
                                         for h in (hits or [])]}
         await ctx.send_message(state)
 
@@ -296,13 +297,28 @@ def build_workflow(cfg):
                            if state.get("revised") else "") + PROMPT_REVIEW + f" Summary: {json.dumps(summary)}.",
                 "items": items, "fields": ["value"], "continuation": cont.to_dict(),
                 "artifacts": artifacts, "requester": state.get("requester") or "", "process": PROCESS})
+            # A NEW VERSION that published records reference: tell their owners (FR-5.3.2) — a notice through the
+            # same gate, so every channel carries it and nothing is released by acknowledging it.
+            notice_id = ""
+            affected = [h for h in state.get("impact") or [] if state.get("revised") and h.get("state") == "published"]
+            if affected:
+                told = await gateway.call(cfg, ApprovalTools.ask, {
+                    "kind": ApprovalKind.IMPACT_NOTICE.value, "answer_required": False,
+                    "subject": f'{state["title"]} changed — {len(affected)} published record(s) reference it',
+                    "prompt": (f'A new version ({state["pointer"].get("version", "?")}) of "{state["title"]}" was recorded. '
+                               "These published records reference it and may need a look; acknowledge when seen."),
+                    "items": [{"label": h["iri"], "samples": [f'{h.get("title") or h["iri"]} · owner {str(h.get("owner") or "?").rsplit(":", 1)[-1]}']}
+                              for h in affected],
+                    "fields": ["value"], "requester": state.get("requester") or "", "process": PROCESS})
+                notice_id = told.get("request_id") or ""
             row = await gateway.call(cfg, SemanticTools.catalog_get, {"iri": state["iri"]})
             counts: dict[str, int] = {}
             for link in (row or {}).get("links") or []:
                 counts[link["rung"]] = counts.get(link["rung"], 0) + 1
             out = {"artifact_iri": state["iri"], "approval_id": asked.get("request_id"),
                    "draft_refs": [d["ref"] for d in state.get("drafts") or []], "rung_counts": counts,
-                   "kind": kind.value, "association": state.get("association"), "summary": summary}
+                   "kind": kind.value, "association": state.get("association"), "summary": summary,
+                   "notice_id": notice_id}
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=identify)

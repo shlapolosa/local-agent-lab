@@ -333,3 +333,31 @@ def test_a_near_duplicate_of_a_published_record_becomes_a_review_item():
     finally:
         h.close()
     assert "overlap" not in [i["label"] for i in h.router.called(ApprovalTools.ask)[0]["items"]]
+
+
+def test_a_new_version_that_published_records_reference_tells_their_owners():
+    hits = [{"iri": "urn:fabric:artifact:R1", "title": "Runbook 7", "rung": "X", "state": "published", "owner": "urn:fabric:person:ann@x"},
+            {"iri": "urn:fabric:artifact:D1", "title": "a draft", "rung": "X", "state": "pending", "owner": ""}]
+    fab = Fabric()
+    real = fab.upsert
+    def revised_upsert(a):
+        row = real(a); row.update(revised=True, previous_version="wfr-1"); return row
+    fab.upsert = revised_upsert
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), tools={"semantic_impact": hits})
+    try:
+        out = run_spine(W, h, {"pointer": {**DOC, "version": "5.0"}, "event_id": "01K"})
+    finally:
+        h.close()
+    asks = h.router.called(ApprovalTools.ask)
+    notice = next(a for a in asks if a["kind"] == "impact-notice")
+    assert notice["answer_required"] is False and "1 published record" in notice["subject"]
+    assert [i["label"] for i in notice["items"]] == ["urn:fabric:artifact:R1"] and "ann@x" in notice["items"][0]["samples"][0]
+    assert "continuation" not in notice and out["notice_id"]
+    # a first version tells nobody
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), tools={"semantic_impact": hits})
+    try:
+        out = run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert "impact-notice" not in [a["kind"] for a in h.router.called(ApprovalTools.ask)] and not out.get("notice_id")

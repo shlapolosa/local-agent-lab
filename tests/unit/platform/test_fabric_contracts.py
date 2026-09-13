@@ -185,3 +185,10 @@ def test_a_producer_names_the_input_that_identifies_what_a_run_worked_on():
         assert set(spec.identity) <= {f.name for f in spec.inputs}, name
     assert PROCESSES["transcript_to_minutes"].identity[0] == "recording"      # the meeting, not the lane's transcript
     assert PROCESSES["use_case_screening"].identity[0] == "submission"
+
+
+def test_an_impact_notice_is_a_kind_of_question_nobody_must_answer():
+    """FR-5.3.2: when a change affects published records, their owners are TOLD — through the gate, so every
+    channel carries it — and acknowledging is all there is to do."""
+    from lab.platform.contracts import ApprovalKind
+    assert ApprovalKind.IMPACT_NOTICE == "impact-notice" and ApprovalKind.IMPACT_NOTICE in set(ApprovalKind)

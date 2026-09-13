@@ -212,6 +212,10 @@ def register(server: LabServer) -> None:
                                                "(where does this artifact belong), draft-review "
                                                "(is this record right). Channels triage by it; "
                                                "nothing dispatches on it.")] = ApprovalKind.SPEAKER_MAPPING.value,
+        answer_required: Annotated[bool, Field(description="False for a NOTICE: the items are shown, nobody "
+                                                           "must answer them, and approving acknowledges. "
+                                                           "True (default) for a question every label of "
+                                                           "which must be answered before approval.")] = True,
     ) -> dict:
         """Ask a HUMAN a question this run cannot answer itself, and finish.
 
@@ -246,7 +250,7 @@ def register(server: LabServer) -> None:
                                 "fields": list(fields or SPEAKER_FIELDS), "candidates": picks},
                    # the completeness contract the gate will enforce, DECLARED by the asker — which
                    # is what keeps `check_answer` generic and the approval kind free of dispatch
-                   "answer_labels": labels, "answer_required": True}
+                   "answer_labels": labels, "answer_required": bool(answer_required)}
         if process:
             payload["process"] = process
         if continuation:

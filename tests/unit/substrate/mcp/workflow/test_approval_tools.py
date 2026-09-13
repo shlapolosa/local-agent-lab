@@ -437,3 +437,17 @@ def test_this_role_reaches_no_store(server, redis):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q", "-p", "no:warnings"]))
+
+
+def test_a_notice_is_asked_with_no_answer_required(server, redis):
+    """`answer_required=False` declares a question a person only acknowledges — the gate then lets `approve`
+    through with no answers, which is what a notification through the approval channels needs."""
+    from lab.substrate import approvals
+    out = call(server, "approvals_ask", subject="ADR-14 changed", prompt="1 published record references it",
+               kind="impact-notice", items=[{"label": "urn:fabric:artifact:A", "samples": ["Runbook 7 · owner ann@x"]}],
+               fields=["value"], answer_required=False, process="artifact_intake", requester="fabric-intake").data
+    st = approvals.status(out["request_id"], client=redis)
+    assert st["kind"] == "impact-notice" and st["payload"]["answer_required"] is False
+    assert st["payload"]["answer_labels"] == ["urn:fabric:artifact:A"]
+    approvals.human_decision(out["request_id"], "approve", "ann@x", "review-app", client=redis)   # no answer needed
+    assert approvals.status(out["request_id"], client=redis)["status"] == "approve"

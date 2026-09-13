@@ -524,6 +524,9 @@ class ApprovalKind(StrEnum):
     # artifact for publication. Nothing dispatches on either value.
     ASSOCIATION = "association"
     DRAFT_REVIEW = "draft-review"
+    # A NOTICE through the same gate (FR-5.3.2): a change reached published records that reference it, and their
+    # owners are told — on every channel, with no new outbound path. Acknowledging is `approve`; nothing is released.
+    IMPACT_NOTICE = "impact-notice"
 
 
 @dataclass(frozen=True)
