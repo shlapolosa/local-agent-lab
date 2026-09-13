@@ -19,13 +19,17 @@ Run: .venv/bin/python -m lab.substrate.fabric_ingress
 """
 from __future__ import annotations
 
+import asyncio
+
 import sys
 from datetime import datetime, timezone
 
 from lab.core import ids
 from lab.core.collab.model import ContentHandle
+from lab.substrate import fabric_gateway
 from lab.platform import config, delivery, fabric_events, redis_client, streams, workflows
-from lab.platform.contracts import ARTIFACT_INTAKE, PROCESSES, PRODUCING_PROCESSES, ArtifactChanged, ArtifactRef, WorkflowStatus
+from lab.platform.contracts import (ARTIFACT_INTAKE, PROCESSES, PRODUCING_PROCESSES, ArtifactChanged, ArtifactRef,
+                                    CollabTools, WorkflowStatus)
 
 SERVICE = "fabric-ingress"
 FINISHED_GROUP = "fabric-ingress"
@@ -81,9 +85,18 @@ def events_from_run(state: dict) -> list[ArtifactChanged]:
 
 
 # ----------------------------------------------------------------------------- filtering and attribution
-def admitted(event: ArtifactChanged, allowlist: tuple[str, ...] = None) -> bool:
+def needs_path(allowlist: tuple[str, ...], drive: str) -> bool:
+    """Does admitting an item of this drive depend on WHERE in the drive it sits? True when the allow-list
+    scopes that drive by folder (`collab:<drive>/<prefix>`) and not by the drive alone."""
+    return f"collab:{drive}" not in allowlist and "collab:*" not in allowlist and \
+        any(e.startswith(f"collab:{drive}/") for e in allowlist)
+
+
+def admitted(event: ArtifactChanged, allowlist: tuple[str, ...] = None, *, path: str | None = None) -> bool:
     """Event Filtering: `lab` sources are ours and always admitted; every other source needs an
-    allow-list entry `<source>:<scope>` or `<source>:*`. EMPTY allow-list admits nothing external."""
+    allow-list entry `<source>:<scope>`, `<source>:<scope>/<folder prefix>` (collab only — the item's `path`
+    must then be known, else it is NOT admitted) or `<source>:*`. EMPTY allow-list admits nothing external.
+    Folder scope is what keeps a drive-wide pilot from sweeping the bulk-upload CSVs (measured 11 Sep 2026)."""
     allow = config.FABRIC_ALLOWLIST if allowlist is None else allowlist
     if event.source_kind == "lab":
         return True
@@ -92,7 +105,27 @@ def admitted(event: ArtifactChanged, allowlist: tuple[str, ...] = None) -> bool:
         scope = ContentHandle.parse(event.pointer["handle"]).scope
     else:
         scope = event.pointer.get("project") or event.pointer.get("scope") or ""
-    return f"{event.source_kind}:*" in allow or (bool(scope) and f"{event.source_kind}:{scope}" in allow)
+    if f"{event.source_kind}:*" in allow or (bool(scope) and f"{event.source_kind}:{scope}" in allow):
+        return True
+    if event.source_kind == "collab" and scope and path is not None:
+        where = path.strip("/")
+        prefixes = (e[len(f"collab:{scope}/"):].strip("/") for e in allow if e.startswith(f"collab:{scope}/"))
+        return any(where == pfx or where.startswith(pfx + "/") for pfx in prefixes)
+    return False
+
+
+def _path_of(event: ArtifactChanged) -> str | None:
+    """The item's folder path, asked of the collaboration port ONLY when the allow-list scopes its drive by
+    folder — one governed read per such event, none otherwise. Unknown (a refused lookup) stays None."""
+    handle = event.pointer.get("handle") if event.source_kind == "collab" else None
+    if not handle or not needs_path(config.FABRIC_ALLOWLIST, ContentHandle.parse(handle).scope):
+        return None
+    try:
+        item = asyncio.run(fabric_gateway.call([(CollabTools.item, {"handle": handle})]))[0]
+        return str((item or {}).get("path") or "")
+    except Exception as e:                        # noqa: BLE001 — an unknown path is not admitted, and says why
+        print(f"[ingress] {event.pointer_key}: path lookup failed: {type(e).__name__}: {e}", flush=True)
+        return None
 
 
 def attributed(event: ArtifactChanged, *, client) -> ArtifactChanged:
@@ -114,7 +147,7 @@ def submit_for(event: ArtifactChanged, *, client) -> tuple[str, bool] | None:
     """Filter, attribute, then submit ONE intake run. Returns (request_id, duplicate) or None when the
     event was dropped — and says why on stdout, because a dropped event that nobody can explain is the
     silent failure this module exists to prevent."""
-    if not admitted(event):
+    if not admitted(event, path=_path_of(event)):
         print(f"[ingress] dropped {event.pointer_key}: not on FABRIC_ALLOWLIST", flush=True)
         return None
     event = attributed(event, client=client)

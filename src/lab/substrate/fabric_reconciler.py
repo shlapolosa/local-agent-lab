@@ -59,13 +59,15 @@ async def renew_watches(*, call=None, receivers: tuple[str, ...] | None = None, 
     return renewed
 
 
-def drives(allowlist: tuple[str, ...]) -> list[str]:
-    """The drive ids to sweep — the collab entries of the allow-list that name a drive."""
+def drives(allowlist: tuple[str, ...]) -> list[tuple[str, str]]:
+    """(drive id, folder) pairs to sweep — the collab entries of the allow-list that name a drive, from the
+    folder they scope (`collab:<drive>/<prefix>`) or the root."""
     out = []
     for entry in allowlist:
         source, _, scope = str(entry).partition(":")
         if source == "collab" and scope and scope != "*":
-            out.append(scope)
+            drive, _, folder = scope.partition("/")
+            out.append((drive, folder.strip("/")))
     return out
 
 
@@ -95,8 +97,8 @@ async def sweep(*, call=None, allowlist: tuple[str, ...] | None = None, depth: i
     limit = config.FABRIC_SWEEP_LIMIT if limit is None else limit
     published: list[ArtifactChanged] = []
     seen = 0
-    for drive in drives(allow):
-        stack: list[tuple[str, int]] = [("", 0)]
+    for drive, folder in drives(allow):
+        stack: list[tuple[str, int]] = [(folder, 0)]
         while stack and seen < limit:
             path, d = stack.pop()
             page = (await go([(CollabTools.list, {"drive_id": drive, "path": path})]))[0] or {}

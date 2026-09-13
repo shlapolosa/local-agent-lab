@@ -37,8 +37,9 @@ class Gateway:
         return out
 
 
-def test_only_drive_entries_of_the_allowlist_are_swept():
-    assert R.drives(("collab:drive-1", "collab:*", "work:proj", "lab:*", "collab:drive-2")) == ["drive-1", "drive-2"]
+def test_only_drive_entries_of_the_allowlist_are_swept_from_their_folder():
+    assert R.drives(("collab:drive-1", "collab:*", "work:proj", "lab:*", "collab:drive-2/Architectures")) == \
+        [("drive-1", ""), ("drive-2", "Architectures")]
 
 
 def test_decide_is_new_changed_or_nothing():

@@ -69,6 +69,11 @@ def test_allowlist_admits_lab_always_and_external_only_when_listed(monkeypatch):
     assert ing.admitted(ext, allowlist=("collab:drive-1",))
     assert ing.admitted(ext, allowlist=("collab:*",))
     assert not ing.admitted(ext, allowlist=("collab:drive-2",))
+    # a FOLDER-scoped entry (WP21): the drive alone is not enough, the item's path must sit under the prefix
+    assert not ing.admitted(ext, allowlist=("collab:drive-1/Architectures",))                       # path unknown
+    assert ing.admitted(ext, allowlist=("collab:drive-1/Architectures",), path="Architectures/2026")
+    assert not ing.admitted(ext, allowlist=("collab:drive-1/Architectures",), path="BulkIntakeUploads")
+    assert ing.needs_path(("collab:drive-1/Architectures", "collab:drive-2"), "drive-1") and not ing.needs_path(("collab:drive-2",), "drive-1")
 
 
 def test_attribution_uses_the_loop_guards_memory():
