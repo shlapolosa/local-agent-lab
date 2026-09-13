@@ -514,6 +514,7 @@ async def _conformance(cfg, state: dict) -> dict:
         "items": [{"label": "decision", "samples": ["approve", "return"]},
                   {"label": "conditions", "samples": []}],
         "continuation": cont.to_dict(),
+        "fields": ["value"],                   # one thing to say per label, not a voice
         "artifacts": {"design": state["design_ref"], "screening": state["screening_ref"]},
         "requester": state.get("submitter", ""),
                 "process": PROCESS})

@@ -122,6 +122,7 @@ def build_workflow(cfg):
                            "samples": ["approve", "approve with conditions", "defer"]},
                           {"label": "authority", "samples": [routing.authority]}],
                 "continuation": cont.to_dict(),
+                "fields": ["value"],                   # one thing to say per label, not a voice
                 "artifacts": {"investment": state["investment_ref"],
                               "design": state["design_ref"]},
                 "requester": state.get("submitter", ""),
