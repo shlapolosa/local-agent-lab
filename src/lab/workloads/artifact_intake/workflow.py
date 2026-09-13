@@ -22,7 +22,7 @@ from agent_framework import WorkflowBuilder, WorkflowContext, executor
 from lab.core.semantic.fabric.catalog import describe
 from lab.core.semantic.fabric.owners import OwnerMap
 from lab.core.semantic.fabric.service import PERSON
-from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DECISION_RECORD, DELIVERED_UNDER, REFERENCES
+from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DECISION_RECORD, DELIVERED_UNDER, REFERENCES, SYNTHESISED_FROM
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, EXTRACTED, SUGGESTED
 from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIPT_TO_MINUTES, ApprovalKind,
                                     ApprovalTools, CollabTools, Continuation, SemanticTools, StorageTools)
@@ -239,6 +239,9 @@ def build_workflow(cfg):
                         "rung": CONSTRUCTED, "method": "drafted-by-fabric"})
                     await gateway.call(cfg, SemanticTools.edge_assert, {
                         "subject": row["iri"], "predicate": REFERENCES, "object": state["iri"],
+                        "rung": CONSTRUCTED, "method": "drafted-from"})
+                    await gateway.call(cfg, SemanticTools.edge_assert, {          # what rung D derives the context from
+                        "subject": row["iri"], "predicate": SYNTHESISED_FROM, "object": state["iri"],
                         "rung": CONSTRUCTED, "method": "drafted-from"})
                     drafts.append({"iri": row["iri"], "ref": dref, "title": rec["title"], "id": rec["id"]})
             state = state | {"drafts": drafts}

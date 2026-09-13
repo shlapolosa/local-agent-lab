@@ -124,7 +124,8 @@ def test_a_minutes_run_output_is_a_fact_gets_drafts_and_ends_on_a_draft_review()
     assert out["draft_refs"] == ["art://store/00000000000000000000000001.d1.decision-record.json"]
     draft = [a for a in fab.asserts if a["field"] == "document_type" and a["iri"] != out["artifact_iri"]][0]
     assert (draft["value"], draft["rung"], draft["method"]) == (W.DECISION_RECORD, "C", "drafted-by-fabric")
-    assert [(e["predicate"].rsplit("#", 1)[-1], e["rung"]) for e in fab.edges] == [("references", "C")]
+    # the draft references the minutes AND is synthesised from them — the second is what rung D derives the context from
+    assert [(e["predicate"].rsplit("#", 1)[-1], e["rung"]) for e in fab.edges] == [("references", "C"), ("synthesisedFrom", "C")]
     # the question: draft-review, with the drafts attached and the publish continuation
     ask = calls(h, ApprovalTools.ask)[0]
     assert ask["kind"] == ApprovalKind.DRAFT_REVIEW.value and ask["process"] == "artifact_intake"

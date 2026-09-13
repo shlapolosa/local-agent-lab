@@ -32,6 +32,7 @@ import os
 from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
 from lab.platform import config
+from lab.substrate.fabric_metrics import KEY as METRICS_KEY
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
 
@@ -344,6 +345,22 @@ def semantic_search(text: str, limit: int = 10, document_type: str = "", state: 
     """The facade: similarity over the index filtered by catalog facets (document type, lifecycle state).
     Withdrawn records are hidden unless `state="withdrawn"` is asked for."""
     return fabric().search(text, limit=limit, document_type=document_type, state=state)
+
+
+@server.tool()
+def semantic_derive() -> dict:
+    """Rebuild the DERIVED rung (D) from the trusted rungs: an artifact is related to the context of what it
+    references; a record synthesised from minutes inherits their context. Counts only; impact reads D."""
+    return fabric().derive()
+
+
+@server.tool()
+def semantic_metrics() -> dict:
+    """The fabric's published measurements (BR-8), as last computed by the reconciler's tick: auto-association
+    ratio, drafts approved without rewrite, impact notices acknowledged, duplicate rate, labelled and owned
+    share — each with its numerator and denominator. Numbers, never content."""
+    raw = server.container.redis().get(METRICS_KEY)
+    return json.loads(raw) if raw else {"note": "not computed yet — the reconciler computes on its sweep tick"}
 
 
 @server.tool()

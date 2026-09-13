@@ -18,6 +18,8 @@ DCT = Namespace("http://purl.org/dc/terms/")
 DELIVERED_UNDER = str(FAB.deliveredUnder)
 REFERENCES = str(FAB.references)
 DUPLICATE_OF = str(FAB.duplicateOf)
+RELATED_TO = str(FAB.relatedTo)
+SYNTHESISED_FROM = str(FAB.synthesisedFrom)
 DOCUMENT_TYPE = str(FAB.documentType)
 OWNED_BY = str(FAB.ownedBy)
 SUBJECT = str(DCT.subject)
@@ -95,5 +97,5 @@ class DocumentTypes:
         return None
 
 
-__all__ = ["FabricOntology", "DocumentTypes", "FAB", "DT", "DCT", "DELIVERED_UNDER", "REFERENCES", "DUPLICATE_OF", "DOCUMENT_TYPE",
+__all__ = ["FabricOntology", "DocumentTypes", "FAB", "DT", "DCT", "DELIVERED_UNDER", "REFERENCES", "DUPLICATE_OF", "RELATED_TO", "SYNTHESISED_FROM", "DOCUMENT_TYPE",
            "OWNED_BY", "SUBJECT", "CONTEXT_IRI", "DECISION_RECORD", "short"]

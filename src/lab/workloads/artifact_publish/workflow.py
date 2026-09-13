@@ -16,7 +16,8 @@ from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalTools, CollabTools,
 from lab.workloads import gateway
 
 PROCESS = ARTIFACT_PUBLISH.name
-REQUIRED_TOOLS = (ApprovalTools.get, SemanticTools.catalog_get, SemanticTools.catalog_state, SemanticTools.embed)
+REQUIRED_TOOLS = (ApprovalTools.get, SemanticTools.catalog_get, SemanticTools.catalog_state, SemanticTools.embed,
+                  SemanticTools.derive)
 
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", tracer=None, root_ctx=None,
@@ -81,7 +82,13 @@ def build_workflow(cfg):
                 await gateway.call(cfg, SemanticTools.embed, {"iri": state["artifact_iri"], "text": _describe(state["row"])})
             except Exception as e:                    # noqa: BLE001
                 note = f"{type(e).__name__}: {e}"
-            state = state | {"index_note": note}
+            # the derived rung follows every publish: what this record now relates to is computed, never asserted
+            derived = None
+            try:
+                derived = await gateway.call(cfg, SemanticTools.derive, {})
+            except Exception as e:                    # noqa: BLE001 — derivation is a projection of facts, not a gate
+                note = (note + "; " if note else "") + f"derive: {type(e).__name__}: {e}"
+            state = state | {"index_note": note, "derived": (derived or {}).get("derived")}
         await ctx.send_message(state)
 
     @executor(id="finish")

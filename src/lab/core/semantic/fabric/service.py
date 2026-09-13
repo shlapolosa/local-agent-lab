@@ -21,12 +21,13 @@ from rdflib.namespace import Namespace
 
 from lab.core import ids
 from lab.core.delivery import DeliveryContext
+from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
                                               iri_safe, pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
-from lab.core.semantic.fabric.rungs import (CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, GRAPH_RUNGS,
+from lab.core.semantic.fabric.rungs import (DERIVED, CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, GRAPH_RUNGS,
                                              PROV_GRAPH, graph_iri)
 
 FAB, DCT, SKOS = G.FAB, G.DCT, G.SKOS
@@ -69,7 +70,8 @@ FACETS: dict[str, tuple[URIRef, Callable[[Any], URIRef | Literal]]] = {
 _MIRRORED = (RDF.type, DCT.title, DCAT.accessURL, FAB.lifecycleState, FAB.producedBy, FAB.sourceKind,
              FAB.baselineVersion, FAB.unassociated)
 #: the edges `catalog_get` reports beside the row
-_LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, DCT.subject, FAB.documentType, FAB.ownedBy, FAB.sensitivityLabel)
+_LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, FAB.relatedTo, FAB.synthesisedFrom, DCT.subject, FAB.documentType,
+          FAB.ownedBy, FAB.sensitivityLabel)
 #: persisted name -> named graph: the five rungs, the PROV records, the candidates
 PERSISTED_GRAPHS: dict[str, URIRef] = {"prov": PROV_GRAPH, "candidates": CANDIDATES_GRAPH,
                                        **{r: graph_iri(r) for r in GRAPH_RUNGS}}
@@ -482,6 +484,12 @@ class FabricService:
             hits = [h for h in hits if h["document_type"] == document_type]
         hits = [h for h in hits if h["state"] == state] if state else [h for h in hits if h["state"] != "withdrawn"]
         return hits[:limit]
+
+    def derive(self) -> dict:
+        """Rebuild the derived rung D from the trusted rungs (two rules, `derive.RULES`) and persist it. Counts only."""
+        out = DR.derive(self.ds)
+        self._persist((DERIVED, "prov"), lambda: DR.clear(self.ds))
+        return out
 
     def recommend(self, text: str, *, limit: int = 5) -> list[dict]:
         """"Before you create": what already exists, PUBLISHED, on this topic — with its owner, so a person

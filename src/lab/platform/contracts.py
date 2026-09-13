@@ -232,6 +232,8 @@ class SemanticTools(ToolCatalogue):
     similar = "semantic_similar"
     search = "semantic_search"
     recommend = "semantic_recommend"               # published only, with owners: "before you create" (BR-4)
+    metrics = "semantic_metrics"                   # the published measurements (BR-8), numbers only
+    derive = "semantic_derive"                     # rebuild rung D (two rules) — the publish workload, after a baseline
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
     # FOUR GRANTS. `READ` is what every team had before the fabric and every query the products answer.
@@ -244,9 +246,9 @@ class SemanticTools(ToolCatalogue):
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, questions, ask,
-            catalog_get, trace, impact, similar, search, recommend, validate_shapes)
+            catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes)
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
-                vocab_propose, embed)
+                vocab_propose, embed, derive)
     PROMOTE = (promote,)
     REINDEX = (reindex,)
     WRITE = PIPELINE + PROMOTE + REINDEX
