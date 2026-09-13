@@ -33,3 +33,8 @@ def test_timestamp_round_trips():
 def test_artifact_iri_scheme():
     iri = ids.artifact_iri()
     assert iri.startswith("urn:fabric:artifact:") and ids.is_ulid(iri.rsplit(":", 1)[1])
+
+
+def test_a_product_identifies_a_pointer_before_its_ref():
+    from lab.core.ids import POINTER_ID_FIELDS
+    assert POINTER_ID_FIELDS.index("product") < POINTER_ID_FIELDS.index("ref") and "handle" in POINTER_ID_FIELDS

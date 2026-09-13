@@ -99,7 +99,8 @@ def build_workflow(cfg):
                 "pointer": pointer, "title": title[:300], "produced_by": state.get("produced_by") or "",
                 "context": state.get("context") or "", "source_kind": pointer.get("source", "")})
             state = state | {"iri": row["iri"], "title": title, "hints": hints,
-                             "document_type": row.get("document_type") or "", "row": row}
+                             "document_type": row.get("document_type") or "", "row": row,
+                             "revised": bool(row.get("revised")), "previous_version": row.get("previous_version") or ""}
         await ctx.send_message(state)
 
     @executor(id="classify")
@@ -269,7 +270,9 @@ def build_workflow(cfg):
             asked = await gateway.call(cfg, ApprovalTools.ask, {
                 "kind": kind.value,
                 "subject": f'{state["title"]} — {"where does this belong?" if kind is ApprovalKind.ASSOCIATION else "review the record"}',
-                "prompt": PROMPT_REVIEW + f" Summary: {json.dumps(summary)}.",
+                "prompt": (f"NEW VERSION {state['pointer'].get('version', '')} of a record already reviewed "
+                           f"(previous version {state.get('previous_version') or '?'}) — review it again. "
+                           if state.get("revised") else "") + PROMPT_REVIEW + f" Summary: {json.dumps(summary)}.",
                 "items": items, "fields": ["value"], "continuation": cont.to_dict(),
                 "artifacts": artifacts, "requester": state.get("requester") or "", "process": PROCESS})
             row = await gateway.call(cfg, SemanticTools.catalog_get, {"iri": state["iri"]})

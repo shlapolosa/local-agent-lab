@@ -28,7 +28,7 @@ def _minutes_state():
 def test_a_finished_minutes_run_yields_one_event_per_artifact_with_context_and_producer():
     evs = ing.events_from_run(_minutes_state())
     keys = sorted(e.pointer_key for e in evs)
-    assert keys == ["collab:collab://item/drive-1/m1", "collab:collab://item/drive-1/t1", "lab:art://abc/minutes.json"]
+    assert keys == ["collab:collab://item/drive-1/m1", "collab:collab://item/drive-1/t1", "lab:transcript_to_minutes/minutes_ref/collab:recording/AAMk1/rec-9"]
     assert all(e.produced_by == "transcript_to_minutes" and e.context == "meeting:AAMk1" for e in evs)
 
 
@@ -39,7 +39,7 @@ def test_only_a_producers_declared_products_become_lab_events():
                   "recording_ref": "art://r/rec.mp4", "transcript_ref": "art://r/segments.json"}
     assert ing.events_from_run(transcript) == []
     st = {**_minutes_state(), "transcript_ref": "art://abc/segments.json"}
-    assert [e.pointer_key for e in ing.events_from_run(st) if e.source_kind == "lab"] == ["lab:art://abc/minutes.json"]
+    assert [e.pointer_key for e in ing.events_from_run(st) if e.source_kind == "lab"] == ["lab:transcript_to_minutes/minutes_ref/collab:recording/AAMk1/rec-9"]
 
 
 def test_the_speech_lane_rides_on_every_pointer_of_a_lane_run():
@@ -47,7 +47,11 @@ def test_the_speech_lane_rides_on_every_pointer_of_a_lane_run():
     st = _minutes_state(); st["inputs"]["provider"] = "soniox-en"
     evs = ing.events_from_run(st)
     assert {e.pointer.get("lane") for e in evs} == {"soniox-en"}
-    assert sorted(e.pointer_key for e in evs) == sorted(e.pointer_key for e in ing.events_from_run(_minutes_state()))
+    # collab pointers are the same file whichever lane wrote it; a LAB product is per lane (WP13: a lane is part of
+    # a product's identity — three lanes are three products of one recording, never three versions of one)
+    plain = ing.events_from_run(_minutes_state())
+    assert {e.pointer_key for e in evs if e.source_kind == "collab"} == {e.pointer_key for e in plain if e.source_kind == "collab"}
+    assert [e.pointer_key for e in evs if e.source_kind == "lab"] == [e.pointer_key + "/soniox-en" for e in plain if e.source_kind == "lab"]
     assert all("lane" not in e.pointer for e in ing.events_from_run(_minutes_state()))
 
 
@@ -129,3 +133,18 @@ def test_the_serve_loop_dispatches_a_two_stream_read_the_way_serve_calls_it(monk
     import inspect
     src = inspect.getsource(ing.main)
     assert "lambda kind, entry: dispatch(kind, entry" in src, "serve's handle takes (id, fields) — two arguments"
+
+
+def test_two_runs_over_one_subject_are_two_versions_of_one_product():
+    a = ing.events_from_run({**_minutes_state(), "request_id": "wfr-1"})
+    b = ing.events_from_run({**_minutes_state(), "request_id": "wfr-2", "minutes_ref": "art://def/minutes.json"})
+    la, lb = [e for e in a if e.source_kind == "lab"][0], [e for e in b if e.source_kind == "lab"][0]
+    assert la.pointer_key == lb.pointer_key == "lab:transcript_to_minutes/minutes_ref/collab:recording/AAMk1/rec-9"
+    assert (la.pointer["version"], lb.pointer["version"]) == ("wfr-1", "wfr-2") and la.pointer["ref"] != lb.pointer["ref"]
+    assert la.change == "updated"
+    # a lane is part of the identity: three lanes of one recording are three products, not three versions
+    laned = {**_minutes_state(), "request_id": "wfr-3"}; laned["inputs"]["provider"] = "soniox-en"
+    assert [e for e in ing.events_from_run(laned) if e.source_kind == "lab"][0].pointer_key.endswith("/rec-9/soniox-en")
+    # no subject → the ref is the identity, as before
+    bare = {**_minutes_state(), "inputs": {}}
+    assert [e for e in ing.events_from_run(bare) if e.source_kind == "lab"][0].pointer_key == "lab:art://abc/minutes.json"

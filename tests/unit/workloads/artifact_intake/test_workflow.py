@@ -251,3 +251,21 @@ def test_helpers():
     assert W._describe({"pointer": DOC, "title": "T", "document_type": "urn:x#minutes", "subjects": ["a", "zz"],
                         "linked": [{"term": "a", "label": "Alpha"}]}) == "T · minutes · Alpha"
     assert W.DECISION_RECORD == "urn:fabric:scheme:doc-types#decision-record"
+
+
+def test_a_revised_record_tells_the_reviewer_it_is_a_new_version():
+    fab = Fabric()
+    real = fab.upsert
+    def revised_upsert(a):
+        row = real(a); row.update(revised=True, previous_version="wfr-1"); return row
+    fab.upsert = revised_upsert
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "document_type": "urn:fabric:scheme:doc-types#minutes"}),
+                synthesis=FakeAgent(RECORDS))
+    try:
+        run_spine(W, h, {"pointer": {"source": "lab", "product": "transcript_to_minutes/minutes_ref/collab:recording/AAMk1/rec-9",
+                                     "ref": "art://r2/minutes.json", "version": "wfr-2"}, "event_id": "01J",
+                         "context": "meeting:AAMk1", "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+    finally:
+        h.close()
+    ask = h.router.called(ApprovalTools.ask)[0]
+    assert "NEW VERSION wfr-2" in ask["prompt"] and "wfr-1" in ask["prompt"]

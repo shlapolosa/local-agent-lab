@@ -45,11 +45,12 @@ def is_working_file(row: dict) -> bool:
 
 
 def superseded(rows: list[dict]) -> list[dict]:
-    """PURE: for records sharing (produced_by, context, title) keep the LATEST; the rest are superseded."""
+    """PURE: for lab records sharing (produced_by, title) — two runs of one product before WP13 gave products
+    an identity — keep the LATEST; the rest are superseded."""
     groups: dict[tuple, list[dict]] = {}
     for r in rows:
-        if (r.get("pointer") or {}).get("source") == "lab" and r.get("context"):
-            groups.setdefault((r.get("produced_by"), r["context"], r.get("title")), []).append(r)
+        if (r.get("pointer") or {}).get("source") == "lab":
+            groups.setdefault((r.get("produced_by"), r.get("title")), []).append(r)
     out = []
     for members in groups.values():
         members.sort(key=lambda r: r.get("created_at") or "")

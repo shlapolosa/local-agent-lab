@@ -190,6 +190,12 @@ class FabricService:
         doc_type = self.doc_types.for_process(produced_by) if produced_by else None
         if doc_type:
             fields["document_type"] = doc_type
+        # A NEW VERSION of a product already known (the pointer's version moved): the record is the same, its
+        # review reopens — state back to pending, the previous baseline kept on the row until the new one lands.
+        previous = str(existing.pointer.get("version") or "") if existing else ""
+        revised = bool(existing) and str(pointer.get("version") or "") != previous
+        if revised and existing.state != "pending":
+            fields["state"] = "pending"
         entry = existing.with_(pointer=dict(pointer), **fields) if existing else \
             CatalogEntry(iri or ids.artifact_iri(), dict(pointer), **fields)
         a = URIRef(entry.iri)
@@ -217,7 +223,9 @@ class FabricService:
                 c.add(t)
         self._commit(("C", "prov"), undo, subjects=(a,))
         self.catalog.put(entry)
-        return entry.to_dict()
+        out = entry.to_dict()
+        out.update({"revised": revised, "previous_version": previous} if revised else {})
+        return out
 
     def _mirror(self, e: CatalogEntry) -> None:
         a, c = URIRef(e.iri), self.ds.graph(graph_iri(CONSTRUCTED))

@@ -430,3 +430,16 @@ def test_an_unserialisable_subject_is_refused_legibly_before_it_reaches_the_grap
     d = fab.catalog_upsert(DOC, title="ADR")["iri"]
     with pytest.raises(ValueError, match="serialisable IRI"):
         fab.graph_assert("art://x/a b", "urn:fabric:ont#references", d, rung="X", method="link")
+
+
+def test_a_new_version_of_a_known_product_reopens_the_record_and_keeps_its_baseline(fab):
+    p1 = {"source": "lab", "product": "use_case_screening/art://s/sub.json/screening_ref", "ref": "art://r1/s.json", "version": "wfr-1"}
+    first = fab.catalog_upsert(p1, title="screening.json", produced_by="use_case_screening", context="usecase:u1")
+    assert "revised" not in first
+    fab.catalog_state(first["iri"], "published", baseline_version="wfr-1")
+    p2 = {**p1, "ref": "art://r2/s.json", "version": "wfr-2"}
+    second = fab.catalog_upsert(p2, title="screening.json", produced_by="use_case_screening", context="usecase:u1")
+    assert second["iri"] == first["iri"] and second["revised"] is True and second["previous_version"] == "wfr-1"
+    row = fab.catalog_get(first["iri"])
+    assert row["state"] == "pending" and row["baseline_version"] == "wfr-1" and row["pointer"]["ref"] == "art://r2/s.json"
+    assert "revised" not in fab.catalog_upsert(p2, title="screening.json", produced_by="use_case_screening", context="usecase:u1")

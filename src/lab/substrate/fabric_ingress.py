@@ -62,12 +62,20 @@ def events_from_run(state: dict) -> list[ArtifactChanged]:
         out.append(ArtifactChanged(event_id=ids.ulid(), pointer={"source": "collab", "handle": handle, **lane},
                                    source_kind="collab", change="created", actor_oid=actor, occurred_at=when,
                                    produced_by=str(state["process"]), context=ctx.key if ctx else ""))
-    for key in PROCESSES[str(state["process"])].products:
+    spec = PROCESSES[str(state["process"])]
+    subject = next((str(inputs[k]) for k in spec.identity if inputs.get(k)), "")
+    for key in spec.products:
         value = state.get(key)
         if isinstance(value, str) and ArtifactRef.is_ref(value) and value not in seen:
             seen.add(value)
-            out.append(ArtifactChanged(event_id=ids.ulid(), pointer={"source": "lab", "ref": value, **lane},
-                                       source_kind="lab", change="created", actor_oid=actor, occurred_at=when,
+            # identity = product of (process, subject, output[, lane]); version = the run. Without a subject the
+            # ref itself is the identity (nothing to version against).
+            # the subject rides as an ID, never a location (`check_pointer` refuses a URL outside ref/handle)
+            product = ({"product": "/".join([spec.name, key, subject.replace("://", ":", 1), *lane.values()]),
+                        "version": str(state.get("request_id") or "")} if subject else {})
+            out.append(ArtifactChanged(event_id=ids.ulid(), pointer={"source": "lab", **product, "ref": value, **lane},
+                                       source_kind="lab", change="updated" if subject else "created",
+                                       actor_oid=actor, occurred_at=when,
                                        produced_by=str(state["process"]), context=ctx.key if ctx else ""))
     return out
 

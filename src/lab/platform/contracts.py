@@ -1221,6 +1221,10 @@ class ProcessSpec:
     # products is never a producer. Measured 12 Sep 2026: ingesting every `*_ref` a run left behind turned 35
     # recordings and per-lane segment files into review cards nobody should decide.
     products: tuple[str, ...] = ()
+    # Which INPUT names the SUBJECT a run worked on, in preference order (the recording a meeting's minutes came
+    # from; the submission a screening judged). A product's identity is process + subject + output, so a re-run
+    # over the same subject is a new version of one record. A run with no such input keeps its ref as identity.
+    identity: tuple[str, ...] = ()
     # May an OUTSIDE caller START this process? Some processes are a CONTINUATION of another — they
     # exist to run after a human answered a question, and starting one directly would skip the gate
     # that gave it its input. That is a property of the PROCESS, not a permission on a caller, so it
@@ -1278,6 +1282,7 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
     # EA repository needs a human to import, as [{ref, label, note, media_type}] — possibly empty.
     outputs=("trace_id", "approval_id", "review_app", "xml_ref", "import_artifacts", "summary"),
     products=('xml_ref',),
+    identity=("diagram",),
 )
 
 # The speech providers a run may name as its LANE. Declared HERE, in the contract, because it is a
@@ -1377,6 +1382,7 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
              # did not — delivery is best effort, so its outcome is reported rather than raised
              "delivered", "chat_id", "delivery"),
     products=('minutes_ref',),
+    identity=("recording", "transcript"),
     # Continuation-only. `speaker_map` is a HUMAN'S answer to the approval the transcript run raised;
     # a caller who could submit this directly would supply their own attribution and bypass the one
     # gate the meeting pipeline has. The continuation runner starts it in-process, so this refusal
@@ -1446,6 +1452,7 @@ USE_CASE_SCREENING = ProcessSpec(
     outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
              "criticality_band", "summary"),
     products=('screening_ref',),
+    identity=("submission", "submission_handle"),
 )
 
 USE_CASE_DESIGN = ProcessSpec(
@@ -1484,6 +1491,7 @@ USE_CASE_DESIGN = ProcessSpec(
              "readiness", "governance_tier", "risk_ref", "obligations_ref", "architecture_ref",
              "cost_ref", "business_case_ref", "recommendation", "delivery_ref", "summary"),
     products=('architecture_ref',),
+    identity=("submission_ref",),
     external=False,
 )
 
@@ -1510,6 +1518,7 @@ USE_CASE_INVESTMENT = ProcessSpec(
     outputs=("trace_id", "approval_id", "review_app", "investment_ref", "recommendation",
              "authority", "summary"),
     products=('investment_ref',),
+    identity=("design_ref",),
     external=False,
 )
 

@@ -40,7 +40,10 @@ def ulid_ms(value: str) -> int:
 #: A pointer into a system of record names its item by ONE of these. Lives here, in the stdlib-only core
 #: module, because BOTH the platform contract (`check_pointer`) and the catalog row key on it — and the
 #: contract must import without rdflib (a CI step that only registers stores has no semantic layer installed).
-POINTER_ID_FIELDS: tuple[str, ...] = ("handle", "itemId", "workItem", "objectId", "ref")
+#: `product` FIRST: a lab run's output is identified by WHAT it is the product of (process / the run's subject /
+#: output name [/ lane]) so a re-run is a new VERSION of one record, not a second record; the `ref` is then the
+#: bytes of one version. Measured 12 Sep 2026: two screening runs of one submission made two records and two cards.
+POINTER_ID_FIELDS: tuple[str, ...] = ("product", "handle", "itemId", "workItem", "objectId", "ref")
 
 
 def artifact_iri(u: str | None = None) -> str:

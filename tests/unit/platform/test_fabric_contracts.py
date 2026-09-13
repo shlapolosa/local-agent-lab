@@ -173,3 +173,15 @@ def test_a_producer_declares_which_outputs_are_managed_artifacts():
     assert TRANSCRIPT_TO_MINUTES.products == ("minutes_ref",)              # never transcript_ref
     assert USE_CASE_SCREENING.products == ("screening_ref",)               # never the person's submission record
     assert VISIO_TO_ARCHIMATE.products == ("xml_ref",)
+
+
+def test_a_producer_names_the_input_that_identifies_what_a_run_worked_on():
+    """A product's identity is process + subject + output: a re-run over the same subject is a new VERSION of one
+    record (12 Sep 2026: two screening runs of one submission were two records and two cards)."""
+    from lab.platform.contracts import PROCESSES, PRODUCING_PROCESSES
+    for name in PRODUCING_PROCESSES:
+        spec = PROCESSES[name]
+        assert spec.identity, f"{name} declares no identity input"
+        assert set(spec.identity) <= {f.name for f in spec.inputs}, name
+    assert PROCESSES["transcript_to_minutes"].identity[0] == "recording"      # the meeting, not the lane's transcript
+    assert PROCESSES["use_case_screening"].identity[0] == "submission"

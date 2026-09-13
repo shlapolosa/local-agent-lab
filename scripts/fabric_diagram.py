@@ -47,7 +47,7 @@ def build() -> C4Diagram:
     d.component("publish", "z_work", "wf-artifact-publish", "GREEN: live run 13 s — released by the approval, record\npublished with a baseline version; re-index best-effort", fill=DONE)
     d.component("agents", "z_work", "classifier · synthesis · publish agents", "GREEN: 3 Entra apps + keys provisioned, 2 skills registered;\nAMBER note: on claude-haiku-4-5 while the Ollama quota is out", fill=DONE)
     # semantic layer
-    d.component("catalog", "z_sem", "Knowledge Catalog", "GREEN: Postgres rows in Neon (DDL at boot, hnsw over halfvec; an embedder switch\nre-dimensions the index and semantic_reindex refills it from facets), live local + cloud", fill=DONE)
+    d.component("catalog", "z_sem", "Knowledge Catalog", "AMBER (WP13, built 13 Sep, not yet deployed): a lab product is identified by\nprocess/output/subject[/lane] and versioned by the run — a re-run reopens ONE record;\nGREEN before: Postgres rows in Neon (DDL at boot, hnsw over halfvec; an embedder switch\nre-dimensions the index and semantic_reindex refills it from facets), live local + cloud", fill=PART)
     d.component("graph", "z_sem", "Traceability Graph", "GREEN: live — edges at C/X/S, SHACL refused a body and a\nguessed owner, impact skipped S, promote S→H by a named\nperson, N-Quads shadow written", fill=DONE)
     d.component("vocab", "z_sem", "Vocabulary", "GREEN: fab: + doc-types registered live beside the BA Guild\nschemes; vocab_link/propose exercised (a candidate parked)", fill=DONE)
     d.component("facade", "z_sem", "Facade", "GREEN in the cloud: embed (nomic, 768-d) · search · similar\nranked the ADR above the minutes for a claims-bus query; the\nlocal stack has no embedder, so local similarity is by test", fill=DONE)
