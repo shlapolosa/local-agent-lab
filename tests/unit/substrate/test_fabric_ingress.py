@@ -32,6 +32,16 @@ def test_a_finished_minutes_run_yields_one_event_per_artifact_with_context_and_p
     assert all(e.produced_by == "transcript_to_minutes" and e.context == "meeting:AAMk1" for e in evs)
 
 
+def test_only_a_producers_declared_products_become_lab_events():
+    """A transcript run leaves a recording and a transcript behind: working files, pointers only, never records.
+    A minutes run's transcript_ref is the same working file under another run — only its minutes count."""
+    transcript = {**_minutes_state(), "process": "meeting_to_transcript", "delivered": [],
+                  "recording_ref": "art://r/rec.mp4", "transcript_ref": "art://r/segments.json"}
+    assert ing.events_from_run(transcript) == []
+    st = {**_minutes_state(), "transcript_ref": "art://abc/segments.json"}
+    assert [e.pointer_key for e in ing.events_from_run(st) if e.source_kind == "lab"] == ["lab:art://abc/minutes.json"]
+
+
 def test_the_speech_lane_rides_on_every_pointer_of_a_lane_run():
     """Three provider lanes over one recording are three lanes of a comparison, not three versions."""
     st = _minutes_state(); st["inputs"]["provider"] = "soniox-en"

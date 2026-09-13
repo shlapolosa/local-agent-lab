@@ -94,7 +94,12 @@ def test_the_intake_holds_no_collaboration_write():
 
 
 def test_the_producing_processes_are_every_process_but_the_fabrics_own():
-    assert set(PRODUCING_PROCESSES) == set(PROCESSES) - {intake.PROCESS, publish.PROCESS}
+    assert set(PRODUCING_PROCESSES) == {s.name for s in PROCESSES.values() if s.products}
+    assert not {intake.PROCESS, publish.PROCESS} & set(PRODUCING_PROCESSES)      # the fabric never ingests itself
+    # every process that is neither the fabric's own nor a producer is a WORKING-FILE process, named here on
+    # purpose: adding a process without deciding what it produces is how noise enters the lifecycle
+    assert {s.name for s in PROCESSES.values()} - set(PRODUCING_PROCESSES) - {intake.PROCESS, publish.PROCESS} \
+        == {"meeting_to_transcript", "use_case_provisioning"}
 
 
 def test_reindex_is_an_operators_sweep_and_reaches_no_workload():

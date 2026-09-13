@@ -157,3 +157,19 @@ def test_the_contract_imports_no_semantic_layer_at_module_level():
     names = [getattr(n, "module", None) or "" for n in top] + [a.name for n in top if isinstance(n, ast.Import) for a in n.names]
     assert not any(m.startswith("lab.core.semantic") for m in names), names
     assert contracts.POINTER_ID_FIELDS is POINTER_ID_FIELDS
+
+
+def test_a_producer_declares_which_outputs_are_managed_artifacts():
+    """BRS principle 8: transcripts, recordings and working files stay where they are as pointers; only the
+    PRODUCTS made from them enter the lifecycle. Measured 12 Sep 2026: every `*_ref` a run left behind became a
+    review card — 35 of 43 open cards were recordings and per-lane segment files."""
+    from lab.platform.contracts import (MEETING_TO_TRANSCRIPT, PROCESSES, PRODUCING_PROCESSES, TRANSCRIPT_TO_MINUTES,
+                                        USE_CASE_SCREENING, VISIO_TO_ARCHIMATE)
+    for spec in PROCESSES.values():
+        assert set(spec.products) <= set(spec.outputs), spec.name          # a product is one of the run's outputs
+        assert all(p.endswith("_ref") for p in spec.products), spec.name   # and it is an artifact reference
+    assert set(PRODUCING_PROCESSES) == {s.name for s in PROCESSES.values() if s.products}
+    assert MEETING_TO_TRANSCRIPT.products == () and MEETING_TO_TRANSCRIPT.name not in PRODUCING_PROCESSES
+    assert TRANSCRIPT_TO_MINUTES.products == ("minutes_ref",)              # never transcript_ref
+    assert USE_CASE_SCREENING.products == ("screening_ref",)               # never the person's submission record
+    assert VISIO_TO_ARCHIMATE.products == ("xml_ref",)

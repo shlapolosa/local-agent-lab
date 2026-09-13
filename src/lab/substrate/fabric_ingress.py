@@ -25,14 +25,14 @@ from datetime import datetime, timezone
 from lab.core import ids
 from lab.core.collab.model import ContentHandle
 from lab.platform import config, delivery, fabric_events, redis_client, streams, workflows
-from lab.platform.contracts import ARTIFACT_INTAKE, PROCESSES, ArtifactChanged, ArtifactRef, WorkflowStatus
+from lab.platform.contracts import ARTIFACT_INTAKE, PROCESSES, PRODUCING_PROCESSES, ArtifactChanged, ArtifactRef, WorkflowStatus
 
 SERVICE = "fabric-ingress"
 FINISHED_GROUP = "fabric-ingress"
 CONSUMER = "1"
 #: The lab processes whose finished runs produce managed artifacts. The fabric's own two are excluded:
 #: their finish is the END of the loop, not another trip round it.
-PRODUCERS = tuple(p for p in PROCESSES if p not in (ARTIFACT_INTAKE.name, "artifact_publish"))
+PRODUCERS = PRODUCING_PROCESSES              # a process with no declared products is never a producer
 
 
 # ----------------------------------------------------------------------------- finished runs -> events
@@ -40,8 +40,9 @@ def events_from_run(state: dict) -> list[ArtifactChanged]:
     """Every artifact a finished run wrote, as an event each. PURE.
 
     `delivered` (what a run put into the collaboration platform) yields collab pointers; the run's
-    own `*_ref` outputs are lab-store artifacts and yield `lab` pointers. Only DONE runs of a
-    producing process count."""
+    declared PRODUCTS (`ProcessSpec.products` — never every `*_ref` it left behind: a recording, a
+    transcript, a submission record are working files that stay as pointers) yield `lab` pointers. Only
+    DONE runs of a producing process count."""
     if state.get("status") != WorkflowStatus.DONE.value or state.get("process") not in PRODUCERS:
         return []
     ctx = delivery.from_run(state)
@@ -61,8 +62,9 @@ def events_from_run(state: dict) -> list[ArtifactChanged]:
         out.append(ArtifactChanged(event_id=ids.ulid(), pointer={"source": "collab", "handle": handle, **lane},
                                    source_kind="collab", change="created", actor_oid=actor, occurred_at=when,
                                    produced_by=str(state["process"]), context=ctx.key if ctx else ""))
-    for key, value in state.items():
-        if key.endswith("_ref") and isinstance(value, str) and ArtifactRef.is_ref(value) and value not in seen:
+    for key in PROCESSES[str(state["process"])].products:
+        value = state.get(key)
+        if isinstance(value, str) and ArtifactRef.is_ref(value) and value not in seen:
             seen.add(value)
             out.append(ArtifactChanged(event_id=ids.ulid(), pointer={"source": "lab", "ref": value, **lane},
                                        source_kind="lab", change="created", actor_oid=actor, occurred_at=when,

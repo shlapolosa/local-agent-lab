@@ -41,7 +41,7 @@ def build() -> C4Diagram:
     d.component("delivery", "z_prod", "DeliveryContext port", "GREEN: meeting:<id> carried from the event to a rung-C\ndeliveredUnder edge live; usecase/submission by test; workitem later", fill=DONE)
     # events
     d.component("stream", "z_events", "fabric:events (Redis)", "GREEN: real Redis live — publish, group read, reclaim after\nthe ingress crash, ack; dead-letter + loop-guard by test", fill=DONE)
-    d.component("ingress", "z_events", "fabric-ingress", "GREEN: live — dropped the non-allow-listed collab event,\nsubmitted artifact_intake for the lab event (serve-handler\nbug found and fixed live)", fill=DONE)
+    d.component("ingress", "z_events", "fabric-ingress", "AMBER (WP12, built 13 Sep, not yet deployed): only a producer\'s DECLARED products\n(ProcessSpec.products) become lab events — a recording, a transcript, a submission record\nstay pointers (BRS p.8); 29 working-file cards declined and their records withdrawn", fill=PART)
     # workloads
     d.component("intake", "z_work", "wf-fabric · artifact_intake", "GREEN: live run 67 s — identify→classify→associate→impact→\nsynthesise (2 decision records)→overlap→draft-review asked;\n1858-span trace", fill=DONE)
     d.component("publish", "z_work", "wf-artifact-publish", "GREEN: live run 13 s — released by the approval, record\npublished with a baseline version; re-index best-effort", fill=DONE)

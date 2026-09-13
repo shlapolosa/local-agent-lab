@@ -1215,6 +1215,12 @@ class ProcessSpec:
     description: str                   # what it does, for a tool description an agent reads unaided
     inputs: tuple[InputField, ...]
     outputs: tuple[str, ...] = ()      # request-hash fields a finished run publishes
+    # Which of those outputs are MANAGED ARTIFACTS — the products the fabric ingests (BRS principle 8: a
+    # transcript, a recording, a person's submission record are working files that stay where they are as
+    # pointers; what gets owned, reviewed and published is what was MADE from them). A process with no
+    # products is never a producer. Measured 12 Sep 2026: ingesting every `*_ref` a run left behind turned 35
+    # recordings and per-lane segment files into review cards nobody should decide.
+    products: tuple[str, ...] = ()
     # May an OUTSIDE caller START this process? Some processes are a CONTINUATION of another — they
     # exist to run after a human answered a question, and starting one directly would skip the gate
     # that gave it its input. That is a property of the PROCESS, not a permission on a caller, so it
@@ -1271,6 +1277,7 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
     # `import_artifacts` is the repository-agnostic replacement for the old `xlsx_ref`: whatever THIS
     # EA repository needs a human to import, as [{ref, label, note, media_type}] — possibly empty.
     outputs=("trace_id", "approval_id", "review_app", "xml_ref", "import_artifacts", "summary"),
+    products=('xml_ref',),
 )
 
 # The speech providers a run may name as its LANE. Declared HERE, in the contract, because it is a
@@ -1369,6 +1376,7 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
              # what reached the collaboration platform, where to announce it, and why not when it
              # did not — delivery is best effort, so its outcome is reported rather than raised
              "delivered", "chat_id", "delivery"),
+    products=('minutes_ref',),
     # Continuation-only. `speaker_map` is a HUMAN'S answer to the approval the transcript run raised;
     # a caller who could submit this directly would supply their own attribution and bypass the one
     # gate the meeting pipeline has. The continuation runner starts it in-process, so this refusal
@@ -1437,6 +1445,7 @@ USE_CASE_SCREENING = ProcessSpec(
     ),
     outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
              "criticality_band", "summary"),
+    products=('screening_ref',),
 )
 
 USE_CASE_DESIGN = ProcessSpec(
@@ -1474,6 +1483,7 @@ USE_CASE_DESIGN = ProcessSpec(
     outputs=("trace_id", "approval_id", "review_app", "verdict", "halted",
              "readiness", "governance_tier", "risk_ref", "obligations_ref", "architecture_ref",
              "cost_ref", "business_case_ref", "recommendation", "delivery_ref", "summary"),
+    products=('architecture_ref',),
     external=False,
 )
 
@@ -1499,6 +1509,7 @@ USE_CASE_INVESTMENT = ProcessSpec(
     ),
     outputs=("trace_id", "approval_id", "review_app", "investment_ref", "recommendation",
              "authority", "summary"),
+    products=('investment_ref',),
     external=False,
 )
 
@@ -1704,12 +1715,12 @@ AGENTS: tuple[AgentSpec, ...] = (
 )
 
 
-#: Every process whose outputs the fabric ingests — the specs themselves, so a producer added above is a
-#: producer here (a test holds this equal to PROCESSES minus the fabric's own two).
+#: Every process whose PRODUCTS the fabric ingests — derived from the specs' `products`, so declaring what a
+#: process makes is the one place that also makes it a producer (a governance test names the non-producers).
 PRODUCING_PROCESSES: tuple[str, ...] = tuple(p.name for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
                                                               TRANSCRIPT_TO_MINUTES, USE_CASE_SCREENING,
                                                               USE_CASE_DESIGN, USE_CASE_INVESTMENT,
-                                                              USE_CASE_PROVISIONING))
+                                                              USE_CASE_PROVISIONING) if p.products)
 
 ARTIFACT_INTAKE = ProcessSpec(
     name="artifact_intake",
