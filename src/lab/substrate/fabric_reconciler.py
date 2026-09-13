@@ -23,7 +23,7 @@ from lab.core import ids
 from lab.core.collab.model import ContentHandle
 from lab.platform import config, fabric_events, streams
 from lab.platform.contracts import ArtifactChanged, CollabTools, SemanticTools
-from lab.substrate import fabric_gateway
+from lab.substrate import fabric_gateway, fabric_metrics
 
 SERVICE = "fabric-reconciler"
 
@@ -132,13 +132,18 @@ def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
             print(f"[reconciler] renewed {len(kept)} subscription(s): {[k['id'] for k in kept]}", flush=True)
     except Exception as e:                          # noqa: BLE001 — a renewal that fails is retried next tick
         print(f"[reconciler] renewal failed: {type(e).__name__}: {e}", flush=True)
+    out: list[ArtifactChanged] = []
     try:
         out = asyncio.run(sweep(call=call, client=r))
         print(f"[reconciler] swept: {len(out)} change(s) published", flush=True)
-        return out
     except Exception as e:                          # noqa: BLE001 — a sweep that fails runs again next tick
         print(f"[reconciler] sweep failed: {type(e).__name__}: {e}", flush=True)
-        return []
+    try:                                            # the measurements ride the same cadence (BR-8)
+        m = asyncio.run(fabric_metrics.tick(folder=config.FABRIC_WIKI_FOLDER, client=r, call=call))
+        print(f"[reconciler] measured: {m['records']['total']} record(s)", flush=True)
+    except Exception as e:                          # noqa: BLE001 — numbers that fail to compute are computed next tick
+        print(f"[reconciler] metrics failed: {type(e).__name__}: {e}", flush=True)
+    return out
 
 
 def _client():

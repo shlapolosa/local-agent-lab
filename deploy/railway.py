@@ -384,6 +384,7 @@ ROLE_ENV = {
     ],
     "fabric-reconciler": [                         # src/lab/substrate/fabric_reconciler.py — the timer sweep of the allow-listed drives
         "REDIS_URL", "GATEWAY_URL", "FABRIC_CURATOR_KEY", "FABRIC_EVENTS", "FABRIC_ALLOWLIST", "FABRIC_SWEEP_*",
+        "FABRIC_WIKI_FOLDER",   # the measurements page (fabric_metrics.tick) lands beside the record pages
         _OTLP,
     ],
     "meeting-notifier": [       # src/lab/substrate/meeting_notifier.py + lab.platform.workflows — Redis ONLY

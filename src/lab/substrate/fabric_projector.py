@@ -87,13 +87,18 @@ async def project(state: dict, *, folder: str, call=None) -> dict | None:
     if not row:
         raise LookupError(f"no catalog record {iri}")
     name = f"{slug(row.get('title') or iri.rsplit(':', 1)[-1])}.md"
-    text = page(row)
-    stored = (await go([(SemanticTools.store_spec, {"spec": {"text": text}, "name": name})]))[0]
+    return await write_page(name, page(row), folder=folder, call=go)
+
+
+async def write_page(name: str, text: str, *, folder: str, call) -> dict:
+    """ONE small Markdown page into the wiki folder, by reference: stored as a lab artifact, then `collab_put`
+    (which replaces a file of the same name). Shared by the record projection and the measurements page."""
+    stored = (await call([(SemanticTools.store_spec, {"spec": {"text": text}, "name": name})]))[0]
     ref = stored["spec_ref"] if isinstance(stored, dict) else json.loads(stored)["spec_ref"]
     if not folder:
         print(f"[projector] would write {name} ({len(text)} chars) — FABRIC_WIKI_FOLDER unset", flush=True)
         return {"ref": ref, "handle": "", "name": name}
-    put = (await go([(CollabTools.put, {"folder": folder, "ref": ref, "name": name})]))[0]
+    put = (await call([(CollabTools.put, {"folder": folder, "ref": ref, "name": name})]))[0]
     return {"ref": ref, "handle": str(put.get("handle") or ""), "name": str(put.get("name") or name),
             "version": str(put.get("modified") or put.get("version") or "")}
 
