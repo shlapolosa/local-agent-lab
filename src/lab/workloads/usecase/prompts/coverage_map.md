@@ -35,6 +35,14 @@ match the design cannot build on. If no candidate fits a function, the function 
 Record `confidence` for each match as `lookup` (the map says so), `assumption` (you inferred it
 from the labels) or `survey` (you would have to ask somebody).
 
+**The heat map is a LOOKUP or it is `false`.** `heat_map.commodity`, `mature` and `meets_target`
+are the tenant's published position on a capability, and the reject rule downstream fires on all
+three being true. The candidates you were shown carry `id`, `label`, `level`, `parent` and `path`
+— unless a candidate row ALSO carries a heat-map position (a commodity, maturity or meets-target
+column), there is nothing to look up: answer all three `false` and let `source` say that the
+published map carries no heat-map position. Never write "lookup" for a position you did not read
+off a row: a heat map that reads well rejects a use case nobody assessed.
+
 ## How to answer
 
 Return ONE JSON object and nothing else. No prose before it, no markdown fence, no explanation

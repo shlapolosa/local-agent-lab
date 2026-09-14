@@ -181,7 +181,24 @@ def _coverage_map(out: dict, context: Mapping[str, Any] | None = None) -> list[s
     elif heat and not str(heat.get("source", "")).strip():
         bad.append("the heat-map position names no source — it is a LOOKUP against the published "
                    "capability map, not a judgement made here")
+    # A TRUE position needs a column to have been read from. The rows this step is shown carry
+    # `id/label/level/parent/path` unless a tenant heat map is published beside them — and on 14 Sep
+    # 2026 a model wrote "lookup from published capability map" over all three flags for a map that
+    # carries none, which rejected the case on a position nobody had assessed.
+    elif heat and any(heat.get(k) is True for k in _HEAT_FLAGS) and context is not None:
+        rows = [r for r in (context.get("capabilities") or []) if isinstance(r, Mapping)]
+        if rows and not any(k in row for row in rows for k in _HEAT_COLUMNS):
+            bad.append("the heat-map position claims a lookup but the capabilities this step was "
+                       "shown carry no heat-map column (commodity / maturity / meets-target) — "
+                       "there is nothing to look up: answer false and let `source` say the "
+                       "published map carries no heat-map position")
     return bad
+
+
+_HEAT_FLAGS = ("commodity", "mature", "meets_target")
+#: A row carrying any of these was published WITH a heat-map position a lookup can read.
+_HEAT_COLUMNS = ("commodity", "mature", "maturity", "meets_target", "meets-target", "target",
+                 "heat", "heat_map", "tier")
 
 
 def _realisation_match(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:

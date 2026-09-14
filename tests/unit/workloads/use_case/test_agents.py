@@ -496,7 +496,9 @@ def test_but_an_unnamed_owner_must_actually_REACH_a_human():
 # ------------------------------------------------- a capability id is a lookup, not a paraphrase
 SHOWN = {"capabilities": [{"id": "cap-a1", "label": "Referral Triage", "path": "Care > Referral Triage"},
                           {"id": "cap-b2", "label": "Slot Booking", "path": "Care > Slot Booking"}]}
-HEAT = {"commodity": False, "mature": True, "meets_target": False, "source": "capability map v0.29"}
+#: An HONEST position: the rows these tests show carry no heat-map column, so a lookup finds nothing.
+HEAT = {"commodity": False, "mature": False, "meets_target": False,
+        "source": "the published map carries no heat-map position"}
 
 
 def test_a_matched_capability_id_must_be_one_the_step_was_shown():
@@ -550,3 +552,35 @@ def test_the_model_is_told_where_a_capability_id_comes_from():
     desc = schema("coverage_map")["properties"]["matched"]["items"]["properties"]["capability_id"]["description"]
     assert "id" in desc and "shown" in desc and "refused" in desc
     assert "`capability_id` is COPIED" in prompt("coverage_map")
+
+
+CANDIDATES = {"capabilities": [{"id": "cap-1", "label": "Submission Validation", "level": 3,
+                                "parent": "cap-0", "path": ["Work Management", "Submission Validation"]}]}
+
+
+def test_a_true_heat_position_over_rows_with_no_heat_column_is_refused_as_a_fabricated_lookup():
+    """14 Sep 2026: a model wrote "lookup from published capability map" over commodity/mature/
+    meets-target for a map that carries none, and the feasibility rule rejected the case on a
+    position nobody had assessed. The rows say what can be looked up; the gate holds the answer to it."""
+    out = {"matched": [{"function": "assess", "capability_id": "cap-1", "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": {"commodity": True, "mature": True, "meets_target": True,
+                        "source": "lookup from published capability map: Work Management > Submission Validation"}}
+    bad = gated("5", out, context=CANDIDATES)
+    assert any("no heat-map column" in p for p in bad), bad
+
+
+def test_an_honest_false_heat_position_over_the_same_rows_is_accepted():
+    out = {"matched": [{"function": "assess", "capability_id": "cap-1", "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                        "source": "the published map carries no heat-map position"}}
+    assert gated("5", out, context=CANDIDATES) == []
+
+
+def test_a_true_heat_position_is_accepted_when_the_rows_carry_one():
+    rows = {"capabilities": [dict(CANDIDATES["capabilities"][0], commodity=True, mature=True, meets_target=True)]}
+    out = {"matched": [{"function": "assess", "capability_id": "cap-1", "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": {"commodity": True, "mature": True, "meets_target": True, "source": "row cap-1"}}
+    assert gated("5", out, context=rows) == []
