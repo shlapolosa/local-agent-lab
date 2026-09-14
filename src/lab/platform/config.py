@@ -34,6 +34,7 @@ def _rows(name: str) -> tuple[dict, ...]:
 # --- where the tree is (paths, not URLs): the repo root and the git-ignored runtime dir ---
 REPO_ROOT = Path(__file__).resolve().parents[3]            # src/lab/platform/config.py -> repo (editable install)
 VAR_DIR = Path(_e("LAB_VAR_DIR") or REPO_ROOT / "var")     # logs/ run/ artifacts/ out/ inputs/ tools/ reference-sources/
+SKILLS_DIR = REPO_ROOT / "skills"                           # the registered skills (SKILL.md + engines); COPYed into the image
 
 # --- where things are (URLs as seen by the CALLER) ---
 GATEWAY_URL      = _e("GATEWAY_URL", "http://127.0.0.1:4000")           # LiteLLM, for agents/clients
@@ -321,6 +322,10 @@ MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # group with reasoning_effort=medium) recalled 0.50/0.40 in ~90 s — the kimi baseline — at a
 # fraction of claude-sonnet-5's cost. Speed alone is the wrong answer for this step.
 USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini-think")
+#: THROWAWAY test aid (14 Sep 2026): render what every step ADDED to the run's architecture model as
+#: its own artifact, so a step's contribution is proven on the run itself. One store + one render per
+#: mapped step, so off by default; `lab.workloads.usecase.modeltrace` is the whole of it.
+USECASE_MODEL_TRACE = _e("USECASE_MODEL_TRACE", "false").lower() == "true"
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

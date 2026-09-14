@@ -32,6 +32,7 @@ from lab.platform.contracts import (
 from lab.workloads import gateway
 from lab.workloads.usecase import coverage
 from lab.workloads.usecase import reference
+from lab.workloads.usecase import modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import SCREENING_STEPS
 
@@ -323,10 +324,14 @@ def build_workflow(cfg):
                     # reader most needs the record to say how deep the match went.
                     state = state | {"capability_depth": drilled.get("capability_depth", 0),
                                      "coverage_trail": drilled.get("coverage_trail") or []}
+                    await modelling.grow(cfg, d, step.key)
                     continue
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.
                 await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
+                # Onto the ONE architecture model the run grows: every later step reads it as
+                # data, and the views a reviewer sees are projections of it.
+                await modelling.grow(cfg, d, step.key)
             derived, pending = d.derived, d.pending
 
             screening = {"pending_steps": pending,
@@ -385,7 +390,10 @@ def build_workflow(cfg):
                 "fields": ["value"],                   # one thing to say per label, not a voice
                 "continuation": cont.to_dict(),
                 "artifacts": {"submission": state["submission_record_ref"],
-                              "screening": state["screening_ref"]},
+                              "screening": state["screening_ref"],
+                              # The per-step model trace, while it is on: one tab per step.
+                              **({"svg_refs": trace_tabs} if (trace_tabs := modeltrace.tabs(
+                                  state.get("screening") or {})) else {})},
                 "requester": state.get("submitter", ""),
                 "process": PROCESS})
             out = {"approval_id": asked["request_id"],

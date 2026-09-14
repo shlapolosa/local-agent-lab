@@ -256,6 +256,43 @@ host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` 
 that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
 agents.
 
+**The use-case workflow grows ONE ArchiMate model, step by step, and its views are projections of
+it (14 Sep 2026).** After every step is recorded — the agent steps and the governed derivations
+alike — a deterministic MAPPER (`lab.workloads.usecase.mappers.MAPPERS`, keyed by step KEY, one
+entry per step) writes that step's output onto `lab.workloads.usecase.model.Model`: the frame as
+motivation, step 4's elements as actors/functions/objects, the coverage match as capabilities
+realised by functions, the workflow graph as processes (`bp-<node id>` — the ONE element steps 10,
+15, 17, 18 and 19 all land on, because they share the node id), obligations as constraints, the
+composition as family groupings carrying the CAFÉ archetype, step 21's components as
+ApplicationComponents tagged `cafe.zone`/`cafe.families` from the pinned catalogue. Ids are a pure
+function of the output (`ids.slug`, prefixed by kind) so a re-run UPDATES; every relation is checked
+against the published matrix (`relrepair.check`) at proposal and an illegal one is COUNTED under
+`dropped`, never raised — a mapper is bookkeeping and must not fail a 20-minute run (`mappers.apply`
+restores the model and records the failure on it if a mapper throws). The model rides the process
+records (`screening.json["model"]`, `design.package.json["model"]`) — no contract change — and the
+design re-records it into its own package. A later step reads it as `model_summary` (names by
+type, plus the composition's required families and which are realised), NEVER the spec: `message()`
+dumps a context entry whole. Consequences: **the composition (22) now runs BEFORE step 21** (its
+inputs are 17/19/20), so the selector is held to the families by a SOFT rule
+(`steps._families_realised`, `Step.soft`, `gates.run_gated(soft=)`: asked for once on the retry,
+then RECORDED under `unresolved` rather than raised — a family nobody selected is something the
+design owes, which a reviewer must see, not a reason to lose the run; a catalogue with no
+`families` column makes no claim, and that column is authored content still to publish). At the END
+of the design `render_views` stores the model by ref (`design.model.json`) and projects it twice —
+`archimate_render` (XML + one SVG per standard view) and the new semantic-mcp
+**`semantic_render_cafe`** (`lab.substrate.mcp.semantic.cafe`: ours only, `include_comps:
+["none"]`, every component in the CAFÉ zone its property names, on the archetype the composition
+put on the root; a component with no zone is `unplaced`, never guessed; the skill's engine is
+imported from `config.SKILLS_DIR` via `sys.path`, the one such seam) — refs into the package, SVGs
+onto the conformance approval as tabs, and **`architecture_ref` is the draw.io file** (the model
+when nothing drew, the package as a last resort). Neither render tool is REQUIRED: a design that
+cannot draw is still a design, and the warning it records is the visible degradation.
+**THROWAWAY test aid, on by `USECASE_MODEL_TRACE=true`** (`lab.workloads.usecase.modeltrace`, one
+module, one call in `modelling.grow`): every step that touched the model also stores and renders
+its DELTA (touched elements + the step's relations + their endpoints, one view), and both approvals
+show one tab per step in run order — "for the sake of proving the outputs of each step". Off by
+default (one store + one render per step); `model_trace` never enters a prompt.
+
 **A screening step whose tenant corpus is unpublished records a DECLARED default (13 Sep 2026).**
 Steps 6, 8 and 11 read corpora this tenant does not have (the as-is landscape, the business service
 levels, the source classification). Rather than stay pending and fail readiness gate C on every case,

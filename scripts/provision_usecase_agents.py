@@ -31,7 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lab.platform import config
-from lab.platform.contracts import (ApprovalTools, DecisionTools, ReferenceTools,  # noqa: E402
+from lab.platform.contracts import (ApprovalTools, DecisionTools, EATools, ReferenceTools,  # noqa: E402
                                     SemanticTools, StorageTools, USE_CASE_SCREENING,
                                     ValuationTools, VectorStores, WorkflowTools)
 from lab.workloads.usecase.identity import PREFIX_FOR  # noqa: E402
@@ -56,7 +56,13 @@ INTAKE_TOOLS = {
     # `ontologies` is the corpus step 9 reads; the capability map is no longer a semantic tool —
     # it is read from the governed corpus under the run's pin, and searched through a store.
     SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.ontologies,
-                           SemanticTools.describe],
+                           SemanticTools.describe,
+                           # The CAFÉ solution view of the model the run grew (draw.io + SVG).
+                           SemanticTools.render_cafe],
+    # The ArchiMate ENGINE's renderer only — the model the run grows is drawn by it (legality is
+    # checked in-process by `relrepair.check` as the model grows, so no validate tool is needed);
+    # nothing here reads or stages anything in the EA repository.
+    EATools.SERVER: [EATools.render],
     # The deterministic derivations. Read-only, and the whole catalogue: a run that could compute
     # its exposure but not its obligations would produce a design package with a hole in it.
     DecisionTools.SERVER: sorted(DecisionTools.names()),

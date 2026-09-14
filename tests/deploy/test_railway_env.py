@@ -593,3 +593,17 @@ def test_the_substrate_runs_its_own_embedder_only_while_the_corpus_embeds_with_i
     assert "embedder" not in railway.substrate_names(vendor)
     assert "embedder" in railway.substrate_names(vendor, {"embedder": "svc-embedder"})
     assert railway.substrate_names({})[1] == "embedder"
+
+
+def test_every_usecase_setting_reaches_the_usecase_workloads():
+    """A switch with no way to be set in the cloud is dead code with a docstring: every `config`
+    name starting USECASE_ must match the allowlist of both use-case hosts (14 Sep 2026: the model
+    trace toggle was added to `.env` and matched nothing, so it shipped nowhere)."""
+    import fnmatch
+    import glob
+    src = "".join(open(f).read() for f in glob.glob(os.path.join(ROOT, "src/lab/workloads/**/*.py"), recursive=True))
+    names = sorted(set(re.findall(r"config\.(USECASE_[A-Z_]+)", src)))
+    assert "USECASE_MODEL_TRACE" in names and "USECASE_AGENT_MODEL" in names
+    for role in ("usecase-screening", "usecase-design"):
+        for name in names:
+            assert any(fnmatch.fnmatchcase(name, p) for p in railway.WORKLOAD_ENV[role]), (role, name)

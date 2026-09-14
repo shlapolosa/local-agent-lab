@@ -53,6 +53,7 @@ from lab.platform.contracts import (
     ApprovalTools,
     CollabTools,
     DecisionTools,
+    EATools,
     Continuation,
     ValuationTools,
     SemanticTools,
@@ -745,6 +746,12 @@ DESIGN_ANSWERS = {
 }
 
 
+def _package(h) -> dict:
+    """The design package the run stored — by NAME, because the model spec is stored first."""
+    return [c[1]["spec"] for c in h.router.calls
+            if c[0] == SemanticTools.store_spec and c[1].get("name") == "design.package.json"][0]
+
+
 def _design_chain_router(**extra):
     # The full evidence set: step 21 reads the quality attributes, so a router carrying only what
     # the gate needs would leave it pending and make the chain test quieter than it looks.
@@ -846,7 +853,7 @@ def test_without_facet_vectors_the_derivations_are_not_attempted():
         run_spine(W, h, _design_inputs())
     called = [c[0] for c in h.router.calls]
     assert DecisionTools.exposure not in called
-    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    package = _package(h)
     assert "18" in package["pending_steps"] and "19" in package["pending_steps"]
 
 
@@ -856,7 +863,7 @@ def test_without_a_topology_the_composition_is_not_attempted():
         _with_design_agents(h, build_surface=None)
         run_spine(W, h, _design_inputs())
     assert DecisionTools.composition not in [c[0] for c in h.router.calls]
-    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    package = _package(h)
     assert "needs a topology" in package["pending_steps"]["22"]
 
 
@@ -865,7 +872,7 @@ def test_the_design_package_carries_what_each_step_produced():
     with spine(W, _design_chain_router()) as h:
         _with_design_agents(h)
         run_spine(W, h, _design_inputs())
-    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    package = _package(h)
     assert set(package) >= {"assertions", "determinism", "facet_vectors", "risk", "obligations",
                             "build_surface", "component_selection", "composition"}
     assert package["obligations"]["guardrails"] == ["G01", "G02"]
@@ -955,7 +962,7 @@ def test_without_a_cost_the_benefit_is_not_computed_and_the_case_says_so():
     called = [c[0] for c in h.router.calls]
     assert ValuationTools.cost not in called and ValuationTools.benefit not in called
     assert out["recommendation"] == "" and out["business_case_ref"] == "" and out["cost_ref"] == ""
-    package = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec][0]
+    package = _package(h)
     assert "23" in package["pending_steps"] and "24" in package["pending_steps"]
 
 
@@ -1442,3 +1449,133 @@ def test_the_domain_is_handed_only_its_own_fields_with_every_override_applied():
 def _all_conditions():
     from lab.core.usecase.predicates import NAMED_CONDITIONS
     return sorted(NAMED_CONDITIONS)
+
+
+# ---------------------------------------------------------------- the model the run grows
+
+def _screening_record(h) -> dict:
+    return [c[1]["spec"] for c in h.router.calls
+            if c[0] == SemanticTools.store_spec and c[1].get("name") == "screening.json"][0]
+
+
+def test_the_screening_grows_one_model_and_carries_it_in_its_record():
+    """Every step's output is mapped onto ONE ArchiMate model; the record carries it, so the design
+    run reads it as data rather than re-deriving it from the record's prose."""
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    model = _screening_record(h)["model"]
+    ids_ = {e["id"] for e in model["elements"]}
+    # (Step 10 stays pending in this fixture — its coverage map is never derived — so no process node.)
+    assert {"usecase", "bf-assess-referral", "bo-referral", "ba-triage-nurse", "drv-problem"} <= ids_
+    root = [e for e in model["elements"] if e["id"] == "usecase"][0]
+    assert root["props"]["criticality.band"] == "business-critical"
+    assert model["dropped"] == []
+    assert "model_trace" not in _screening_record(h), "the trace is off by default"
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    assert "svg_refs" not in asked["artifacts"]
+
+
+RENDERED = {EATools.render: {"xml_ref": "art://v/design.archimate.xml",
+                             "svg_refs": {"biz-app": "art://v/biz-app.svg"}, "violations": [], "warnings": []},
+            SemanticTools.render_cafe: {"drawio_ref": "art://v/design.drawio", "svg_ref": "art://v/design.cafe.svg",
+                                        "placed": ["ac-x"], "unplaced": [], "violations": 0, "warnings": []}}
+
+
+def _design_with_model(**extra):
+    """The design chain over a screening record that already carries a model."""
+    screening = dict(READY) | {"quality_attributes": {"attributes": [{"name": "latency"}]},
+                               "frame": {"problem": "referral triage takes too long"},
+                               "model": {"name": "triage", "id": "usecase",
+                                         "elements": [{"id": "bf-assess-referral", "type": "BusinessFunction",
+                                                       "name": "assess referral", "folder": "Business"}],
+                                         "relations": []}}
+    return _design_chain_router(**{StorageTools.read_artifact: screening, **RENDERED, **extra})
+
+
+def test_the_design_continues_the_screenings_model_and_renders_it_at_the_end():
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_with_model()) as h:
+        _with_design_agents(h)
+        out = run_spine(W, h, _design_inputs())
+    package = _package(h)
+    ids_ = {e["id"] for e in package["model"]["elements"]}
+    assert "bf-assess-referral" in ids_, "the screening's element survived into the design"
+    assert {"bp-n1", "node-foundry-hosted-agent", f"ac-{MODEL_CATALOG}", "fam-f2"} <= ids_
+    root = [e for e in package["model"]["elements"] if e["id"] == "usecase"][0]
+    assert root["props"]["cafe.archetype"] == "A2", "T2 -> its first archetype, from the pinned corpus"
+    # The views: model stored by ref, both projections called by that ref, refs in the package.
+    stored = [c[1] for c in h.router.calls if c[0] == SemanticTools.store_spec and c[1]["name"] == "design.model.json"]
+    assert len(stored) == 1 and stored[0]["spec"]["standard_views"] is True
+    rendered = [c[1] for c in h.router.calls if c[0] == EATools.render][0]
+    assert rendered == {"spec_ref": "art://d1/design.json", "basename": "design", "strict": False}
+    assert [c[1] for c in h.router.calls if c[0] == SemanticTools.render_cafe][0]["spec_ref"] == "art://d1/design.json"
+    views = package["views"]
+    assert views["architecture_ref"] == "art://v/design.drawio"
+    assert views["svg_refs"] == {"biz-app": "art://v/biz-app.svg", "cafe": "art://v/design.cafe.svg"}
+    assert views["archimate_xml_ref"] == "art://v/design.archimate.xml"
+    # T2 admits three archetypes; the drawing stands on one, and says so beside itself.
+    assert views["warnings"] == ["cafe: drawn on A2; the pinned corpus admits A2, A3, A5 for this topology"]
+    # ...and on the approval and the run's product.
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    assert asked["artifacts"]["svg_refs"] == views["svg_refs"]
+    assert asked["artifacts"]["architecture_ref"] == "art://v/design.drawio"
+    assert out["architecture_ref"] == "art://v/design.drawio"
+
+
+def test_a_render_that_fails_is_a_named_warning_and_the_design_still_reaches_its_reviewer():
+    """A design that cannot draw is still a design: neither render tool is required, so a
+    deployment without the grant degrades to the model ref and says so."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_with_model(**{EATools.render: RuntimeError("no ea_mcp grant"),
+                                        SemanticTools.render_cafe: RuntimeError("skill missing")})) as h:
+        _with_design_agents(h)
+        out = run_spine(W, h, _design_inputs())
+    views = _package(h)["views"]
+    assert views["architecture_ref"] == views["model_ref"] == "art://d1/design.json"
+    assert views["svg_refs"] == {}
+    assert any("no ea_mcp grant" in w for w in views["warnings"])
+    assert any("skill missing" in w for w in views["warnings"])
+    assert out["approval_id"] == "apr-2" and out["architecture_ref"] == "art://d1/design.json"
+
+
+def test_the_composition_runs_before_the_components_are_selected_and_the_selector_sees_it():
+    """Step 21 is held to the families the composition requires, so 22's derivation runs first and
+    its families reach 21 through the model summary — never the whole model."""
+    from lab.workloads.use_case_design import workflow as W
+    with spine(W, _design_with_model()) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    order = [c[0] for c in h.router.calls if c[0] == DecisionTools.composition]
+    assert order, "the composition ran"
+    selector = h.cfg["agents"]["component_selection"]
+    shown = selector.asked[0]
+    assert '"required_families"' in shown and '"F2"' in shown
+    assert "## model_summary" in shown and '"props"' not in shown, "names by type, never the spec"
+    assert "## model\n" not in shown
+
+
+def test_the_model_trace_renders_what_each_step_added_when_it_is_on(monkeypatch):
+    """THROWAWAY test aid: one artifact per step that changed the model, so a step's contribution
+    is proven on the run itself; the approvals show them as one tab per step."""
+    from lab.platform import config
+    from lab.workloads.use_case_screening import workflow as W
+    monkeypatch.setattr(config, "USECASE_MODEL_TRACE", True)
+    router, agents = _screening_with_agents(**{EATools.render: lambda a: {
+        "xml_ref": "art://t/x.xml", "svg_refs": {"delta": f"art://t/{a['basename']}.svg"}}})
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    record = _screening_record(h)
+    trace = record["model_trace"]
+    assert set(trace) >= {"frame", "elements", "criticality_band", "ontology_delta"}
+    assert trace["elements"]["svg_refs"] == {"delta": "art://t/model.elements.svg"}
+    assert trace["elements"]["added"] > 0 and trace["elements"]["spec_ref"] == "art://s1/spec.json"
+    deltas = [c[1] for c in h.router.calls if c[0] == SemanticTools.store_spec and c[1]["name"] == "model.elements.json"]
+    assert deltas and deltas[0]["spec"]["views"][0]["id"] == "delta-elements"
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    tabs = asked["artifacts"]["svg_refs"]
+    assert list(tabs)[:2] == ["3 frame", "4 elements"], "one tab per step, in run order"
+    assert "9 ontology_delta" in tabs

@@ -107,7 +107,10 @@ class Derivation:
             out = await run_gated(agent, A.message(step, context_seen),
                                   step=step.number, validator=step.validator(),
                                   normalise=step.normalise,
-                                  complete=functools.partial(step.complete, context=context_seen))
+                                  complete=functools.partial(step.complete, context=context_seen),
+                                  soft=(functools.partial(step.soft, context=context_seen)
+                                        if step.soft else None),
+                                  soft_key=step.soft_key, soft_remedy=step.soft_remedy)
         self.record(step.key, out, step.number)
         return True
 

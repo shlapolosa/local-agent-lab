@@ -236,6 +236,7 @@ class SemanticTools(ToolCatalogue):
     derive = "semantic_derive"                     # rebuild rung D (two rules) — the publish workload, after a baseline
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
+    render_cafe = "semantic_render_cafe"           # a solution view (draw.io + SVG) projected from a model spec
     # FOUR GRANTS. `READ` is what every team had before the fabric and every query the products answer.
     # `PIPELINE` is what the intake and publish workloads write — per artifact, at a rung, with provenance —
     # and the curator. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
@@ -246,7 +247,8 @@ class SemanticTools(ToolCatalogue):
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, questions, ask,
-            catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes)
+            catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
+            render_cafe)
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
     PROMOTE = (promote,)
@@ -582,8 +584,15 @@ def import_artifacts(payload: dict[str, Any]) -> list[ImportArtifact]:
     declared = payload.get("import_artifacts")
     if declared is not None:
         return [ImportArtifact.from_dict(d) for d in declared]
-    return [ImportArtifact(ref=v, label=ImportArtifact(v, "?").filename)
-            for k, v in payload.items() if k.endswith("_ref") and isinstance(v, str) and v.strip()]
+    # ONE download per ref: two keys naming the same file (a design whose `architecture_ref` fell
+    # back to its `model_ref`) would render two identical buttons, which the review app refuses.
+    seen: set[str] = set()
+    out = []
+    for k, v in payload.items():
+        if k.endswith("_ref") and isinstance(v, str) and v.strip() and v not in seen:
+            seen.add(v)
+            out.append(ImportArtifact(ref=v, label=ImportArtifact(v, "?").filename))
+    return out
 
 
 class Decision(StrEnum):

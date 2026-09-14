@@ -26,6 +26,7 @@ from typing import Any, Callable, Mapping
 
 from lab.core.usecase.predicates import NAMED_CONDITIONS
 from lab.workloads.usecase.gates import validator_for
+from lab.workloads.usecase.mappers import as_list
 
 __all__ = ["DESIGN_STEPS", "SCREENING_STEPS", "STEPS", "Step", "schema", "step_for"]
 
@@ -75,6 +76,13 @@ class Step:
     #: 21's checks a component id against the pinned catalogue it was given.
     complete: Callable[[dict, Mapping[str, Any] | None], list[str]]
     normalise: Callable[[dict], None] | None = None
+    #: A rule whose second shortfall is RECORDED on the answer under `soft_key` rather than raised —
+    #: something the design still owes, which a reviewer must see (see `gates.run_gated`).
+    soft: Callable[[dict, Mapping[str, Any] | None], list[str]] | None = None
+    soft_key: str = "unresolved"
+    #: What the RETRY is told to do about a soft finding — never written onto the answer, which a
+    #: person reads as a design record, not as an instruction.
+    soft_remedy: str = ""
 
     def validator(self):
         return validator_for(schema(self.key))
@@ -377,6 +385,38 @@ def _component_selection(out: dict, context: Mapping[str, Any] | None = None) ->
     return bad[:5]
 
 
+def _families_realised(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """Step 21's SOFT rule: every family the composition (step 22, run first) requires is carried
+    by a selected catalogue component, or is named under `unresolved`.
+
+    Policy, stated so it can be changed in one place: a `building_block` does NOT realise a family.
+    It is out of scope and owned by someone else, so a family met only there is a dependency the
+    design still owes — which is exactly what `unresolved` is for. A catalogue with no `families`
+    column makes no claim (the column is authored content, published separately), and a run with
+    no composition has nothing to require: both are silent, never a refusal.
+    """
+    ctx = context or {}
+    required = as_list(((ctx.get("model_summary") or {}).get("required_families")))
+    families_of = {str(row.get("id")): as_list(row.get("families"))
+                   for row in ctx.get("component_catalogue") or [] if isinstance(row, Mapping) and row.get("id")}
+    if not required or not any(families_of.values()):
+        return []
+    selected = [str(c.get("component_id", "")) for c in out.get("selected") or []]
+    realised = {f for cid in selected for f in families_of.get(cid, ())}
+    named = " ".join(str(u) for u in out.get("unresolved") or [])
+    return [f"family {f} is required by the composition and no selected component carries it"
+            for f in required if f not in realised and f not in named]
+
+
+FAMILY_REMEDY = ("select a catalogue component whose `families` include it, or name it under "
+                 "`unresolved` as something the design still owes")
+
+#: The deterministic steps' numbers — they have no `Step` (a governed derivation's, not an agent's)
+#: but they are named by number wherever a person reads a run. ONE home, beside the agent steps'.
+DERIVED_STEP_NUMBERS = {"risk": "18", "obligations": "19", "composition": "22", "cost": "23",
+                        "benefit": "24"}
+
+
 # ---------------------------------------------------------------- the registry
 
 #: Steps 3-11 — the pre-work exercises, run by the SCREENING process before the criticality gate.
@@ -473,7 +513,8 @@ DESIGN_STEPS: tuple[Step, ...] = (
     Step("15", "determinism", "Solution Architect", _determinism),
     Step("17", "facet_vectors", "Risk Officer", _facet_vectors),
     Step("20", "build_surface", "Technology Architect", _build_surface),
-    Step("21", "component_selection", "Solution Architect", _component_selection),
+    Step("21", "component_selection", "Solution Architect", _component_selection,
+         soft=_families_realised, soft_remedy=FAMILY_REMEDY),
     Step("23", "cost_inputs", "Cost Engineer", _cost_inputs),
     Step("24", "benefit_inputs", "Value Analyst", _benefit_inputs),
     Step("25", "delivery_artifacts", "Product Owner", _delivery_artifacts),

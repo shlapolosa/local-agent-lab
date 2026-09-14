@@ -448,10 +448,12 @@ WORKLOAD_ENV: dict[str, list[str]] = {
     "usecase-screening": [
         "USECASE_AGENT_*",                         # identity.agent_headers(): CLIENT_ID/SECRET/KEY
         "AGENT_*",                                 # responses-store toggle, timeouts, caps
+        "USECASE_MODEL_TRACE",                     # the throwaway per-step model trace (test aid)
     ],
     "usecase-design": [
         "USECASE_AGENT_*",
         "AGENT_*",
+        "USECASE_MODEL_TRACE",
     ],
     "usecase-investment": [                        # a DIFFERENT identity: its grants carry the write
         "USECASE_DELIVERY_*",                      # path, and one workload never holds another's

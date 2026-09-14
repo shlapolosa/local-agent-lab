@@ -2,6 +2,8 @@
 the two lookups every uploader/parser uses. Lives in the platform kernel because BOTH the artifact
 store (substrate) and the input parser (platform, used by workloads) derive from it.
 """
+import mimetypes
+
 # THE table of file types that cross a service boundary: extension -> (content type, kind).
 # `kind` is how the lab reads the file — vsdx (structured OOXML, parsed deterministically), image
 # (vision input), document (requirements text + embedded figures), artifact (renders/specs/exports
@@ -20,10 +22,16 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
     # own readers refuse. Both decode as UTF-8 through the text branch of `docparse`.
     "vtt": ("text/vtt", "document"), "srt": ("text/plain", "document"),
     "xml": ("application/xml", "artifact"), "svg": ("image/svg+xml", "artifact"),
+    # A draw.io solution view (`semantic_render_cafe`): mxGraph XML a person opens in diagrams.net.
+    "drawio": ("application/vnd.jgraph.mxfile+xml", "artifact"),
     "json": ("application/json", "artifact"),
     "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "artifact"),
 }
 CONTENT_TYPES = {ext: ct for ext, (ct, _kind) in FILE_TYPES.items()}     # extension -> content type
+
+# The approval download's mime comes from `mimetypes` (contracts.ImportArtifact), which knows nothing
+# of draw.io; teach it once, here, beside the table it would otherwise disagree with.
+mimetypes.add_type(CONTENT_TYPES["drawio"], ".drawio")
 
 
 def _ext(name: str) -> str:

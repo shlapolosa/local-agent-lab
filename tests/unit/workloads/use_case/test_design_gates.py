@@ -239,3 +239,46 @@ def test_a_service_level_with_no_source_is_refused():
 def test_a_work_item_with_no_owner_is_refused():
     item = without(DELIVERY["work_items"][0], "owner")
     rejects("25", dict(DELIVERY, work_items=[item]), "owner")
+
+
+# ---------------------------------------------------------------- 21 · the families still owed (soft)
+
+def soft(number, out, context):
+    return step_for(number).soft(out, context=context)
+
+
+WITH_FAMILIES = {"component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog",
+                                          "families": ["F2"]},
+                                         {"id": "cmp-vault", "zone": "ident", "name": "Key Vault",
+                                          "families": "F4; F5"}],
+                 "model_summary": {"required_families": ["F2", "F4"]}}
+
+
+def test_a_required_family_no_selected_component_carries_is_named_with_both_ways_out():
+    problems = soft("21", COMPONENTS, WITH_FAMILIES)
+    assert len(problems) == 1 and "F4" in problems[0]
+    assert "select a catalogue" not in problems[0], "the finding is a record a person reads, not an instruction"
+    assert "`unresolved`" in step_for("21").soft_remedy and "`families`" in step_for("21").soft_remedy
+
+
+def test_a_family_named_under_unresolved_is_accepted_as_owed_rather_than_refused():
+    out = dict(COMPONENTS) | {"unresolved": ["F4: no catalogue component enforces it yet"]}
+    assert soft("21", out, WITH_FAMILIES) == []
+
+
+def test_selecting_a_component_that_carries_the_family_satisfies_it():
+    out = dict(COMPONENTS) | {"selected": COMPONENTS["selected"] + [
+        {"capability": "secrets", "component_id": "cmp-vault", "component": "Key Vault",
+         "rejected_alternatives": ["env vars"]}]}
+    assert soft("21", out, WITH_FAMILIES) == []
+
+
+def test_a_catalogue_without_a_families_column_makes_no_claim():
+    """The column is authored content published separately; until then the rule is silent, never
+    a refusal a tenant cannot satisfy."""
+    assert soft("21", COMPONENTS, dict(CATALOGUE) | {"model_summary": {"required_families": ["F2"]}}) == []
+
+
+def test_a_run_with_no_composition_requires_nothing():
+    assert soft("21", COMPONENTS, dict(WITH_FAMILIES) | {"model_summary": {}}) == []
+    assert step_for("21").soft_key == "unresolved"

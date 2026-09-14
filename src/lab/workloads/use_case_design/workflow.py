@@ -35,12 +35,14 @@ from lab.platform.contracts import (
     ApprovalTools,
     Continuation,
     DecisionTools,
+    EATools,
     SemanticTools,
     StorageTools,
     ValuationTools,
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import reference
+from lab.workloads.usecase import mappers, modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import step_for
 
@@ -69,6 +71,9 @@ CORPORA = {
     "surface_enforceability": ("surface-enforceability", "obligation"),
     "ai_capability_map": ("ai-capability-map", "capability"),
     "component_catalogue": ("reference-architecture-components", "component"),
+    # Which archetype a topology composes to — read for the model, so the draw.io projection knows
+    # its base without reaching the corpus from the substrate.
+    "topology_archetypes": ("reference-architecture-topology-archetypes", "topology-archetype"),
 }
 
 #: Everything this run pins: what its own steps read, plus what the governed derivations read on
@@ -190,8 +195,10 @@ async def _corpora(cfg, pin_id: str) -> dict:
 
 
 async def _agent_step(cfg, number: str, d: Derivation) -> None:
-    """One design exercise, through the shared runner."""
-    await d.run_step(cfg, step_for(number))
+    """One design exercise, through the shared runner — then onto the model."""
+    step = step_for(number)
+    await d.run_step(cfg, step)
+    await modelling.grow(cfg, d, step.key)
 
 
 def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
@@ -241,8 +248,10 @@ async def _risk_and_obligations(cfg, payload: dict, d: Derivation, pin_id: str) 
         d.defer("19", "evaluate obligations — needs a facet vector per step")
         return
     d.record("risk", await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
+    await modelling.grow(cfg, d, "risk")
     d.record("obligations", await gateway.call(cfg, DecisionTools.obligations, {
         "workflow": payload, "pin_id": pin_id, **reference.attribution(cfg, "obligations")}))
+    await modelling.grow(cfg, d, "obligations")
 
 
 async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
@@ -256,6 +265,7 @@ async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
         "workflow": payload, "topology": topology,
         "obligations_required": list((d.derived.get("obligations") or {}).get("guardrails") or ()),
         "pin_id": pin_id, **reference.attribution(cfg, "composition")}), "22")
+    await modelling.grow(cfg, d, "composition")
 
 
 def design_version(derived: Mapping[str, Any]) -> str:
@@ -303,6 +313,7 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
             "build_provenance": inputs.get("build_provenance") or "",
             "design_version": design_version(d.derived),
             "pin_id": state["pin_id"], **reference.attribution(cfg, "cost")}), "23")
+        await modelling.grow(cfg, d, "cost")
 
     evidence = d.derived.get("benefit_inputs")
     cost_model = d.derived.get("cost")
@@ -323,6 +334,50 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
         # recommendation that did not carry them would read as settled.
         "open_conditions": (list(cost_model.get("requires_input") or ())
                             + list(evidence.get("unsupplied") or ()))}), "24")
+    await modelling.grow(cfg, d, "benefit")
+
+
+async def _views(cfg, model: Mapping[str, Any]) -> dict:
+    """Project the model: `model_ref` (the spec, by ref), the ArchiMate XML + one SVG per standard
+    view, the CAFÉ draw.io view + its SVG. `architecture_ref` is the drawing a person opens — the
+    draw.io file, else the model. Every failure is a named warning, never an exception: a design
+    that cannot draw is still a design."""
+    out: dict[str, Any] = {"model_ref": "", "archimate_xml_ref": "", "architecture_ref": "",
+                           "svg_refs": {}, "warnings": []}
+    if not model.get("elements"):
+        out["warnings"].append("no model: nothing to render")
+        return out
+    try:
+        stored = await gateway.call(cfg, SemanticTools.store_spec,
+                                    {"spec": model, "name": "design.model.json"})
+        out["model_ref"] = out["architecture_ref"] = gateway.ref_from(stored)
+    except Exception as exc:                       # noqa: BLE001 — recorded, never raised
+        out["warnings"].append(f"store model: {exc!r}"[:200])
+        return out
+    root = next((e for e in model.get("elements") or [] if e.get("id") == mappers.ROOT), {})
+    admitted = mappers.as_list((root.get("props") or {}).get("cafe.archetypes"))
+    if len(admitted) > 1:
+        # The corpus admits several archetypes for this topology; the drawing has to stand on one.
+        # Recorded beside the drawing, where the reviewer sees the assumption.
+        out["warnings"].append(f'cafe: drawn on {(root.get("props") or {}).get("cafe.archetype")}; '
+                               f'the pinned corpus admits {", ".join(admitted)} for this topology')
+    for tool, args, take in (
+            (EATools.render, {"spec_ref": out["model_ref"], "basename": "design", "strict": False},
+             lambda r: {"archimate_xml_ref": r.get("xml_ref", ""), "svg_refs": dict(r.get("svg_refs") or {})}),
+            (SemanticTools.render_cafe, {"spec_ref": out["model_ref"], "basename": "design"},
+             lambda r: {"architecture_ref": r.get("drawio_ref") or out["architecture_ref"],
+                        "svg_refs": {**out["svg_refs"], **({"cafe": r["svg_ref"]} if r.get("svg_ref") else {})},
+                        "cafe_unplaced": list(r.get("unplaced") or ())})):
+        try:
+            res = await gateway.call(cfg, tool, args)
+            res = res if isinstance(res, dict) else json.loads(res or "{}")
+            out.update(take(res))
+            out["warnings"].extend(f"{tool}: {w}" for w in (res.get("warnings") or ())[:5])
+        except Exception as exc:                   # noqa: BLE001
+            out["warnings"].append(f"{tool}: {type(exc).__name__}: {str(exc)[:120]}")
+    if cfg.get("run_id") and out["warnings"]:
+        runlog.update(cfg["run_id"], render_warnings="; ".join(out["warnings"])[:400])
+    return out
 
 
 def build_workflow(cfg):
@@ -401,10 +456,13 @@ def build_workflow(cfg):
 
         The order is the derivation's own and cannot be rearranged: facets (17) are assigned before
         exposure and influence are DERIVED from them (18); the obligations (19) follow from those
-        classes; the build surface (20) is tested against those obligations; components (21) are
-        selected against them; and the composition (22) is the union of what the facets call for.
-        Every deterministic link is a governed tool, so the rule a run obeyed is the released one
-        rather than a copy living here.
+        classes; the build surface (20) is tested against those obligations; the composition (22)
+        is the union of what the facets call for, given that surface's topology; and components
+        (21) are selected against those obligations AND the families the composition requires —
+        which is why 22 runs before 21 here: its inputs are 17, 19 and 20, and a selection made
+        before the families are known cannot be held to them (step 21's soft rule). Every
+        deterministic link is a governed tool, so the rule a run obeyed is the released one rather
+        than a copy living here.
         """
         with gateway.node_span(cfg, "derive_design"):
             if state.get("halted"):
@@ -427,13 +485,34 @@ def build_workflow(cfg):
             pin_id = state["pin_id"]
             await _risk_and_obligations(cfg, payload, d, pin_id)  # 18 exposure/influence, 19 controls
             await _agent_step(cfg, "20", d)              # the build surface, against those controls
+            await _compose(cfg, payload, d, pin_id)      # 22 the composition — its families...
+            modelling.ensure(d)                          # ...on the model step 21 is shown
             await _agent_step(cfg, "21", d)              # the components, against those controls
-            await _compose(cfg, payload, d, pin_id)      # 22 the composition
             await _agent_step(cfg, "23", d)              # what the design costs
             await _agent_step(cfg, "24", d)              # what evidences the benefit
             await _valuation(cfg, d, state)              # 23/24 arithmetic, by the governed service
             await _agent_step(cfg, "25", d)              # write down what was decided
 
+            state = state | {"derived": d.derived, "pending": d.pending,
+                             "defaulted": dict(d.defaulted)}
+        await ctx.send_message(state)
+
+    @executor(id="render_views")
+    async def render_views(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """The views, then the package. The model the run grew is stored by ref and projected
+        twice — the ArchiMate views by the engine, the CAFÉ solution view by the draw.io projector —
+        and the refs go INTO the package, because the investment run reads the package. Each render
+        is best-effort in its own right: a run that produced a model but no picture is still a run,
+        and the warning it records is the visible degradation (neither render tool is REQUIRED).
+        """
+        with gateway.node_span(cfg, "render_views"):
+            if state.get("halted"):
+                await ctx.send_message(state)
+                return
+            d = Derivation(derived=dict(state.get("derived") or {}),
+                           pending=dict(state.get("pending") or {}))
+            d.defaulted = dict(state.get("defaulted") or {})
+            d.record("views", await _views(cfg, d.derived.get("model") or {}))
             package = d.package(submission_ref=state["submission_ref"],
                                 screening_ref=state["screening_ref"],
                                 criticality=dict(state.get("criticality") or {}),
@@ -467,7 +546,7 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=readiness)
-            .add_chain([readiness, feasibility, derive_design, route]).build())
+            .add_chain([readiness, feasibility, derive_design, render_views, route]).build())
 
 
 def _not_ready(state: dict) -> dict:
@@ -500,6 +579,22 @@ async def _finding(cfg, state: dict) -> dict:
                         "rule": state.get("verdict_rule", "")}}
 
 
+def _view_artifacts(state: dict) -> dict:
+    """What the conformance reviewer can OPEN: the refs the views produced (each a download) and the
+    SVGs (rendered inline as tabs) — the final views first, then the per-step trace while it is on."""
+    design = state.get("design") or {}
+    views = design.get("views") or {}
+    # One key per DISTINCT ref: when nothing drew, `architecture_ref` IS the model ref, and two
+    # downloads of one file is what the review app refuses (`contracts.import_artifacts` dedupes
+    # too — belt and braces, because this payload is read by more than the review app).
+    refs: dict[str, str] = {}
+    for k in ("model_ref", "archimate_xml_ref", "architecture_ref"):
+        if views.get(k) and views[k] not in refs.values():
+            refs[k] = views[k]
+    svgs = {**(views.get("svg_refs") or {}), **modeltrace.tabs(design)}
+    return {**refs, **({"svg_refs": svgs} if svgs else {})}
+
+
 async def _conformance(cfg, state: dict) -> dict:
     """A proceeding run ends at the architect's conformance decision, carrying what 26b needs."""
     cont = Continuation(
@@ -515,12 +610,15 @@ async def _conformance(cfg, state: dict) -> dict:
                   {"label": "conditions", "samples": []}],
         "continuation": cont.to_dict(),
         "fields": ["value"],                   # one thing to say per label, not a voice
-        "artifacts": {"design": state["design_ref"], "screening": state["screening_ref"]},
+        "artifacts": {"design": state["design_ref"], "screening": state["screening_ref"],
+                      **_view_artifacts(state)},
         "requester": state.get("submitter", ""),
                 "process": PROCESS})
+    views = (state.get("design") or {}).get("views") or {}
     return {"approval_id": asked["request_id"], "review_app": asked.get("review_app", ""),
             "verdict": "proceed", "halted": False,
-            "architecture_ref": state["design_ref"],
+            # The drawing a person opens; the model when nothing drew; the package as a last resort.
+            "architecture_ref": views.get("architecture_ref") or views.get("model_ref") or state["design_ref"],
             "risk_ref": state["design_ref"] if (state.get("design") or {}).get("risk") else "",
             "obligations_ref": (state["design_ref"]
                                 if (state.get("design") or {}).get("obligations") else ""),

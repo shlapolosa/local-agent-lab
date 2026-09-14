@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from lab.platform import config
 
-SKILLS = config.REPO_ROOT / "skills"
+SKILLS = config.SKILLS_DIR
 
 
 def strip_frontmatter(md: str) -> str:

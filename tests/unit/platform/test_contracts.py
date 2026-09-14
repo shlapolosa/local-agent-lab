@@ -219,3 +219,14 @@ def test_contracts_module_is_pure():
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_a_legacy_payload_naming_one_file_under_two_ref_keys_yields_one_download():
+    """A design whose drawing fell back to its model ref carries `architecture_ref == model_ref`;
+    two identical download buttons is what the review app refuses (Streamlit duplicate element)."""
+    from lab.platform.contracts import import_artifacts
+    payload = {"model_ref": "art://m/design.model.json", "architecture_ref": "art://m/design.model.json",
+               "archimate_xml_ref": "art://m/design.archimate.xml", "question": {}}
+    arts = import_artifacts(payload)
+    assert [a.ref for a in arts] == ["art://m/design.model.json", "art://m/design.archimate.xml"]
+    assert len({a.ref for a in arts}) == len(arts)
