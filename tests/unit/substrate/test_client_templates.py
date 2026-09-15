@@ -79,3 +79,13 @@ def test_the_copilot_readme_promises_only_tools_the_key_is_granted():
     assert promised, "the README must say what the agent can do"
     missing = {p for p in promised if p not in granted and not p.endswith("_submit")}
     assert not missing, f"the README promises {sorted(missing)}, which the submitter key cannot call"
+
+
+def test_a_client_readme_does_not_tell_a_reader_to_run_a_path_that_may_not_exist():
+    """15 Sep 2026: the walkthrough said `.venv/bin/python`, which every git WORKTREE lacks — the
+    venv lives in the canonical checkout. A setup step that fails on the machine it was written for
+    is worse than no step."""
+    for readme in glob.glob(os.path.join(ROOT, "config", "clients", "*", "README.md")):
+        body = open(readme).read()
+        if ".venv/bin/python" in body:
+            assert "worktree" in body, f"{readme} runs the venv without saying where it is"

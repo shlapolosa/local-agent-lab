@@ -41,10 +41,13 @@ key from `.env`. Fifteen minutes, and nothing here touches the lab.
 
 ```bash
 ./lab.sh clients          # writes config/clients/copilot-studio/usecase-connector.json
+grep '"host"' config/clients/copilot-studio/usecase-connector.json
 ```
 
-Open it and check the `host` line is your gateway's public hostname. If it is empty, `.env` has no
-`PUBLIC_GATEWAY_URL` and the connector would point at nothing.
+The host must be your gateway's PUBLIC hostname — Microsoft's cloud cannot reach `127.0.0.1`. Ignore
+the `GATEWAY_URL=http://127.0.0.1:4000` the render prints: that is the local address the Claude Code
+client uses, while this connector deliberately takes `PUBLIC_GATEWAY_URL`. An empty host means `.env`
+has no `PUBLIC_GATEWAY_URL` and the connector would point at nothing.
 
 ### 2 · Mint the key the connection uses
 
@@ -54,7 +57,10 @@ GATEWAY_URL="$PUBLIC_GATEWAY_URL" .venv/bin/python scripts/provision_usecase_age
 grep '^USECASE_SUBMITTER_KEY=' .env
 ```
 
-Idempotent: it keeps a key that already exists and mints one that does not. The key belongs to the
+`GATEWAY_URL` is overridden on purpose: the script talks to the gateway it is provisioning, which is
+the cloud one. **In a git worktree there is no `.venv`** — it lives in the canonical checkout, so use
+`../local-agent-lab/.venv/bin/python` there (`ls -d .venv || ls -d ../local-agent-lab/.venv` settles
+it). Idempotent: it keeps a key that already exists and mints one that does not. The key belongs to the
 `usecase-submitter` team, is allowed no model at all, and carries its own budget and rate limit.
 
 ### 3 · Import the connector
