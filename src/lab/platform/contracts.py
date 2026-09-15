@@ -280,7 +280,8 @@ class EATools(ToolCatalogue):
 class WorkflowTools(ToolCatalogue):
     """workflow-mcp — the governed front door to every business PROCESS. Its process tools are not fixed
     constants: they are GENERATED per entry in `PROCESSES` below (`<process>_submit`,
-    `<process>_status`, `<process>_result`), so registering a process is the one place that changes.
+    `<process>_status`, `<process>_result`, `<process>_runs`), so registering a process is the one
+    place that changes.
     The same server also carries the APPROVAL tools (`ApprovalTools` below) — a run PAUSES for a human
     approval, so the pause is part of the lifecycle this front door exposes.
 
@@ -291,7 +292,7 @@ class WorkflowTools(ToolCatalogue):
     name here that no server exposes is exactly the drift that test exists to catch.
     """
     SERVER = "workflow_mcp"
-    VERBS = ("submit", "status", "result")             # a tuple, so `names()`'s string filter ignores it
+    VERBS = ("submit", "status", "result", "runs")     # a tuple, so `names()`'s string filter ignores it
     replay = "workflow_replay"                         # run a FAILED request again, from its own inputs
 
     # ONE grant, and it is a write: a replay starts a run. It is safe to offer even for a process
@@ -1465,7 +1466,9 @@ USE_CASE_SCREENING = ProcessSpec(
                    "be announced where it was asked for.", required=False),
     ),
     outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
-             "criticality_band", "summary"),
+             # What a person looking for a past use case actually searches by. Without it a listing
+             # of runs is a column of `art://` refs and nobody can find "the referral triage one".
+             "subject", "criticality_band", "summary"),
     products=('screening_ref',),
     identity=("submission", "submission_handle"),
 )

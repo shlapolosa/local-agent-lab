@@ -54,13 +54,18 @@ def test_a_process_is_startable_by_default():
 
 # ------------------------------------------------------------------ the REST surface
 def test_rest_generates_no_submit_route_for_a_continuation_only_process(api):
+    """The refusal is per METHOD, not per path: since 15 Sep 2026 every process answers GET on
+    `/runs` (finding a run you did not start is not starting one), so what a continuation must not
+    have is the POST."""
     client, _ = api
-    paths = {r.path for r in rest.routes(srv.server)}
-    assert f"/api/processes/{TRANSCRIPT_TO_MINUTES.name}/runs" not in paths
-    assert f"/api/processes/{MEETING_TO_TRANSCRIPT.name}/runs" in paths
-    # ... and the route genuinely is not served, rather than merely absent from a list
+    posts = {r.path for r in rest.routes(srv.server) if "POST" in (r.methods or ())}
+    gets = {r.path for r in rest.routes(srv.server) if "GET" in (r.methods or ())}
+    assert f"/api/processes/{TRANSCRIPT_TO_MINUTES.name}/runs" not in posts
+    assert f"/api/processes/{MEETING_TO_TRANSCRIPT.name}/runs" in posts
+    assert f"/api/processes/{TRANSCRIPT_TO_MINUTES.name}/runs" in gets, "still findable"
+    # ... and the submit genuinely is not served, rather than merely absent from a list
     r = client.post(f"/api/processes/{TRANSCRIPT_TO_MINUTES.name}/runs", json={})
-    assert r.status_code == 404, r.text          # no such path at all — not merely a refused method
+    assert r.status_code == 405, r.text          # the path lists runs; it does not start one
 
 
 def test_rest_still_lets_a_caller_watch_a_continuation_run(api):

@@ -21,16 +21,20 @@ FAKE = ProcessSpec(
 
 # ------------------------------------------------------------------ the catalogue is derived
 def test_workflow_catalogue_is_generated_from_the_registered_processes():
-    """Three tools per process a caller may START, two for a continuation-only one — and the catalogue
+    """Four tools per process a caller may START, three for a continuation-only one — and the catalogue
     is where that is decided, because it is the PORT: a grant names these strings and
     test_contracts_match_servers checks them against the server in both directions."""
-    assert WorkflowTools.SERVER == "workflow_mcp" and WorkflowTools.VERBS == ("submit", "status", "result")
+    assert WorkflowTools.SERVER == "workflow_mcp"
+    # `submit` is the only verb a continuation withholds; the rest are ways to OBSERVE, and finding
+    # a run you did not start is not starting one.
+    assert WorkflowTools.VERBS == ("submit", "status", "result", "runs")
     # The FIXED tools ride along with the generated ones: the approval gate, and `workflow_replay`
     # (one tool for any failed REQUEST, not one per process). Subtracted, never re-typed here.
     generated = WorkflowTools.names() - ApprovalTools.names() - {WorkflowTools.replay}
     assert generated == {spec.tool(v) for spec in PROCESSES.values()
                          for v in WorkflowTools.verbs_for(spec)}
-    assert len(generated) == sum(3 if s.external else 2 for s in PROCESSES.values())
+    assert len(generated) == sum(len(WorkflowTools.VERBS) - (0 if s.external else 1)
+                                for s in PROCESSES.values())
     assert "visio_to_archimate_submit" in WorkflowTools.names()
     assert "workflow_mcp" not in WorkflowTools.names()          # SERVER is the alias, not a tool
 
@@ -42,8 +46,8 @@ def test_a_continuation_only_process_contributes_no_submit_tool():
     assert closed, "the invariant is only meaningful while some process is continuation-only"
     for spec in closed:
         assert spec.tool("submit") not in WorkflowTools.names()
-        assert {spec.tool("status"), spec.tool("result")} <= WorkflowTools.names()
-        assert WorkflowTools.verbs_for(spec) == ("status", "result")
+        assert {spec.tool("status"), spec.tool("result"), spec.tool("runs")} <= WorkflowTools.names()
+        assert WorkflowTools.verbs_for(spec) == ("status", "result", "runs")
 
 
 def test_the_approval_gate_is_a_second_catalogue_on_the_same_alias_with_separate_grants():

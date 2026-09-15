@@ -1579,3 +1579,17 @@ def test_the_model_trace_renders_what_each_step_added_when_it_is_on(monkeypatch)
     tabs = asked["artifacts"]["svg_refs"]
     assert list(tabs)[:2] == ["3 frame", "4 elements"], "one tab per step, in run order"
     assert "9 ontology_delta" in tabs
+
+
+def test_the_views_record_how_much_of_the_drawing_the_reference_architecture_carried():
+    """A view of tiles with no lines is a parts list; these two counts are what say so on the record
+    without anybody opening the file."""
+    from lab.workloads.use_case_design import workflow as W
+    drawn = dict(RENDERED)
+    drawn[SemanticTools.render_cafe] = dict(RENDERED[SemanticTools.render_cafe],
+                                            catalogued=15, edges=5)
+    with spine(W, _design_with_model(**drawn)) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    views = _package(h)["views"]
+    assert views["cafe_catalogued"] == 15 and views["cafe_edges"] == 5

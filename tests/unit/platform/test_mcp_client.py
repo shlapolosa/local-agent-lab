@@ -57,10 +57,18 @@ def test_a_tool_call_that_never_answers_fails_the_run_naming_the_tool_rather_tha
 
 def test_the_default_bound_sits_above_the_longest_legitimate_synchronous_call():
     """Speech transcription is synchronous and 900 s by design; a floor below it would fail an
-    hour-long meeting in the shape of a hang, and a retry would do exactly the same again."""
+    hour-long meeting in the shape of a hang, and a retry would do exactly the same again.
+
+    Read the margin exactly: since 15 Sep 2026 the budget covers the whole EXCHANGE — opening the
+    session, listing the tools and the call — so the headroom for an hour-long transcription is the
+    difference (100 s of setup), not the whole 1000 s. That is ample for a session open measured in
+    seconds, and it is not what the number would promise if this assertion were read as a per-call
+    budget. The gateway's own LITELLM_MCP_CLIENT_TIMEOUT (300 s) is smaller than both and binds
+    first, so none of this applies until somebody raises it."""
     from lab.platform import config
     from lab.substrate.mcp.speech import http as speech_http
     assert config.TOOL_CALL_TIMEOUT_S > speech_http.TIMEOUT >= 300
+    assert config.TOOL_CALL_TIMEOUT_S - speech_http.TIMEOUT >= 60, "setup must fit beside the call"
 
 
 def test_a_session_that_never_opens_or_never_lists_is_bounded_too():

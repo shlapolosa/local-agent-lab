@@ -51,6 +51,7 @@ from lab.platform import config, workflows
 from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_OPEN, Decision,
                                     ProcessSpec, speaker_candidates, speaker_prompts)
 from lab.substrate import approvals
+from lab.substrate.mcp.workflow import listing
 from lab.substrate.mcpserver import error_response as _error, json_body as _body
 
 __all__ = ["routes", "API_PREFIX"]
@@ -107,6 +108,25 @@ def _run_route(server, spec: ProcessSpec):
         out |= {k: state[k] for k in spec.outputs if state.get(k) is not None}
         return JSONResponse(out)
     return run
+
+
+def _runs_list_route(server, spec: ProcessSpec):
+    async def find_runs(request: Request) -> JSONResponse:
+        """The runs of ONE process, newest first — how a person finds a use case somebody submitted
+        last week rather than a run id they were never told.
+
+        `q` filters on what the run SAYS about itself (its subject, its label, its own declared
+        outputs), never on anything it would have to open: a listing must cost one Redis read, and
+        a search that fetched every record would be a different feature wearing this one's name.
+        """
+        try:
+            limit = int(request.query_params.get("limit", 20))
+        except ValueError:
+            return _error(400, "limit must be a whole number")
+        # The SAME helper the governed tool calls, so the two surfaces cannot answer differently.
+        return JSONResponse(listing.search(spec, q=request.query_params.get("q", ""), limit=limit,
+                                           client=server.container.redis()))
+    return find_runs
 
 
 def _open_runs_route(server):
@@ -218,6 +238,11 @@ def routes(server) -> list[Route]:
         if spec.external:
             out.append(Route(f"{API_PREFIX}/processes/{spec.name}/runs",
                              _submit_route(server, spec), methods=["POST"]))
+        # Listing is registered for EVERY process, external or not: refusing to START a
+        # continuation is not refusing to find one (the design runs a person follows are all
+        # continuations).
+        out.append(Route(f"{API_PREFIX}/processes/{spec.name}/runs",
+                         _runs_list_route(server, spec), methods=["GET"]))
         out.append(Route(f"{API_PREFIX}/processes/{spec.name}/runs/{{request_id}}",
                          _run_route(server, spec), methods=["GET"]))
     return out

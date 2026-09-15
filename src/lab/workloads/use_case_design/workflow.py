@@ -367,7 +367,12 @@ async def _views(cfg, model: Mapping[str, Any]) -> dict:
             (SemanticTools.render_cafe, {"spec_ref": out["model_ref"], "basename": "design"},
              lambda r: {"architecture_ref": r.get("drawio_ref") or out["architecture_ref"],
                         "svg_refs": {**out["svg_refs"], **({"cafe": r["svg_ref"]} if r.get("svg_ref") else {})},
-                        "cafe_unplaced": list(r.get("unplaced") or ())})):
+                        "cafe_unplaced": list(r.get("unplaced") or ()),
+                        # Counts a reviewer can read without opening the drawing: how many of the
+                        # selected components the reference architecture carries, and how many
+                        # connections it therefore drew. A view of tiles with no lines is a parts
+                        # list, and this is what says so on the record.
+                        "cafe_catalogued": r.get("catalogued"), "cafe_edges": r.get("edges")})):
         try:
             res = await gateway.call(cfg, tool, args)
             res = res if isinstance(res, dict) else json.loads(res or "{}")

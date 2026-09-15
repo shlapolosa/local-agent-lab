@@ -398,6 +398,10 @@ def build_workflow(cfg):
                 "process": PROCESS})
             out = {"approval_id": asked["request_id"],
                    "review_app": asked.get("review_app", ""),
+                   # The problem as step 3 framed it, one line: what a person recognises this run
+                   # by when they come looking for it later.
+                   "subject": str(((state.get("screening") or {}).get("frame") or {})
+                                  .get("problem", ""))[:160],
                    "submission_ref": state["submission_record_ref"],
                    "screening_ref": state["screening_ref"],
                    "criticality_band": band,

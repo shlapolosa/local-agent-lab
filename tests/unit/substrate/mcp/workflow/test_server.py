@@ -90,15 +90,14 @@ def test_the_registry_drives_the_tool_list_and_the_contract_catalogue(server):
     assert all(by[n].description and len(by[n].description) > 80 for n in by), "an agent picks a tool by its description"
 
 
-def test_adding_a_process_to_the_registry_adds_its_three_tools_and_nothing_else():
+def test_adding_a_process_to_the_registry_adds_its_own_tools_and_nothing_else():
     built = srv.build({**PROCESSES, FAKE.name: FAKE})
-    # FAKE is startable, so it brings a full triple; the registry's own processes bring whatever
+    # FAKE is startable, so it brings every verb; the registry's own processes bring whatever
     # `verbs_for` says they bring, which is the point — this test is about ADDITIVITY, not the count.
-    assert set(tools(built)) == WorkflowTools.names() | {"fake_process_submit", "fake_process_status",
-                                                         "fake_process_result"}
-    only = srv.build({FAKE.name: FAKE})                       # a registry of ONE process -> one triple
-    assert set(tools(only)) - ApprovalTools.names() - {WorkflowTools.replay} == {"fake_process_submit", "fake_process_status",
-                                                        "fake_process_result"}
+    fake = {FAKE.tool(v) for v in WorkflowTools.VERBS}
+    assert set(tools(built)) == WorkflowTools.names() | fake
+    only = srv.build({FAKE.name: FAKE})                       # a registry of ONE process -> its verbs
+    assert set(tools(only)) - ApprovalTools.names() - {WorkflowTools.replay} == fake
     schema = tools(only)["fake_process_submit"].inputSchema
     assert schema["required"] == ["primary"]
     assert set(schema["properties"]) == {"primary", "optional_one", "requester", "idempotency_key"}

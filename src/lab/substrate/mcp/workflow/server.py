@@ -40,7 +40,7 @@ from pydantic import Field
 from lab.platform import config, workflows
 from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, InputKind, ProcessSpec,
                                     WorkflowStatus, WorkflowTools)
-from lab.substrate.mcp.workflow import approval_tools
+from lab.substrate.mcp.workflow import approval_tools, listing
 from lab.substrate.mcp.workflow import rest
 from lab.substrate.mcpserver import LabServer, span
 
@@ -208,17 +208,34 @@ def result_tool(server: LabServer, spec: ProcessSpec):
                lambda request_id: _result(server, spec, request_id))
 
 
+def runs_tool(server: LabServer, spec: ProcessSpec):
+    doc = (f"FIND a {spec.name} run somebody already started — newest first, with what each one "
+           f"says about itself ({', '.join(k for k in spec.outputs if k not in listing.SKIP)}). "
+           f"`q` filters those fields as text, so a caller who remembers the subject rather than "
+           f"the id can still find the run; omit it to list the most recent. Reading only: it "
+           f"opens no record and starts nothing.")
+    params = [
+        _param("q", str, "Text to look for in the runs' own fields — a word from the subject, a "
+                         "verdict, a status. Empty lists the most recent.", ""),
+        _param("limit", int, f"How many to return, 1-{listing.MAX_LIMIT}.", 20),
+    ]
+    return _fn(spec.tool("runs"), doc, params,
+               lambda q="", limit=20: listing.search(spec, q=q, limit=limit,
+                                                     client=server.container.redis()))
+
+
 def register(server: LabServer, spec: ProcessSpec) -> None:
     """The governed tools of one business process, on `server`.
 
-    THREE tools for a process an outside caller may start; TWO for a CONTINUATION-ONLY one
+    FOUR tools for a process an outside caller may start; THREE for a CONTINUATION-ONLY one
     (`ProcessSpec.external` false), whose submit tool is not generated at all. Not exposing it is
     stronger than refusing it at call time and cheaper than either: a tool that does not exist cannot
     be granted by mistake, cannot be discovered, and cannot be described to an agent as something it
     might try. Status and result stay, because a caller may legitimately observe a run that its own
     approval started.
     """
-    makers = {"submit": submit_tool, "status": status_tool, "result": result_tool}
+    makers = {"submit": submit_tool, "status": status_tool, "result": result_tool,
+              "runs": runs_tool}
     for verb in WorkflowTools.verbs_for(spec):          # the catalogue decides; this only obeys
         server.tool()(makers[verb](server, spec))
 

@@ -617,3 +617,17 @@ def test_ci_deploys_the_workloads_even_when_the_substrate_step_reports_a_problem
     assert "substrate up || rc=$?" in ci, "a failing substrate up must not skip the workloads"
     assert 'workload "$w" up || rc=$?' in ci
     assert '[ "$rc" = 0 ] || { echo "::error::deploy reported failures' in ci, "and it must still fail"
+
+
+def test_every_placeholder_a_client_template_uses_is_one_lab_sh_renders():
+    """A placeholder nobody substitutes ships a client file with `${…}` in it, which fails at the
+    client rather than here — and the failure looks like the client's fault."""
+    import glob
+    import re
+    sh = open(os.path.join(ROOT, "lab.sh")).read()
+    rendered = set(re.findall(r'\\\$\{([A-Z_]+)\}#', sh))
+    used = set()
+    for tpl in glob.glob(os.path.join(ROOT, "config", "clients", "*", "*.template.json")):
+        used |= set(re.findall(r"\$\{([A-Z_]+)\}", open(tpl).read()))
+    assert used, "the templates are the reason this test exists"
+    assert used <= rendered, f"lab.sh renders no value for {sorted(used - rendered)}"

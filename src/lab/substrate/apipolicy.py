@@ -69,6 +69,9 @@ OPERATIONS: tuple[Operation, ...] = (
         "what this door will start, and what each process needs"),
     _op("processes.submit", "POST", rf"/processes/{_SEG}/runs", ApiRoles.SUBMIT,
         "start a run"),
+    _op("processes.runs", "GET", rf"/processes/{_SEG}/runs", ApiRoles.SUBMIT,
+        "List the runs of one process, newest first, with an optional `q` filter — how a caller "
+        "finds a use case submitted earlier. Same power as reading one run, so the same role."),
     _op("processes.run", "GET", rf"/processes/{_SEG}/runs/{_SEG}", ApiRoles.SUBMIT,
         "the status and outputs of one run"),
     # What a DEPLOY must wait for: a run in flight dies when the gateway restarts under it

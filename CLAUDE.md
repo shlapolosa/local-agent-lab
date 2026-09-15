@@ -352,6 +352,23 @@ master key. Status and result stay, deliberately — refusing to START is not re
 flow that cannot poll the run its own approval began cannot tell a person the minutes are ready. The
 continuation runner submits IN-PROCESS, so the legitimate path pays nothing.
 
+**A person finds a run by what they remember, not by an id they were never given (15 Sep 2026).**
+`<process>_runs` is the fourth generated verb and `GET /api/processes/<name>/runs` its REST twin, both
+answered by ONE implementation (`lab.substrate.mcp.workflow.listing`) so the two surfaces cannot drift:
+the runs of one process, newest first, each as its declared outputs describe it, with `q` filtering
+those fields as text. Cheap by construction — one read of the request stream, never opening a stored
+record — and `use_case_screening` now declares a **`subject`** output (the problem as step 3 framed
+it) so a listing reads as use cases rather than as a column of `art://` refs. **Listing is generated
+for EVERY process, `external` or not**: refusing to START a continuation is not refusing to FIND one,
+and the design runs a person follows are all continuations. The refusal is therefore per METHOD —
+a continuation's `/runs` serves GET and 405s POST — which is how the tests now state it.
+
+**The Copilot Studio agent is that surface's client** (`config/clients/copilot-studio/`): one Power
+Platform custom connector over the gateway's MCP endpoint (`x-ms-agentic-protocol:
+mcp-streamable-1.0`), connected with the `usecase-submitter` virtual key, so submit, find, follow and
+decide all arrive metered, traced and grant-checked. It holds no store credential and cannot start a
+continuation, because those tools do not exist for it to call.
+
 **The front door's REST ingress (`/api`) is authorised PER OPERATION by Entra app roles, enforced at
 the GATEWAY.** `lab.substrate.apipolicy` is the table — `(method, path) -> role`, default DENY for an
 unmatched path under the prefix — and `lab.platform.contracts.ApiRoles` is the vocabulary:
