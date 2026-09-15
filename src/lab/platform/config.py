@@ -322,6 +322,11 @@ MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # group with reasoning_effort=medium) recalled 0.50/0.40 in ~90 s — the kimi baseline — at a
 # fraction of claude-sonnet-5's cost. Speed alone is the wrong answer for this step.
 USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini-think")
+#: How long a workload waits for ONE governed tool call before treating it as hung. Above the
+#: gateway's own MCP client timeout (LITELLM_MCP_CLIENT_TIMEOUT, 300 s) so the gateway's error is
+#: what a run normally sees; this is the floor under it — measured 14 Sep 2026: a screening host
+#: sat for an hour inside a store call the server had already answered, holding the board open.
+TOOL_CALL_TIMEOUT_S = float(_e("TOOL_CALL_TIMEOUT_S", "600"))
 #: THROWAWAY test aid (14 Sep 2026): render what every step ADDED to the run's architecture model as
 #: its own artifact, so a step's contribution is proven on the run itself. One store + one render per
 #: mapped step, so off by default; `lab.workloads.usecase.modeltrace` is the whole of it.

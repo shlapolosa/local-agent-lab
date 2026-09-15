@@ -287,6 +287,15 @@ imported from `config.SKILLS_DIR` via `sys.path`, the one such seam) — refs in
 onto the conformance approval as tabs, and **`architecture_ref` is the draw.io file** (the model
 when nothing drew, the package as a last resort). Neither render tool is REQUIRED: a design that
 cannot draw is still a design, and the warning it records is the visible degradation.
+**Every governed tool call is BOUNDED (`config.TOOL_CALL_TIMEOUT_S`, 600 s, in
+`lab.platform.mcp_client.call_tools_raw`).** Measured 14 Sep 2026: a screening host sat for an hour
+inside a `semantic_store_spec` call the server had already answered (its spans complete, the gateway's
+response never arriving) — not failed, not done, the run board open and the quiet deploy gate holding
+every push behind it, and nothing to see but a log that stopped. A hung call now raises a `TimeoutError`
+naming the tool; the run FAILS there, which is recoverable, where a hang is not even visible. The bound
+sits above the gateway's own MCP client timeout (300 s) so the gateway's error is what a run normally
+sees. A hung host is unstuck by restarting the service (`deploymentRestart`); its crash-hygiene pass
+marks the stale request failed rather than re-running it.
 **THROWAWAY test aid, on by `USECASE_MODEL_TRACE=true`** (`lab.workloads.usecase.modeltrace`, one
 module, one call in `modelling.grow`): every step that touched the model also stores and renders
 its DELTA (touched elements + the step's relations + their endpoints, one view), and both approvals

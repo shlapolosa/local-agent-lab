@@ -33,3 +33,28 @@ def test_call_tools_resolves_calls_and_unwraps_data_through_the_injected_client(
     assert FakeClient.made[-1].headers["Authorization"] == "Bearer k"
     with pytest.raises(RuntimeError):
         asyncio.run(mcp_client.call_tools({}, "http://gw/mcp/", [("nope", {})], client_class=FakeClient))
+
+
+def test_a_tool_call_that_never_answers_fails_the_run_naming_the_tool_rather_than_hanging():
+    """14 Sep 2026: a screening host sat for an hour inside a store call the server had already
+    answered — not failed, not done, holding the run board (and every deploy behind it) open."""
+    import asyncio
+    from types import SimpleNamespace
+    from lab.platform import mcp_client
+
+    class Hung:
+        def __init__(self, transport): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return False
+        async def list_tools(self): return [SimpleNamespace(name="semantic_mcp-semantic_store_spec")]
+        async def call_tool(self, name, args):
+            await asyncio.sleep(3600)
+
+    with pytest.raises(TimeoutError, match="semantic_store_spec did not answer within 0s"):
+        asyncio.run(mcp_client.call_tools_raw({}, "http://gw/mcp", [("semantic_store_spec", {})],
+                                              client_class=Hung, timeout=0.05))
+
+
+def test_the_default_bound_is_the_configured_one_and_sits_above_the_gateways_own():
+    from lab.platform import config
+    assert config.TOOL_CALL_TIMEOUT_S >= 300, "the gateway's MCP client timeout is 300 s; ours is the floor under it"
