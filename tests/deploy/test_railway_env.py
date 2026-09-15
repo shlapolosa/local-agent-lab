@@ -607,3 +607,13 @@ def test_every_usecase_setting_reaches_the_usecase_workloads():
     for role in ("usecase-screening", "usecase-design"):
         for name in names:
             assert any(fnmatch.fnmatchcase(name, p) for p in railway.WORKLOAD_ENV[role]), (role, name)
+
+
+def test_ci_deploys_the_workloads_even_when_the_substrate_step_reports_a_problem():
+    """15 Sep 2026: `substrate up` exited non-zero on its last service, the workload loop never ran
+    under `set -e`, and every wf-* service stayed on the previous image while the substrate moved.
+    The job was red for the one service it named, so the half-deployed fleet looked incidental."""
+    ci = open(os.path.join(ROOT, ".github", "workflows", "image.yml")).read()
+    assert "substrate up || rc=$?" in ci, "a failing substrate up must not skip the workloads"
+    assert 'workload "$w" up || rc=$?' in ci
+    assert '[ "$rc" = 0 ] || { echo "::error::deploy reported failures' in ci, "and it must still fail"

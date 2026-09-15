@@ -315,7 +315,13 @@ first today (three numbers that should become one deliberate one before the firs
 inside a `semantic_store_spec` call the server had already answered (its spans complete, the gateway's
 response never arriving) — not failed, not done, the run board open and the quiet deploy gate holding
 every push behind it, and nothing to see but a log that stopped. A hung call now raises a `TimeoutError`
-naming the tool; the run FAILS there, which is recoverable, where a hang is not even visible. A hung host is unstuck by restarting the service (`deploymentRestart`); its crash-hygiene pass
+naming where it stopped; the run FAILS there, which is recoverable, where a hang is not even visible.
+**The bound covers the WHOLE exchange — opening the session, listing the tools, and the call** — because
+a run hangs wherever the gateway stops answering: on 15 Sep 2026 a screening host sat for half an hour
+with the gateway's auth span recorded and no tool span at all, hung on the session it had just opened,
+while a bound that only wrapped `call_tool` watched. `gateway.preflight`'s listing is bounded the same
+way: a preflight exists to cost nothing and refuse early, and one that hangs holds the run open before
+it has done anything at all. A hung host is unstuck by restarting the service (`deploymentRestart`); its crash-hygiene pass
 marks the stale request failed rather than re-running it.
 **THROWAWAY test aid, on by `USECASE_MODEL_TRACE=true`** (`lab.workloads.usecase.modeltrace`, one
 module, one call in `modelling.grow`): every step that touched the model also stores and renders
@@ -590,7 +596,18 @@ stateless and address each other only through `src/lab/platform/config.py` env v
   write credential and the ADOIT password.** Rotating any of them means rotating in BOTH places — a
   stale `LAB_ENV` deploys old credentials over good ones, which fails confusingly. Without `LAB_ENV`
   the job falls back to `release` (image + redeploy, no config), so a fork still ships code. Both
-  **A deploy WAITS for a quiet run board (11 Sep 2026).** A rollout restarts the gateway with no
+  **A deploy's two halves run INDEPENDENTLY, and the verify step is the instrument (15 Sep 2026).**
+The CD job ran `substrate up` and then its workload loop under one shell, so when `substrate up`
+exited non-zero on its last service the loop never ran: every `wf-*` service stayed on the PREVIOUS
+image while the substrate moved, and the job's red looked like the one service it named. A whole
+use-case run was then read as evidence for four fixes that were not deployed. Both halves now run
+with their own status and the step fails at the end if either did. The lesson is the older one, one
+layer up: `substrate versions` WOULD have printed the mismatch — it iterates the live service list,
+so it sees a replica nobody configured — but the job aborted before `verify`. An instrument that is
+not reached is not an instrument. **After any deploy that did not end green, read
+`substrate versions` before believing a cloud result.**
+
+**A deploy WAITS for a quiet run board (11 Sep 2026).** A rollout restarts the gateway with no
   zero-downtime cutover, so every LLM, tool and embedding call in flight gets a 502 for one to three
   minutes — two derives, an adjudication and a publish's embedding batches all died under one push.
   `release`, `substrate up` and `workload up` now ask the front door `GET /api/runs/open` (a

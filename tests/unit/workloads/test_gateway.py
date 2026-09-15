@@ -187,3 +187,22 @@ def test_a_relevance_search_waits_longer_than_a_webhook_for_the_embedder():
     from lab.workloads import gateway as G
     from lab.platform import webhook
     assert G.SEARCH_TIMEOUT_S >= 120 > webhook.TIMEOUT_S
+
+
+def test_a_preflight_that_cannot_list_the_tools_refuses_instead_of_hanging(monkeypatch):
+    """A preflight exists to cost nothing and refuse early; one that hangs holds the run open
+    before it has done anything at all."""
+    import asyncio
+    from lab.platform import config
+    from lab.workloads import gateway
+
+    class Hangs:
+        def __init__(self, transport): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return False
+        async def list_tools(self): await asyncio.sleep(3600)
+
+    monkeypatch.setattr(gateway, "Client", Hangs)
+    monkeypatch.setattr(config, "TOOL_CALL_TIMEOUT_S", 0.05)
+    with pytest.raises(RuntimeError, match="did not list its tools"):
+        asyncio.run(gateway.preflight("http://gw/mcp", {}, ["some_tool"]))

@@ -50,7 +50,7 @@ def test_a_tool_call_that_never_answers_fails_the_run_naming_the_tool_rather_tha
         async def call_tool(self, name, args):
             await asyncio.sleep(3600)
 
-    with pytest.raises(TimeoutError, match="semantic_store_spec did not answer within 0s"):
+    with pytest.raises(TimeoutError, match="did not answer"):
         asyncio.run(mcp_client.call_tools_raw({}, "http://gw/mcp", [("semantic_store_spec", {})],
                                               client_class=Hung, timeout=0.05))
 
@@ -61,3 +61,28 @@ def test_the_default_bound_sits_above_the_longest_legitimate_synchronous_call():
     from lab.platform import config
     from lab.substrate.mcp.speech import http as speech_http
     assert config.TOOL_CALL_TIMEOUT_S > speech_http.TIMEOUT >= 300
+
+
+def test_a_session_that_never_opens_or_never_lists_is_bounded_too():
+    """The bound must cover the WHOLE exchange. 15 Sep 2026: a host sat for half an hour with the
+    gateway's auth span recorded and no tool span at all — hung on the session it had just opened,
+    while a bound that only wrapped `call_tool` watched."""
+    import asyncio
+    from types import SimpleNamespace
+    from lab.platform import mcp_client
+
+    class HangsOnOpen:
+        def __init__(self, transport): pass
+        async def __aenter__(self):
+            await asyncio.sleep(3600)
+        async def __aexit__(self, *exc): return False
+
+    class HangsOnList(HangsOnOpen):
+        async def __aenter__(self): return self
+        async def list_tools(self): await asyncio.sleep(3600)
+        async def call_tool(self, name, args): return SimpleNamespace(data={})
+
+    for cls in (HangsOnOpen, HangsOnList):
+        with pytest.raises(TimeoutError, match="did not answer"):
+            asyncio.run(mcp_client.call_tools_raw({}, "http://gw/mcp", [("x", {})],
+                                                  client_class=cls, timeout=0.05))

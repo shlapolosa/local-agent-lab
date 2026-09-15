@@ -28,7 +28,7 @@ from typing import Any
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from lab.platform import mcp_client
+from lab.platform import config, mcp_client
 from lab.platform.contracts import ArtifactRef
 from lab.platform.webhook import get_json, post_json
 
@@ -64,8 +64,18 @@ async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable
     """
     wanted = {(r if isinstance(r, str) else r[0]): (() if isinstance(r, str) else tuple(r[1]))
               for r in required}
-    async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
-        tools = await c.list_tools()
+    # Bounded like any other exchange: the preflight's whole point is to cost nothing and refuse
+    # early, and a preflight that hangs holds the run open before it has done anything at all.
+    async def listing():
+        async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
+            return await c.list_tools()
+
+    try:
+        tools = await asyncio.wait_for(listing(), config.TOOL_CALL_TIMEOUT_S)
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(f"the gateway did not list its tools within "
+                           f"{config.TOOL_CALL_TIMEOUT_S:.0f}s — the run refuses here rather than "
+                           f"hanging before it has started") from exc
     exposed = [t.name for t in tools]
     missing = [t for t in wanted if not any(n.endswith(t) for n in exposed)]
     if missing:
