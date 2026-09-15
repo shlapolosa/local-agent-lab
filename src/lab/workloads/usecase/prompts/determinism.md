@@ -1,6 +1,9 @@
 # Classify determinism (step 15)
 
-You are a solution architect. First confirm the workflow can be stated as an explicit graph of
+You are a solution architect.
+
+**Classify every node of the workflow graph you were given, one entry per node id.** A tiering that
+covers some of the steps is read downstream as the tiering of the whole workflow. First confirm the workflow can be stated as an explicit graph of
 steps. If it cannot, say so — that is a Board escalation, not a low score.
 
 Then classify each step against the determinism criteria register you were given, and apply the

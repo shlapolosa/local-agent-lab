@@ -194,6 +194,17 @@ def _coverage_map(out: dict, context: Mapping[str, Any] | None = None) -> list[s
     # matched, and required WITH its source: a capability that is commodity, mature and already
     # meeting target is a reason not to build, and that verdict must rest on a lookup rather than
     # on an agent's impression of how common the capability feels.
+    # Ten matches, none of them a lookup, and nothing saying so (run 5, 15 Sep 2026): a coverage
+    # map every line of which was inferred from labels reads exactly like one read off the map. The
+    # confidence is not forced up — that would be fabricating certainty — the map is made to SAY it.
+    matched = out.get("matched") or []
+    if matched and not any(str(m.get("confidence")) == "lookup" for m in matched):
+        if not any("infer" in str(g.get("what", "")).lower() or "assumption" in str(g.get("what", "")).lower()
+                   or "lookup" in str(g.get("what", "")).lower() for g in out.get("gap_flags") or []):
+            bad.append(f"none of the {len(matched)} matches is a `lookup` — every one was inferred "
+                       f"from labels, and a map that does not say so reads like one read off the "
+                       f"published map; add a gap flag saying the matching is inferred and naming "
+                       f"the body that owns the authoritative mapping")
     heat = out.get("heat_map")
     if out.get("matched") and not heat:
         bad.append("a capability matched but its heat-map position is missing — the "
@@ -313,6 +324,42 @@ def _assertions(out: dict, context: Mapping[str, Any] | None = None) -> list[str
     return bad[:5]
 
 
+def _covers_every_node(out: dict, context: Mapping[str, Any] | None, what: str) -> list[str]:
+    """Every node of the workflow graph has exactly one entry, and no entry names a node the graph
+    does not have.
+
+    A partial set is the dangerous shape: it is valid, it derives cleanly, and every service
+    downstream reasons about the steps it was given as if they were the workflow. Measured 15 Sep
+    2026 — step 17 returned ONE vector for a ten-node graph and the whole control chain (exposure,
+    obligations, composition) came back describing that one node, with max exposure 0. A run that
+    fails here is recoverable; a control set that is quietly nine steps short looks exactly like a
+    complete one.
+    """
+    graph = (context or {}).get("workflow_graph") or {}
+    # A readiness EVIDENCE record carries `nodes` as a count, not a list; only a real graph can
+    # hold an answer to anything.
+    listed = graph.get("nodes") if isinstance(graph, Mapping) else None
+    nodes = [str(n.get("id", "")).strip() for n in (listed if isinstance(listed, list) else [])
+             if isinstance(n, Mapping)]
+    if not nodes:
+        return []                       # no graph in context: nothing to hold the answer to
+    given = [str(s.get("id", "")).strip() for s in out.get("steps") or [] if isinstance(s, Mapping)]
+    bad = []
+    missing = [n for n in nodes if n not in given]
+    if missing:
+        bad.append(f"{what} for {missing} — the workflow graph has {len(nodes)} nodes and this "
+                   f"answer covers {len(set(given) & set(nodes))}; every node gets exactly one, "
+                   f"because everything downstream reads this set AS the workflow")
+    phantom = sorted({g for g in given if g and g not in nodes})
+    if phantom:
+        bad.append(f"{phantom} are not nodes of the workflow graph — a step nobody decomposed "
+                   f"cannot be reasoned about; use the node ids you were shown")
+    duplicated = sorted({g for g in given if given.count(g) > 1})
+    if duplicated:
+        bad.append(f"{duplicated} appear more than once — one entry per node")
+    return bad
+
+
 def _determinism(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Q1.1-Q1.5. The necessity test is asked ONCE per non-D0 step, and a step reducible by
     criteria 6-7 is re-tiered to D0 — the observed failure is over-classifying as
@@ -324,6 +371,7 @@ def _determinism(out: dict, context: Mapping[str, Any] | None = None) -> list[st
     tiers = [s.get("tier") for s in out.get("steps") or []]
     if not tiers:
         bad.append("no step was classified")
+    bad += _covers_every_node(out, context, "no determinism tier")
     for step in out.get("steps") or []:
         if step.get("tier") != "D0" and not step.get("necessity"):
             bad.append(f'step {step.get("id")!r} is above D0 with no necessity test — every '
@@ -350,6 +398,7 @@ def _facet_vectors(out: dict, context: Mapping[str, Any] | None = None) -> list[
     bad = []
     if not out.get("steps"):
         bad.append("no step was given a facet vector")
+    bad += _covers_every_node(out, context, "no facet vector")
     for step in out.get("steps") or []:
         for override in step.get("overrides") or []:
             if len(str(override.get("justification", "")).strip()) < 10:
@@ -449,10 +498,53 @@ def _families_realised(out: dict, context: Mapping[str, Any] | None = None) -> l
 FAMILY_REMEDY = ("select a catalogue component whose `families` include it, or name it under "
                  "`unresolved` as something the design still owes")
 
+#: The CAFÉ zones that RUN the use case, as opposed to the cross-cutting ones that govern it
+#: (`ident`, `obs`, `plat`). A selection drawn entirely from the cross-cutting zones is a control
+#: plane with nothing inside it — measured run 5, 15 Sep 2026: sixteen components, every one of them
+#: identity, observability, platform or gateway, and a solution view that was a parts list.
+DELIVERY_ZONES = ("exp", "cog", "knw", "mod", "too", "data", "ext")
+DELIVERY_REMEDY = ("select the components that DO the work as well as the ones that govern it — the "
+                   "runtime or orchestrator, the model, the knowledge or grounding store, the tools "
+                   "it calls, the data it reads — or name under `unresolved` why this design needs "
+                   "none of them")
+
+
+def _does_the_work(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """Step 21's second SOFT rule: something in the selection runs the use case.
+
+    Zones are the catalogue's own column, so this asks nothing the corpus does not already say. A
+    catalogue with no zone column makes no claim, exactly as the family rule does.
+    """
+    ctx = context or {}
+    zone_of = {str(r.get("id")): str(r.get("zone") or "") for r in ctx.get("component_catalogue") or []
+               if isinstance(r, Mapping) and r.get("id")}
+    if not any(zone_of.values()):
+        return []
+    chosen = {str(c.get("component_id", "")) for c in out.get("selected") or []}
+    zones = {zone_of.get(cid, "") for cid in chosen} - {""}
+    if not zones or zones & set(DELIVERY_ZONES):
+        return []
+    named = " ".join(str(u) for u in out.get("unresolved") or []).lower()
+    if "zone" in named or "runtime" in named or "model" in named:
+        return []
+    return [f"every selected component sits in a cross-cutting zone ({sorted(zones)}) — this is a "
+            f"control plane with nothing inside it, and the solution view drawn from it is a parts "
+            f"list; nothing here runs the use case"]
+
 #: The deterministic steps' numbers — they have no `Step` (a governed derivation's, not an agent's)
 #: but they are named by number wherever a person reads a run. ONE home, beside the agent steps'.
 DERIVED_STEP_NUMBERS = {"risk": "18", "obligations": "19", "composition": "22", "cost": "23",
                         "benefit": "24"}
+
+
+def _soft_21(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """Step 21's soft findings: what the composition requires that nothing carries, and whether
+    anything selected actually runs the use case. Both are things the design OWES a reviewer, not
+    reasons to lose the run — recorded under `unresolved` after one corrective attempt."""
+    return _families_realised(out, context) + _does_the_work(out, context)
+
+
+SOFT_21_REMEDY = f"{FAMILY_REMEDY}; and {DELIVERY_REMEDY}"
 
 
 # ---------------------------------------------------------------- the registry
@@ -552,7 +644,7 @@ DESIGN_STEPS: tuple[Step, ...] = (
     Step("17", "facet_vectors", "Risk Officer", _facet_vectors, normalise=_normalise_facets),
     Step("20", "build_surface", "Technology Architect", _build_surface),
     Step("21", "component_selection", "Solution Architect", _component_selection,
-         soft=_families_realised, soft_remedy=FAMILY_REMEDY),
+         soft=_soft_21, soft_remedy=SOFT_21_REMEDY),
     Step("23", "cost_inputs", "Cost Engineer", _cost_inputs),
     Step("24", "benefit_inputs", "Value Analyst", _benefit_inputs),
     Step("25", "delivery_artifacts", "Product Owner", _delivery_artifacts),

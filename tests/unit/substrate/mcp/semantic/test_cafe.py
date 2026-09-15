@@ -30,7 +30,7 @@ def test_ours_only_placed_by_zone_with_the_gateway_as_the_edge():
     assert by_cid["c_ac_cmp_model"]["zone"] == "z_mod" and by_cid["c_ac_cmp_model"]["desc"] == "F2"
     assert by_cid["c_ac_cmp_apim"]["zone"] == "z_edge", "the corpus's gw zone is the skill's edge"
     assert all(c["kind"] == "m4-extension" for c in solution["custom_comps"])
-    assert report == {"placed": ["ac-cmp-apim", "ac-cmp-model"], "unplaced": ["ac-cerner"]}
+    assert report["placed"] == ["ac-cmp-apim", "ac-cmp-model"] and report["unplaced"] == ["ac-cerner"]
 
 
 def test_edges_are_drawn_only_between_two_placed_components():
@@ -94,3 +94,40 @@ def test_a_missing_skill_fails_the_one_tool_by_name_not_the_import(monkeypatch, 
             cafe.render(_spec())
     finally:
         cafe.engine.cache_clear()
+
+
+def test_a_component_the_reference_architecture_carries_keeps_its_catalogue_id_and_its_edges():
+    """Our corpus components were extracted from the same artifact the skill draws, so a canonical
+    id is what lets the published edges between two selected components be drawn (run 5: fifteen
+    tiles and no lines, because every id was minted)."""
+    spec = _spec()
+    spec["elements"][1]["name"] = "APIM — AI Gateway"
+    spec["elements"][2]["name"] = "Microsoft Entra ID"
+    spec["elements"][2]["props"]["cafe.zone"] = "ident"
+    solution, report = cafe.solution_spec(spec, cafe.catalogue())
+    by_name = {c["title"]: c for c in solution["custom_comps"]}
+    assert by_name["APIM — AI Gateway"]["cid"] == "c_apim"
+    assert by_name["APIM — AI Gateway"]["kind"] == "boundary", "a catalogue component is no extension"
+    assert report["catalogued"] == 2
+    # (the engine renames cids to internal ids in banded mode, so the EDGE COUNT is the evidence)
+    assert cafe.render(spec)["edges"] >= 1
+
+
+def test_a_component_the_catalogue_does_not_carry_keeps_a_minted_id_and_is_flagged():
+    spec = _spec()
+    spec["elements"][1]["name"] = "Referral triage engine"          # nothing like it in the catalogue
+    solution, report = cafe.solution_spec(spec, cafe.catalogue())
+    minted = [c for c in solution["custom_comps"] if c["cid"].startswith("c_ac_")]
+    assert minted and all(c["kind"] == "m4-extension" for c in minted)
+    assert any(c["title"] == "Referral triage engine" for c in minted)
+
+
+def test_a_view_of_tiles_with_no_connection_says_so_rather_than_passing_as_an_architecture():
+    spec = _spec()
+    for e in spec["elements"]:
+        if e["type"] == "ApplicationComponent" and (e.get("props") or {}).get("cafe.zone"):
+            e["name"] = "Referral " + e["id"]                        # nothing the catalogue connects
+    spec["relations"] = []                                           # and nothing our own model asserts
+    out = cafe.render(spec)
+    assert out["edges"] == 0
+    assert any("no connections drawn" in w for w in out["warnings"])

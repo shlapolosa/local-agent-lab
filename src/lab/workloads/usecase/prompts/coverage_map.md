@@ -33,7 +33,10 @@ match the design cannot build on. If no candidate fits a function, the function 
 - every capability the use case claims to serve → at least one function
 
 Record `confidence` for each match as `lookup` (the map says so), `assumption` (you inferred it
-from the labels) or `survey` (you would have to ask somebody).
+from the labels) or `survey` (you would have to ask somebody). **If no match in your answer is a
+`lookup`, say so in a gap flag** naming the body that owns the authoritative mapping: a coverage map
+every line of which was inferred reads exactly like one read off the published map, and only one of
+those two is evidence. Do not raise a confidence to avoid the flag.
 
 **The heat map is a LOOKUP or it is `false`.** `heat_map.commodity`, `mature` and `meets_target`
 are the tenant's published position on a capability, and the reject rule downstream fires on all

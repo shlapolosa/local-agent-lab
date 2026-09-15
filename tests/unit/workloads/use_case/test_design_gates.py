@@ -282,3 +282,74 @@ def test_a_catalogue_without_a_families_column_makes_no_claim():
 def test_a_run_with_no_composition_requires_nothing():
     assert soft("21", COMPONENTS, dict(WITH_FAMILIES) | {"model_summary": {}}) == []
     assert step_for("21").soft_key == "unresolved"
+
+
+# ---------------------------------------------------------------- 15 and 17 · every node, or none
+
+GRAPH = {"workflow_graph": {"nodes": [{"id": "n1"}, {"id": "n2"}, {"id": "n3"}]}}
+
+
+def test_a_facet_set_covering_one_node_of_three_is_refused_naming_the_nodes_it_skipped():
+    """Run 5, 15 Sep 2026: ONE vector for a ten-node graph. It derived cleanly, and the exposure,
+    the obligations and the composition all came back describing that one node."""
+    out = {"steps": [dict(FACETS["steps"][0], id="n2")]}
+    problems = " ".join(gated("17", out, context=GRAPH))
+    assert "'n1'" in problems and "'n3'" in problems and "covers 1" in problems
+
+
+def test_a_vector_for_a_node_the_graph_does_not_have_is_refused():
+    out = {"steps": [dict(FACETS["steps"][0], id=i) for i in ("n1", "n2", "n3", "n9")]}
+    assert any("n9" in p and "not nodes" in p for p in gated("17", out, context=GRAPH))
+
+
+def test_one_vector_per_node_passes_and_a_duplicate_does_not():
+    full = {"steps": [dict(FACETS["steps"][0], id=i) for i in ("n1", "n2", "n3")]}
+    assert gated("17", full, context=GRAPH) == []
+    twice = {"steps": full["steps"] + [dict(FACETS["steps"][0], id="n1")]}
+    assert any("more than once" in p for p in gated("17", twice, context=GRAPH))
+
+
+def test_without_a_graph_in_context_the_coverage_rule_says_nothing():
+    assert gated("17", FACETS) == []
+
+
+def test_the_determinism_tiering_is_held_to_the_same_coverage():
+    out = {"steps": [{"id": "n1", "tier": "D1", "necessity": "by necessity"}],
+           "governance_tier": "D1", "graph_is_explicit": True}
+    assert any("no determinism tier" in p and "'n2'" in p for p in gated("15", out, context=GRAPH))
+    full = {"steps": [{"id": i, "tier": "D1", "necessity": "by necessity"} for i in ("n1", "n2", "n3")],
+            "governance_tier": "D1", "graph_is_explicit": True}
+    assert gated("15", full, context=GRAPH) == []
+
+
+# ---------------------------------------------------------------- 21 · something runs the use case
+
+CROSS_CUTTING = {"component_catalogue": [{"id": "cmp-entra", "zone": "ident", "name": "Entra"},
+                                         {"id": "cmp-sentinel", "zone": "obs", "name": "Sentinel"},
+                                         {"id": "cmp-model", "zone": "mod", "name": "Model catalog"}]}
+
+
+def _picked(*ids):
+    return {"selected": [{"capability": "c", "component_id": i, "component": i,
+                          "rejected_alternatives": ["x"]} for i in ids],
+            "tradeoffs": [], "unresolved": []}
+
+
+def test_a_selection_of_only_cross_cutting_components_is_a_control_plane_with_nothing_inside_it():
+    """Run 5: sixteen components, every one identity, observability, platform or gateway — and a
+    solution view that was a parts list."""
+    problems = soft("21", _picked("cmp-entra", "cmp-sentinel"), CROSS_CUTTING)
+    assert any("control plane with nothing inside it" in p for p in problems)
+    assert "ident" in problems[0] and "obs" in problems[0]
+
+
+def test_one_component_that_runs_the_use_case_satisfies_it():
+    assert soft("21", _picked("cmp-entra", "cmp-model"), CROSS_CUTTING) == []
+
+
+def test_a_catalogue_with_no_zone_column_makes_no_claim_and_a_named_reason_is_accepted():
+    bare = {"component_catalogue": [{"id": "cmp-entra", "name": "Entra"}]}
+    assert soft("21", _picked("cmp-entra"), bare) == []
+    named = dict(_picked("cmp-entra"), unresolved=["no runtime component: the agent runtime is a "
+                                                   "zone this tenant has not catalogued"])
+    assert soft("21", named, CROSS_CUTTING) == []

@@ -1,6 +1,12 @@
 # Select the components (step 21)
 
-You are a solution architect. For each capability, choose the component that satisfies all three
+You are a solution architect.
+
+**Select the components that DO the work before the ones that govern it.** A use case runs
+somewhere: an orchestrator or agent runtime, a model, the knowledge or grounding store it reads,
+the tools it calls, the data it writes. Identity, observability and platform components are
+cross-cutting — necessary, and not a solution on their own. A selection drawn entirely from those
+is a control plane with nothing inside it, and the architecture drawn from it is a parts list. For each capability, choose the component that satisfies all three
 requirement sets: the control requirements, the technical envelope, and operability.
 
 Only components in the component catalogue may be selected, BY THEIR CATALOGUE ID — the `id` column

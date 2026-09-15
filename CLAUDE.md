@@ -287,6 +287,27 @@ imported from `config.SKILLS_DIR` via `sys.path`, the one such seam) — refs in
 onto the conformance approval as tabs, and **`architecture_ref` is the draw.io file** (the model
 when nothing drew, the package as a last resort). Neither render tool is REQUIRED: a design that
 cannot draw is still a design, and the warning it records is the visible degradation.
+**A step that answers for SOME of the workflow is the dangerous shape (15 Sep 2026).** Run 5 returned
+ONE facet vector for a ten-node graph: it validated, it derived cleanly, and the exposure, the
+obligations and the composition all came back describing that single node with max exposure 0 — a
+control set nine steps short that looks exactly like a complete one. `steps._covers_every_node` now
+holds steps 15 and 17 to the node ids the graph in their context carries: every node exactly once,
+no id the graph does not have (a readiness EVIDENCE record spells `nodes` as a count, so a non-list
+makes no claim). Two sibling rules, from the same run: a coverage map in which NO match is a
+`lookup` must say so in a gap flag — the confidence is never forced up, the map is made to state
+what it is — and step 21 carries a second SOFT rule, `_does_the_work`: a selection drawn entirely
+from the cross-cutting zones (`ident`, `obs`, `plat`) is a control plane with nothing inside it,
+recorded under `unresolved` rather than failing the run. Zones are the catalogue's own column, so it
+asks nothing the corpus does not already say.
+
+**The CAFÉ view reuses the reference architecture's OWN component ids** (`cafe.catalogue()`, matched
+on normalised name): our corpus components were extracted from the artifact the skill draws, so a
+selected component is usually the catalogue's own under the same name, and that is what lets the
+published edges between two selected components survive `include_comps: ["none"]`. Run 5 drew
+fifteen tiles and no lines because every id was minted; the same model now draws five. A minted id
+(and its M4-extension warning) is left only for what the reference architecture does not carry, and
+a view with tiles but no connections says so in a warning rather than passing as an architecture.
+
 **Every governed tool call is BOUNDED (`config.TOOL_CALL_TIMEOUT_S`, 1000 s, in
 `lab.platform.mcp_client.call_tools_raw`) — the FLOOR under every other bound, above speech's
 synchronous 900 s transcription and the gateway's 300 s MCP client timeout, which is the one that bites

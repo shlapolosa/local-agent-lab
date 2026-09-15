@@ -616,3 +616,17 @@ def test_a_free_text_activity_is_refused_by_name_and_a_near_miss_spelling_is_can
     assert gate(near, validator=step.validator(), normalise=step.normalise, complete=step.complete) == []
     assert near["steps"][0]["activity"] == "interpret" and near["steps"][0]["effect"] == "record write"
     assert near["steps"][0]["determinism"] == "D2"
+
+
+def test_a_coverage_map_that_is_entirely_inferred_must_say_so():
+    """Run 5: ten matches, every one an `assumption`, no flag — which reads exactly like ten
+    lookups. The confidence is never forced up; the map is made to say what it is."""
+    matched = [{"function": f"f{i}", "capability_id": "cap-1", "confidence": "assumption"} for i in range(3)]
+    out = {"matched": matched, "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": HEAT}
+    assert any("none of the 3 matches is a `lookup`" in p for p in gated("5", out, CANDIDATES))
+    flagged = dict(out, gap_flags=[{"what": "every match is inferred from labels",
+                                    "owning_body": "the capability map owner"}])
+    assert gated("5", flagged, CANDIDATES) == []
+    one_lookup = dict(out, matched=[dict(matched[0], confidence="lookup")] + matched[1:])
+    assert gated("5", one_lookup, CANDIDATES) == []
