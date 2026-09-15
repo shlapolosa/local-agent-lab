@@ -55,6 +55,9 @@ def test_a_tool_call_that_never_answers_fails_the_run_naming_the_tool_rather_tha
                                               client_class=Hung, timeout=0.05))
 
 
-def test_the_default_bound_is_the_configured_one_and_sits_above_the_gateways_own():
+def test_the_default_bound_sits_above_the_longest_legitimate_synchronous_call():
+    """Speech transcription is synchronous and 900 s by design; a floor below it would fail an
+    hour-long meeting in the shape of a hang, and a retry would do exactly the same again."""
     from lab.platform import config
-    assert config.TOOL_CALL_TIMEOUT_S >= 300, "the gateway's MCP client timeout is 300 s; ours is the floor under it"
+    from lab.substrate.mcp.speech import http as speech_http
+    assert config.TOOL_CALL_TIMEOUT_S > speech_http.TIMEOUT >= 300
