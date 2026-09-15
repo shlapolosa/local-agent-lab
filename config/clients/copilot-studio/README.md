@@ -117,6 +117,14 @@ data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabili
 and whose headers carry an `mcp-session-id`. That is the whole point of the test: the key
 authenticated, the gateway spoke MCP back.
 
+**If the Test tab keeps answering 406, go to step 7 anyway.** That tab is a generic HTTP harness: it
+does not speak MCP, and what it puts in `Accept` is its own business — measured 15 Sep 2026, the API
+hub forwarded a request the gateway refused even with the header declared as a parameter. Copilot
+Studio's MCP runtime performs the handshake itself and sets its own headers, so the tool list in step
+7 is the test that decides whether this works. (For the record, the gateway accepts
+`application/json, text/event-stream` in either order and with a `q=` weight, and refuses `*/*` —
+both types must be named.)
+
 **Do not try `tools/list` here.** It needs the session id from this response AND an
 `initialized` notification first; the Test tab has no way to keep a session between calls. Copilot
 Studio does that handshake itself, which is why step 7 shows the tools and this tab never will.
