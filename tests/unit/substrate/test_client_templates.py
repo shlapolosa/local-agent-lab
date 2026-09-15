@@ -103,3 +103,20 @@ def test_an_mcp_connector_accepts_both_media_types_the_transport_requires():
             continue
         produces = set(d.get("produces") or [])
         assert {"application/json", "text/event-stream"} <= produces, f"{path} produces {produces}"
+
+
+def test_an_mcp_connector_declares_the_accept_header_rather_than_trusting_produces():
+    """15 Sep 2026, measured in the portal: the Power Platform runtime sent `Accept:
+    application/json` even with `text/event-stream` in `produces`, and the gateway refused it with
+    406. The header is therefore a parameter with a default, which the runtime does send."""
+    for path in SWAGGERS:
+        d = json.load(open(path))
+        for methods in d["paths"].values():
+            for op in methods.values():
+                if "mcp" not in str(op.get("x-ms-agentic-protocol", "")):
+                    continue
+                accept = [p for p in op.get("parameters") or []
+                          if p.get("in") == "header" and p.get("name", "").lower() == "accept"]
+                assert accept, f"{path} leaves Accept to produces"
+                default = accept[0].get("default", "")
+                assert "application/json" in default and "text/event-stream" in default, default

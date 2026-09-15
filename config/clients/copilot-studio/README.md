@@ -125,7 +125,7 @@ The three failures worth recognising:
 
 | What you see | What it means |
 |---|---|
-| **406 — "Client must accept both application/json and text/event-stream"** | The definition's `produces` is missing a media type. Re-render, re-import, **Update connector**. |
+| **406 — "Client must accept both application/json and text/event-stream"** | The `Accept` header is not being sent. `produces` alone is NOT enough — the runtime does not derive the header from it — so the definition declares `Accept` as an internal header parameter defaulting to both types. Re-render, re-import, **Update connector**. If the response headers say `x-ms-apihub-cached-response: true`, you are being served the previous failure: change the `id` in the body and test again. |
 | **401** | The key is wrong, or the connection value is missing the word `Bearer`. |
 | **404** | The host is wrong — check step 1. |
 
