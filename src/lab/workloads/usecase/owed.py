@@ -62,8 +62,13 @@ def counts(package: Mapping[str, Any]) -> dict:
     recommendation = (package.get("benefit") or {}).get("recommendation") or {}
     selected = (package.get("component_selection") or {}).get("selected") or []
     model = package.get("model") or {}
+    priced = len(selected) - len(cost.get("gap_flags") or ())
     return {"owed": owed(package),
             "recommendation": recommendation.get("verdict", ""),
+            # The run cost covers the components the price catalogue carries. Presenting a figure
+            # that priced five of sixteen as "the cost" is the same failure as a summary that says
+            # nothing: it reads complete (run 8, 15 Sep 2026 — eleven components with no line).
+            "components_priced": max(priced, 0),
             "topology": composition.get("topology", ""),
             "families": len(composition.get("families") or ()),
             "components": len(selected),

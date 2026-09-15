@@ -247,10 +247,12 @@ def soft(number, out, context):
     return step_for(number).soft(out, context=context)
 
 
-WITH_FAMILIES = {"component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog",
-                                          "families": ["F2"]},
-                                         {"id": "cmp-vault", "zone": "ident", "name": "Key Vault",
-                                          "families": "F4; F5"}],
+#: What the design DERIVED from the published chain (family -> guardrail -> capability -> component),
+#: which is where family membership comes from — the catalogue has no such column.
+WITH_FAMILIES = {"component_families": {"by_component": {"cmp-model": ["F2"], "cmp-vault": ["F4", "F5"]},
+                                        "unclaimed": []},
+                 "component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog"},
+                                         {"id": "cmp-vault", "zone": "ident", "name": "Key Vault"}],
                  "model_summary": {"required_families": ["F2", "F4"]}}
 
 
@@ -273,10 +275,24 @@ def test_selecting_a_component_that_carries_the_family_satisfies_it():
     assert soft("21", out, WITH_FAMILIES) == []
 
 
-def test_a_catalogue_without_a_families_column_makes_no_claim():
-    """The column is authored content published separately; until then the rule is silent, never
-    a refusal a tenant cannot satisfy."""
+def test_without_a_derivation_or_a_column_the_rule_makes_no_claim():
+    """Neither derived nor published means nothing is known; a rule that refused here would refuse
+    work nobody could have done."""
     assert soft("21", COMPONENTS, dict(CATALOGUE) | {"model_summary": {"required_families": ["F2"]}}) == []
+
+
+def test_a_family_the_corpus_is_silent_about_is_not_demanded():
+    """Ten of twenty-six published guardrails name a capability, so some families resolve to no
+    component at all — the corpus being silent, not the design failing."""
+    ctx = dict(WITH_FAMILIES)
+    ctx["component_families"] = {"by_component": {"cmp-model": ["F2"]}, "unclaimed": ["F4"]}
+    assert soft("21", COMPONENTS, ctx) == []
+
+
+def test_a_published_catalogue_column_is_believed_over_the_derivation():
+    ctx = dict(WITH_FAMILIES)
+    ctx["component_catalogue"] = [{"id": "cmp-model", "zone": "mod", "families": ["F2", "F4"]}]
+    assert soft("21", COMPONENTS, ctx) == []
 
 
 def test_a_run_with_no_composition_requires_nothing():

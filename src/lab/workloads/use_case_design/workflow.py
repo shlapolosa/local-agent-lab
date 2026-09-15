@@ -42,7 +42,7 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import reference
-from lab.workloads.usecase import mappers, modeltrace, modelling, owed
+from lab.workloads.usecase import families, mappers, modeltrace, modelling, owed
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import step_for
 
@@ -71,6 +71,10 @@ CORPORA = {
     "surface_enforceability": ("surface-enforceability", "obligation"),
     "ai_capability_map": ("ai-capability-map", "capability"),
     "component_catalogue": ("reference-architecture-components", "component"),
+    # The published guardrails, for the ONE thing the workload derives from them: which capability
+    # (and so which component) enforces each — the chain that tells step 21 whether the selection
+    # carries the families the composition requires. The control set itself is decision-mcp's.
+    "guardrails": ("guardrails", "guardrail"),
     # Which archetype a topology composes to — read for the model, so the draw.io projection knows
     # its base without reaching the corpus from the substrate.
     "topology_archetypes": ("reference-architecture-topology-archetypes", "topology-archetype"),
@@ -265,6 +269,17 @@ async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
         "workflow": payload, "topology": topology,
         "obligations_required": list((d.derived.get("obligations") or {}).get("guardrails") or ()),
         "pin_id": pin_id, **reference.attribution(cfg, "composition")}), "22")
+    # Which component carries which of THIS design's families, followed through the published chain
+    # (family -> guardrail -> capability -> component) rather than read off a catalogue column the
+    # reference architecture does not have. Recorded before step 21 so the architect selecting
+    # components can see what each one would satisfy, and the gate can hold it to that.
+    enforcement = (d.derived.get("composition") or {}).get("enforcement") or {}
+    guardrails, capability_map = d.available.get("guardrails") or [], d.available.get("ai_capability_map") or []
+    d.record("component_families", {
+        "by_component": families.by_component(enforcement, guardrails, capability_map),
+        # Families whose guardrails name no capability in the published map: the corpus is silent,
+        # which is not the same as the design failing to cover them.
+        "unclaimed": families.unclaimed(enforcement, guardrails, capability_map)})
     await modelling.grow(cfg, d, "composition")
 
 

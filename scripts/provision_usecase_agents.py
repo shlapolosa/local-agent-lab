@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lab.platform import config
 from lab.platform.contracts import (ApprovalTools, DecisionTools, EATools, ReferenceTools,  # noqa: E402
-                                    SemanticTools, StorageTools, USE_CASE_SCREENING,
+                                    SemanticTools, StorageTools, USE_CASE_DESIGN, USE_CASE_SCREENING,
                                     ValuationTools, VectorStores, WorkflowTools)
 from lab.workloads.usecase.identity import PREFIX_FOR  # noqa: E402
 
@@ -86,9 +86,13 @@ DELIVERY_TOOLS = {
 #: continuations with no submit tool, and a grant naming one would name a tool the server does not
 #: expose. Nothing to grant is not the same as granting nothing — the first is a typo the gateway
 #: cannot report, the second looks like a broken server.
+#: The surface a person's own client reaches: start a screening, find one, follow it — and follow the
+#: DESIGN it becomes, which is a continuation, so `verbs_for` withholds its submit and hands over only
+#: the ways to observe. A submitter who could not see the design half would be told their use case was
+#: approved and then nothing.
 SUBMITTER_TOOLS = {
-    WorkflowTools.SERVER: [USE_CASE_SCREENING.tool(v)
-                           for v in WorkflowTools.verbs_for(USE_CASE_SCREENING)]
+    WorkflowTools.SERVER: [spec.tool(v) for spec in (USE_CASE_SCREENING, USE_CASE_DESIGN)
+                           for v in WorkflowTools.verbs_for(spec)]
                           + list(ApprovalTools.READ) + list(ApprovalTools.WRITE),
 }
 
@@ -235,7 +239,15 @@ def main() -> int:
             ("USECASE_DELIVERY_KEY", "usecase-delivery-agent", delivery_team,
              "investment and provisioning", (AGENT_MODEL,)),
             ("EVAL_AGENT_KEY", "usecase-evals", evals_team, "coverage evals and adjudication",
-             EVALS_MODELS)):
+             EVALS_MODELS),
+            # The SUBMITTER surface's own credential — what a Copilot Studio connector or any other
+            # front end connects with. Its own key rather than an agent's, so the spend, the rate
+            # limit and the grants belong to this surface and revoking it costs nobody else
+            # anything. NO models: it calls tools, never inference (an empty allowlist would read as
+            # "every model", so it is spelled as a model that does not exist — the same sentinel
+            # reasoning as the vector-store grant).
+            ("USECASE_SUBMITTER_KEY", "usecase-submitter-client", submitter_team,
+             "submit and find use cases", ("-",))):
         if os.environ.get(env_key):
             _reconcile_key(litellm, os.environ[env_key], models)
             print(f"{env_key} already set — kept, allowed {', '.join(models)}")

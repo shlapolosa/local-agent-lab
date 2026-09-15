@@ -49,3 +49,11 @@ def test_the_headline_carries_the_figures_the_lines_are_judged_against():
     assert head["components"] == 1 and head["families"] == 2
     assert head["elements"] == 3 and head["relations"] == 1
     assert head["owed"] == owed(PACKAGE)
+
+
+def test_the_headline_says_how_much_of_the_design_the_cost_actually_priced():
+    """Run 8 priced five of sixteen components and presented the figure as the cost."""
+    head = counts(PACKAGE)
+    assert head["components"] == 1 and head["components_priced"] == 0, "two gap flags, one component"
+    priced = counts({**PACKAGE, "cost": {**PACKAGE["cost"], "gap_flags": []}})
+    assert priced["components_priced"] == 1

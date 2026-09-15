@@ -52,7 +52,11 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     # spec, which would put every element's properties into a prompt an architect skims.
     "component_selection": ("obligations", "quality_attributes", "realisation_match",
                             "ai_capability_map", "component_catalogue", "build_surface",
-                            "model_summary"),
+                            "model_summary",
+                            # What each catalogue component would SATISFY of this design's required
+                            # families, derived from the published chain — the information the
+                            # selection is then held to.
+                            "component_families"),
     # The valuation half. The run cost is a JOIN the governed service does on step 21's component
     # ids; the cost engineer reads what intake captured about the BUILD and what the design needs
     # beyond the catalogue. The value analyst reads the submission the figures have to come from

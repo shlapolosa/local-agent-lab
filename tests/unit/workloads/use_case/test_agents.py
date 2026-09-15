@@ -630,3 +630,39 @@ def test_a_coverage_map_that_is_entirely_inferred_must_say_so():
     assert gated("5", flagged, CANDIDATES) == []
     one_lookup = dict(out, matched=[dict(matched[0], confidence="lookup")] + matched[1:])
     assert gated("5", one_lookup, CANDIDATES) == []
+
+
+# ------------------------------------------------- step 10: a graph is a decomposition, not a rename
+
+FUNCTIONS = {"elements": {"behavioural": [{"name": "assess referral"}, {"name": "classify risk"},
+                                          {"name": "produce recommendation"}]}}
+
+
+def _graph(*activities):
+    nodes = [{"id": f"n{i}", "activity": a, "performed_by": "nurse"} for i, a in enumerate(activities, 1)]
+    return {"nodes": nodes, "edges": []}
+
+
+def test_a_node_per_function_named_after_it_is_refused_as_a_rename():
+    """Run 8: ten functions in, ten nodes out, each the function's own words — and the determinism
+    tier, facet vector, exposure and control set are all per node, so the whole risk chain came out
+    exactly as coarse as the inventory it copied."""
+    bad = gated("10", _graph("assess referral", "classify risk", "produce recommendation"), FUNCTIONS)
+    assert any("restates the function list" in p for p in bad), bad
+
+
+def test_a_real_decomposition_passes():
+    out = _graph("fetch the referral", "read the referral", "classify risk", "record the band",
+                 "produce recommendation")
+    assert gated("10", out, FUNCTIONS) == []
+
+
+def test_one_function_kept_whole_beside_decomposed_ones_is_not_a_rename():
+    out = _graph("fetch the referral", "assess referral", "classify risk", "produce recommendation")
+    assert gated("10", out, FUNCTIONS) == []
+
+
+def test_without_the_function_list_or_below_three_functions_the_rule_says_nothing():
+    assert gated("10", _graph("assess referral", "classify risk", "produce recommendation")) == []
+    two = {"elements": {"behavioural": [{"name": "assess referral"}, {"name": "classify risk"}]}}
+    assert gated("10", _graph("assess referral", "classify risk"), two) == []

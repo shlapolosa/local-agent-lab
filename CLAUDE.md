@@ -352,6 +352,25 @@ master key. Status and result stay, deliberately — refusing to START is not re
 flow that cannot poll the run its own approval began cannot tell a person the minutes are ready. The
 continuation runner submits IN-PROCESS, so the legitimate path pays nothing.
 
+**A workflow graph is a DECOMPOSITION, and family membership is DERIVED (15 Sep 2026).** Two more
+run-8 findings. Step 10 returned ten nodes for ten functions, each node wearing its function's own
+name — and since the determinism tier, the facet vector, the exposure and the control set are all PER
+NODE, the whole risk chain came out exactly as coarse as the inventory it copied while looking like
+analysis. The prompt had literally asked for it ("one step per business function"); it now asks for a
+split wherever the ACTION changes (retrieving is not interpreting, interpreting is not deciding), and
+`steps._decomposes` refuses a graph whose every node is a function renamed, one-for-one. A function
+that genuinely is one step stays one node — what is refused is EVERY function being one.
+And step 21's family rule no longer waits on an authored column the reference architecture does not
+have: `lab.workloads.usecase.families` follows the published chain **family → guardrail (the
+composition's own enforcement map) → capability (`guardrails.cap`) → components
+(`ai-capability-map.components`)**, recorded before step 21 so the architect sees what each component
+would satisfy and the gate holds the selection to it. It is PARTIAL by nature — ten of twenty-six
+guardrails name a capability — so `unclaimed()` names the families the corpus is silent about and the
+rule demands nothing for them; a published catalogue column, if a tenant ever writes one, is believed
+over the derivation. On run 8's real design: five families carried, six unclaimed, none uncovered.
+The cost headline now carries `components_priced` beside `components`, because a year-one figure that
+priced five of sixteen and says so is evidence, and one that does not is the empty summary again.
+
 **An approval SAYS WHAT THE WORK LEFT OPEN, before the reviewer opens anything (15 Sep 2026).** Run 8
 proceeded with four obligations bound to no enforcement point, eleven components nobody could price
 and a benefit nobody could compute — every one recorded in the package, and the conformance

@@ -467,6 +467,10 @@ def _still_open(summ):
         cols = st.columns(len(figures))
         for col, (label, value) in zip(cols, figures):
             col.metric(label, f"{value:,.0f}" if isinstance(value, (int, float)) else str(value))
+    total, priced = summ.get("components"), summ.get("components_priced")
+    if isinstance(total, int) and isinstance(priced, int) and priced < total:
+        st.caption(f"The year-one figure prices {priced} of {total} selected components — the rest "
+                   f"have no line in the catalogue at this envelope.")
     open_items = [str(o) for o in (summ.get("owed") or []) if str(o).strip()]
     if not open_items:
         if summ.get("owed") is not None:

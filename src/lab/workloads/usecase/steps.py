@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from lab.core.usecase.model import VOCABULARY, canonical_facet
-from lab.core.usecase.predicates import NAMED_CONDITIONS
+from lab.core.usecase.predicates import NAMED_CONDITIONS, normalise_value
 from lab.workloads.usecase.gates import validator_for
 from lab.workloads.usecase.mappers import as_list
 
@@ -287,7 +287,36 @@ def _workflow_graph(out: dict, context: Mapping[str, Any] | None = None) -> list
         if not str(edge.get("data_class", "")).strip():
             bad.append(f'the edge {edge.get("from")}->{edge.get("to")} carries no data class — '
                        f'every data-flow edge carries a business object')
+    bad += _decomposes(out, context)
     return bad[:5]
+
+
+def _decomposes(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """The graph must be a DECOMPOSITION, not the function list renamed.
+
+    Run 8 (15 Sep 2026): ten functions in, ten nodes out, each node's activity the function's own
+    words. Everything after this step reasons about the graph — the determinism tier, the facet
+    vector, the exposure, the control set are all PER NODE — so a graph that adds no detail makes
+    the whole risk chain exactly as coarse as the inventory it copied, while looking like analysis.
+
+    A function that genuinely is one step stays one node; what is refused is EVERY function being
+    one, which is the signature of a rename rather than a decomposition.
+    """
+    functions = [str(b.get("name", "")).strip()
+                 for b in ((context or {}).get("elements") or {}).get("behavioural") or []
+                 if isinstance(b, Mapping) and str(b.get("name", "")).strip()]
+    nodes = [n for n in out.get("nodes") or [] if isinstance(n, Mapping)]
+    if len(functions) < 3 or len(nodes) != len(functions):
+        return []
+    named = {normalise_value(f) for f in functions}
+    restated = [n for n in nodes if normalise_value(str(n.get("activity", ""))) in named]
+    if len(restated) < len(nodes):
+        return []
+    return [f"the graph restates the function list — {len(nodes)} nodes for {len(functions)} "
+            f"functions, each named after one of them. A function is what the business DOES; a node "
+            f"is a step that does it, with a performer and the data it moves. Decompose at least the "
+            f"functions that take more than one action (retrieve, then interpret, then record), and "
+            f"keep one node only where the function genuinely is one step"]
 
 
 def _source_contracts(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
@@ -484,8 +513,14 @@ def _families_realised(out: dict, context: Mapping[str, Any] | None = None) -> l
     """
     ctx = context or {}
     required = as_list(((ctx.get("model_summary") or {}).get("required_families")))
-    families_of = {str(row.get("id")): as_list(row.get("families"))
-                   for row in ctx.get("component_catalogue") or [] if isinstance(row, Mapping) and row.get("id")}
+    derived = ctx.get("component_families") or {}
+    families_of = {str(k): as_list(v) for k, v in (derived.get("by_component") or {}).items()}
+    # A catalogue column, if a tenant ever publishes one, is believed over the derivation.
+    families_of |= {str(row.get("id")): as_list(row.get("families"))
+                    for row in ctx.get("component_catalogue") or []
+                    if isinstance(row, Mapping) and row.get("id") and row.get("families")}
+    # What the corpus is SILENT about is not something this design failed to do.
+    required = [f for f in required if f not in set(as_list(derived.get("unclaimed")))]
     if not required or not any(families_of.values()):
         return []
     selected = [str(c.get("component_id", "")) for c in out.get("selected") or []]
