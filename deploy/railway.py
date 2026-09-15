@@ -984,7 +984,13 @@ def release(wait_s: int = 600):
     ids = services()
     names = [n for n in substrate_names(deploy_profile(), ids)
              if n not in (REDIS_NAME, EMBED_NAME, JAEGER_NAME)]
-    names += [w["service"] for w in WORKLOADS.values()]
+    # REPLICAS, not just the base name. `w["service"]` is the FIRST replica only, and every other
+    # one was therefore never rolled by CD: after each push the meeting workload had two replicas of
+    # ONE consumer group running two different commits, taking work from the same stream. That is the
+    # version skew this file's own instruments exist to catch, and it hid because `substrate images`
+    # and `substrate versions` only run in the `verify` step AFTER a deploy job that had already
+    # aborted. Found 14 Sep 2026 by a person noticing the replica on an older build.
+    names += [service for w in WORKLOADS.values() for service, _consumer in replica_services(w)]
     print(f"releasing {IMAGE}")
     rolled, missing = [], []
     for name in names:
