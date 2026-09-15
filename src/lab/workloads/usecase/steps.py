@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from lab.core.usecase.model import VOCABULARY, canonical_facet
 from lab.core.usecase.predicates import NAMED_CONDITIONS
 from lab.workloads.usecase.gates import validator_for
 from lab.workloads.usecase.mappers import as_list
@@ -59,7 +60,27 @@ def schema(name: str) -> dict:
                                      "false, using the exact keys listed. An unanswered condition is "
                                      "refused, never read as false: a guardrail that silently fails "
                                      "to fire is invisible.")
+        # Every facet's PUBLISHED values, as the enum the model reads and the validator checks —
+        # from the domain, the one place they are declared. A free string left the model to write
+        # "assess AI use case" for an activity, which the exposure derivation refused twenty minutes
+        # later (14 Sep 2026); a contract the model cannot read is not a contract.
+        facets = out["properties"]["steps"]["items"]["properties"]
+        for facet, values in VOCABULARY.items():
+            if facet in facets:
+                facets[facet]["enum"] = list(values)
     return out
+
+
+def _normalise_facets(out: dict) -> None:
+    """A near-miss spelling of a published value ("Interpret", "record-write") becomes the
+    published one before the schema sees it; a value no spelling of which is published is left
+    for the enum to refuse by name."""
+    for step in out.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        for facet in VOCABULARY:
+            if facet in step and isinstance(step[facet], str):
+                step[facet] = canonical_facet(facet, step[facet]) or step[facet]
 
 
 def prompt(name: str) -> str:
@@ -528,7 +549,7 @@ SCREENING_STEPS: tuple[Step, ...] = (
 DESIGN_STEPS: tuple[Step, ...] = (
     Step("13", "assertions", "Product Owner", _assertions),
     Step("15", "determinism", "Solution Architect", _determinism),
-    Step("17", "facet_vectors", "Risk Officer", _facet_vectors),
+    Step("17", "facet_vectors", "Risk Officer", _facet_vectors, normalise=_normalise_facets),
     Step("20", "build_surface", "Technology Architect", _build_surface),
     Step("21", "component_selection", "Solution Architect", _component_selection,
          soft=_families_realised, soft_remedy=FAMILY_REMEDY),

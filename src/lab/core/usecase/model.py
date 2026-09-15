@@ -13,6 +13,7 @@ silently widens what the model accepts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from lab.core.usecase.predicates import normalise_value
@@ -21,6 +22,7 @@ __all__ = [
     "ACTIVITIES", "AUDIENCES", "AUTHORISATIONS", "BLAST_RADII", "CRITICALITIES", "DETERMINISM",
     "canonical_criticality",
     "DOMAINS", "EFFECTS", "FRESHNESS", "REVERSIBILITY", "SENSITIVITIES", "TRUST",
+    "VOCABULARY", "canonical_facet",
     "Step", "Workflow",
 ]
 
@@ -46,6 +48,13 @@ _VOCABULARY: dict[str, tuple[str, ...]] = {
 }
 
 
+#: The published vocabulary, facet -> values, read-only — what a schema the model reads carries as
+#: enums, so "not a published value" is refused where the answer is written, not three steps later
+#: in a derivation (14 Sep 2026: a facet vector with activity "assess AI use case" failed the
+#: exposure derivation twenty minutes into a design run).
+VOCABULARY: Mapping[str, tuple[str, ...]] = MappingProxyType(_VOCABULARY)
+
+
 # Normalised spelling -> the canonical published one, per facet. The artifact spells one value
 # several ways ("a cohort" in the schema, "cohort" in the predicates), and a step must settle on
 # one of them or a predicate comparison silently never matches.
@@ -68,6 +77,14 @@ def canonical_criticality(value: str) -> str:
     if canonical is None:
         raise ValueError(f"{value!r} is not a published class; expected one of {list(CRITICALITIES)}")
     return canonical
+
+
+def canonical_facet(name: str, value: str) -> str | None:
+    """The published spelling of a facet value ("Record-Write" -> "record write"), or None when
+    no spelling of it is published — the caller decides whether that is a refusal."""
+    if name not in _CANONICAL:
+        return None
+    return _CANONICAL[name].get(normalise_value(str(value or "")))
 
 
 def _checked(name: str, value: str) -> str:

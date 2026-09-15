@@ -584,3 +584,35 @@ def test_a_true_heat_position_is_accepted_when_the_rows_carry_one():
            "functions_without_capability": [], "capabilities_without_function": [],
            "heat_map": {"commodity": True, "mature": True, "meets_target": True, "source": "row cap-1"}}
     assert gated("5", out, context=rows) == []
+
+
+# ------------------------------------------------- step 17: every facet's values are the published ones
+
+def test_the_facet_schema_carries_every_published_vocabulary_as_an_enum():
+    """14 Sep 2026: a facet vector with activity "assess AI use case" passed the gate and failed
+    the exposure derivation twenty minutes into the design run. The values are the domain's, declared
+    once; the schema the model reads carries them, so the refusal happens where the answer is written."""
+    from lab.core.usecase.model import ACTIVITIES, EFFECTS, VOCABULARY
+    from lab.workloads.usecase.steps import schema
+    facets = schema("facet_vectors")["properties"]["steps"]["items"]["properties"]
+    assert facets["activity"]["enum"] == list(ACTIVITIES)
+    assert facets["effect"]["enum"] == list(EFFECTS)
+    for facet in VOCABULARY:
+        if facet in facets:
+            assert facets[facet]["enum"] == list(VOCABULARY[facet]), facet
+
+
+def test_a_free_text_activity_is_refused_by_name_and_a_near_miss_spelling_is_canonicalised():
+    from fixtures.usecase_answers import ANSWERED
+    from lab.workloads.usecase.steps import step_for
+    from lab.workloads.gates import gate
+    step = step_for("17")
+    out = {"steps": [{"id": "n1", "activity": "assess AI use case", "determinism": "D2",
+                      "effect": "none", "conditions": ANSWERED}]}
+    problems = gate(out, validator=step.validator(), normalise=step.normalise, complete=step.complete)
+    assert any("activity" in p and "assess AI use case" in p for p in problems), problems
+    near = {"steps": [{"id": "n1", "activity": "Interpret", "determinism": "d2",
+                       "effect": "Record Write", "conditions": ANSWERED}]}
+    assert gate(near, validator=step.validator(), normalise=step.normalise, complete=step.complete) == []
+    assert near["steps"][0]["activity"] == "interpret" and near["steps"][0]["effect"] == "record write"
+    assert near["steps"][0]["determinism"] == "D2"
