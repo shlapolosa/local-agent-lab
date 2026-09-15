@@ -63,3 +63,37 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print(f"ok  {name}")
     print("ALL TESTS PASSED")
+
+
+def test_what_is_still_open_reaches_the_reviewer_before_anything_they_would_have_to_open():
+    """A conformance approval used to arrive with an EMPTY summary: twenty-five sections, a question,
+    and nothing saying four obligations were bound to no enforcement point. The reviewer then judges
+    what reads well rather than what is complete."""
+    import types
+    shown = []
+    fake = types.SimpleNamespace(
+        columns=lambda n: [types.SimpleNamespace(metric=lambda label, value: shown.append(("metric", label, value)))
+                           for _ in range(n)],
+        warning=lambda t: shown.append(("warning", t)),
+        success=lambda t: shown.append(("success", t)),
+        markdown=lambda t: shown.append(("item", t)),
+        caption=lambda t: shown.append(("caption", t)))
+    original, APP.st = APP.st, fake
+    try:
+        APP._still_open({"recommendation": "proceed with conditions", "topology": "T4",
+                         "components": 16, "year_one_cost": 254740.0,
+                         "owed": ["G04 is required by this design and resolved to NO enforcement point",
+                                  "benefit: no effort table was captured at intake"]})
+        kinds = [s[0] for s in shown]
+        assert "warning" in kinds and kinds.count("item") == 2
+        assert "2 thing(s) still open" in next(s[1] for s in shown if s[0] == "warning")
+        assert ("metric", "Recommendation", "proceed with conditions") in shown
+        assert ("metric", "Year-one cost", "254,740") in shown
+        shown.clear()
+        APP._still_open({"owed": []})
+        assert shown == [("success", "Nothing outstanding: every obligation is bound, every figure computed.")]
+        shown.clear()
+        APP._still_open({"elements": 12})                 # a model approval: unchanged, says nothing
+        assert shown == []
+    finally:
+        APP.st = original

@@ -42,7 +42,7 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import reference
-from lab.workloads.usecase import mappers, modeltrace, modelling
+from lab.workloads.usecase import mappers, modeltrace, modelling, owed
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import step_for
 
@@ -615,6 +615,13 @@ async def _conformance(cfg, state: dict) -> dict:
                   {"label": "conditions", "samples": []}],
         "continuation": cont.to_dict(),
         "fields": ["value"],                   # one thing to say per label, not a voice
+        # What is still OPEN, before the reviewer opens anything. Run 8 (15 Sep 2026) proceeded with
+        # four obligations bound to no enforcement point, eleven components nobody could price and a
+        # benefit nobody could compute — all recorded in the package, none of it in front of the
+        # person being asked to approve, whose summary was empty.
+        "summary": {**owed.counts(state.get("design") or {}),
+                    "screening_defaulted_steps": sorted(
+                        (state.get("screening") or {}).get("defaulted_steps") or {})},
         "artifacts": {"design": state["design_ref"], "screening": state["screening_ref"],
                       **_view_artifacts(state)},
         "requester": state.get("submitter", ""),

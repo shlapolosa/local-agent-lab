@@ -447,6 +447,38 @@ def _xml_bytes(p):
         return None
 
 
+#: The figures a reviewer judges the open items against — shown only when the approval carries them,
+#: so a model approval keeps the five counts above and nothing else changes.
+_HEADLINE = (("recommendation", "Recommendation"), ("topology", "Topology"),
+             ("components", "Components"), ("year_one_cost", "Year-one cost"),
+             ("annual_benefit", "Annual benefit"))
+
+
+def _still_open(summ):
+    """What the work has left OPEN, before the reviewer opens anything.
+
+    A conformance approval used to arrive with an EMPTY summary: a package of twenty-five sections,
+    a question, and nothing saying that four obligations were bound to no enforcement point. The
+    reviewer then judges what reads well rather than what is complete, which is the one failure this
+    gate exists to prevent.
+    """
+    figures = [(label, summ[key]) for key, label in _HEADLINE if summ.get(key) not in (None, "")]
+    if figures:
+        cols = st.columns(len(figures))
+        for col, (label, value) in zip(cols, figures):
+            col.metric(label, f"{value:,.0f}" if isinstance(value, (int, float)) else str(value))
+    open_items = [str(o) for o in (summ.get("owed") or []) if str(o).strip()]
+    if not open_items:
+        if summ.get("owed") is not None:
+            st.success("Nothing outstanding: every obligation is bound, every figure computed.")
+        return
+    st.warning(f"**{len(open_items)} thing(s) still open** — approving accepts them as they are.")
+    for item in open_items[:20]:
+        st.markdown(f"- {item}")
+    if len(open_items) > 20:
+        st.caption(f"…and {len(open_items) - 20} more, in the record.")
+
+
 def _model_contents(p):
     """What the reviewer is judging: the ArchiMate model itself, grouped by type. The DOWNLOAD of it
     belongs to `_import_files` — the repository's adapter decides which files a human needs and how to
@@ -680,6 +712,7 @@ def _review_page(reviewer):
     m = st.columns(5)
     for col, k in zip(m, ("elements", "relations", "views", "violations", "warnings")):
         col.metric(k, summ.get(k, "—"))
+    _still_open(summ)
 
     _model_contents(p)
     _views(p)

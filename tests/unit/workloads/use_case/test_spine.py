@@ -1593,3 +1593,33 @@ def test_the_views_record_how_much_of_the_drawing_the_reference_architecture_car
         run_spine(W, h, _design_inputs())
     views = _package(h)["views"]
     assert views["cafe_catalogued"] == 15 and views["cafe_edges"] == 5
+
+
+def test_the_conformance_approval_says_what_the_design_still_owes():
+    """Run 8 proceeded with four obligations bound to no enforcement point and a summary that was
+    empty. A reviewer given a package and no summary judges what reads well, not what is complete."""
+    from lab.workloads.use_case_design import workflow as W
+    router = _design_with_model(**{
+        DecisionTools.composition: {"topology": "T2", "families": ["F2"], "enforcement": {},
+                                    "unbound": ["G04", "G08"], "variants": {}, "modifiers": {},
+                                    "connectors": [], "rules_source": {"kind": "local seed"}}})
+    with spine(W, router) as h:
+        _with_design_agents(h)
+        run_spine(W, h, _design_inputs())
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    summary = asked["summary"]
+    assert summary["owed"][0].startswith("G04") and "NO enforcement point" in summary["owed"][0]
+    assert any(o.startswith("G08") for o in summary["owed"])
+    assert summary["topology"] == "T2" and summary["recommendation"] == "proceed with conditions"
+    assert summary["elements"] > 0, "the model the run grew, counted for the reviewer"
+
+
+def test_the_criticality_approval_carries_the_screening_summary_a_person_reads():
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    assert asked["summary"]["criticality_band"] == "business-critical"
+    assert "defaulted_steps" in asked["summary"]

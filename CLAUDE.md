@@ -352,6 +352,19 @@ master key. Status and result stay, deliberately — refusing to START is not re
 flow that cannot poll the run its own approval began cannot tell a person the minutes are ready. The
 continuation runner submits IN-PROCESS, so the legitimate path pays nothing.
 
+**An approval SAYS WHAT THE WORK LEFT OPEN, before the reviewer opens anything (15 Sep 2026).** Run 8
+proceeded with four obligations bound to no enforcement point, eleven components nobody could price
+and a benefit nobody could compute — every one recorded in the package, and the conformance
+approval's summary was literally EMPTY, because `approvals_ask` had no way to carry one. A reviewer
+given a package and no summary judges what reads well rather than what is complete, which is the one
+failure this gate exists to prevent. `lab.workloads.usecase.owed` derives the lines from the package
+— worst first: an unbound obligation (Q5.3 is a stop), a commit-invariant violation, what step 21
+left `unresolved`, the figures that could not be computed, the steps that defaulted, what is missing
+from the drawing — and `counts()` adds the headline the lines are judged against. `approvals_ask`
+takes a `summary`, the screening's (built since the first version and never shown to anyone) is now
+passed too, and the review app renders it as `_still_open`: the figures, then the open items, or
+"nothing outstanding" when there are none. A model approval, which carries no `owed`, is unchanged.
+
 **A person finds a run by what they remember, not by an id they were never given (15 Sep 2026).**
 `<process>_runs` is the fourth generated verb and `GET /api/processes/<name>/runs` its REST twin, both
 answered by ONE implementation (`lab.substrate.mcp.workflow.listing`) so the two surfaces cannot drift:
