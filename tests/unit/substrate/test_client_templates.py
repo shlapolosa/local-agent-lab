@@ -89,3 +89,17 @@ def test_a_client_readme_does_not_tell_a_reader_to_run_a_path_that_may_not_exist
         body = open(readme).read()
         if ".venv/bin/python" in body:
             assert "worktree" in body, f"{readme} runs the venv without saying where it is"
+
+
+def test_an_mcp_connector_accepts_both_media_types_the_transport_requires():
+    """Streamable HTTP refuses a client that accepts only JSON: the gateway answers 406 "must accept
+    both application/json and text/event-stream" before any tool is reached (measured 15 Sep 2026 in
+    the Power Platform test harness, which builds its Accept header from `produces`)."""
+    for path in SWAGGERS:
+        d = json.load(open(path))
+        agentic = [op for methods in d["paths"].values() for op in methods.values()
+                   if "mcp" in str(op.get("x-ms-agentic-protocol", ""))]
+        if not agentic:
+            continue
+        produces = set(d.get("produces") or [])
+        assert {"application/json", "text/event-stream"} <= produces, f"{path} produces {produces}"

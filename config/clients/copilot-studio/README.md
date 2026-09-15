@@ -89,9 +89,21 @@ The word `Bearer` matters: the value is sent as the `Authorization` header verba
 
 ### 5 · Prove the connection before building anything on it
 
-On the **Test** tab, with the connection selected, run the `InvokeMCP` operation. A healthy answer is
-the MCP handshake; an unhealthy one is a 401 (the key is wrong or has the `Bearer` missing) or a 404
-(the host is wrong). Fix it here, where there is one moving part.
+On the **Test** tab, with the connection selected, run **`InvokeMCP`** — the POST. The portal also
+generates a `GetInvokeMCP` for the protocol's server-to-client stream; that one is not a smoke test
+and needs a session id it cannot have yet, so ignore it here.
+
+A healthy answer is the MCP handshake (`"result": {"protocolVersion": …}`), arriving as an
+`event: message` line because the transport is server-sent events. The three failures worth
+recognising:
+
+| What you see | What it means |
+|---|---|
+| **406 — "Client must accept both application/json and text/event-stream"** | The connector is not declaring both media types. The rendered file's `produces` must list `application/json` AND `text/event-stream`; re-render and **Update connector**. |
+| **401** | The key is wrong, or the connection value is missing the word `Bearer`. |
+| **404** | The host is wrong — check step 1. |
+
+Fix it here, where there is one moving part.
 
 ### 6 · Create the agent
 

@@ -18,13 +18,14 @@
     "application/json"
   ],
   "produces": [
-    "application/json"
+    "application/json",
+    "text/event-stream"
   ],
   "paths": {
     "/mcp": {
       "post": {
         "summary": "Use case assessment tools",
-        "description": "The governed tool surface: use_case_screening_submit, _status, _result, _runs (find a past use case), and the approval gate (approvals_list, approvals_get, approvals_decide). Which of them this connection may call is decided by the key, not by this file.",
+        "description": "The governed tool surface: use_case_screening_submit, _status, _result, _runs (find a past use case), and the approval gate (approvals_list, approvals_get, approvals_decide). Which of them this connection may call is decided by the key, not by this file. Streamable HTTP: the caller must accept BOTH application/json and text/event-stream, which is what `produces` declares — a client that accepts only JSON is refused with 406 before it reaches a tool.",
         "operationId": "InvokeMCP",
         "x-ms-agentic-protocol": "mcp-streamable-1.0",
         "responses": {
