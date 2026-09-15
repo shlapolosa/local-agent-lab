@@ -89,21 +89,45 @@ The word `Bearer` matters: the value is sent as the `Authorization` header verba
 
 ### 5 · Prove the connection before building anything on it
 
-On the **Test** tab, with the connection selected, run **`InvokeMCP`** — the POST. The portal also
-generates a `GetInvokeMCP` for the protocol's server-to-client stream; that one is not a smoke test
-and needs a session id it cannot have yet, so ignore it here.
+First click **Update connector** — the banner means the definition you imported is not yet the one
+the Test tab calls.
 
-A healthy answer is the MCP handshake (`"result": {"protocolVersion": …}`), arriving as an
-`event: message` line because the transport is server-sent events. The three failures worth
-recognising:
+Then run **`InvokeMCP`** (the POST). The portal also generates a `GetInvokeMCP` for the protocol's
+server-to-client stream; that one needs a session id it cannot have yet, so it is not a smoke test.
+
+**How to fill the form.** Leave `Mcp-Session-Id` empty — the handshake is what creates one. Turn
+**Raw Body** on and paste exactly this:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"power-platform-test","version":"1.0"}}}
+```
+
+(Raw Body off works too: `jsonrpc` = `2.0`, `id` = `1`, `method` = `initialize`, `params` = the
+object above. Leave `result` and `error` blank — the portal offers them because they are part of the
+JSON-RPC envelope, and they belong to the ANSWER, never the request.)
+
+A healthy response is a `200` whose body is an event stream:
+
+```
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{…},
+       "serverInfo":{"name":"litellm-mcp-server","version":"1.0.0"}}}
+```
+
+and whose headers carry an `mcp-session-id`. That is the whole point of the test: the key
+authenticated, the gateway spoke MCP back.
+
+**Do not try `tools/list` here.** It needs the session id from this response AND an
+`initialized` notification first; the Test tab has no way to keep a session between calls. Copilot
+Studio does that handshake itself, which is why step 7 shows the tools and this tab never will.
+
+The three failures worth recognising:
 
 | What you see | What it means |
 |---|---|
-| **406 — "Client must accept both application/json and text/event-stream"** | The connector is not declaring both media types. The rendered file's `produces` must list `application/json` AND `text/event-stream`; re-render and **Update connector**. |
+| **406 — "Client must accept both application/json and text/event-stream"** | The definition's `produces` is missing a media type. Re-render, re-import, **Update connector**. |
 | **401** | The key is wrong, or the connection value is missing the word `Bearer`. |
 | **404** | The host is wrong — check step 1. |
-
-Fix it here, where there is one moving part.
 
 ### 6 · Create the agent
 
