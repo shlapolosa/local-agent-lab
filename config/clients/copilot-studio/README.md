@@ -40,9 +40,13 @@ key from `.env`. Fifteen minutes, and nothing here touches the lab.
 ### 1 · Render the connector file
 
 ```bash
-./lab.sh clients          # writes config/clients/copilot-studio/usecase-connector.json
+./lab.sh clients          # writes usecase-connector.json AND usecase-connector.yaml
 grep '"host"' config/clients/copilot-studio/usecase-connector.json
 ```
+
+Two renderings of one definition, because the portal wants each in a different place:
+`usecase-connector.json` is what you **import** (step 3), and `usecase-connector.yaml` is what you
+**paste** when the Swagger editor is already open. A test holds them to saying the same thing.
 
 The host must be your gateway's PUBLIC hostname — Microsoft's cloud cannot reach `127.0.0.1`. Ignore
 the `GATEWAY_URL=http://127.0.0.1:4000` the render prints: that is the local address the Claude Code

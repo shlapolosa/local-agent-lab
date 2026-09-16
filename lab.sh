@@ -243,9 +243,13 @@ render_clients() {
   # EVERY *.template.json, not just settings.template.json: a client is whatever needs the
   # per-deployment values, and the Power Automate flow definition needs exactly the same four.
   # Narrowing this to one filename meant a second kind of client silently rendered nothing.
-  for tpl in config/clients/*/*.template.json; do
+  # EVERY *.template.<ext>, not only JSON: the Copilot Studio connector is imported as JSON and
+  # PASTED as YAML (the portal's Swagger editor speaks YAML), and one of the two rendering is the
+  # same trap as rendering neither.
+  for tpl in config/clients/*/*.template.*; do
     [ -e "$tpl" ] || continue
-    out="${tpl%.template.json}.json"
+    ext="${tpl##*.}"
+    out="${tpl%.template.$ext}.$ext"
     # A swagger `host` is a bare hostname — no scheme, no path — so it cannot reuse the URL.
     pub_host="${PUBLIC_GATEWAY_URL#*://}"; pub_host="${pub_host%%/*}"
     # Substituted values are addresses and PUBLIC identifiers only — never a secret. A client

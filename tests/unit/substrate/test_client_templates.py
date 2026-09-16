@@ -13,6 +13,7 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 TEMPLATES = sorted(glob.glob(os.path.join(ROOT, "config", "clients", "*", "*.template.json")))
+YAML_TEMPLATES = sorted(glob.glob(os.path.join(ROOT, "config", "clients", "*", "*.template.yaml")))
 
 
 def test_there_are_templates_to_check():
@@ -133,3 +134,13 @@ def test_an_operation_declares_at_most_one_body_parameter():
             for verb, op in methods.items():
                 bodies = [p for p in op.get("parameters") or [] if p.get("in") == "body"]
                 assert len(bodies) <= 1, f"{path} {verb} {route} declares {len(bodies)} body params"
+
+
+def test_a_yaml_template_says_the_same_thing_as_its_json_twin():
+    """The portal imports JSON and its Swagger editor pastes YAML. Two files, one definition — a
+    drift between them is a connector that behaves differently depending on which route was used."""
+    import yaml as _yaml
+    for path in YAML_TEMPLATES:
+        twin = path[: -len(".template.yaml")] + ".template.json"
+        assert os.path.exists(twin), f"{path} has no JSON twin"
+        assert _yaml.safe_load(open(path)) == json.load(open(twin)), f"{path} has drifted from {twin}"
