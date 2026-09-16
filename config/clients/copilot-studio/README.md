@@ -125,6 +125,11 @@ data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabili
 and whose headers carry an `mcp-session-id`. That is the whole point of the test: the key
 authenticated, the gateway spoke MCP back.
 
+Measured working through the API hub on 16 Sep 2026: `200`, `content-type: text/event-stream`, the
+`protocolVersion` result and an `mcp-session-id` header. If you instead get `-32602 Validation error
+… Field required: method`, the transport is fine and the BODY is empty — that error is the MCP server
+parsing what you sent, which means everything before it worked.
+
 **If the Test tab keeps answering 406, go to step 7 anyway.** That tab is a generic HTTP harness: it
 does not speak MCP, and what it puts in `Accept` is its own business — measured 15 Sep 2026, the API
 hub forwarded a request the gateway refused even with the header declared as a parameter. Copilot
