@@ -42,34 +42,6 @@
             "default": "application/json, text/event-stream",
             "x-ms-visibility": "internal",
             "description": "Streamable HTTP requires BOTH media types. Declared as a parameter with a default rather than left to `produces`: the Power Platform runtime does not derive the Accept header from `produces`, and a client that accepts only JSON is refused with 406 before it reaches a tool."
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "description": "A JSON-RPC 2.0 request, as MCP defines it.",
-              "properties": {
-                "jsonrpc": {
-                  "type": "string",
-                  "default": "2.0"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "method": {
-                  "type": "string"
-                },
-                "params": {
-                  "type": "object"
-                }
-              },
-              "required": [
-                "jsonrpc",
-                "method"
-              ]
-            }
           }
         ]
       }

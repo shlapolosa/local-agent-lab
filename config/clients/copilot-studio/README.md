@@ -65,6 +65,14 @@ it). Idempotent: it keeps a key that already exists and mints one that does not.
 
 ### 3 · Import the connector
 
+The template declares only what the portal cannot infer: the host, the path, the protocol
+annotation, the security scheme and the `Accept` header. The portal adds the rest of an agentic
+operation itself — the `connectionId` path parameter, `Mcp-Session-Id`, its own `queryRequest` body,
+and a `GetInvokeMCP` companion for the protocol's stream. **Do not add a body parameter**: Swagger
+2.0 allows one, the portal supplies it, and a second makes the deployed definition invalid (read back
+from the tenant on 16 Sep 2026, on a connector Copilot Studio could not connect to).
+
+
 Power Apps maker portal → the right environment → **More** → **Discover all** → **Custom connectors**
 → **New custom connector** → **Import an OpenAPI file**.
 
@@ -181,6 +189,23 @@ Submitting needs a document in the upload store first, so test that last and wit
 Agent → **Publish**, then **Channels** → **Teams + Microsoft 365** to put it in front of colleagues.
 Publishing to Teams requires Copilot Studio capacity in the tenant; without it the agent still works
 in the test pane and through any channel the licence does allow.
+
+### Reading back what is actually deployed
+
+The portal shows you what you typed; this shows what the tenant has. Useful when a connector works in
+one place and not another, because the deployed definition is the one both of them use:
+
+```bash
+TOK=$(az account get-access-token --resource https://service.powerapps.com/ --query accessToken -o tsv)
+ENV=Default-<your tenant id>          # the environment id from the maker portal URL
+API=shared_<your connector id>        # likewise
+curl -s -H "Authorization: Bearer $TOK" \
+  "https://api.powerapps.com/providers/Microsoft.PowerApps/apis/$API?api-version=2016-11-01&\$filter=environment%20eq%20'$ENV'&\$expand=properties.swagger" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin)['properties']; print(json.dumps(d['swagger'], indent=1))"
+```
+
+`az login` against the same tenant first. What to look at: `produces`, the operation's `parameters`
+(how many are `in: body` — more than one is invalid), and `securityDefinitions`.
 
 ### Rotating or revoking
 

@@ -120,3 +120,16 @@ def test_an_mcp_connector_declares_the_accept_header_rather_than_trusting_produc
                 assert accept, f"{path} leaves Accept to produces"
                 default = accept[0].get("default", "")
                 assert "application/json" in default and "text/event-stream" in default, default
+
+
+def test_an_operation_declares_at_most_one_body_parameter():
+    """Swagger 2.0 allows one. The Power Platform portal adds its OWN body to an agentic operation
+    (`queryRequest`), so a template that also declares one produced a deployed definition with two —
+    read back from the tenant on 16 Sep 2026, on a connector Copilot Studio then could not connect
+    to."""
+    for path in TEMPLATES:
+        d = json.load(open(path))
+        for route, methods in (d.get("paths") or {}).items():
+            for verb, op in methods.items():
+                bodies = [p for p in op.get("parameters") or [] if p.get("in") == "body"]
+                assert len(bodies) <= 1, f"{path} {verb} {route} declares {len(bodies)} body params"
