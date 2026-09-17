@@ -18,14 +18,97 @@ store, pins the reference corpora, runs nine exercises through one runner that g
 grows one ArchiMate model as it goes, and ends by asking an architect to confirm the criticality
 class. Approving that question is what starts the design run; this one is already finished.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Submitter
+    participant Review as Review app / REST
+    participant Redis as Redis streams
+    participant Consumer as wf-usecase-screening
+    participant Run as governed_run
+    participant Graph as the static graph
+    participant D as Derivation
+    participant GW as LiteLLM gateway
+    participant MCP as storage / reference / semantic MCP
+    participant LLM as step agent
+    actor Architect
+
+    Submitter->>Review: upload the document, press Run
+    Review->>Redis: XADD workflow:requests (validated by ProcessSpec)
+    Review-->>Submitter: request_id, immediately
+
+    Redis->>Consumer: one entry, to exactly one consumer
+    Consumer->>Run: run_once(submission, submitter, intake)
+
+    Note over Run: root span · trace id published at once ·<br/>W3C headers injected · runlog.start
+    Run->>GW: preflight — list tools, list vector stores
+    GW-->>Run: every REQUIRED_TOOL exposed (else refuse, 0 tokens)
+
+    Run->>Graph: build_workflow(cfg) and run
+
+    rect rgb(238,243,250)
+    Note over Graph,MCP: 1-2 · take delivery, persist the canonical record
+    Graph->>GW: storage_read_document(ref)
+    GW->>MCP: (storage-mcp holds the store credential)
+    MCP-->>Graph: prose  →  refuse if empty
+    Graph->>GW: semantic_store_spec(submission.record.json)
+    GW-->>Graph: art:// ref
+    end
+
+    rect rgb(238,247,238)
+    Note over Graph,MCP: corpora · pinned, best effort, honest about gaps
+    Graph->>GW: reference_pin(REFERENCE_ARTIFACTS)
+    GW->>MCP: (reference-mcp records the pin)
+    MCP-->>Graph: pin_id + frozen versions
+    Graph->>GW: reference_lookup(capability map, L1)
+    Graph->>GW: semantic_ontologies()
+    Note right of Graph: a corpus that fails or is EMPTY<br/>is recorded unavailable, never dropped
+    end
+
+    rect rgb(252,245,235)
+    Note over Graph,LLM: 3-11 · nine exercises, one runner
+    loop each step in SCREENING_STEPS
+        Graph->>D: run_step(step)
+        alt context missing
+            D-->>Graph: defer by name (or record the declared default)
+        else context complete
+            D->>LLM: prompt + schema + exactly CONTEXT_FOR[step]
+            LLM-->>D: JSON answer
+            D->>D: gate — shape, schema, completeness
+            opt refused
+                D->>LLM: the whole message again, with the problems
+                LLM-->>D: corrected answer (a second failure raises)
+            end
+            D->>D: record → available to every later step
+            D->>D: mapper → one ArchiMate model grows
+        end
+    end
+    Note over D,MCP: step 5 repeats per level:<br/>match L1 → fetch its children → match L2 → L3
+    end
+
+    Graph->>GW: semantic_store_spec(screening.json)
+    GW-->>Graph: screening_ref
+
+    rect rgb(247,238,247)
+    Note over Graph,Architect: 12 · the question that starts the design
+    Graph->>GW: approvals_ask(subject, items, artifacts, summary, continuation)
+    GW->>MCP: (workflow-mcp publishes it)
+    MCP->>Redis: XADD approvals:requests
+    Redis-->>Architect: review app · Teams card · Telegram
+    end
+
+    Run->>Redis: runlog.finish (one place, success or failure)
+    Run-->>Consumer: trace_id, approval_id
+    Consumer->>Redis: mark the request done
+
+    Architect->>Review: confirm the criticality class
+    Review->>Redis: decision recorded, continuation released
+    Redis->>Redis: XADD workflow:requests — use_case_design begins
 ```
-workflow:requests ─► consumer.py ─► host.run_once ─► governed_run ─► build_workflow
-                                         │                │              │
-                                    credential        root span      receive → validate_and_persist
-                                    9 agents          run board      → corpora → derive → ask_criticality
-                                                      W3C headers         │
-                                                                     Derivation.run_step ─► gate ─► model
-```
+
+Reading it: everything above the last two lines is one run of five to twenty minutes, and it ends at
+a question rather than an answer. The design half starts days later if it starts at all, which is why
+approving releases a **continuation** rather than this consumer waiting.
 
 ---
 
