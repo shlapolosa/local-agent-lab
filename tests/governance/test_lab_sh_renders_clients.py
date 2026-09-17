@@ -26,7 +26,7 @@ CLIENTS = os.path.join(ROOT, "config", "clients")
 def _templates():
     for d, _dirs, files in os.walk(CLIENTS):
         for f in files:
-            if f.endswith(".template.json"):
+            if ".template." in f:            # json to import, yaml to paste — both are clients
                 yield os.path.join(d, f)
 
 
@@ -41,13 +41,15 @@ def test_there_is_at_least_one_template_to_render():
 
 
 def test_the_glob_matches_every_committed_template():
-    """Not `settings.template.json` — any `*.template.json`. A client is whatever needs the
-    per-deployment values, not one blessed filename."""
+    """Not `settings.template.json`, and since 16 Sep 2026 not `*.template.json` either — any
+    `*.template.<ext>`. A client is whatever needs the per-deployment values, not one blessed
+    filename or one blessed format: the Copilot Studio connector is imported as JSON and pasted as
+    YAML, and rendering one of the two is the same trap as rendering neither."""
     block = _render_block()
     glob = re.search(r"for tpl in (\S+); do", block)
     assert glob, "render_clients no longer loops over a glob"
     pattern = glob.group(1)
-    assert pattern.endswith("*.template.json"), pattern
+    assert ".template." in pattern and pattern.endswith("*"), pattern
     import fnmatch
     for tpl in _templates():
         rel = os.path.relpath(tpl, ROOT)
