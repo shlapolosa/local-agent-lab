@@ -21,90 +21,115 @@ class. Approving that question is what starts the design run; this one is alread
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Submitter
-    participant Review as Review app / REST
+    actor Caller as Caller (Copilot agent · flow · review app)
+    participant GW as LiteLLM gateway
+    participant WF as workflow-mcp
     participant Redis as Redis streams
     participant Consumer as wf-usecase-screening
-    participant Run as governed_run
+    participant Host as host / governed_run
     participant Graph as the static graph
     participant D as Derivation
-    participant GW as LiteLLM gateway
-    participant MCP as storage / reference / semantic MCP
-    participant LLM as step agent
+    participant MCP as storage · reference · semantic MCP
+    participant LLM as the step's agent
     actor Architect
 
-    Submitter->>Review: upload the document, press Run
-    Review->>Redis: XADD workflow:requests (validated by ProcessSpec)
-    Review-->>Submitter: request_id, immediately
-
-    Redis->>Consumer: one entry, to exactly one consumer
-    Consumer->>Run: run_once(submission, submitter, intake)
-
-    Note over Run: root span · trace id published at once ·<br/>W3C headers injected · runlog.start
-    Run->>GW: preflight — list tools, list vector stores
-    GW-->>Run: every REQUIRED_TOOL exposed (else refuse, 0 tokens)
-
-    Run->>Graph: build_workflow(cfg) and run
-
-    rect rgb(238,243,250)
-    Note over Graph,MCP: 1-2 · take delivery, persist the canonical record
-    Graph->>GW: storage_read_document(ref)
-    GW->>MCP: (storage-mcp holds the store credential)
-    MCP-->>Graph: prose  →  refuse if empty
-    Graph->>GW: semantic_store_spec(submission.record.json)
-    GW-->>Graph: art:// ref
+    rect rgb(235,240,250)
+    Note over Caller,Redis: submit · every ingress ends at ONE port
+    alt governed tool
+        Caller->>GW: use_case_screening_submit(submission, submitter, intake)
+        GW->>WF: server._submit() — key resolved, metered, traced
+    else REST front door
+        Caller->>GW: POST /api/processes/use_case_screening/runs
+        GW->>GW: custom_auth + apipolicy.role_for → Workflow.Submit
+        GW->>WF: rest._submit_route()
+    end
+    WF->>WF: ProcessSpec.validate(body) — the one validator
+    WF->>Redis: workflows.submit_lanes() → SET NX EX, XADD workflow:requests
+    WF-->>Caller: 202 {request_id, poll}
+    Note right of Caller: the review app's Submit page calls<br/>workflows.request() in-process — same port
     end
 
+    Redis->>Consumer: workflows.channel_events() — one entry, one consumer
+    Consumer->>Host: consumer._run() → host.run_once()
+
     rect rgb(238,247,238)
-    Note over Graph,MCP: corpora · pinned, best effort, honest about gaps
-    Graph->>GW: reference_pin(REFERENCE_ARTIFACTS)
-    GW->>MCP: (reference-mcp records the pin)
-    MCP-->>Graph: pin_id + frozen versions
-    Graph->>GW: reference_lookup(capability map, L1)
-    Graph->>GW: semantic_ontologies()
-    Note right of Graph: a corpus that fails or is EMPTY<br/>is recorded unavailable, never dropped
+    Note over Host,MCP: open the run
+    Host->>Host: governed_run(): tracer.start_as_current_span()
+    Host->>Redis: runlog.start(run_id, process, trace_id)
+    Host->>Host: propagate.inject() — gateway and MCP spans join this trace
+    Host->>Host: A.build_all(SCREENING_STEPS, credential_for=…)
+    Host->>GW: gateway.run_graph() → preflight(REQUIRED_TOOLS)
+    GW-->>Host: every tool exposed, or refuse for 0 tokens
     end
 
     rect rgb(252,245,235)
+    Note over Graph,MCP: 1-2 · take delivery, persist the canonical record
+    Graph->>GW: gateway.call(StorageTools.read_document)
+    GW->>MCP: storage-mcp holds the store credential
+    MCP-->>Graph: prose — empty raises
+    Graph->>GW: gateway.call(SemanticTools.store_spec, submission.record.json)
+    GW-->>Graph: gateway.ref_from() → art:// ref
+    end
+
+    rect rgb(245,240,250)
+    Note over Graph,MCP: corpora · pinned, best effort, honest about gaps
+    Graph->>GW: reference.pin(REFERENCE_ARTIFACTS)
+    GW->>MCP: reference-mcp records the pin and every read
+    MCP-->>Graph: pin_id + frozen versions
+    Graph->>GW: reference.records(CAPABILITY_MAP, level=1)
+    Graph->>GW: gateway.call(SemanticTools.ontologies)
+    Note right of Graph: a corpus that fails OR is empty →<br/>corpora_unavailable, never dropped
+    end
+
+    rect rgb(252,238,240)
     Note over Graph,LLM: 3-11 · nine exercises, one runner
-    loop each step in SCREENING_STEPS
-        Graph->>D: run_step(step)
-        alt context missing
-            D-->>Graph: defer by name (or record the declared default)
+    loop for step in SCREENING_STEPS
+        Graph->>D: Derivation.run_step(cfg, step)
+        alt CONTEXT_FOR[step] not satisfied
+            D->>D: defer(number, why) — or fallbacks.fallback() as a declared default
         else context complete
-            D->>LLM: prompt + schema + exactly CONTEXT_FOR[step]
-            LLM-->>D: JSON answer
-            D->>D: gate — shape, schema, completeness
+            D->>D: A.context_for() + A.message(step, seen)
+            D->>LLM: gates.run_gated() → Agent.run() via gateway /v1
+            LLM-->>D: JSON
+            D->>D: gate(): json_of → schema_errors → step.complete(out, context)
             opt refused
-                D->>LLM: the whole message again, with the problems
-                LLM-->>D: corrected answer (a second failure raises)
+                D->>LLM: the WHOLE message again with the problems
+                LLM-->>D: corrected — a second failure raises GateFailed
             end
-            D->>D: record → available to every later step
-            D->>D: mapper → one ArchiMate model grows
+            D->>D: record() → available to every later step
+            D->>D: modelling.grow() → mappers.apply() → Model.el/.rel
         end
     end
-    Note over D,MCP: step 5 repeats per level:<br/>match L1 → fetch its children → match L2 → L3
+    Note over D,MCP: step 5 is coverage.match() → resolve() → drill():<br/>match L1 → children() → match L2 → L3, every level kept
     end
 
-    Graph->>GW: semantic_store_spec(screening.json)
+    Graph->>GW: gateway.call(SemanticTools.store_spec, screening.json)
     GW-->>Graph: screening_ref
 
-    rect rgb(247,238,247)
+    rect rgb(240,238,250)
     Note over Graph,Architect: 12 · the question that starts the design
-    Graph->>GW: approvals_ask(subject, items, artifacts, summary, continuation)
-    GW->>MCP: (workflow-mcp publishes it)
-    MCP->>Redis: XADD approvals:requests
+    Graph->>GW: gateway.call(ApprovalTools.ask, items + artifacts + summary + Continuation)
+    GW->>WF: approval_tools.approvals_ask()
+    WF->>Redis: approvals.request() → XADD approvals:requests
     Redis-->>Architect: review app · Teams card · Telegram
     end
 
-    Run->>Redis: runlog.finish (one place, success or failure)
-    Run-->>Consumer: trace_id, approval_id
-    Consumer->>Redis: mark the request done
+    Host->>Redis: runlog.finish_from() — one place, success or failure
+    Host-->>Consumer: {trace_id, approval_id, screening_ref}
+    Consumer->>Redis: workflows.mark(DONE) + ack()
 
-    Architect->>Review: confirm the criticality class
-    Review->>Redis: decision recorded, continuation released
-    Redis->>Redis: XADD workflow:requests — use_case_design begins
+    rect rgb(238,243,250)
+    Note over Architect,Redis: later — the decision releases the next process
+    Architect->>Redis: approvals.human_decision(actor, decision, answer)
+    Redis->>Redis: continuations._continue() → workflows.submit(USE_CASE_DESIGN)
+    Note right of Redis: idempotency_key = the approval id,<br/>so a double-click cannot start two designs
+    end
 ```
+
+Reading it: everything from the stream read to `runlog.finish_from` is one run of five to twenty
+minutes, and it ends at a question rather than an answer. The design half begins only when a human
+answers, which is why approving releases a **continuation** instead of this consumer waiting.
+
 
 Reading it: everything above the last two lines is one run of five to twenty minutes, and it ends at
 a question rather than an answer. The design half starts days later if it starts at all, which is why
