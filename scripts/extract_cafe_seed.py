@@ -412,35 +412,14 @@ LAYOUT_SECTIONS = frozenset({"columns"})
 DEFAULT_ID = "(all)"
 
 
-def _rows_from(key: str, value: object):
-    """(headers, rows) for any shape the seed actually uses, or None if it is not tabular.
-
-    Four shapes appear and only the first was handled, which is why the reference architecture — a
-    nested model of zones, components and topologies — could be published only as prose, and prose
-    needs an embedder this lab does not have. It is structure, so it should publish as records.
-    """
-    if isinstance(value, dict) and value and all(isinstance(v, dict) for v in value.values()):
-        headers = ["id"]
-        for entry in value.values():
-            headers += [k for k in entry if k not in headers and k not in LAYOUT_KEYS]
-        # An EMPTY key is how the source spells "nothing selected — the whole diagram" (its own
-        # title says "All archetypes"). A record needs an id a lookup can name, and a blank one is
-        # refused by the publisher, correctly: it is not a key. Naming it is a translation the data
-        # supports, not a value invented for it.
-        return headers, [[ident or DEFAULT_ID] + [_cell(entry.get(h, "")) for h in headers[1:]]
-                         for ident, entry in value.items()]
-    if isinstance(value, dict) and value and not any(isinstance(v, dict) for v in value.values()):
-        return ["id", "value"], [[k, _cell(v)] for k, v in value.items()]
-    if isinstance(value, list) and value and all(isinstance(r, (list, tuple)) for r in value):
-        headers = list(ROW_COLUMNS.get(key) or [f"column {i + 1}" for i in range(len(value[0]))])
-        return headers, [[_cell(c) for c in row] for row in value]
-    if isinstance(value, list) and value and all(isinstance(r, str) for r in value):
-        return ["id"], [[r] for r in value]
-    return None
-
-
 #: The ONE encoder, shared with every adapter that has to read these bytes back. It used to live
 #: here and be reversed, differently and incompletely, in decision-mcp.
+#:
+#: It was ALSO shadowed: a local `def _cell` further down redefined it, so this binding was dead and
+#: the single-encoder invariant this comment asserts was not in force. The two happened to agree
+#: character for character — which is why nobody noticed, and why the masters regenerate
+#: byte-identically now the copy is gone. A duplicate that agrees is not harmless; it is a second
+#: thing to keep in step, silently, until the day it does not.
 _cell = cells.encode
 
 
@@ -469,21 +448,6 @@ def _rows_from(key: str, value: object):
     if isinstance(value, list) and value and all(isinstance(r, str) for r in value):
         return ["id"], [[r] for r in value]
     return None
-
-
-def _cell(value: object) -> str:
-    """One cell of a rendered table.
-
-    A list becomes `a; b` and a nested object becomes its JSON — both so the value SURVIVES into
-    the master rather than being rendered as a Python repr a parser cannot read back. Where a
-    consumer needs the structure, its adapter parses this back; where a person reads it, it is
-    still legible. `;` because the values here (topology ids, guardrail ids) never contain one.
-    """
-    if isinstance(value, (list, tuple)):
-        return "; ".join(str(v) for v in value)
-    if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return "" if value is None else str(value)
 
 
 def _tabular(payload: dict) -> list[tuple[str, list[str], list[list]]]:

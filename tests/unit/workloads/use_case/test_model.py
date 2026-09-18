@@ -98,5 +98,7 @@ def test_counts_and_by_type_read_the_model():
     m.el("a", "ApplicationComponent", "a"); m.el("b", "ApplicationComponent", "b")
     m.el("bf", "BusinessFunction", "f")
     assert [e["id"] for e in m.by_type("ApplicationComponent")] == ["a", "b"]
-    assert m.counts() == {"elements": 3, "relations": 0, "dropped": 0}
+    # `gaps` is beside `dropped` and means something else: a relation the MATRIX refused versus a
+    # join a MAPPER could not make. Counted separately because the two have different owners.
+    assert m.counts() == {"elements": 3, "relations": 0, "dropped": 0, "gaps": 0}
     assert m.props_of("nope") == {} and m.has("a")

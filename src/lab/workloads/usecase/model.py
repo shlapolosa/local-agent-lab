@@ -43,6 +43,11 @@ class Model:
     elements: dict[str, dict] = field(default_factory=dict)              # id -> element
     relations: dict[tuple[str, str, str], dict] = field(default_factory=dict)   # (src,tgt,type) -> relation
     dropped: list[dict] = field(default_factory=list)
+    #: Things a MAPPER could not join, as distinct from a relation the matrix refused. `dropped`
+    #: means "this edge is illegal ArchiMate" and several rules assert it is empty; overloading it
+    #: with "step 21 named a capability step 5 never matched" would make that invariant mean two
+    #: things and silently weaken it. Different fault, different owner, different list.
+    gaps: list[dict] = field(default_factory=list)
     #: The ids `el`/`rel` touched since the last `clear_touched()` — what ONE step added or updated.
     touched: set[str] = field(default_factory=set)
 
@@ -112,7 +117,7 @@ class Model:
 
     def counts(self) -> dict:
         return {"elements": len(self.elements), "relations": len(self.relations),
-                "dropped": len(self.dropped)}
+                "dropped": len(self.dropped), "gaps": len(self.gaps)}
 
     # ------------------------------------------------------------------ the spec shape
     def to_spec(self) -> dict:
@@ -122,6 +127,7 @@ class Model:
                 "elements": [copy.deepcopy(e) for e in self.elements.values()],
                 "relations": [copy.deepcopy(r) for r in self.relations.values()],
                 "dropped": copy.deepcopy(self.dropped),
+                "gaps": copy.deepcopy(self.gaps),
                 "standard_views": True}
 
     @classmethod

@@ -121,6 +121,32 @@ def _elements(out, model, pool):
             model.rel("Access", bf, f"bo-{obj}")
 
 
+def _service_for(model, capability: str) -> str:
+    """The ApplicationService a selected component realises, resolved the way the live run needed.
+
+    Step 5 writes the map's full key; step 21 was writing the bare LABEL, and the first cloud run
+    (18 Sep 2026) produced thirteen services, thirteen components and zero edges between them — the
+    package held two disconnected clouds of boxes. Step 21's schema now demands the key; this
+    resolves a label as well, because a model writing a label into a key field is measured behaviour
+    rather than a hypothetical, and the cost of not resolving it is the whole architecture.
+
+    Returns "" when nothing matches, so the caller can say so instead of quietly making something
+    else.
+    """
+    direct = _service_id(capability)
+    if direct in model.elements:
+        return direct
+    want = capability.strip().lower()
+    for eid, el in model.elements.items():
+        if el.get("type") != "ApplicationService":
+            continue
+        key = str((el.get("props") or {}).get("cafe.capability") or "")
+        if want in (str(el.get("name", "")).strip().lower(), key.strip().lower()) or \
+                (capabilities.SEP in key and key.split(capabilities.SEP, 1)[1].strip().lower() == want):
+            return eid
+    return ""
+
+
 def _service_id(ident: str) -> str:
     """The ApplicationService id for a technology capability — ONE spelling.
 
@@ -153,6 +179,10 @@ def _coverage_map(out, model, pool):
         if not cap_id:
             continue
         label = _s(m.get("capability_label")) or cap_id
+        # A drawing reads "Agentic retrieval", not "Knowledge · Agentic retrieval" — the key is the
+        # id and rides in props. The live run put the key in both, so trim it back to the label.
+        if capabilities.SEP in label:
+            label = label.split(capabilities.SEP, 1)[1].strip() or label
         shared = {"level": m.get("level"), "confidence": _s(m.get("confidence")),
                   "path": " / ".join(as_list(m.get("path")))}
         bf = _bf(model, _s(m.get("function")))
@@ -376,18 +406,24 @@ def _component_selection(out, model, pool):
         # thing drawn twice. The ApplicationFunction stays for the other case — a `capability` that
         # is free text rather than a map key, which a service was never created for.
         capability = _s(c.get("capability"))
-        service = _service_id(capability)
-        if capabilities.is_key(capability) and service in model.elements:
+        service = _service_for(model, capability)
+        if service:
             model.rel("Realization", ac, service)
-        elif capabilities.is_key(capability):
-            # A map key with no service: step 5 defaulted, deferred, or matched a different
-            # capability. RECORDED, because the alternative is falling through to an
-            # ApplicationFunction and leaving the component unattached to anything with no warning.
-            model.dropped.append({"mapper": "component_selection", "component": cid,
-                                  "capability": capability,
-                                  "why": "no matched capability to realise — step 5 did not offer it"})
         elif ids.slug(capability):
+            # No service reaches this. Draw the ApplicationFunction so the component is not an
+            # orphan in the picture, AND record the gap — the two are not alternatives. The first
+            # live run drew thirteen such functions and recorded nothing, so a package that had lost
+            # its entire architecture looked complete. The old check only fired when the value WAS a
+            # key, which is precisely the case that did not occur.
             model.rel("Assignment", ac, model.el(f"af-{ids.slug(capability)}", "ApplicationFunction", capability))
+            # Recorded UNCONDITIONALLY, not "when services exist": that condition made the record
+            # depend on mapper order, so the same design said different things depending on when the
+            # mappers happened to run — and a gap that is sometimes reported is not an instrument.
+            # If step 5 matched nothing at all, thirteen components realising nothing IS the finding.
+            gap = {"mapper": "component_selection", "component": cid, "capability": capability,
+                   "why": "reaches no matched capability — step 5 did not offer it"}
+            if gap not in model.gaps:               # a mapper may be applied more than once per run
+                model.gaps.append(gap)
         for fam in families:
             model.rel("Aggregation", model.el(f"fam-{ids.slug(fam)}", "Grouping", fam, props={"family": fam}), ac)
             for g in as_list(enforcement.get(fam)):

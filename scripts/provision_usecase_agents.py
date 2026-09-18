@@ -104,17 +104,25 @@ SUBMITTER_TOOLS = {
 NO_STORES = ("-",)
 
 
-#: The relevance stores each team may search — a GRANT unit, like a tool (see `_grants`). The
-#: intake team matches capabilities against the maps; the delivery and submitter identities search
-#: nothing and are spelled as such, because an empty grant is an open one.
-INTAKE_STORES = [VectorStores.CAPABILITY_MAP_HEALTHCARE, VectorStores.CAPABILITY_MAP_INSURANCE]
+#: The relevance stores each team may search — a GRANT unit, like a tool (see `_grants`).
+#:
+#: NONE, since 18 Sep 2026. Step 5 matches the TECHNOLOGY capability map, which is a 74-row register
+#: read WHOLE from the corpus under the run's pin — it has no relevance store and nothing searches
+#: one. The two BA Guild workbook stores granted here until then were a standing permission for a
+#: search no code makes, which is the kind of grant that is only ever noticed by an audit.
+#:
+#: Declared EMPTY, like the other two. `_grants` turns an empty list into the `NO_STORES` sentinel
+#: at the one place that writes the grant — spelling the sentinel here as well would put the same
+#: decision in two places, and the one that matters is the writer's.
+INTAKE_STORES: list[str] = []
 
 #: The EVALS identity: what `scripts/eval_coverage.py` and `scripts/adjudicate_coverage.py` run as.
 #: Its own team and key, because a harness on the production agents' key competes with real runs
 #: for the same rpm/tpm and budget and is indistinguishable from them in the ledger (11 Sep 2026).
-#: Reads the corpus and searches the maps like a run does; starts nothing, answers nothing. The
-#: second model family is for the adjudicator's independent opinion. No Entra app: it is a harness
-#: an operator runs, not an agent a process hosts.
+#: Reads the corpus exactly as a run does; starts nothing, answers nothing. The second model family
+#: is for the adjudicator's independent opinion. No Entra app: it is a harness an operator runs, not
+#: an agent a process hosts. No stores, for the same reason the intake team has none — the harness
+#: scores the map a run reads, and that map is read whole.
 EVALS_TOOLS = {ReferenceTools.SERVER: list(ReferenceTools.READ)}
 EVALS_STORES = list(INTAKE_STORES)
 #: THE model the use-case agents run on, read where it is declared. Every key and team allowlist

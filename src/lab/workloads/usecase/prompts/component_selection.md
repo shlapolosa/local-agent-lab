@@ -35,3 +35,10 @@ Every field the schema marks required must be present. Where you do not know som
 the field the schema provides for it (a gap flag, an open question) rather than inventing a
 plausible value: a fabricated answer is indistinguishable from a real one downstream, which is the
 one failure this whole assessment cannot recover from.
+
+**Write `capability` as the map's own key — `Domain · Capability`, copied from the coverage map's
+`capability_id`.** Not the bare label. The key is what joins your selection to the capability step 5
+matched; a label joins to nothing, and the design package then holds a list of components and a list
+of capabilities with no edges between them. Measured on the first cloud run of this workload
+(18 Sep 2026): thirteen components, thirteen capabilities, zero connections, and a package that
+looked complete.

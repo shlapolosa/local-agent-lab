@@ -136,17 +136,6 @@ def test_a_capability_is_drawn_once_not_as_a_service_and_a_function_of_the_same_
                 and "Agentic retrieval" in e["name"]]
 
 
-def test_a_free_text_capability_still_gets_an_application_function():
-    """The other case, kept: a selection whose `capability` is not a map key had no service made
-    for it, and dropping it would lose what the component was selected to do."""
-    model = built()
-    mappers.apply("component_selection", {"selected": [
-        {"capability": "bespoke scoring", "component_id": "cmp-z", "component": "A function app"}],
-        "tradeoffs": [], "unresolved": []}, model, {})
-    assert [e["name"] for e in model.elements.values()
-            if e["type"] == "ApplicationFunction"] == ["bespoke scoring"]
-
-
 def test_a_selection_naming_a_capability_no_match_offered_is_recorded_not_silently_reshaped():
     """The join's failure is otherwise invisible: the component falls through to an
     ApplicationFunction, attaches to nothing the business asked for, and the package holds two
@@ -155,4 +144,67 @@ def test_a_selection_naming_a_capability_no_match_offered_is_recorded_not_silent
     mappers.apply("component_selection", {"selected": [
         {"capability": "Cognitive · Never matched", "component_id": "cmp-q", "component": "A thing"}],
         "tradeoffs": [], "unresolved": []}, model, {})
-    assert any(d.get("capability") == "Cognitive · Never matched" for d in model.dropped)
+    assert any(d.get("capability") == "Cognitive · Never matched" for d in model.gaps)
+
+
+# ---------------------------------------------- the join, as the first live run actually found it
+
+def test_a_selection_naming_the_bare_label_still_joins_to_the_service():
+    """Measured on the first cloud run, 18 Sep 2026: step 5 wrote the full key
+    "Cognitive · Custom-engine agent runtime" and step 21 wrote the bare label
+    "Custom-engine agent runtime". Thirteen services, thirteen components, and ZERO edges between
+    them — the package held two disconnected clouds of boxes, which is exactly the failure the join
+    was built to prevent.
+
+    The primary fix is step 21's schema, which now demands the key. This is the safety net, and it
+    earns its place twice: a package staged before that change still joins, and a model that writes
+    a label into a key field — measured behaviour, not a hypothetical — does not silently cost the
+    design its architecture.
+    """
+    model = built()
+    mappers.apply("component_selection", {"selected": [
+        {"capability": "Agentic retrieval", "component_id": "cmp-foundryiq",
+         "component": "Foundry IQ"}], "tradeoffs": [], "unresolved": []}, model, {})
+    svc = next(e for e in model.elements.values() if e["type"] == "ApplicationService")
+    ac = next(e for e in model.elements.values() if e["type"] == "ApplicationComponent")
+    assert any(r["src"] == ac["id"] and r["tgt"] == svc["id"] and r["type"] == "Realization"
+               for r in model.relations.values())
+    assert not [e for e in model.elements.values() if e["type"] == "ApplicationFunction"], \
+        "resolved by label, so no duplicate function box either"
+
+
+def test_a_free_text_capability_is_drawn_AND_recorded_not_one_or_the_other():
+    """Both, because they answer different readers. The ApplicationFunction keeps the component from
+    being an orphan in the picture; the record is what tells anyone the join did not happen."""
+    model = built()
+    mappers.apply("component_selection", {"selected": [
+        {"capability": "bespoke scoring", "component_id": "cmp-z", "component": "A function app"}],
+        "tradeoffs": [], "unresolved": []}, model, {})
+    assert [e["name"] for e in model.elements.values()
+            if e["type"] == "ApplicationFunction"] == ["bespoke scoring"]
+    assert any("bespoke scoring" in str(d.get("capability")) for d in model.gaps)
+
+
+def test_a_capability_no_service_exists_for_is_recorded_when_others_did_join():
+    """The instrumentation had a hole: it only fired when the value WAS a key, so the live failure —
+    every value a bare label — produced no record at all. A selection that cannot reach any service
+    while services exist is now visible."""
+    model = built()
+    mappers.apply("component_selection", {"selected": [
+        {"capability": "Nothing like this exists", "component_id": "cmp-q", "component": "A thing"}],
+        "tradeoffs": [], "unresolved": []}, model, {})
+    assert any("Nothing like this exists" in str(d.get("capability")) for d in model.gaps)
+
+
+def test_the_service_is_named_by_its_label_not_its_key():
+    """A drawing reads "Agentic retrieval", not "Knowledge · Agentic retrieval". The key is the id
+    and lives in props; the name is for a person. The live run put the key in both because the agent
+    wrote it into `capability_label`."""
+    model = Model(name="t", id="usecase-model")
+    mappers.apply("elements", ELEMENTS, model, {})
+    mappers.apply("coverage_map", {"matched": [
+        {"function": "assess urgency", "capability_id": "Knowledge · Agentic retrieval",
+         "capability_label": "Knowledge · Agentic retrieval", "confidence": "lookup"}]}, model, {})
+    svc = next(e for e in model.elements.values() if e["type"] == "ApplicationService")
+    assert svc["name"] == "Agentic retrieval"
+    assert svc["props"]["cafe.capability"] == "Knowledge · Agentic retrieval"
