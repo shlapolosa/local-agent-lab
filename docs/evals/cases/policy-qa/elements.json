@@ -1,0 +1,20 @@
+{
+  "_note": "Hand-written, not model-derived. Four functions are the whole use case, and deriving them would only add a paraphrase. Same provenance as the case it replaces.",
+  "active": [
+    {"name": "Member of staff", "kind": "actor"},
+    {"name": "HR team", "kind": "actor"},
+    {"name": "Policy assistant", "kind": "system"}
+  ],
+  "behavioural": [
+    {"name": "interpret the policy question", "verb": "interpret", "object": "Question"},
+    {"name": "retrieve the relevant policy clause", "verb": "retrieve", "object": "Policy clause"},
+    {"name": "draft the answer with its citation", "verb": "draft", "object": "Answer"},
+    {"name": "hand an uncovered question to HR", "verb": "escalate", "object": "Question"}
+  ],
+  "passive": [
+    {"name": "Question"},
+    {"name": "Policy clause"},
+    {"name": "Answer"},
+    {"name": "Staff handbook"}
+  ]
+}

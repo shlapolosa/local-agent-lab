@@ -1,0 +1,23 @@
+{
+  "status": "FROZEN — drafted from the submission alone, before any matcher was run on it",
+  "map": "technology",
+  "applicable": [
+    "Application · Output templating and provenance",
+    "Cognitive · Custom-engine agent runtime",
+    "Cognitive · Multi-channel conversational SDK",
+    "Cross-cutting · Confidence-threshold escalation",
+    "Knowledge · Agentic retrieval",
+    "Knowledge · Document corpora (static)"
+  ],
+  "widening_rule": "A capability belongs here if a NAMED FUNCTION in this case's own element inventory cannot be delivered without it.",
+  "justification": {
+    "Cognitive · Multi-channel conversational SDK": "interpret the policy question (the surface a person asks through)",
+    "Cognitive · Custom-engine agent runtime": "interpret the policy question (a model decides the answer, so a runtime executes it)",
+    "Knowledge · Agentic retrieval": "retrieve the relevant policy clause",
+    "Knowledge · Document corpora (static)": "retrieve the relevant policy clause (the staff handbook)",
+    "Application · Output templating and provenance": "draft the answer with its citation",
+    "Cross-cutting · Confidence-threshold escalation": "hand an uncovered question to HR"
+  },
+  "lock": "FROZEN. Never edited after reading a result — adding what the matcher returned raises precision and recall arithmetically and measures nothing. A set that is wrong is re-derived BLIND from submission.md alone, or by an architect.",
+  "notes": "Replaces clock-chat. That was a synthetic negative control built for the BUSINESS map, where the right answer was an empty match; against the technology map it became a toy use case with three labels, so each miss cost 0.33 and it distorted both means while telling us little. This is a genuinely SMALL real use case — four functions, CAFE archetype A1, no side effects — so it still checks that a small case does not attract half the map, but it does so with an expected set somebody can argue with."
+}

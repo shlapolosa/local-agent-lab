@@ -9,12 +9,6 @@
         "f1": 0.782,
         "n": 3
       },
-      "clock-chat": {
-        "precision": 0.522,
-        "recall": 0.5,
-        "f1": 0.505,
-        "n": 3
-      },
       "imaging-order-triage": {
         "precision": 0.85,
         "recall": 0.756,
@@ -40,5 +34,6 @@
         "n": 3
       }
     }
-  }
+  },
+  "note": "clock-chat removed 18 Sep 2026, replaced by policy-qa. Its entry is dropped rather than kept: `regressions()` ignores a baseline pair the current run never attempted, so a stale pair for a DELETED case would sit here indefinitely looking like a case nobody runs. policy-qa has no entry yet \u2014 a baseline is recorded from a run, never written by hand."
 }
