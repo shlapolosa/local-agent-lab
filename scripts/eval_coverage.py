@@ -43,9 +43,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab.platform import config
-from lab.core.semantic.service import SemanticService          # noqa: E402
 from lab.core.usecase import capabilities, seed                 # noqa: E402
-from lab.platform.contracts import VectorStores                # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
 from lab.workloads.usecase import agents as A                  # noqa: E402
 from lab.workloads.usecase import coverage, reference          # noqa: E402
@@ -54,29 +52,18 @@ from lab.workloads.usecase.gates import GateFailed             # noqa: E402
 from lab.workloads.usecase.steps import step_for               # noqa: E402
 
 
-def corpus_for(scheme: str, reference_dir: str) -> list[dict]:
-    svc = SemanticService(reference_dir=reference_dir)
-    return svc.concepts(scheme, None, None)
+#: The capabilities a human says this use case genuinely exercises. One map now, so one file.
+EXPECTED = "expected.json"
 
 
-#: A case's expected set is PER MAP: the same use case exercises different business abilities and
-#: different solution capabilities, and one file could only ever hold one of them. Naming the file
-#: by map also keeps the business sets — reviewed, and costly to reproduce — for the day an
-#: enterprise publishes a conformant map.
-EXPECTED = {"technology": "expected.technology.json", "business": "expected.json"}
-
-
-def expected_for(case: Path, which: str) -> set:
-    """The capabilities a human says this use case genuinely exercises, for THIS map.
-
-    Refuses by name rather than scoring against an absent file: recall against an empty expected set
-    is 0.0 for every matcher, which reads as a total failure and is in fact a missing input.
-    """
-    path = case / EXPECTED[which]
+def expected_for(case: Path) -> set:
+    """Refuses by name rather than scoring against an absent file: recall against an empty expected
+    set is 0.0 for every matcher, which reads as a total failure and is in fact a missing input."""
+    path = case / EXPECTED
     if not path.is_file():
-        raise SystemExit(f"{case.name}: no {EXPECTED[which]} — a case scored against the {which} "
-                         f"map needs its own expected set; scoring against the other map's would "
-                         f"measure nothing")
+        raise SystemExit(f"{case.name}: no {EXPECTED} — a case with no expected set cannot be "
+                         f"scored, and scoring it at zero would read as a matcher that found "
+                         f"nothing")
     return set(json.loads(path.read_text())["applicable"])
 
 
@@ -121,15 +108,7 @@ async def derive_elements(cfg, submission: str) -> dict:
     return d.derived["elements"]
 
 
-#: What a match is SCORED as, per map. The technology map's id is its natural key — the string a
-#: guardrail and the component catalogue resolve against — so scoring a label there would measure
-#: something no downstream consumer uses. The business map's ids are synthetic content hashes that
-#: no human can review, and its expected sets are therefore written as labels. One vocabulary per
-#: map, named here rather than inferred from the shape of whatever the expected file happens to hold.
-SCORED_BY = {"technology": "id", "business": "label"}
-
-
-def identity_of(match: Mapping, corpus: list[dict], by: str = "id") -> str:
+def identity_of(match: Mapping, corpus: list[dict]) -> str:
     """What a match IS, scored the way the rest of the framework joins on it.
 
     The technology map's id is its natural key, and that key is what a guardrail and the component
@@ -142,8 +121,6 @@ def identity_of(match: Mapping, corpus: list[dict], by: str = "id") -> str:
     `bad_ids` still counts the ones that needed resolving, because a match a RUN could not join on
     is a defect even when the harness can charitably read it.
     """
-    if by == "label":
-        return str(match.get("capability_label") or "").strip()
     by_id = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
     by_label = {str(c.get("label", "")).strip(): str(c.get("id"))
                 for c in corpus if isinstance(c, dict) and c.get("label")}
@@ -153,7 +130,19 @@ def identity_of(match: Mapping, corpus: list[dict], by: str = "id") -> str:
     return by_label.get(str(match.get("capability_label") or "").strip(), ident)
 
 
-def children_of(corpus: list[dict], seen: set | None = None, by: str = "id"):
+async def _no_store(query, k):
+    """The `search` seam, for a map that has none.
+
+    The technology capability map is a register read whole — 74 rows in one prompt — so there is
+    nothing to search. It RAISES rather than returning an empty list, because an empty relevance
+    result is indistinguishable from a map that knows nothing about the query, and a store-backed
+    matcher would then score zero for a reason that has nothing to do with matching.
+    """
+    raise RuntimeError("the technology capability map has no relevance store — it is read whole; "
+                       "score `leaves` or `drill`")
+
+
+def children_of(corpus: list[dict], seen: set | None = None):
     """The drill's `children` seam over the LOCAL tree — the same rows the corpus would serve.
 
     `seen` collects every label this seam ever handed the matcher: that is the `offered` set the
@@ -166,28 +155,9 @@ def children_of(corpus: list[dict], seen: set | None = None, by: str = "id"):
     async def children(ids, level):
         rows = [c for i in ids for c in by_parent.get(i, [])]
         if seen is not None:
-            seen.update(str(r.get(by) or "").strip() for r in rows)
+            seen.update(str(r.get("id") or "").strip() for r in rows)
         return rows
     return children
-
-
-def search_of(cfg, scheme: str, seen: set | None = None, by: str = "id"):
-    """The `vector` seam: the map's store THROUGH THE GATEWAY under a pin — the same path a run
-    takes, so what the harness scores is what a run gets."""
-    store = VectorStores.for_scheme(scheme)
-    pinned: dict = {}
-
-    async def search(query, k):
-        if not pinned:
-            pinned.update(await reference.pin(cfg, [store]))
-        hits = await gateway.vector_search(
-            cfg["gateway_url"], cfg["headers"], store, query, k=k,
-            filters={"pin_id": pinned["pin_id"], **reference.attribution(cfg, "coverage_map")})
-        if seen is not None:
-            seen.update(str(c.get(by) or "").strip()
-                        for c in coverage.candidates_from_hits(hits))
-        return hits
-    return search
 
 
 def present(corpus: list[dict], definitions: str, budget: int, deepest: int) -> list[dict]:
@@ -217,8 +187,8 @@ def payload_size(corpus: list[dict], matcher: str, budget: int, deepest: int) ->
     return len(json.dumps(rows, ensure_ascii=False, default=str))
 
 
-async def one_run(cfg, corpus, elements, matcher: str, scheme: str,
-                  deepest: int, by: str = "id") -> tuple[set, float, str, list, set]:
+async def one_run(cfg, corpus, elements, matcher: str,
+                  deepest: int) -> tuple[set, float, str, list, set]:
     """One matcher over one case: the capabilities it returned, the seconds it took, why it
     stopped if it did, and WHAT IT WAS SHOWN.
 
@@ -228,21 +198,20 @@ async def one_run(cfg, corpus, elements, matcher: str, scheme: str,
     d = Derivation(available={"elements": elements, "capabilities": corpus})
     offered: set = set()
     if matcher == "leaves":
-        offered = {str(c.get(by) or "").strip()
+        offered = {str(c.get("id") or "").strip()
                    for c in coverage.leaves_for(corpus, deepest=deepest)}
     started = time.time()
     note = ""
     try:
         await coverage.MATCHERS[matcher](cfg, d, corpus,
-                                         children=children_of(corpus, offered, by),
-                                         search=search_of(cfg, scheme, offered, by),
-                                         project=lambda r: r, deepest=deepest)
+                                         children=children_of(corpus, offered),
+                                         search=_no_store, project=lambda r: r, deepest=deepest)
     except GateFailed as refused:
         note = f"gate: {refused}"
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
         note = f"{type(exc).__name__}: {exc}"
     matched = (d.derived.get("coverage_map") or {}).get("matched") or []
-    got = {identity_of(m, corpus, by) for m in matched}
+    got = {identity_of(m, corpus) for m in matched}
     # What recall cannot see: an id that is not in the map. A reasoning model writes the label
     # where the key belongs (measured 12 Sep 2026); the label scores, the id would not join.
     ids = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
@@ -364,16 +333,12 @@ async def main() -> int:
     ap.add_argument("--show", action="store_true",
                     help="print what a matcher WOULD send and stop — no model call, no cost. The "
                          "loop for tuning presentation: change a field, see the candidates")
-    ap.add_argument("--scheme", default="healthcare-provider-v2.0")
     ap.add_argument("--deepest", type=int, default=0,
                     help="the map's matching GRAIN — the level candidates are drawn from. Default "
                          "is the published map's (3); with --corpus-file, the deepest level present")
-    ap.add_argument("--map", choices=("technology", "business"), default="technology",
-                    help="which capability map to score. `technology` is what step 5 matches "
-                         "against (the 74-row CAFE M4 register, read whole, no store); `business` "
-                         "is the licensed workbook named by --scheme, retired from the live path")
     ap.add_argument("--corpus-file",
-                    help="score against THIS capability map (JSON rows) instead of --scheme. The "
+                    help="score against THIS capability map (JSON rows) instead of the "
+                         "published technology map. The "
                          "`vector` matcher is unavailable: it reads a published store, not a file")
     ap.add_argument("--definitions", choices=("none", "fit", "full"), default="fit",
                     help="how a candidate is PRESENTED: labels only (what production sent until "
@@ -402,38 +367,29 @@ async def main() -> int:
            # what the `vector` matcher needs to reach the store the way a run does
            "headers": gateway.auth_headers(credential), "gateway_url": gateway_url,
            "mcp_url": gateway_url.rstrip("/") + "/mcp/", "run_id": "eval", "process": "eval"}
-    if args.map == "technology" and not args.corpus_file:
-        corpus = technology_map()
-        args.deepest = args.deepest or capabilities.LEVEL
-        asked = set(args.matcher or []) & set(coverage.STORE_BACKED)
-        if asked:
-            raise SystemExit(f"the technology map has no relevance store, so {sorted(asked)} "
-                             f"cannot be scored against it — it is a register read whole")
-        args.matcher = args.matcher or [m for m in sorted(coverage.MATCHERS)
-                                        if m not in coverage.STORE_BACKED]
-    elif args.corpus_file:
+    if args.corpus_file:
         corpus = corpus_from_file(args.corpus_file)
         # A file's grain is the file's, not the published map's: the constant is 3 and a two-level
         # map would yield zero candidates, which reads downstream as "nothing is relevant".
         args.deepest = args.deepest or max(int(c.get("level") or 0) for c in corpus)
-        asked = set(args.matcher or []) & set(coverage.STORE_BACKED)
-        if asked:
-            raise SystemExit(f"--corpus-file cannot score {sorted(asked)}: those matchers search a "
-                             f"published store, and a file is not one")
-        args.matcher = args.matcher or [m for m in sorted(coverage.MATCHERS)
-                                        if m not in coverage.STORE_BACKED]
     else:
-        corpus = corpus_for(args.scheme, os.environ.get(
-            "REFERENCE_MODELS_DIR",
-            str(Path.home() / "Development/local-agent-lab/var/reference-sources")))
-    args.deepest = args.deepest or coverage.DEEPEST_LEVEL
+        corpus = technology_map()
+        args.deepest = args.deepest or capabilities.LEVEL
+    # Neither source has a relevance store, so a store-backed matcher cannot be scored at all.
+    # Refusing beats scoring it at zero, which would read as a matcher that finds nothing.
+    asked = set(args.matcher or []) & set(coverage.STORE_BACKED)
+    if asked:
+        raise SystemExit(f"{sorted(asked)} search a published relevance store, and this map has "
+                         f"none — it is a register read whole. Score `leaves` or `drill`.")
+    args.matcher = args.matcher or [m for m in sorted(coverage.MATCHERS)
+                                    if m not in coverage.STORE_BACKED]
     with_def = sum(1 for c in corpus if str(c.get("definition") or "").strip())
     corpus = present(corpus, args.definitions, args.budget, args.deepest)
     print(f"corpus: {len(corpus)} concepts ({with_def} carry a definition) | "
           f"definitions={args.definitions} | gateway: {gateway_url}")
 
     cases = sorted(p for p in Path(args.cases).glob("*")
-                   if (p / "submission.md").exists() and (p / EXPECTED[args.map]).is_file())
+                   if (p / "submission.md").exists() and (p / EXPECTED).is_file())
     if args.case:
         wanted = {c.strip() for c in args.case}
         cases = [c for c in cases if c.name in wanted]
@@ -459,7 +415,7 @@ async def main() -> int:
                 print("   ", json.dumps(row, ensure_ascii=False)[:300])
         for case in cases:
             elements = json.loads((case / "elements.json").read_text())
-            expected = sorted(expected_for(case, args.map))
+            expected = sorted(expected_for(case))
             behavioural = [b.get("name") for b in elements.get("behavioural") or []]
             print(f"\n{case.name}: {len(behavioural)} functions to match, {len(expected)} expected")
             print(f"    functions: {behavioural[:6]}")
@@ -481,11 +437,11 @@ async def main() -> int:
     gate = asyncio.Semaphore(max(1, args.concurrency))
 
     async def scored(matcher: str, case, run: int) -> tuple:
-        expected = expected_for(case, args.map)
+        expected = expected_for(case)
         elements = json.loads((case / "elements.json").read_text())
         async with gate:
             got, seconds, note, bad_ids, offered = await one_run(
-                cfg, corpus, elements, matcher, args.scheme, args.deepest, SCORED_BY[args.map])
+                cfg, corpus, elements, matcher, args.deepest)
         row = score(got, expected, offered) | {"seconds": seconds, "note": note, "run": run,
                                                "invalid_ids": bad_ids}
         print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
@@ -511,7 +467,7 @@ async def main() -> int:
     if args.record_baseline:
         base_path.parent.mkdir(parents=True, exist_ok=True)
         base_path.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"),
-                                         "scheme": args.scheme, "means": current}, indent=2) + "\n")
+                                         "map": "technology", "means": current}, indent=2) + "\n")
         print(f"baseline recorded: {base_path}")
     elif base_path.exists():
         fell = regressions(current, json.loads(base_path.read_text()).get("means") or {},
