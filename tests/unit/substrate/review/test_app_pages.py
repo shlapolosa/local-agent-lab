@@ -345,7 +345,7 @@ def test_runs_board_empty():
     assert st.said("info", "No runs recorded yet") and st.count("dataframe") == 0
 
 
-def test_runs_board_rows_selection_timeline_and_highlighted_graph():
+def test_runs_board_rows_selection_timeline_and_roadmap():
     act = _run()
     rec = _run(run_id="run-0", status="done", node="render", elapsed=200, finished_at="2026-09-03T09:00:00+00:00",
                request_id="wfr-1", approval_id="apr-1", xml_ref="art://x/m.xml", trace_id="")
@@ -367,11 +367,10 @@ def test_runs_board_rows_selection_timeline_and_highlighted_graph():
     assert [(t["node"], t["status"], t["at"], t["elapsed"], t["detail"]) for t in timeline] == [
         ("read_input", "start", "10:00:01", "—", ""), ("read_input", "done", "10:00:03", "2s", "shapes=12"),
         ("ba", "start", "10:00:03", "—", "")]
-    graph = st.texts("code")[0]
-    assert graph.startswith(MERMAID)
-    assert f"style read_input {APP.NODE_STYLE['done']};" in graph and f"style ba {APP.NODE_STYLE['running']};" in graph
-    assert "style store" not in graph
-    assert st.count("iframe") == 1 and st.said("expander", "Mermaid source")
+    # The ROADMAP is the primary view now; the executor timeline is demoted to an expander, because
+    # it answers "which node" when an SME is asking "which step".
+    assert st.said("markdown", "**Roadmap**")
+    assert st.said("expander", "Node timeline — the executors")
 
 
 def test_runs_board_selected_run_details_and_fallbacks():
@@ -385,7 +384,10 @@ def test_runs_board_selected_run_details_and_fallbacks():
     assert st.said("error", "RuntimeError: boom") and not st.said("write", "**Trace**")
     for k in ("request_id", "approval_id", "xml_ref"):
         assert st.said("write", f"**{k}** `{rec[k]}`")
-    assert st.said("caption", "no node reported yet") and st.said("caption", "no graph stored on this run")
+    assert st.said("caption", "no node reported yet")
+    # No corpus in this harness, so the roadmap says the methodology could not be read rather than
+    # drawing a process from code — the artifact is the source, or there is no roadmap.
+    assert st.said("caption", "published process steps could not be read")
     # a stale default selection falls back to the first row; an expired hash warns
     rl = FakeRunlog(recent=[rec], runs={})
     st = install(FakeSt(), runlog=rl); _traces()
@@ -454,7 +456,9 @@ def test_runs_board_shows_per_node_llm_and_tool_calls_read_back_from_the_trace()
     APP._runs_board()
     assert tr.asked == ["ff" * 16]                                   # the run's own trace id
     assert st.said("markdown", "**Inside the run**")
-    labels = [t for t in st.texts("expander") if " — " in t]
+    # the per-NODE activity expanders, by their status glyph — the roadmap and the demoted timeline
+    # also use expanders, so " — " alone no longer identifies these
+    labels = [t for t in st.texts("expander") if t[:1] in ("•", "⛔")]
     assert labels[:2] == ["• ba — 1 LLM call(s) · 1 tool call(s) · 2,000 tokens · $0.0021",
                           "⛔ store — 0 LLM call(s) · 1 tool call(s)"]
     dfs = [a[0] for p, a, _ in st.calls if p.endswith("dataframe")]

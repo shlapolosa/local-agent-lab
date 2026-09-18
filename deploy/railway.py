@@ -393,7 +393,14 @@ ROLE_ENV = {
         _OTLP,                  # NO store, NO Graph credential, NO gateway: it reads run state and
     ],                          # posts ids and links. It never opens an artifact it announces.
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
-        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
+        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the FALLBACK
+        "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # the app's own Entra registration:
+                                                   # signs a PERSON in, so the approval ledger names
+                                                   # a human the tenant vouches for rather than a
+                                                   # typed string. Unset -> the password gate stands
+                                                   # (`review.identity.configured()`), which is why
+                                                   # a half-configured SSO cannot lock the app out
+        "ENTRA_TENANT_ID", "REVIEW_APP_URL",       # the authority, and the registered redirect
         "REDIS_URL",                               # approvals / workflows / runlog streams
         "ARTIFACTS_URL", "DATABASE_URL",           # reads xml/svg refs of a request
         "JAEGER_UI_URL",                           # trace links

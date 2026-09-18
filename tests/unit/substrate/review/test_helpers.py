@@ -22,8 +22,8 @@ MERMAID = ("flowchart TD\n  read_input[\"read input\"]\n  ba[\"BA\"]\n  store[\"
 
 
 def test_dispatch_is_a_table_with_no_legacy_branches():
-    assert set(APP.PAGES) == {"Review", "Submit", "Runs"}
-    assert all(callable(f) for f in APP.PAGES.values())
+    assert set(APP.PAGES) == {"Review", "Submit", "Runs", "Artifacts"}
+    assert all(callable(f) and isinstance(roles, tuple) for f, roles in APP.PAGES.values())
     src = (ROOT / "src" / "lab" / "substrate" / "review" / "app.py").read_text()
     assert "xml_path" not in src and '"svgs"' not in src, "legacy local-path branches must be gone"
     assert "def _review_page(" in src and 'if __name__ == "__main__"' in src

@@ -212,6 +212,15 @@ ENTRA_GATEWAY_AUDIENCE = _e("ENTRA_GATEWAY_AUDIENCE", "")   # api://… — the 
 #: is a real answer: a deployment where no agent has a registration yet still runs on durable keys.
 ENTRA_CLIENT_TO_KEY = _mapping("ENTRA_CLIENT_TO_KEY")
 
+#: The REVIEW APP's own Entra registration — a confidential WEB app that signs a PERSON in, distinct
+#: from the agent registrations above, which are client-credentials identities for machines.
+#:
+#: Unset means the app keeps its shared-password gate. That fallback is deliberate: a half-configured
+#: SSO must not half-enable the gate, and the difference between "not set up" and "locked out" is
+#: worth a branch. `lab.substrate.review.identity.configured()` is the one reader.
+REVIEW_ENTRA_CLIENT_ID = _e("REVIEW_ENTRA_CLIENT_ID", "")
+REVIEW_ENTRA_CLIENT_SECRET = _e("REVIEW_ENTRA_CLIENT_SECRET", "")
+
 # --- where an agent's A2A card is published; unset = nowhere, and it says so ---
 # The card itself is portable (the A2A spec, with the Entra identity in `securitySchemes` — the same
 # block APIM's validate-jwt checks). Only the DESTINATION is platform-specific, so it is the one

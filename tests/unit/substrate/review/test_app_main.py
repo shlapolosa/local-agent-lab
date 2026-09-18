@@ -25,7 +25,7 @@ def test_main_without_password_dispatches_the_chosen_mode():
     st = _main(FakeSt(Mode="Runs"))
     assert st.calls[0][0] == "set_page_config" and st.calls[0][2]["layout"] == "wide"
     assert ("sidebar.text_input", ("Reviewer",), {"value": "socrates"}) in st.calls
-    assert st.said("radio", "Mode ['Review', 'Submit', 'Runs']")
+    assert st.said("radio", "Mode ['Review', 'Submit', 'Runs', 'Artifacts']")
     assert st.said("title", "Runs") and not any(path == "text_input" for path, _, _ in st.calls)  # no gate
     # default mode = first entry of PAGES = Review; Submit reaches the Submit page with the reviewer name
     st = _main(FakeSt())
@@ -100,9 +100,11 @@ def test_streamlit_entry_point_runs_main():
 
 
 def test_pages_table_is_the_only_dispatch():
-    assert list(APP.PAGES) == ["Review", "Submit", "Runs"]
-    assert APP.PAGES["Review"] is APP._review_page and APP.PAGES["Submit"] is APP._submit_page
-    assert APP.PAGES["Runs"] is APP._runs_page
+    """Still the only routing — and each entry now carries the ROLES that may reach it, so a page
+    cannot be added without somebody deciding who it is for."""
+    assert list(APP.PAGES) == ["Review", "Submit", "Runs", "Artifacts"]
+    assert APP.PAGES["Review"][0] is APP._review_page and APP.PAGES["Submit"][0] is APP._submit_page
+    assert APP.PAGES["Runs"][0] is APP._runs_page and APP.PAGES["Artifacts"][0] is APP._artifacts_page
 
 
 if __name__ == "__main__":

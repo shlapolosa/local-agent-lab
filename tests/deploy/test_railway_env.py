@@ -116,6 +116,7 @@ FAKE = {
     "DATABASE_URL": "pg", "OLLAMA_API_KEY": "ol", "ANTHROPIC_UPSTREAM_API_KEY": "an",
     "EMBED_URL": "emb", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk", "REFERENCE_RING": "x", "REFERENCE_MCP_URL": "x", "REFERENCE_PROVIDER": "x",
     "MICROSOFT_CLIENT_ID": "mc", "MICROSOFT_CLIENT_SECRET": "ms", "MICROSOFT_TENANT": "mt",
+    "REVIEW_ENTRA_CLIENT_ID": "rc", "REVIEW_ENTRA_CLIENT_SECRET": "rs",   # the review app's own SSO
     "PROXY_BASE_URL": "pb", "DEVELOPERS_TEAM_ID": "dt", "ENTRA_CLIENT_TO_KEY": "{}",
     "OTEL_EXPORTER": "otlp_http", "OTEL_ENDPOINT": "e", "OTEL_SERVICE_NAME": "litellm-gateway",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
@@ -275,7 +276,13 @@ def test_storage_mcp_and_review_s3_gating():
     assert not (set(railway.env_for_role("storage-mcp", FAKE, s3=False)) & s3)   # flag off -> none
     rv = railway.env_for_role("review", FAKE, s3=True)
     assert set(rv) == s3 | {"REVIEW_APP_PASSWORD", "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "JAEGER_UI_URL",
-                            "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET"}
+                            "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET",
+                            # the app signs a PERSON in, so the approval ledger names somebody the
+                            # tenant vouches for. Still NO gateway credential: SSO is identity only,
+                            # and a delegated token is refused on /api anyway.
+                            "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",
+                            "ENTRA_TENANT_ID", "REVIEW_APP_URL"}
+    assert not ({"GATEWAY_URL", "LITELLM_MASTER_KEY"} & set(rv)), "identity only, not a caller"
     assert "RAILWAY_BUCKET_ID" not in rv
     # the SUBSTRATE table itself: only services flagged s3 can ever see the bucket credentials
     for name, spec in railway.SUBSTRATE.items():

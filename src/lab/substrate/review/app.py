@@ -24,6 +24,7 @@ from the substrate container built once at import (`container.artifacts()` for r
 `container.uploads()` for submitted inputs) — tests override its providers.
 """
 import base64
+import json
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -35,7 +36,7 @@ from lab.platform import config, contracts, runlog, workflows
 from lab.platform.filetypes import content_type_for
 from lab.substrate import approvals
 from lab.substrate.container import build
-from lab.substrate.review import traces
+from lab.substrate.review import identity, roadmap, staging, traces
 
 container = build("review-app")
 JAEGER_UI = container.config.jaeger_ui_url().rstrip("/")   # one source for both the link and the reader
@@ -61,6 +62,12 @@ UPLOAD_TYPES = {
 #: submission that does not fit the suggested shape must still be possible to make.
 MAPPING_ROWS = {
     ("use_case_screening", "intake"): "intake-fields",       # the corpus ARTIFACT, read under a pin
+}
+
+#: The TYPED fields inside those groups — one record per field, so the form is generated rather than
+#: guessed. Adding a field later (ROI, say) is a corpus publish, not a change to this app.
+MAPPING_FIELDS = {
+    ("use_case_screening", "intake"): ("intake-field-specs", "intake-field"),
 }
 
 
@@ -92,9 +99,128 @@ def _mapping_labels(process: str, field: str) -> list[str]:
     return list(cache[artifact])
 
 
+#: The two corpus artifacts the roadmap is built from: the published methodology, and the join to
+#: the implementation's step numbers, record keys and AGENTS.
+ROADMAP_ARTIFACTS = (("process-steps", "process-step"), ("process-step-keys", "step-key"))
+
+
+def _corpus_table(artifact: str, record_type: str) -> tuple:
+    """`(rows, headers)` for a whole-retrieval artifact, read under a pin and cached per session.
+
+    Same contract as `_mapping_labels`: a corpus that cannot answer is a view missing, never a page
+    that fails — and the roadmap says so rather than inventing the process from code.
+    """
+    cache = st.session_state.setdefault("corpus_tables", {})
+    if artifact in cache:
+        return cache[artifact]
+    try:
+        from lab.core.reference.model import RunRef
+        library = container.reference()
+        pin = library.pin([artifact])
+        records = library.lookup(pin, record_type=record_type, key={},
+                                 run=RunRef(run_id="review-app", process="review-app",
+                                            field="roadmap"),
+                                 artifact_id=artifact).records
+        headers = list(records[0].body) if records else []
+        cache[artifact] = ([[r.body.get(h, "") for h in headers] for r in records], headers)
+    except Exception:                      # noqa: BLE001 — a view missing, never a page that fails
+        cache[artifact] = ([], [])
+    return cache[artifact]
+
+
+def _roadmap_view(h):
+    """The run as the nineteen published steps, with this run's state on each.
+
+    Replaces the Mermaid graph, which drew EXECUTORS — `readiness`, `feasibility`, `derive_design` —
+    and so answered "which node" when an SME is asking "which step".
+    """
+    (steps_rows, steps_headers) = _corpus_table(*ROADMAP_ARTIFACTS[0])
+    (key_rows, key_headers) = _corpus_table(*ROADMAP_ARTIFACTS[1])
+    if not steps_rows:
+        st.caption("the published process steps could not be read from the corpus, so there is no "
+                   "roadmap to draw — the methodology is an artifact, not a list in this app")
+        return
+    record = _record_of(h)
+    plan = roadmap.build(steps_rows, steps_headers,
+                         roadmap.index_from(key_rows, key_headers),
+                         order=roadmap.order_from(key_rows, key_headers),
+                         nodes=h.get("nodes") or [], record=record,
+                         activity=_trace_activity(h))
+    for step in plan:
+        icon = {"done": "✅", "running": "🏃", "failed": "⛔", "defaulted": "⚠️"}.get(step.state, "⚪")
+        who = step.agent or ("derived, not asked" if step.derived else "")
+        head = f"{icon} **{step.id}** {step.title}" + (f" · {who}" if who else "")
+        if step.elapsed:
+            head += f" · {_fmt_elapsed(step.elapsed)}"
+        with st.expander(head, expanded=step.open):
+            if step.note:
+                st.warning(step.note)
+            if step.error:
+                st.error(step.error)
+            cols = st.columns(3)
+            cols[0].caption(f"**Input**  \n{step.inputs_declared or '—'}")
+            cols[1].caption(f"**Decides**  \n{step.decided or '—'}")
+            cols[2].caption(f"**Output**  \n{step.outputs_declared or '—'}")
+            for gap in step.gaps:
+                st.warning(gap)
+            if step.model:
+                st.caption(f"{step.model} · {step.tokens:,} tokens · ${step.cost:.4f}")
+            if step.output is not None:
+                st.json(step.output, expanded=False)
+
+
+def _record_of(h) -> dict:
+    """The run's own record, for the per-step sections the roadmap shows. Absent is `{}` — a run
+    still in flight has not written one, and every step then shows its published shape alone."""
+    ref = h.get("screening_ref") or h.get("design_ref") or h.get("xml_ref")
+    if not ref or not str(ref).endswith(".json"):
+        return {}
+    try:
+        raw = container.artifacts().get(ref)
+        return json.loads(raw if isinstance(raw, str) else raw.decode())
+    except Exception:                      # noqa: BLE001
+        return {}
+
+
+def _typed_intake(process: str, field, key: str) -> dict | None:
+    """One input per PUBLISHED field, grouped — or None when the corpus cannot say what the fields
+    are, in which case the caller falls back to the free grid.
+
+    The answer shape is unchanged: `{label: {"value": text}}`, which is what `InputKind.MAPPING`
+    means and what every other producer sends. A type here is a widget and a hint to the person, not
+    a promise about the wire — `InputField._mapping` accepts strings only.
+    """
+    spec = MAPPING_FIELDS.get((process, field.name))
+    rows, headers = _corpus_table(*spec) if spec else ([], [])
+    if not rows:
+        return None
+    col = {h: i for i, h in enumerate(headers)}
+    answer: dict = {}
+    for group in dict.fromkeys(str(r[col["Group"]]) for r in rows):
+        with st.expander(group, expanded=True):
+            for row in [r for r in rows if str(r[col["Group"]]) == group]:
+                label, kind = str(row[col["Label"]]), str(row[col["Type"]])
+                required = str(row[col.get("Required", 0)]).strip().lower() == "yes"
+                widget_key = f"{key}_{row[col['Field']]}"
+                shown = f"{label}{'' if required else ' (optional)'}"
+                if kind == "yesno":
+                    picked = st.selectbox(shown, ["", "yes", "no"], key=widget_key)
+                else:
+                    picked = st.text_input(shown, key=widget_key,
+                                           help=f"{kind} — used by {row[col['Used by']]}"
+                                           if "Used by" in col else kind)
+                if str(picked).strip():
+                    answer[f"{group} · {label}"] = {"value": str(picked).strip()}
+    return answer
+
+
 def _mapping_editor(process: str, field, key: str) -> dict:
-    """A small label -> value grid. `MAPPING` is a human's answer, not a payload — the contract
-    bounds it, and this offers the shape rather than enforcing it."""
+    """The published fields when the corpus can name them, and a free label/value grid when it
+    cannot. `MAPPING` is a human's answer, not a payload — the contract bounds it, and this offers
+    the shape rather than enforcing it."""
+    typed = _typed_intake(process, field, key)
+    if typed is not None:
+        return typed
     rows = st.session_state.setdefault(key, [{"label": name, "value": ""}
                                              for name in _mapping_labels(process, field.name)]
                                             or [{"label": "", "value": ""}])
@@ -126,6 +252,12 @@ def _field_widget(spec, field) -> object:
     if field.kind is kinds.MAPPING:
         st.caption(f"**{label}** — {field.description}")
         return _mapping_editor(spec.name, field, f"map_{spec.name}_{field.name}")
+    if field.kind is kinds.CHOICE and getattr(field, "choices", ()):
+        # It declared its options and was still rendered as free text, so the one field whose valid
+        # answers are KNOWN was the one most easily got wrong.
+        picked = st.selectbox(label, ["", *field.choices], key=f"in_{spec.name}_{field.name}",
+                              help=field.description)
+        return picked or ""
     return st.text_input(label, key=f"in_{spec.name}_{field.name}", help=field.description)
 
 
@@ -396,9 +528,9 @@ def _run_detail(h):
         if h.get(k):
             st.write(f"**{k}** `{h[k]}`")
 
-    left, right = st.columns([2, 3])
-    with left:
-        st.markdown("**Node timeline**")
+    st.markdown("**Roadmap**")
+    _roadmap_view(h)
+    with st.expander("Node timeline — the executors, for debugging the workflow itself"):
         timeline = [{"": STATUS_ICON.get(n["status"], "•"), "node": n["name"], "status": n["status"],
                      "at": n["ts"][11:19], "elapsed": _fmt_elapsed(n["attrs"].get("elapsed")),
                      "detail": ", ".join(f"{k}={v}" for k, v in n["attrs"].items() if k != "elapsed")}
@@ -407,13 +539,6 @@ def _run_detail(h):
             st.dataframe(timeline, hide_index=True, width="stretch")
         else:
             st.caption("no node reported yet")
-    with right:
-        st.markdown("**Workflow graph**")
-        if h.get("mermaid"):
-            _render_mermaid(_mermaid_with_state(h["mermaid"], _node_states(h)))
-        else:
-            st.caption("no graph stored on this run (the host stores `mermaid` via "
-                       "`lab.workloads.workflowviz.mermaid(workflow)` at start)")
     _node_events(h)
 
 
@@ -759,8 +884,71 @@ def _review_page(reviewer):
     if b3.button("⛔ Decline"): _decide("decline")
 
 
+# ============================================================================ Artifacts mode
+
+
+def _artifacts_page(reviewer):
+    """Admin: replace a reference artifact's master, validated, and STAGE it.
+
+    It cannot publish, and says so. The corpus publisher holds the Ed25519 signing seed, which is
+    deliberately kept out of `.env` and `LAB_ENV` — putting it behind a web session would make the
+    thing that signs the corpus reachable by anyone who reaches this page. So the app does the part
+    that actually prevents a bad corpus (validate, diff, stage) and an operator does the part that
+    needs the key.
+    """
+    st.title("Reference artifacts")
+    st.caption("Upload a replacement master. It is validated and staged; an operator signs and "
+               "releases it. Nothing here changes what a run reads until they do.")
+    names = staging.artifact_names()
+    if not names:
+        st.info("No artifact catalogue available — the publisher's artifact table could not be read.")
+        return
+    artifact_id = st.selectbox("Artifact", names)
+    upload = st.file_uploader("New master (markdown)", type=["md"], key=f"master_{artifact_id}")
+    if upload and st.button("Validate and stage", type="primary"):
+        try:
+            result = staging.stage(artifact_id, upload.getvalue(), actor=reviewer)
+        except staging.StagingError as bad:
+            st.error(f"Refused: {bad}")           # the reason, not just a refusal
+            return
+        st.success(f"Staged {artifact_id}: {result.records} record(s), "
+                   f"{len(result.added)} added, {len(result.removed)} removed, "
+                   f"{len(result.changed)} changed.")
+        for title, rows in (("Added", result.added), ("Removed", result.removed),
+                            ("Changed", result.changed)):
+            if rows:
+                with st.expander(f"{title} — {len(rows)}"):
+                    st.dataframe(rows, use_container_width=True)
+        st.code(f"python -m lab.substrate.reference.publish publish {artifact_id} --from-staged",
+                language="bash")
+    for cand in staging.list_staged():
+        st.caption(f"staged: **{cand['artifact_id']}** by {cand['actor']} at {cand['staged_at']} "
+                   f"— {cand['records']} records")
+
+
 # ============================================================================ page
-PAGES = {"Review": _review_page, "Submit": _submit_page, "Runs": _runs_page}
+#: The dispatch table, and now the authorisation beside it: `name -> (page, roles that may reach it)`.
+#: Together, so a page cannot be added without somebody deciding who it is for — the table was
+#: always the only routing, and a second table of permissions would be a second thing to forget.
+#: An EMPTY role tuple means any signed-in person; it is not the same as "no reader".
+PAGES = {
+    "Review":    (_review_page, (identity.ARCHITECT, identity.BUSINESS)),
+    "Submit":    (_submit_page, (identity.ARCHITECT, identity.BUSINESS)),
+    "Runs":      (_runs_page, identity.ROLES),
+    "Artifacts": (_artifacts_page, (identity.ADMIN,)),
+}
+
+
+def pages_for(principal) -> list:
+    """The pages this person may open, in table order."""
+    return [name for name, (_, roles) in PAGES.items() if principal.holds_any(roles)]
+
+
+def may_open(principal, name: str) -> bool:
+    """Checked again at the point of entry, not only when building the menu. A hidden option is not
+    an authorisation control — the mode is a query parameter anyone can set."""
+    entry = PAGES.get(name)
+    return bool(entry) and principal.holds_any(entry[1])
 
 
 def _announce_build():
@@ -776,21 +964,64 @@ def _announce_build():
         _announce_build.done = True
 
 
+def _principal():
+    """Who is signed in, or None when SSO is not configured.
+
+    Entra when it is configured, and the shared password otherwise — the fallback is deliberate: a
+    half-configured SSO must not half-enable the gate, and "not set up" and "locked out" are
+    different states. `st.stop()` on every path that has not yet produced a principal.
+    """
+    if not identity.configured():
+        return None
+    who = st.session_state.get("principal")
+    if isinstance(who, identity.Principal):
+        return who
+    flow = identity.build()
+    code = st.query_params.get("code")
+    if code:
+        try:
+            who = flow.redeem(code)
+        except identity.SignInError as bad:
+            st.error(f"Sign-in failed: {bad}")
+            st.stop()
+        st.session_state["principal"] = who
+        st.query_params.clear()        # the code is single-use; leaving it on the URL re-redeems it
+        st.rerun()
+    st.title("Architecture Review")
+    st.link_button("Sign in with Microsoft", flow.login_url(state="review"), type="primary")
+    st.stop()
+
+
 def main():
     _announce_build()
     st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
-    if config.REVIEW_APP_PASSWORD:      # minimal gate; production fronts this app with Entra / an identity-aware proxy
-        if st.session_state.get("authed") is not True:
-            pw = st.text_input("Review app password", type="password")
-            if pw == config.REVIEW_APP_PASSWORD:
-                st.session_state["authed"] = True; st.rerun()
+    who = _principal()
+    if who is None:
+        if config.REVIEW_APP_PASSWORD:  # the fallback gate, for a deployment with no SSO configured
+            if st.session_state.get("authed") is not True:
+                pw = st.text_input("Review app password", type="password")
+                if pw == config.REVIEW_APP_PASSWORD:
+                    st.session_state["authed"] = True; st.rerun()
+                st.stop()
+        # the audit log answers "who released this EA-repository write", so the reviewer is never
+        # blank — and on this path it is still self-asserted, which is what SSO exists to end
+        reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer")).strip()
+        if not reviewer:
+            st.sidebar.warning("Enter your name to decide — an approval must carry the human who made it.")
+        offered = list(PAGES)
+    else:
+        reviewer = who.actor
+        st.sidebar.caption(f"**{who.name or reviewer}**  \n{reviewer}")
+        offered = pages_for(who)
+        if not offered:
+            st.warning(f"You are signed in as {reviewer} but hold no role in this app, so there is "
+                       f"nothing here yet. Ask for one of {', '.join(identity.ROLES)} — it is "
+                       f"granted in Entra, under Enterprise applications -> lab-review-app.")
             st.stop()
-    # the audit log answers "who released this EA-repository write", so the reviewer is never blank
-    reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer")).strip()
-    if not reviewer:
-        st.sidebar.warning("Enter your name to decide — an approval must carry the human who made it.")
-    mode = st.sidebar.radio("Mode", list(PAGES), horizontal=True)
-    PAGES[mode](reviewer)
+    mode = st.sidebar.radio("Mode", offered, horizontal=True)
+    if who is not None and not may_open(who, mode):      # not merely hidden
+        st.error(f"{reviewer} may not open {mode}."); st.stop()
+    PAGES[mode][0](reviewer)
 
 
 if __name__ == "__main__":

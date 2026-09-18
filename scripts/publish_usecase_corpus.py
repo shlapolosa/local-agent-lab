@@ -29,7 +29,7 @@ MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: corpus whose artifacts drift apart in version cannot be pinned coherently, and the one time an
 #: artifact was corrected on its own (v0.25.1) the next corpus-wide run silently RE-RELEASED the
 #: older v0.25 over it, because that is the version this script releases.
-VERSION = "v0.28"
+VERSION = "v0.29"
 
 #: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
 #: and differs from the file stem where a consumer already spells it differently.
@@ -75,6 +75,13 @@ ARTIFACTS = {
     "surface-enforceability": ("obligation", "Obligation", "architecture governance"),
     "ai-capability-map": ("capability", "domain,capability", "architecture governance"),
     "capability-domains": ("domain", "domain", "architecture governance"),
+    # The review app's roadmap: the published methodology joined to the implementation's step
+    # numbers, record keys and AGENTS. Derived by scripts/derive_process_step_keys.py, because
+    # `substrate` may not import `workloads` to read `Step.service` directly.
+    "process-step-keys": ("step-key", "Step,Number", "architecture governance"),
+    # The intake GROUPS, split into typed fields so the Submit form is generated from the artifact.
+    # Finance owns them for the same reason it owns the groups they came from.
+    "intake-field-specs": ("intake-field", "Field", "finance"),
     "capability-map-rules": ("capability-rule", "A capability is", "architecture governance"),
     "composition-moves": ("move", "Move", "architecture governance"),
     "tradeoff-catalogue": ("tradeoff", "Conflict", "architecture governance"),
@@ -123,6 +130,9 @@ RETRIEVAL = {
     "determinism-criteria": "whole", "facet-schema": "whole", "facet-schema-defaults": "whole",
     "facet-schema-readers": "whole", "surface-enforceability": "whole",
     "reference-architecture-components": "whole", "intake-fields": "whole",
+    # Both are small complete registers a form or a roadmap reads ENTIRELY — "the relevant rows" of
+    # a process is not a process.
+    "process-step-keys": "whole", "intake-field-specs": "whole",
     # Step 5 matches every function against the WHOLE technology map (74 rows). "The relevant rows"
     # would decide relevance before the step whose job that is — CAFÉ's own rule for a small
     # complete register is to read every record.
