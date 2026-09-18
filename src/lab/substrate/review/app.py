@@ -36,7 +36,7 @@ from lab.platform import config, contracts, runlog, workflows
 from lab.platform.filetypes import content_type_for
 from lab.substrate import approvals
 from lab.substrate.container import build
-from lab.substrate.review import identity, roadmap, staging, traces
+from lab.substrate.review import identity, intake_csv, roadmap, staging, traces
 
 container = build("review-app")
 JAEGER_UI = container.config.jaeger_ui_url().rstrip("/")   # one source for both the link and the reader
@@ -182,6 +182,61 @@ def _record_of(h) -> dict:
         return {}
 
 
+#: A worked example, filled in: the use-case screening agent group assessed as a use case of itself.
+#: Ships in the image (`pyproject.toml` package-data) so the page can hand it over without a network
+#: read. It is an EXAMPLE, not a schema — the schema is the published artifact, and a row of this
+#: file that no longer matches one is reported by the parser like any other unknown field.
+SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "samples", "intake-agent.csv")
+
+
+def _intake_from_csv(rows, headers, key: str) -> None:
+    """Fill the intake from a CSV file instead of twenty-one boxes.
+
+    The template is GENERATED from the same published rows the form is, so it cannot drift from the
+    fields; a stale hand-written column would be indistinguishable from a typo. The upload sets the
+    widgets' own session state and reruns, so what lands is an ordinary filled-in form the person
+    can read and correct — not a hidden payload that bypasses the one surface they can check.
+    """
+    col = {h: i for i, h in enumerate(headers)}
+    with st.expander("📄 Fill this in from a CSV file", expanded=False):
+        left, right = st.columns(2)
+        left.download_button("⬇️ Blank template (.csv)", intake_csv.template(rows, headers),
+                             file_name="intake-template.csv", mime="text/csv",
+                             key=f"{key}_tmpl", use_container_width=True)
+        try:
+            with open(SAMPLE_CSV, "rb") as handle:
+                right.download_button("⬇️ Filled example (.csv)", handle.read(),
+                                      file_name="intake-example.csv", mime="text/csv",
+                                      key=f"{key}_sample", use_container_width=True)
+        except OSError:                    # an example missing is not a submission refused
+            right.caption("no filled example ships with this build")
+        st.caption("Fill the **Value** column and upload it back here. A blank cell means *not answered*; "
+                   "every field is still editable below before you run.")
+        upload = st.file_uploader("Completed intake", type=["csv"], key=f"{key}_csv")
+        if upload is None:
+            return
+        # Apply ONCE per file: this reruns top-to-bottom on every interaction, and re-applying would
+        # silently undo an edit the person made to a field after uploading.
+        stamp = f"{upload.name}:{upload.size}"
+        if st.session_state.get(f"{key}_csv_done") == stamp:
+            return
+        answer, problems = intake_csv.parse(upload.getvalue(), rows, headers)
+        # `Field` is the full "Group · Label" key the parser resolves to, and also the widget key
+        # suffix `_typed_intake` uses — one identity, so the join needs no second convention.
+        kinds = {str(r[col["Field"]]): str(r[col["Type"]]) for r in rows}
+        for label, value in answer.items():
+            text = str(value.get("value", ""))
+            # A yes/no field is a selectbox, and Streamlit refuses a value outside its options.
+            if kinds.get(label) == "yesno" and text.strip().lower() not in ("yes", "no"):
+                problems.append(f"{label}: {text!r} is not yes or no — left blank")
+                continue
+            st.session_state[f"{key}_{label}"] = (text.strip().lower()
+                                                  if kinds.get(label) == "yesno" else text)
+        st.session_state[f"{key}_csv_done"] = stamp
+        st.session_state[f"{key}_csv_note"] = (len(answer), problems)
+        st.rerun()
+
+
 def _typed_intake(process: str, field, key: str) -> dict | None:
     """One input per PUBLISHED field, grouped — or None when the corpus cannot say what the fields
     are, in which case the caller falls back to the free grid.
@@ -194,6 +249,14 @@ def _typed_intake(process: str, field, key: str) -> dict | None:
     rows, headers = _corpus_table(*spec) if spec else ([], [])
     if not rows:
         return None
+    _intake_from_csv(rows, headers, key)
+    filled, problems = st.session_state.pop(f"{key}_csv_note", (0, []))
+    if filled or problems:
+        st.success(f"{filled} field{'' if filled == 1 else 's'} filled in from the CSV")
+        # Named, never dropped: a row that went nowhere is invisible once filtered, and the
+        # submission then arrives short with nothing to explain it.
+        for problem in problems:
+            st.warning(problem)
     col = {h: i for i, h in enumerate(headers)}
     answer: dict = {}
     for group in dict.fromkeys(str(r[col["Group"]]) for r in rows):
