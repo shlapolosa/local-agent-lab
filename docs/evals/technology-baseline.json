@@ -1,42 +1,42 @@
 {
   "recorded": "2026-09-18",
-  "scheme": "healthcare-provider-v2.0",
+  "map": "technology",
   "means": {
     "leaves": {
       "appointment-no-show": {
-        "precision": 0.811,
-        "recall": 0.619,
-        "f1": 0.701,
+        "precision": 0.784,
+        "recall": 0.778,
+        "f1": 0.779,
         "n": 3
       },
       "clock-chat": {
-        "precision": 0.778,
-        "recall": 0.444,
-        "f1": 0.544,
+        "precision": 0.611,
+        "recall": 0.5,
+        "f1": 0.548,
         "n": 3
       },
       "imaging-order-triage": {
-        "precision": 0.6,
-        "recall": 0.3,
-        "f1": 0.4,
+        "precision": 1.0,
+        "recall": 0.6,
+        "f1": 0.749,
         "n": 3
       },
       "intake-agent": {
-        "precision": 0.672,
-        "recall": 0.222,
-        "f1": 0.332,
+        "precision": 0.845,
+        "recall": 0.627,
+        "f1": 0.717,
         "n": 3
       },
       "medication-reconciliation": {
-        "precision": 0.5,
-        "recall": 0.148,
-        "f1": 0.224,
+        "precision": 0.941,
+        "recall": 0.778,
+        "f1": 0.838,
         "n": 3
       },
       "referral-triage": {
-        "precision": 0.648,
-        "recall": 0.571,
-        "f1": 0.603,
+        "precision": 0.863,
+        "recall": 0.833,
+        "f1": 0.838,
         "n": 3
       }
     }

@@ -26,10 +26,35 @@ Walk each function and ask, in order:
 A capability that answers one of those for a named function belongs in the match. A capability that
 answers none of them does not, however well it fits the domain.
 
-**Do not match the capabilities every solution needs.** Identity, observability, the gateway,
-evaluation harnesses, evidence retention, landing zones and the governance baselines are derived
-later from the shape of the workflow, not from any one function. Matching them here adds noise to
-every use case and tells a reader nothing that distinguishes this one.
+**Two things are NOT matched here, and the list is closed.** Only these:
+
+- the cross-cutting GOVERNANCE capabilities — identity, observability, the gateway, evaluation
+  harnesses, evidence retention, landing zones, the baselines and the control-plane rails;
+- the Boundary domain, unless a named function actually crosses it.
+
+They are derived later from the shape of the workflow rather than from any one function, so
+matching them here puts the same noise on every use case.
+
+**Everything else is in scope, and the runtime especially.** The thing that EXECUTES a function, the
+retrieval that grounds it, the surface a tool is invoked through, the store it reads and writes —
+these are not "what every solution needs", they are what THIS function needs, and they are the
+capabilities most often left out. If it reads anything it was not handed, name the retrieval. If it
+calls out to a system, name the invocation surface. Leaving them out because they feel like plumbing
+is the single most common way this step produces a coverage map nobody can build from.
+
+**EVERY solution is an automation. The question is how much of it a model decides.** A solution with
+no model call is fully deterministic; one model call makes it agentic; the larger the share of steps
+a model decides, the more probabilistic it is. So "this is a workflow, not an agent" is never the
+answer — it is a workflow, and the question is which of its steps a model decides.
+
+**Name the agent runtime for any function whose judgement a model makes — always, even if it is the
+only one.** Process automation describes the deterministic spine that moves work between steps. It
+does not host a model call, and nothing governs one through it. The runtime is where agent identity,
+evaluation sized by the step's influence, budget and cost attribution, and data-residency control all
+attach — so a function that classifies, assesses, drafts, interprets or decides by model and carries
+only `Business · Business process automation` has quietly dropped every one of those controls. Name
+both: the automation that sequences the work, and the runtime that executes the step the model
+decides.
 
 **Match the whole map, in one pass.** Every candidate you will see is in front of you now — there is
 no later pass and no branch to open. Breadth is therefore cheap and omission is not: a capability
