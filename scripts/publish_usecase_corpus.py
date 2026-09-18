@@ -29,7 +29,7 @@ MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: corpus whose artifacts drift apart in version cannot be pinned coherently, and the one time an
 #: artifact was corrected on its own (v0.25.1) the next corpus-wide run silently RE-RELEASED the
 #: older v0.25 over it, because that is the version this script releases.
-VERSION = "v0.27"
+VERSION = "v0.28"
 
 #: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
 #: and differs from the file stem where a consumer already spells it differently.
