@@ -1,0 +1,100 @@
+{
+  "active": [
+    {
+      "name": "ward pharmacist",
+      "kind": "role",
+      "provenance": "Problem: 'Pharmacists reconcile these lists by hand'; for_whom: 'Ward pharmacists who perform the reconciliation'."
+    },
+    {
+      "name": "discharging physician",
+      "kind": "role",
+      "provenance": "for_whom: 'discharging physicians'; implied by 'what the ward prescribed' and the discharge decision."
+    },
+    {
+      "name": "patient",
+      "kind": "person",
+      "provenance": "for_whom: 'the discharged patients'; source of 'the patient's own account'; problem: 'what they were taking at home'."
+    },
+    {
+      "name": "community pharmacy",
+      "kind": "organisation",
+      "provenance": "for_whom: 'the patients' community pharmacies'; holder of the community pharmacy record. Whether electronic access to this record exists is an open question in the frame."
+    },
+    {
+      "name": "inpatient prescribing system",
+      "kind": "system",
+      "provenance": "Implied by 'inpatient prescribing records' as the system holding ward prescriptions; not explicitly named in the submission, so existence/details are assumed, not confirmed."
+    },
+    {
+      "name": "accountable owner",
+      "kind": "role",
+      "provenance": "Frame states no owner is named; designation (e.g., head of clinical pharmacy or a named lead pharmacist for discharge reconciliation) remains an open question. Included as a flagged gap, not an invented identification."
+    }
+  ],
+  "behavioural": [
+    {
+      "name": "reconcile medication list",
+      "verb": "reconcile",
+      "object": "medication list",
+      "provenance": "Problem: 'Pharmacists reconcile these lists by hand' and 'ward pharmacists who perform the reconciliation' describe the same function, entered once. Currently manual across the three sources and 'skipped entirely' under time pressure; the sought change is a completed reconciliation for every discharge."
+    },
+    {
+      "name": "retrieve community pharmacy dispensing record",
+      "verb": "retrieve",
+      "object": "dispensing record",
+      "provenance": "Problem: 'community pharmacy record' is one of the three sources consulted by hand."
+    },
+    {
+      "name": "capture patient medication account",
+      "verb": "capture",
+      "object": "medication account",
+      "provenance": "Problem: 'patient's own account' is one of the three sources."
+    },
+    {
+      "name": "retrieve inpatient prescribing record",
+      "verb": "retrieve",
+      "object": "prescribing record",
+      "provenance": "Problem: 'inpatient prescribing records' is the third source."
+    },
+    {
+      "name": "prescribe inpatient medication",
+      "verb": "prescribe",
+      "object": "inpatient medication",
+      "provenance": "Problem: 'what the ward prescribed' and 'inpatient prescribing records'."
+    },
+    {
+      "name": "issue discharge medication list",
+      "verb": "issue",
+      "object": "discharge medication list",
+      "provenance": "Problem: 'Patients are discharged with medication lists'; expected change: the discharge list must agree with the pre-admission history and the inpatient prescriptions."
+    },
+    {
+      "name": "discharge patient",
+      "verb": "discharge",
+      "object": "patient",
+      "provenance": "Problem: 'Patients are discharged'; for_whom: 'discharging physicians'."
+    }
+  ],
+  "passive": [
+    {
+      "name": "discharge medication list",
+      "provenance": "Problem: 'medication lists that disagree with what they were taking at home and with what the ward prescribed'; expected change: 'the discharge list'. The object reconciliation acts on."
+    },
+    {
+      "name": "community pharmacy dispensing record",
+      "provenance": "Problem: 'community pharmacy record'; frame open question: 'community pharmacy dispensing records' and whether electronic access exists."
+    },
+    {
+      "name": "patient medication account",
+      "provenance": "Problem: 'patient's own account'."
+    },
+    {
+      "name": "inpatient prescribing record",
+      "provenance": "Problem: 'inpatient prescribing records'; expected change: 'the inpatient prescriptions'."
+    },
+    {
+      "name": "pre-admission medication history",
+      "provenance": "Expected change: 'the pre-admission medication history'; corresponds to 'what they were taking at home'."
+    }
+  ]
+}

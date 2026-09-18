@@ -1,0 +1,161 @@
+{
+  "active": [
+    {
+      "name": "architect",
+      "kind": "role",
+      "provenance": "for_whom ('architects responsible for assessing AI use cases'); expected_change ('one architect review of a finished assessment'). The assessing architect in the current state and the reviewing architect in the target state are treated as the same role; the open question on override authority does not indicate a distinct second role."
+    },
+    {
+      "name": "business team",
+      "kind": "organisation",
+      "provenance": "for_whom ('submitting business teams whose proposals wait days for verdicts'); problem ('AI use cases submitted by business teams')."
+    },
+    {
+      "name": "use-case intake / assessment function",
+      "kind": "organisation",
+      "provenance": "for_whom ('the use-case intake / assessment function')."
+    },
+    {
+      "name": "assessment system (unnamed)",
+      "kind": "system",
+      "provenance": "Implied, not named anywhere in the frame: expected_change requires 'a finished assessment' to exist before architect review and architect-days per submission to fall to one review, which requires a non-human performer of the derivations. Its name, boundary and even whether building it is in scope are unstated."
+    },
+    {
+      "name": "accountable owner (not named)",
+      "kind": "role",
+      "provenance": "accountable_owner: no individual identified; 'the plausible seat is the chief or lead architect accountable for AI use-case assessment, to be confirmed'. Included as an unresolved required performer, not as a confirmed element."
+    }
+  ],
+  "behavioural": [
+    {
+      "name": "assess use case",
+      "verb": "assess",
+      "object": "use case",
+      "provenance": "problem ('Assessing a submitted AI use case properly is manual work'). Parent function of the individual derivations listed separately."
+    },
+    {
+      "name": "submit use case",
+      "verb": "submit",
+      "object": "use case",
+      "provenance": "for_whom / problem ('AI use cases submitted by business teams')."
+    },
+    {
+      "name": "screen feasibility",
+      "verb": "screen",
+      "object": "feasibility",
+      "provenance": "open_questions ('submissions that fail the feasibility screen'). Not described elsewhere in the frame; its existence is only attested by the open question."
+    },
+    {
+      "name": "match capability",
+      "verb": "match",
+      "object": "capability",
+      "provenance": "problem ('capability match')."
+    },
+    {
+      "name": "check semantics",
+      "verb": "check",
+      "object": "semantics",
+      "provenance": "problem ('semantic check')."
+    },
+    {
+      "name": "decompose workflow",
+      "verb": "decompose",
+      "object": "workflow",
+      "provenance": "problem ('workflow decomposition')."
+    },
+    {
+      "name": "classify risk",
+      "verb": "classify",
+      "object": "risk",
+      "provenance": "problem ('risk classification'); expected_change ('risk classification')."
+    },
+    {
+      "name": "derive control requirements",
+      "verb": "derive",
+      "object": "control requirements",
+      "provenance": "problem ('control derivation', 'controls nobody derived'); expected_change ('derived control requirement set')."
+    },
+    {
+      "name": "derive architecture",
+      "verb": "derive",
+      "object": "architecture",
+      "provenance": "problem ('architecture' listed among the derivations); expected_change ('architecture')."
+    },
+    {
+      "name": "produce costed model",
+      "verb": "produce",
+      "object": "costed model",
+      "provenance": "expected_change ('costed model')."
+    },
+    {
+      "name": "produce business case",
+      "verb": "produce",
+      "object": "business case",
+      "provenance": "expected_change ('a business case ... quantified benefit weighed against Year-1 investment'). Benefit quantification and the benefit-versus-investment weighing are treated as parts of this function, not separate functions."
+    },
+    {
+      "name": "recommend verdict",
+      "verb": "recommend",
+      "object": "verdict",
+      "provenance": "expected_change ('explicit proceed / proceed-with-conditions / defer recommendation', 'verdicts become reproducible'). Whether the recommendation is itself the decision or subject to a separate decision authority is unresolved \u2014 open question on override and final decision authority."
+    },
+    {
+      "name": "review assessment",
+      "verb": "review",
+      "object": "assessment",
+      "provenance": "expected_change ('one architect review of a finished assessment')."
+    },
+    {
+      "name": "stop design",
+      "verb": "stop",
+      "object": "design",
+      "provenance": "expected_change ('designs whose cost exceeds their benefit are stopped at the decision point instead of being built')."
+    }
+  ],
+  "passive": [
+    {
+      "name": "use case submission",
+      "provenance": "problem / for_whom: the AI use case submitted by a business team; the object of assess, submit and screen."
+    },
+    {
+      "name": "capability",
+      "provenance": "problem ('capability match')."
+    },
+    {
+      "name": "workflow",
+      "provenance": "problem ('workflow decomposition')."
+    },
+    {
+      "name": "risk classification",
+      "provenance": "problem; expected_change (component of the 'complete derivation set')."
+    },
+    {
+      "name": "control requirement set",
+      "provenance": "expected_change ('derived control requirement set'); problem ('controls nobody derived')."
+    },
+    {
+      "name": "architecture",
+      "provenance": "problem; expected_change (component of the derivation set)."
+    },
+    {
+      "name": "costed model",
+      "provenance": "expected_change (component of the derivation set)."
+    },
+    {
+      "name": "business case",
+      "provenance": "expected_change; contains the quantified benefit and the Year-1 investment it is weighed against."
+    },
+    {
+      "name": "verdict",
+      "provenance": "expected_change: the proceed / proceed-with-conditions / defer recommendation; for_whom ('verdicts that differ depending on which architect assesses them')."
+    },
+    {
+      "name": "assessment",
+      "provenance": "expected_change ('a finished assessment'); the complete output reviewed by the architect, comprising the derivation set, business case and verdict."
+    },
+    {
+      "name": "design",
+      "provenance": "expected_change ('designs whose cost exceeds their benefit are stopped', 'comparable across designs'). Its relationship to the use case submission is not clarified in the frame."
+    }
+  ]
+}

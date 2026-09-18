@@ -1,0 +1,108 @@
+{
+  "active": [
+    {
+      "name": "triage nurse",
+      "kind": "role",
+      "provenance": "a nurse must read each one, judge its urgency, assign a specialty, and book a slot; also 'urgency is judged by whichever nurse happens to pick the letter up'. Whether this is a dedicated team or rotating staff is an open question."
+    },
+    {
+      "name": "referring GP",
+      "kind": "role",
+      "provenance": "GP referrals arrive as unstructured letters and faxes; the GP (and their practice) is the external sender."
+    },
+    {
+      "name": "shared clinical inbox",
+      "kind": "system",
+      "provenance": "referrals arrive as unstructured letters and faxes into a shared clinical inbox."
+    },
+    {
+      "name": "senior nurse / clinical lead (accountable owner)",
+      "kind": "role",
+      "provenance": "not named in the submission; inferred as the natural owner of the shared-inbox triage service. A named individual must be confirmed \u2014 this is an unverified identification, not a fact from the submission."
+    }
+  ],
+  "behavioural": [
+    {
+      "name": "submit referral",
+      "verb": "submit",
+      "object": "referral",
+      "provenance": "GP referrals arrive as unstructured letters and faxes \u2014 the sending side of 'arrive'."
+    },
+    {
+      "name": "receive referral",
+      "verb": "receive",
+      "object": "referral",
+      "provenance": "referrals arrive into a shared clinical inbox."
+    },
+    {
+      "name": "read referral",
+      "verb": "read",
+      "object": "referral",
+      "provenance": "a nurse must read each one."
+    },
+    {
+      "name": "assess urgency",
+      "verb": "assess",
+      "object": "urgency",
+      "provenance": "judge its urgency; also 'urgency is judged by whichever nurse happens to pick the letter up' \u2014 same function, one entry."
+    },
+    {
+      "name": "assign specialty",
+      "verb": "assign",
+      "object": "specialty",
+      "provenance": "assign a specialty."
+    },
+    {
+      "name": "book appointment slot",
+      "verb": "book",
+      "object": "appointment slot",
+      "provenance": "and book a slot."
+    },
+    {
+      "name": "record urgency rationale",
+      "verb": "record",
+      "object": "urgency rationale",
+      "provenance": "expected change: every referral carries a recorded reason for its urgency band \u2014 currently absent ('no recorded rationale')."
+    },
+    {
+      "name": "surface red-flag symptoms",
+      "verb": "surface",
+      "object": "red-flag symptom",
+      "provenance": "expected change: red-flag symptoms are surfaced explicitly rather than depending on who happened to read the letter."
+    }
+  ],
+  "passive": [
+    {
+      "name": "referral",
+      "provenance": "GP referrals; takes the physical form of unstructured letters and faxes. Includes two-week-wait cancer referrals as a critical sub-type."
+    },
+    {
+      "name": "urgency band",
+      "provenance": "its urgency band; urgency is mis-assigned today (e.g. two-week-wait cancer referrals found in the routine queue). The defined bands themselves are an open question."
+    },
+    {
+      "name": "specialty",
+      "provenance": "assign a specialty; which specialties are in scope is an open question."
+    },
+    {
+      "name": "appointment slot",
+      "provenance": "book a slot."
+    },
+    {
+      "name": "urgency rationale",
+      "provenance": "a recorded reason for its urgency band; does not exist today."
+    },
+    {
+      "name": "red-flag symptom",
+      "provenance": "red-flag symptoms to be surfaced explicitly."
+    },
+    {
+      "name": "referral queue",
+      "provenance": "the manual queue running eleven days behind, including the routine queue where cancer referrals were found sitting."
+    },
+    {
+      "name": "triage protocol",
+      "provenance": "open question: whether a written triage/urgency-banding protocol exists that recorded reasons must follow. Existence unconfirmed \u2014 included as a candidate object, not an established one."
+    }
+  ]
+}

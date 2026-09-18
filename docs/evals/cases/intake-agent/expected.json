@@ -1,0 +1,20 @@
+{
+  "status": "FROZEN — the pre-registered bar, drafted before any matcher output was read",
+  "map": "technology",
+  "applicable": [
+    "Application · Approval action",
+    "Business · Capability map / value streams",
+    "Cognitive · Agent SDK / framework",
+    "Cognitive · Custom-engine agent runtime",
+    "Cognitive · Structured-output enforcement",
+    "Cognitive · Tool surface / MCP registry",
+    "Cross-cutting · Gate decision and approval evidence store",
+    "Data · Agent state / durable memory",
+    "Data · Operational data store",
+    "Knowledge · Agentic retrieval",
+    "Semantic · Business glossary",
+    "Semantic · Ontology (entities, rules)"
+  ],
+  "notes": "PROPOSED, drafted 18 Sep 2026 — NOT yet reviewed by an architect. Scope: the technology capabilities the use case's own FUNCTIONS demand. Cross-cutting capabilities every solution needs (identity, observability, the gateway, evaluation, evidence retention) are deliberately excluded: they are derived by the composition as unconditional families, not matched from a behavioural element, and including them would make every case's expected set largely identical and inflate recall for free.",
+  "lock": "FROZEN 18 Sep 2026. This set is the BAR and is never edited after reading a result — adding what the matcher returned raises precision and recall arithmetically, which is the textbook way to inflate a score, and it happened here: a widening on 18 Sep moved recall +0.05 and precision +0.24 while measuring nothing. A set that is wrong is re-derived BLIND from submission.md alone, with no results open, or by an architect — never reconciled against the output it exists to judge."
+}

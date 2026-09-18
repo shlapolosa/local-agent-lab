@@ -16,14 +16,19 @@ A CASE is a directory holding:
     expected.json   {"applicable": ["Capability A", ...], "notes": "..."} — the capabilities a
                     human says this use case genuinely exercises.
 
-**`expected.json` is the whole point and the only part that cannot be automated.** Precision and
-recall are meaningless against a denominator a model invented; the earlier ad-hoc comparison had to
-pool both matchers' outputs and adjudicate them, which can only ever measure which found more of
-what one of them found. A fixed, human-reviewed set measures what they MISS.
+**`expected.json` is the whole point, the only part that cannot be automated, and it is FROZEN.**
+Precision and recall are meaningless against a denominator a model invented. They are equally
+meaningless against one EDITED after reading a result: adding what the matcher returned raises both
+metrics arithmetically, and on 18 Sep 2026 exactly that happened here — a widening moved recall
++0.05 and precision +0.24 while measuring nothing at all. The rule, stated so it is not rediscovered:
+**a set is never reconciled against the output it exists to judge.** One that is wrong is re-derived
+BLIND, from `submission.md` alone with no results open, or by an architect.
 
-**Cases live outside the repository.** The capability labels come from a licensed reference model
-and this repository is public, so an expected set naming them is derived content that cannot be
-committed. `var/` is git-ignored; `--cases` points wherever the tenant keeps them.
+**Cases live IN the repository** (`docs/evals/cases`, the `--cases` default). They used to sit under
+git-ignored `var/` because the expected sets named a licensed reference model. They no longer do —
+the business capability maps are retired and the technology map is the framework's own, already
+committed as seed — so the bar is versioned, and a change to it shows up in a diff instead of
+happening quietly on one machine.
 
 Exempt from TDD as a script, but it decides what ships, so its scoring is deliberately dull
 arithmetic over sets and every number it prints can be recomputed from the JSON it writes.
@@ -321,7 +326,8 @@ def report(results: dict, runs: int) -> int:
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cases", default="var/eval/coverage", help="directory of case directories")
+    ap.add_argument("--cases", default="docs/evals/cases",
+                    help="directory of case directories; the default is the versioned bar")
     ap.add_argument("--matcher", action="append", choices=sorted(coverage.MATCHERS),
                     help="repeatable; default is every matcher")
     ap.add_argument("--runs", type=int, default=3, help="repeats per matcher per case")
