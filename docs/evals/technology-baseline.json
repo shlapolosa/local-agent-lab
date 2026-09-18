@@ -4,36 +4,41 @@
   "means": {
     "leaves": {
       "appointment-no-show": {
-        "precision": 0.753,
-        "recall": 0.818,
-        "f1": 0.782,
+        "precision": 0.832,
+        "recall": 0.879,
+        "f1": 0.852,
         "n": 3
       },
       "imaging-order-triage": {
-        "precision": 0.85,
-        "recall": 0.756,
-        "f1": 0.8,
+        "precision": 0.797,
+        "recall": 0.711,
+        "f1": 0.743,
         "n": 3
       },
       "intake-agent": {
-        "precision": 0.844,
-        "recall": 0.647,
-        "f1": 0.731,
+        "precision": 0.819,
+        "recall": 0.784,
+        "f1": 0.799,
         "n": 3
       },
       "medication-reconciliation": {
-        "precision": 0.923,
-        "recall": 0.714,
-        "f1": 0.79,
+        "precision": 0.9,
+        "recall": 0.643,
+        "f1": 0.75,
+        "n": 3
+      },
+      "policy-qa": {
+        "precision": 0.523,
+        "recall": 0.778,
+        "f1": 0.624,
         "n": 3
       },
       "referral-triage": {
-        "precision": 0.905,
-        "recall": 0.879,
-        "f1": 0.889,
+        "precision": 0.963,
+        "recall": 0.788,
+        "f1": 0.859,
         "n": 3
       }
     }
-  },
-  "note": "clock-chat removed 18 Sep 2026, replaced by policy-qa. Its entry is dropped rather than kept: `regressions()` ignores a baseline pair the current run never attempted, so a stale pair for a DELETED case would sit here indefinitely looking like a case nobody runs. policy-qa has no entry yet \u2014 a baseline is recorded from a run, never written by hand."
+  }
 }
