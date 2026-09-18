@@ -15,49 +15,47 @@ The corpus does assert a chain, in two published hops:
 So a component carries family F when it realises a capability that enforces one of F's guardrails.
 That is the reference architecture's own reasoning, followed rather than summarised.
 
-It is PARTIAL by nature, and the partiality is the point: only ten of twenty-six guardrails name a
-capability, so some families resolve to no component at all — not because nothing realises them, but
-because the corpus does not say. `unclaimed()` names exactly those, and the rule that consumes this
-stays silent about them. A derivation that guessed the rest would be the authored column again,
-wearing a join.
+It is PARTIAL by nature, and the partiality is the point: a family whose guardrails reach no
+capability resolves to no component — not because nothing realises it, but because the corpus does
+not say. `unclaimed()` names exactly those, and the rule that consumes this stays silent about them.
+A derivation that guessed the rest would be the authored column again, wearing a join.
+
+**The partiality had a second cause nobody had separated, measured 18 Sep 2026: 20 of the 24 live
+guardrails named an enforcement point that resolved to NO row in the map** — nine were label drift
+against a row that existed, eleven named a control capability the map lacked, and two were prose.
+`unclaimed()` reported all of them as corpus silence, which is indistinguishable from a typo, so the
+join looked partial-by-design when it was mostly broken. `tests/governance/test_guardrail_bindings_
+resolve.py` now refuses a dangling reference, and silence means silence again.
 """
 from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from lab.core.usecase import capabilities, enforcement
+
 __all__ = ["by_component", "of_component", "unclaimed"]
 
-
-def _list(value) -> list[str]:
-    if isinstance(value, (list, tuple)):
-        return [str(v).strip() for v in value if str(v).strip()]
-    return [v.strip() for v in str(value or "").replace(",", ";").split(";") if v.strip()]
-
-
-def _capability_key(row: Mapping[str, Any]) -> str:
-    return f'{str(row.get("domain", "")).strip()} · {str(row.get("capability", "")).strip()}'.strip(" ·")
-
-
-def _components_by_capability(capability_map: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {}
-    for row in capability_map or ():
-        if isinstance(row, Mapping):
-            out.setdefault(_capability_key(row), []).extend(_list(row.get("components")))
-    return out
+# The join key and the reference split live in `lab.core.usecase.capabilities` — the binding and the
+# governance check that refuses a dangling reference need the IDENTICAL spelling, and two spellings
+# of a join key is exactly the defect that check exists to catch.
+_list = capabilities.refs
+_capability_key = capabilities.key
 
 
 def _components_of_guardrail(guardrails: Iterable[Mapping[str, Any]],
                              capability_map: Iterable[Mapping[str, Any]]) -> dict[str, set[str]]:
-    by_capability = _components_by_capability(capability_map)
-    out: dict[str, set[str]] = {}
-    for row in guardrails or ():
-        if not isinstance(row, Mapping) or not row.get("id"):
-            continue
-        found: set[str] = set()
-        for name in _list(row.get("cap")):
-            found |= set(by_capability.get(name, ()))
-        out[str(row["id"]).strip()] = found
-    return out
+    """guardrail -> the components that could enforce it.
+
+    The two hops themselves live in `lab.core.usecase.enforcement.candidates` — this module had its
+    own line-for-line copy, and the CHAIN drifting apart is exactly the failure the join key was
+    hoisted to prevent one level down. Only the shape differs: a family join wants sets.
+
+    `or []` here and not at the caller: a family join over an absent corpus is the SILENCE this
+    module exists to report, whereas an obligation binding over one is a false accusation, which is
+    why `candidates` refuses a None and this does not.
+    """
+    return {g: set(c) for g, c in enforcement.candidates(guardrails or [],
+                                                         capability_map or []).items()}
 
 
 def by_component(enforcement: Mapping[str, Any], guardrails: Iterable[Mapping[str, Any]],

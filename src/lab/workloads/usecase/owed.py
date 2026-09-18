@@ -31,9 +31,22 @@ def owed(package: Mapping[str, Any]) -> list[str]:
     views = package.get("views") or {}
     out: list[str] = []
 
-    for guardrail in _list(composition.get("unbound")):
-        out.append(f"{guardrail} is required by this design and resolved to NO enforcement point — "
+    # Composition move 5 FIRST: an obligation nothing in the deployment enforces. The two ways it
+    # can fail have different owners and the reviewer is who acts on the difference.
+    binding = package.get("enforcement") or {}
+    for guardrail in _list(binding.get("unbound")):
+        out.append(f"{guardrail} is required by this design and NO SELECTED COMPONENT enforces it — "
                    f"an obligation nobody enforces is the one failure this assessment exists to stop")
+    if _list(binding.get("unenforceable")):
+        out.append(f"{', '.join(_list(binding['unenforceable']))}: the pinned corpus binds these to "
+                   f"no component at all — a gap in the framework, not in this design, and no "
+                   f"selection here can close it")
+    # Move 3, and it says so. A family is a SHAPE; an obligation covered by a present family may
+    # still have nothing enforcing it, so calling this "no enforcement point" told a reviewer a
+    # stronger thing than the data supported while the real answer above sat unread in the package.
+    for guardrail in _list(composition.get("unbound")):
+        out.append(f"{guardrail} is required by this design and no family this composition "
+                   f"requires carries it")
     for violation in (package.get("obligations") or {}).get("violations") or ():
         if isinstance(violation, Mapping):
             out.append(f'step {violation.get("step")}: {violation.get("reason")}')
@@ -63,7 +76,11 @@ def counts(package: Mapping[str, Any]) -> dict:
     selected = (package.get("component_selection") or {}).get("selected") or []
     model = package.get("model") or {}
     priced = len(selected) - len(cost.get("gap_flags") or ())
+    binding = package.get("enforcement")
     return {"owed": owed(package),
+            # M4's exit test, as one word. None for a package staged before the binding existed —
+            # those approvals stay open, and False would accuse them of something never checked.
+            "obligations_bound": (None if binding is None else bool(binding.get("complete"))),
             "recommendation": recommendation.get("verdict", ""),
             # The run cost covers the components the price catalogue carries. Presenting a figure
             # that priced five of sixteen as "the cost" is the same failure as a summary that says

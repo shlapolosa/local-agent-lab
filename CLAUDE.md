@@ -1351,6 +1351,37 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   every read still lands in `ref_consumption`. What it forgoes is the gateway's metering and span
   for those reads; routing them through the gateway would mean a virtual key per substrate server —
   deliberately not done yet, recorded here so the rule erodes by decision and not by accident.
+- **"Capability map" is BANNED unqualified — there are two, answering different questions**
+  (`docs/decisions/2026-09-18-two-capability-maps.md`, 18 Sep 2026). The **business** map
+  (`healthcare-provider-v2.0`, matched at L3 by a MODEL) answers *what ability does this exercise*;
+  the **technology** map (`ai-capability-map`, CAFÉ M4, 2 levels) answers *how would we do it*.
+  Measured: **836 of the business map's 1,042 L3 concepts — 80% — name nothing clinical**, and a
+  negative-control chat bot that tells the time matched it 3-4 times on every run with entries whose
+  definitions are literally true of it. So **a business-capability match is a classification, not a
+  justification**: it may inform a gate and a prompt, and must never on its own select a component,
+  attach a guardrail or price anything. Identity matters on the technology map (guardrails and cost
+  dispatch on it, so that path is an exact key join with an id gate, G04) and does NOT on the
+  business map (no consumer distinguishes siblings) — so near-synonym choice there is not a defect
+  and must not be scored as one. Two labels are acceptable substitutes when **nothing downstream can
+  tell them apart**, a property of the CODE; two siblings no consumer distinguishes carry no
+  information, which is a defect in the MAP. The matching GRAIN belongs to the map —
+  `coverage.leaves` takes `deepest` as a parameter because the constant silently returns zero
+  candidates against a shallower map, and zero candidates reads downstream as "nothing is relevant"
+  (`match`/`resolve` forward it now; they did not, so every live run matched at the constant 3).
+  **Step 5 matches the TECHNOLOGY map** (18 Sep 2026): `ai-capability-map` + `capability-domains`,
+  read WHOLE from the corpus under the pin, projected by `lab.core.usecase.capabilities.concepts` —
+  74 candidates, ~5,700 tokens, so `leaves` needs no retrieval. **The concept id IS the natural key
+  `"Domain · Capability"`**, so a match reaches its guardrails and its components with no further
+  resolution. The business map is retired behind `config.BUSINESS_CAPABILITY_SCHEME` (empty), step 5
+  records a declared default without one, and `Feasibility.ESCALATE` asks a human rather than
+  rejecting every use case for a map nobody published. **Guardrail bindings**: `guardrails.cap` ->
+  a capability -> its components is checked with NO ratchet by
+  `tests/governance/test_guardrail_bindings_resolve.py` (20 of 24 dangled until 18 Sep 2026, reported
+  by `families.unclaimed()` as corpus silence and therefore invisible); composition move 5 —
+  obligation bound to a SELECTED component — is `lab.core.usecase.enforcement`, keeping `unbound`
+  (the design's fault) apart from `unenforceable` (the corpus's). **Artifact content never lives in
+  code**: `tests/governance/test_no_artifact_content_in_code.py` ratchets the seeding scripts'
+  translation tables downward — put the fact in the CAFÉ artifact, where its author owns it.
 - **The capability map is read from the corpus, searched through a store, matched three ways.**
   Screening pins its map (`VectorStores.for_scheme(SCHEME)` = the artifact id), fetches L1 and L3
   rows under the pin (`id, parent, level, label, path`) and hands the matchers two SEAMS —

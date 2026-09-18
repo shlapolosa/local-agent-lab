@@ -123,6 +123,10 @@ RETRIEVAL = {
     "determinism-criteria": "whole", "facet-schema": "whole", "facet-schema-defaults": "whole",
     "facet-schema-readers": "whole", "surface-enforceability": "whole",
     "reference-architecture-components": "whole", "intake-fields": "whole",
+    # Step 5 matches every function against the WHOLE technology map (74 rows). "The relevant rows"
+    # would decide relevance before the step whose job that is — CAFÉ's own rule for a small
+    # complete register is to read every record.
+    "ai-capability-map": "whole",
     "capability-domains": "whole", "criticality-taxonomy": "whole", "readiness-gates": "whole",
 }
 

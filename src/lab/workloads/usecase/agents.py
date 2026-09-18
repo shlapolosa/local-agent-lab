@@ -34,6 +34,9 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     "frame": ("submission",),
     "elements": ("frame",),
     "coverage_map": ("elements", "capabilities"),
+    # The translation before the search: the functions, and a SAMPLE of the map so the abilities
+    # are written in its register rather than in the submission's.
+    "capability_query": ("elements", "register"),
     "realisation_match": ("elements", "landscape"),
     "criticality_band": ("frame",),
     "quality_attributes": ("coverage_map", "service_levels"),
@@ -53,6 +56,14 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     "component_selection": ("obligations", "quality_attributes", "realisation_match",
                             "ai_capability_map", "component_catalogue", "build_surface",
                             "model_summary",
+                            # WHICH technology capabilities this use case needs — step 5's own
+                            # output, now that it matches the technology map. Its `capability_id`
+                            # is the map's natural key, so selection starts from the capabilities
+                            # the functions actually demanded rather than from the whole catalogue.
+                            "coverage_map",
+                            # What each catalogue component could ENFORCE, so an obligation is
+                            # carried by a deliberate choice rather than caught by the gate after.
+                            "enforcement_points",
                             # What each catalogue component would SATISFY of this design's required
                             # families, derived from the published chain — the information the
                             # selection is then held to.

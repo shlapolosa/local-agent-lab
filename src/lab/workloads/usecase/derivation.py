@@ -43,6 +43,11 @@ class Derivation:
     derived: dict[str, Any] = field(default_factory=dict)
     pending: dict[str, str] = field(default_factory=dict)
     defaulted: dict[str, str] = field(default_factory=dict)   # step number -> what stood in, and why
+    #: What a multi-stage step SHOWED its agent, for measurement rather than for the record. A
+    #: chooser cannot return what retrieval never put in front of it, so the candidate set is the
+    #: ceiling on every number downstream of it — and a pipeline scored only end-to-end cannot say
+    #: which stage lost the answer.
+    candidates: list = field(default_factory=list)
 
     def record(self, key: str, out: Any, number: str = "") -> None:
         """A derived output, immediately readable by the steps after it. The invariant, in one

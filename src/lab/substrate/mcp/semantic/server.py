@@ -243,8 +243,11 @@ def semantic_render_cafe(spec: dict | str | None = None, basename: str = "soluti
     span().set_attributes({"semantic.cafe.placed": len(out["placed"]),
                            "semantic.cafe.unplaced": len(out["unplaced"]),
                            "semantic.cafe.violations": out["violations"]})
+    # `catalogued` and `edges` travel too: they are how a reader tells a drawn architecture from a
+    # parts list without opening the file, and the design records them on its views block.
     return {"drawio_ref": drawio_ref, "svg_ref": svg_ref, "placed": out["placed"],
-            "unplaced": out["unplaced"], "violations": out["violations"], "warnings": out["warnings"]}
+            "unplaced": out["unplaced"], "catalogued": out["catalogued"], "edges": out["edges"],
+            "violations": out["violations"], "warnings": out["warnings"]}
 
 
 @server.tool()

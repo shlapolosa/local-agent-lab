@@ -26,6 +26,7 @@ from __future__ import annotations
 import traceback
 from typing import Any, Callable, Mapping
 
+from lab.core.usecase import capabilities
 from lab.workloads import ids
 from lab.workloads.usecase.model import Model
 
@@ -120,15 +121,49 @@ def _elements(out, model, pool):
             model.rel("Access", bf, f"bo-{obj}")
 
 
+def _service_id(ident: str) -> str:
+    """The ApplicationService id for a technology capability — ONE spelling.
+
+    This is the join between the two halves of the design, and it was written out twice: once where
+    the service is made and once where a selected component looks for it. That is the same defect
+    the join key itself was hoisted into `lab.core.usecase.capabilities` to remove, one level up,
+    and its failure mode is silent — the component quietly becomes an ApplicationFunction instead
+    and the package holds two disconnected clouds of boxes.
+    """
+    return f"svc-{ids.slug(ident)}"
+
+
 def _coverage_map(out, model, pool):
+    """A matched capability, at the ArchiMate layer its MAP belongs to.
+
+    A **technology** capability is an ability of the solution — `ApplicationService`, exposed by the
+    estate and SERVING the business function that needed it. A **business** capability is an ability
+    of the enterprise — Strategy-layer `Capability`, REALIZED by the function that delivers it. The
+    direction reverses with the layer, and both readings are wrong in the other's place: a business
+    function does not realize Microsoft Foundry, and the enterprise does not possess "Agentic
+    retrieval".
+
+    Which one a match came from is told by the id (`capabilities.is_key`): the technology map is
+    keyed "Domain · Capability", the business map by a synthetic content id. The business branch is
+    dormant today — that map is retired until this enterprise publishes its own — and stays here so
+    reinstating it is a setting rather than a rewrite.
+    """
     for m in out.get("matched") or []:
         cap_id = _s(m.get("capability_id"))
         if not cap_id:
             continue
-        cap = model.el(cap_id, "Capability", _s(m.get("capability_label")) or cap_id,
-                       props={"level": m.get("level"), "confidence": _s(m.get("confidence")),
-                              "path": " / ".join(as_list(m.get("path")))})
+        label = _s(m.get("capability_label")) or cap_id
+        shared = {"level": m.get("level"), "confidence": _s(m.get("confidence")),
+                  "path": " / ".join(as_list(m.get("path")))}
         bf = _bf(model, _s(m.get("function")))
+        if capabilities.is_key(cap_id):
+            domain = cap_id.split(capabilities.SEP)[0]
+            cap = model.el(_service_id(cap_id), "ApplicationService", label,
+                           props={**shared, "cafe.capability": cap_id, "cafe.domain": domain})
+            if bf:
+                model.rel("Serving", cap, bf)
+            continue
+        cap = model.el(cap_id, "Capability", label, props=shared)
         if bf:
             model.rel("Realization", bf, cap)
     heat = out.get("heat_map") or {}
@@ -331,8 +366,27 @@ def _component_selection(out, model, pool):
             model.rel("Aggregation", model.el(f"zone-{ids.slug(zone)}", "Grouping", zone, props={"cafe.zone": zone}), ac)
         else:
             model.rel("Aggregation", root, ac)
+        # The join between the two halves of the design. Step 5 names the technology capability the
+        # use case needs; step 21 names the component that provides it; both write the map's own
+        # key, so the component REALISES the service that serves the business function — one chain
+        # rather than two disconnected clouds of boxes.
+        #
+        # When that service exists, it IS the capability and no ApplicationFunction is made for it:
+        # a second box under the same name, one holding the label and one the raw key, is the same
+        # thing drawn twice. The ApplicationFunction stays for the other case — a `capability` that
+        # is free text rather than a map key, which a service was never created for.
         capability = _s(c.get("capability"))
-        if ids.slug(capability):
+        service = _service_id(capability)
+        if capabilities.is_key(capability) and service in model.elements:
+            model.rel("Realization", ac, service)
+        elif capabilities.is_key(capability):
+            # A map key with no service: step 5 defaulted, deferred, or matched a different
+            # capability. RECORDED, because the alternative is falling through to an
+            # ApplicationFunction and leaving the component unattached to anything with no warning.
+            model.dropped.append({"mapper": "component_selection", "component": cid,
+                                  "capability": capability,
+                                  "why": "no matched capability to realise — step 5 did not offer it"})
+        elif ids.slug(capability):
             model.rel("Assignment", ac, model.el(f"af-{ids.slug(capability)}", "ApplicationFunction", capability))
         for fam in families:
             model.rel("Aggregation", model.el(f"fam-{ids.slug(fam)}", "Grouping", fam, props={"family": fam}), ac)
@@ -413,7 +467,13 @@ MAPPERS: dict[str, Mapper] = {
 #: Agent steps whose output is EVIDENCE for a governed derivation rather than architecture: the
 #: derivation's own output (`benefit`) is what the model carries. Named so the parity test can say
 #: which steps are deliberately unmapped instead of any step being silently so.
-UNMAPPED = frozenset({"benefit_inputs"})
+#: Derived keys with deliberately no mapper. `benefit_inputs` is arithmetic the model says nothing
+#: about; `enforcement_points` is a cached corpus JOIN (guardrail -> the components that could
+#: enforce it) recorded so step 21 can be shown it and its gate can bind against exactly that — it
+#: describes the catalogue, not this design, and drawing it would put every candidate component in
+#: the picture. `enforcement` — what this design actually bound — IS mapped, through the
+#: constraints the selected components realise.
+UNMAPPED = frozenset({"benefit_inputs", "enforcement_points"})
 
 
 def apply(step_key: str, out: Any, model: Model, pool: Mapping[str, Any]) -> bool:

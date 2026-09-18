@@ -49,9 +49,9 @@ import json
 from typing import Any, Callable, Mapping
 
 from lab.workloads.usecase.gates import GateFailed
-from lab.workloads.usecase.steps import step_for
+from lab.workloads.usecase.steps import CAPABILITY_QUERY, step_for
 
-__all__ = ["MATCHERS", "VECTOR_HITS", "candidates_from_hits", "composed", "leaves_for", "match",
+__all__ = ["MATCHERS", "STORE_BACKED", "VECTOR_HITS", "candidates_from_hits", "composed", "leaves_for", "match",
            "matched_ids", "matched_labels", "queries_for", "resolve"]
 
 #: How many hits one behavioural element's relevance query brings back. Twelve, so the union over a
@@ -123,7 +123,7 @@ def composed(trail: list[dict]) -> dict:
             "matched": [dict(m, path=path.get(f, [])) for f, m in deepest.items()]}
 
 
-def leaves_for(corpus: list[dict], deepest: int = DEEPEST_LEVEL) -> list[dict]:
+def leaves_for(corpus: list[dict], deepest: int = DEEPEST_LEVEL, budget: int = 0) -> list[dict]:
     """Every concept at the deepest level, each carrying the path that disambiguates it.
 
     The path is not decoration. A leaf label is frequently meaningless alone — "Initiative
@@ -147,9 +147,36 @@ def leaves_for(corpus: list[dict], deepest: int = DEEPEST_LEVEL) -> list[dict]:
     # `semantic_concepts` is not the only thing that can end up under this key — a deployment
     # missing the scheme, or a different corpus wired by mistake, must degrade to "no candidates"
     # and let the step defer, which is what every other absent corpus here does.
-    return [{"id": c["id"], "label": c["label"], "path": path_of(c)}
-            for c in concepts
-            if c.get("level") == deepest and c.get("id") and c.get("label")]
+    leaves = [{"id": c["id"], "label": c["label"], "path": path_of(c),
+               **({"definition": str(c["definition"])} if c.get("definition") else {})}
+              for c in concepts
+              if c.get("level") == deepest and c.get("id") and c.get("label")]
+    return _within(leaves, budget) if budget else leaves
+
+
+#: A definition shorter than this discriminates nothing — "Ability to define, identify, quantify"
+#: fits in eighty characters and says nothing a label does not. Below it, the leaves go without.
+DEFINITION_MIN = 140
+
+
+def _within(leaves: list[dict], budget: int) -> list[dict]:
+    """Every leaf, with as much of its definition as the prompt budget allows.
+
+    A thousand leaves cannot carry three hundred characters each — that is 300 KB against a 200 KB
+    budget, and `resolve` would silently fall back to the drill. So the definitions are trimmed to
+    what fits, and dropped entirely when what fits is too little to mean anything. The alternative,
+    sending labels alone, is what made every match an assumption.
+    """
+    bare = [{k: v for k, v in leaf.items() if k != "definition"} for leaf in leaves]
+    spare = budget - len(json.dumps(bare, ensure_ascii=False))
+    if spare <= 0 or not leaves:
+        return bare
+    room = spare // max(len(leaves), 1) - len('"definition":"",')
+    if room < DEFINITION_MIN:
+        return bare
+    return [{**leaf, "definition": leaf["definition"][:room].rstrip() + "…"}
+            if leaf.get("definition") and len(leaf["definition"]) > room else leaf
+            for leaf in leaves]
 
 
 async def _children_of(children, ids, level: int, project) -> list[dict]:
@@ -166,7 +193,8 @@ async def _children_of(children, ids, level: int, project) -> list[dict]:
     return [c for c in project(got) or [] if c.get("level") == level]
 
 
-async def drill(cfg, d, corpus, *, children, project, **_) -> dict:
+async def drill(cfg, d, corpus, *, children, project, deepest: int = DEEPEST_LEVEL,
+                **_) -> dict:
     """Level by level: which L1 capabilities match, then which L2 within those, then L3.
 
     Walking the tree is deterministic — given the matches, the children to fetch next are not a
@@ -181,7 +209,7 @@ async def drill(cfg, d, corpus, *, children, project, **_) -> dict:
     step = step_for("5")
     trail: list[dict] = []
     candidates = [c for c in corpus if isinstance(c, dict) and c.get("level") == 1]
-    for level in range(1, DEEPEST_LEVEL + 1):
+    for level in range(1, deepest + 1):
         if not candidates:
             break
         try:
@@ -194,9 +222,10 @@ async def drill(cfg, d, corpus, *, children, project, **_) -> dict:
             d.defer("5", f"match capabilities stopped at L{level}: {refused}")
             break
         found = dict(d.derived.get("coverage_map") or {})
+        d.candidates = list(candidates)      # the level the drill actually chose from, last wins
         trail.append({"level": level, "candidates": len(candidates), **found})
         ids = matched_ids(found)
-        if not ids or level == DEEPEST_LEVEL:
+        if not ids or level == deepest:
             break
         candidates = await _children_of(children, ids, level + 1, project)
 
@@ -208,11 +237,13 @@ async def drill(cfg, d, corpus, *, children, project, **_) -> dict:
     return {"capability_depth": trail[-1]["level"], "coverage_trail": trail}
 
 
-async def _one_pass(cfg, d, candidates: list[dict], *, label: str) -> dict:
+async def _one_pass(cfg, d, candidates: list[dict], *, label: str,
+                    deepest: int = DEEPEST_LEVEL) -> dict:
     """ONE pass of step 5 over a candidate set that already carries its paths — what `leaves` and
     `vector` share. A gate failure defers the step by name rather than losing the run."""
     if not candidates:
         return {}
+    d.candidates = list(candidates)          # the ceiling: what the chooser could possibly return
     try:
         if not await d.run_step(cfg, step_for("5"), label=label,
                                 context={"capabilities": candidates}):
@@ -221,11 +252,12 @@ async def _one_pass(cfg, d, candidates: list[dict], *, label: str) -> dict:
         d.defer("5", f"match capabilities: {refused}")
         return {}
     found = dict(d.derived.get("coverage_map") or {})
-    return {"capability_depth": DEEPEST_LEVEL,
-            "coverage_trail": [{"level": DEEPEST_LEVEL, "candidates": len(candidates), **found}]}
+    return {"capability_depth": deepest,
+            "coverage_trail": [{"level": deepest, "candidates": len(candidates), **found}]}
 
 
-async def leaves(cfg, d, corpus, **_) -> dict:
+async def leaves(cfg, d, corpus, *, budget: int = 0, deepest: int = DEEPEST_LEVEL,
+                 **_) -> dict:
     """One pass over every leaf, each carrying its path.
 
     No branch is ever closed, which is the whole difference: the drill's L1 decision is the
@@ -233,9 +265,11 @@ async def leaves(cfg, d, corpus, **_) -> dict:
     idea what lives underneath. "Is Work Management relevant?" is nearly unanswerable; "is
     Submission Validation relevant?" is obvious. The meaning is in the leaf.
     """
-    candidates = leaves_for(corpus)
-    return await _one_pass(cfg, d, candidates,
-                           label=f"match capabilities ({len(candidates)} leaves)")
+    candidates = leaves_for(corpus, deepest=deepest, budget=budget)
+    carries = sum(1 for c in candidates if c.get("definition"))
+    return await _one_pass(cfg, d, candidates, deepest=deepest,
+                           label=f"match capabilities ({len(candidates)} leaves, "
+                                 f"{carries} with a definition)")
 
 
 def queries_for(elements: Mapping[str, Any] | None) -> list[str]:
@@ -277,7 +311,7 @@ def candidates_from_hits(hits) -> list[dict]:
     return out
 
 
-async def vector(cfg, d, corpus, *, search, **_) -> dict:
+async def vector(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_) -> dict:
     """One relevance query per behavioural element, the hits unioned, one pass of step 5 over the
     union. `search(query, k)` is the caller's — the map's store through the gateway, under the
     run's pin, attributed to this field."""
@@ -292,13 +326,13 @@ async def vector(cfg, d, corpus, *, search, **_) -> dict:
         except Exception as exc:                          # noqa: BLE001 — one query, not the run
             d.defer("5", f"match capabilities: the relevance search refused — {exc}")
             return {}
-    candidates = with_siblings(candidates_from_hits(hits), corpus)
+    candidates = with_parents(with_siblings(candidates_from_hits(hits), corpus, deepest), corpus)
     return await _one_pass(cfg, d, candidates,
                            label=f"match capabilities ({len(candidates)} candidates from "
                                  f"{len(queries)} queries)")
 
 
-def with_siblings(candidates: list[dict], corpus) -> list[dict]:
+def with_siblings(candidates: list[dict], corpus, deepest: int = DEEPEST_LEVEL) -> list[dict]:
     """The candidates plus every leaf that shares a parent with one of them, hits first.
 
     A relevance hit says "this branch", and the eval showed the misses were the leaves NEXT TO a
@@ -313,7 +347,7 @@ def with_siblings(candidates: list[dict], corpus) -> list[dict]:
         ident = str(r.get("id") or "")
         if ident in seen or str(r.get("parent") or "") not in wanted:
             continue
-        if int(r.get("level") or 0) != DEEPEST_LEVEL:
+        if int(r.get("level") or 0) != deepest:
             continue
         seen.add(ident)
         out.append({"id": ident, "label": str(r.get("label") or ""), "path": str(r.get("path") or "")})
@@ -322,10 +356,95 @@ def with_siblings(candidates: list[dict], corpus) -> list[dict]:
 
 #: The strategies, by name. Adding one is a line here and nothing else — which is what lets a
 #: harness run them all over the same inputs and a deployment choose on evidence.
-MATCHERS: dict[str, Callable] = {"drill": drill, "leaves": leaves, "vector": vector}
+#: How many capabilities are shown as the map's REGISTER — enough to write like it, far too few to
+#: choose from. Spread across the tree rather than taken from one branch, so the sample teaches the
+#: style and not a subject.
+REGISTER_SAMPLE = 24
 
 
-def resolve(name: str, corpus, budget: int) -> Callable:
+def register_of(corpus, n: int = REGISTER_SAMPLE) -> list[dict]:
+    """A sample of the map, as the translator is shown it: label and definition, nothing to match on.
+
+    The translator writes the ability a function exercises in the map's own language. It cannot do
+    that without seeing the language, and it must not be handed the map itself — the whole point of
+    translating first is that choosing comes afterwards, against the real thing, with search having
+    narrowed it.
+    """
+    rows = [c for c in (corpus or []) if isinstance(c, dict) and c.get("label")]
+    if not rows:
+        return []
+    stride = max(1, len(rows) // n)
+    return [{"label": str(r["label"]), "definition": str(r.get("definition") or "")[:200]}
+            for r in rows[::stride][:n]]
+
+
+async def translate(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_) -> dict:
+    """Translate, then search, then choose — the three stages the other matchers collapse.
+
+    Measured 17 Sep 2026: the functions a submission names ("assess urgency", "reconcile the
+    medication list") and the abilities a capability map names ("Healthcare Case Risk Level
+    Determination") share almost no words, so a search made with the function's own wording
+    retrieves generic information-handling capabilities and the medication branch sits untouched.
+    The other matchers have no stage that could close that gap: `leaves` shows the model everything
+    and hopes, `drill` narrows by a label it cannot read, `vector` searches with the words that do
+    not match.
+
+    So: one agent call translates every function into the map's register, the translations are what
+    is searched, and the hits plus their siblings and PARENTS go to the choosing pass. Parents
+    because a capability map answers at more than one level — measured the same day, the referral
+    case's own expected set is level 2 and level 3, and a matcher offering only leaves could not
+    have returned a third of the right answers however well it searched.
+    """
+    elements = d.available.get("elements")
+    if not (elements or {}).get("behavioural"):
+        d.defer("5", "match capabilities — needs the behavioural elements from step 4")
+        return {}
+    d.available["register"] = register_of(corpus)
+    if not await d.run_step(cfg, CAPABILITY_QUERY, label="translate the functions"):
+        d.defer("5", "match capabilities — the translation step is not wired")
+        return {}
+    queries = [f'{q.get("ability", "")} — {q.get("about", "")}'.strip(" —")
+               for q in (d.derived.get("capability_query") or {}).get("queries") or []]
+    hits: list = []
+    for query in [q for q in queries if q]:
+        try:
+            hits += await search(query, VECTOR_HITS)
+        except Exception as exc:                          # noqa: BLE001 — one query, not the run
+            d.defer("5", f"match capabilities: the relevance search refused — {exc}")
+            return {}
+    candidates = with_parents(with_siblings(candidates_from_hits(hits), corpus, deepest), corpus)
+    return await _one_pass(cfg, d, candidates,
+                           label=f"match capabilities ({len(candidates)} candidates from "
+                                 f"{len(queries)} translated abilities)")
+
+
+def with_parents(candidates: list[dict], corpus) -> list[dict]:
+    """The candidates plus the branch each sits under — because an answer is not always a leaf.
+
+    Nothing here reaches the store; the parents come from the map already in hand."""
+    rows = {str(r.get("id")): r for r in (corpus or []) if isinstance(r, dict) and r.get("id")}
+    seen = {str(c.get("id")) for c in candidates}
+    out = list(candidates)
+    for c in candidates:
+        parent = rows.get(str(c.get("parent") or ""))
+        if parent and str(parent["id"]) not in seen:
+            seen.add(str(parent["id"]))
+            out.append({k: v for k, v in parent.items() if k in ("id", "label", "path", "level",
+                                                                 "parent", "definition")})
+    return out
+
+
+#: The matchers that reach a relevance STORE rather than reading the corpus rows themselves.
+#: Beside the registry, because "does this matcher need a store" is a fact about the MATCHER — it
+#: was held in the screening workflow and duplicated in the eval harness, which is two places to
+#: forget when a fifth matcher lands.
+STORE_BACKED = ("vector", "translate")
+
+MATCHERS: dict[str, Callable] = {"drill": drill, "leaves": leaves, "vector": vector,
+                                 "translate": translate}
+
+
+def resolve(name: str, corpus, budget: int, deepest: int = DEEPEST_LEVEL) -> Callable:
     """The matcher a run should use: the one asked for, unless its prompt will not fit.
 
     `leaves` is the better matcher and the fallback is not a preference — it is arithmetic. Its
@@ -336,14 +455,25 @@ def resolve(name: str, corpus, budget: int) -> Callable:
     if matcher is None:
         raise KeyError(f"{name!r} is not a capability matcher; have {sorted(MATCHERS)}")
     if matcher is leaves:
-        size = len(json.dumps(leaves_for(corpus), ensure_ascii=False, default=str))
+        # Measure what would ACTUALLY be sent: `leaves_for` trims the definitions to the budget, so
+        # this only exceeds it when the bare labels alone do — which is the case the drill exists for.
+        size = len(json.dumps(leaves_for(corpus, deepest=deepest, budget=budget),
+                              ensure_ascii=False, default=str))
         if size > budget:
             return drill
     return matcher
 
 
-async def match(cfg, d, corpus, *, name: str, children, search, project, budget: int) -> dict:
+async def match(cfg, d, corpus, *, name: str, children, search, project, budget: int,
+                deepest: int = DEEPEST_LEVEL) -> dict:
     """Step 5, by whichever strategy this deployment runs. Every strategy is handed every seam and
-    takes what it needs — the registry stays one line per strategy."""
-    return await resolve(name, corpus, budget)(cfg, d, corpus, children=children, search=search,
-                                               project=project)
+    takes what it needs — the registry stays one line per strategy.
+
+    `deepest` is the MAP's matching grain and must reach the matcher: it was a parameter of `leaves`
+    that neither this function nor `resolve` forwarded, so every live run matched at the constant 3
+    however shallow its map. Against a two-level map that is no candidates at all, and no candidates
+    is indistinguishable downstream from "nothing is relevant".
+    """
+    return await resolve(name, corpus, budget, deepest)(
+        cfg, d, corpus, children=children, search=search, project=project, budget=budget,
+        deepest=deepest)

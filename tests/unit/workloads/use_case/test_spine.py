@@ -57,6 +57,7 @@ from lab.platform.contracts import (
     Continuation,
     ValuationTools,
     SemanticTools,
+    VectorStores,
     StorageTools,
     WorkflowTools,
     continuation_of,
@@ -704,7 +705,7 @@ def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
     """Best effort: a deployment missing the semantic grant gets a partial record and a named
     reason, not nothing at all."""
     from lab.workloads.use_case_screening import workflow as W
-    router, agents = _screening_with_agents(**{SemanticTools.concepts: None})
+    router, agents = _screening_with_agents(**{"reference_lookup": RuntimeError("corpus down")})
     with spine(W, router) as h:
         h.cfg["agents"] = agents
         out = run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
@@ -712,7 +713,10 @@ def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
     screening = [c[1]["spec"] for c in h.router.calls
                  if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
     assert "capabilities" in screening["corpora_unavailable"]
-    assert "coverage_map" not in screening, "step 5 must not run without its capability map"
+    # Step 5 does not MATCH without its map — it records the declared default and says so, which is
+    # what lets the run reach the end instead of stopping at readiness gate A.
+    assert screening["coverage_map"]["matched"] == []
+    assert "5" in screening["defaulted_steps"]
 
 
 # ---------------------------------------------------------------- the design chain, steps 17-22
@@ -1035,19 +1039,27 @@ def test_the_conditions_ride_on_the_step_and_reach_the_derivation():
 # ------------------------------------------------- what a live screening run found at step 5
 
 def test_a_corpus_reaches_a_prompt_projected_to_what_the_step_reads():
-    """A projection, not a truncation — every concept survives, the prose does not.
+    """A projection, and the definition is BOUNDED rather than dropped.
 
     Measured on a live run that sat on step 5 for fifty-three minutes: the published capability map
-    carries a `definition` per concept that a MATCH never reads, and 1,666 of them made the prompt
-    94,000 tokens. A hang is the worst way for a size problem to present, because it looks like
-    slowness and slowness looks like patience."""
-    from lab.workloads.use_case_screening.workflow import PROMPT_FIELDS, project
+    carries a `definition` per concept, and 1,666 of them made the prompt 94,000 tokens. A hang is
+    the worst way for a size problem to present, because it looks like slowness and slowness looks
+    like patience. The first fix dropped the definition entirely, which made every match a guess
+    from a label — the map's L3 labels are generic ("Time Identification"), so the label alone is
+    the least informative field it has. So the definition travels, capped at DEFINITION_CHARS:
+    bounded prose beats no prose, and unbounded prose is what hung the run.
+
+    Every other field still goes: no concept is dropped, because a match must see the whole map."""
+    from lab.workloads.use_case_screening.workflow import (
+        DEFINITION_CHARS, PROMPT_FIELDS, project)
     corpus = [{"id": "c1", "label": "Patient Management", "level": 1, "tier": "core",
                "parent": None, "definition": "x" * 400}]
     out = project("capabilities", corpus)
     assert len(out) == len(corpus), "no concept may be dropped — a match must see the whole map"
     assert set(out[0]) <= set(PROMPT_FIELDS["capabilities"])
-    assert "definition" not in out[0]
+    assert "tier" not in out[0], "a field the step never reads must not reach the prompt"
+    assert len(out[0]["definition"]) <= DEFINITION_CHARS + 1        # the cap plus its ellipsis
+    assert out[0]["definition"].endswith("…"), "a trimmed definition must SAY it was trimmed"
 
 
 def test_a_corpus_with_no_projection_declared_is_passed_through_untouched():
@@ -1066,14 +1078,23 @@ def test_a_corpus_over_the_prompt_budget_is_unavailable_rather_than_partial():
     assert "depth" in open(W.__file__).read()
 
 
-def test_the_drill_starts_from_the_top_level_only():
-    """The fetched corpus is the 42 top-level capabilities. Everything below is fetched by the
-    drill, as the level above decides it is worth looking at — so the starting prompt is small and
-    stays small, however large the published map grows."""
-    from lab.workloads.usecase.coverage import DEEPEST_LEVEL
-    from lab.workloads.use_case_screening import workflow as W
-    assert W.FETCHED_LEVELS == (1, DEEPEST_LEVEL), "the top level up front; the rest as the drill asks"
-    assert DEEPEST_LEVEL == 3
+def test_the_map_is_fetched_whole_because_it_is_small_enough_to_be():
+    """The business map was fetched a level at a time, because 1,042 leaves could not go in a
+    prompt and the drill decided which branches were worth the next read. The technology map is 74
+    rows and ~5,700 tokens, so the whole thing goes up front and no branch is ever closed on a
+    decision made without evidence — which was the drill's structural weakness.
+
+    The grain is the MAP's, not the module constant: that constant is 3 and this map is two deep,
+    which would yield no candidates at all."""
+    from lab.core.usecase import capabilities, seed
+    from lab.workloads.usecase import coverage
+    rows = seed.artifact("ai_capability_map")["capabilities"]
+    made = capabilities.concepts(rows, seed.artifact("capability_domains")["domains"])
+    assert capabilities.LEVEL == 2 != coverage.DEEPEST_LEVEL
+    assert coverage.leaves_for(made, deepest=coverage.DEEPEST_LEVEL) == [], "the constant finds none"
+    assert len(coverage.leaves_for(made, deepest=capabilities.LEVEL)) == len(rows)
+    assert coverage.resolve("leaves", made, budget=200_000,
+                            deepest=capabilities.LEVEL) is coverage.leaves
 
 
 # ------------------------------------------------- L3 capability matching, without embeddings
@@ -1369,20 +1390,43 @@ def test_the_design_package_says_what_moved_since_the_screening_run_cited_it():
                                            "after": "v0.27"}]
 
 
-def test_the_screening_run_reads_the_map_s_top_level_and_leaves_from_the_corpus_under_its_pin():
-    """No semantic tool any more: the map is rows of the governed corpus, a version cited, and
-    every read is attributed to the coverage map."""
+def test_the_screening_run_reads_the_TECHNOLOGY_map_whole_under_its_pin():
+    """Step 5's candidates are the technology capability map, read from the corpus — not from a
+    prompt, not from the image, and not "the relevant rows" of it.
+
+    Whole, because it is a 74-row complete register and a pre-selection would decide relevance
+    before the step whose job that is. Under the pin and attributed to `coverage_map`, so which
+    version a run matched against is on the record."""
     from lab.workloads.use_case_screening import workflow as W
     with spine(W, _screening_router()) as h:
         run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
     reads = h.router.called("reference_lookup")
-    assert {r["key"].get("level") for r in reads} >= {"1", "3"}
-    assert all(r["artifact_id"] == W.CAPABILITY_MAP and r["pin_id"] == "pin-test" for r in reads)
-    assert all(r["field"] == "coverage_map" for r in reads)
-    assert not h.router.called(SemanticTools.concepts)
+    mapped = [r for r in reads if r["artifact_id"] in (W.CAPABILITY_ARTIFACT, W.DOMAIN_ARTIFACT)]
+    assert {r["artifact_id"] for r in mapped} == {W.CAPABILITY_ARTIFACT, W.DOMAIN_ARTIFACT}
+    assert all(r["key"] == {} for r in mapped), "whole: no key narrows it before step 5 sees it"
+    assert all(r["pin_id"] == "pin-test" and r["field"] == "coverage_map" for r in mapped)
+    assert not h.router.called(SemanticTools.concepts), "the map is corpus rows, not a semantic tool"
+
+
+def test_a_matched_capability_is_named_by_the_key_the_rest_of_the_framework_joins_on():
+    """Why the technology map can be matched at all. `capability_id` comes back as
+    "Domain · Capability" — the exact string `guardrails.cap` and `ai-capability-map.components`
+    resolve against — so a match reaches its obligations and its components with no further
+    resolution. A business-map match reached nothing this framework catalogues."""
+    from lab.core.usecase import capabilities as C
+    from lab.workloads.use_case_screening import workflow as W
+    with spine(W, _screening_router()) as h:
+        run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
+    shown = [c[1] for c in h.router.calls if c[0] == "reference_lookup"
+             and c[1]["artifact_id"] == W.CAPABILITY_ARTIFACT]
+    assert shown, "the map was read"
+    assert C.SEP in C.key({"domain": "Knowledge", "capability": "Agentic retrieval"})
 
 
 def test_a_map_the_corpus_cannot_serve_is_named_as_unavailable_not_silently_absent():
+    """A map the corpus cannot serve is a failure to report by name — the run still reaches the end
+    on the declared default, but the reason is on the record rather than looking like a use case
+    that matched nothing."""
     from lab.workloads.use_case_screening import workflow as W
     with spine(W, _screening_router(**{"reference_lookup": RuntimeError("corpus down")})) as h:
         run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
@@ -1608,8 +1652,12 @@ def test_the_conformance_approval_says_what_the_design_still_owes():
         run_spine(W, h, _design_inputs())
     asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
     summary = asked["summary"]
-    assert summary["owed"][0].startswith("G04") and "NO enforcement point" in summary["owed"][0]
+    # Both findings reach the person, and each says which one it is: move 5 (nothing SELECTED
+    # enforces it — the architect's to fix) before move 3 (no present family carries it).
+    assert any(o.startswith("G04") and "no family this composition requires carries it" in o
+               for o in summary["owed"])
     assert any(o.startswith("G08") for o in summary["owed"])
+    assert summary["obligations_bound"] is not None, "M4's exit test, in the headline"
     assert summary["topology"] == "T2" and summary["recommendation"] == "proceed with conditions"
     assert summary["elements"] > 0, "the model the run grew, counted for the reviewer"
 

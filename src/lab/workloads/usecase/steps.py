@@ -27,9 +27,11 @@ from typing import Any, Callable, Mapping
 from lab.core.usecase.model import VOCABULARY, canonical_facet
 from lab.core.usecase.predicates import NAMED_CONDITIONS, normalise_value
 from lab.workloads.usecase.gates import validator_for
+from lab.core.usecase import enforcement
 from lab.workloads.usecase.mappers import as_list
 
-__all__ = ["DESIGN_STEPS", "SCREENING_STEPS", "STEPS", "Step", "schema", "step_for"]
+__all__ = ["CAPABILITY_QUERY", "DESIGN_STEPS", "SCREENING_STEPS", "STEPS", "Step", "schema",
+           "step_for"]
 
 SCHEMAS = Path(__file__).parent / "schemas"
 PROMPTS = Path(__file__).parent / "prompts"
@@ -572,14 +574,53 @@ DERIVED_STEP_NUMBERS = {"risk": "18", "obligations": "19", "composition": "22", 
                         "benefit": "24"}
 
 
+def _obligations_bound(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """Step 21's SOFT rule for composition move 5: every obligation enforced by something SELECTED.
+
+    M4 is explicit that this is the Stage 5 exit gate — "selection is not complete until every
+    obligation resolves to a named enforcement point on a selected component". Its sibling
+    `_families_realised` checks a weaker thing: that a family is present. A family is a shape, so an
+    obligation can be covered by a family and still have nothing in the deployment enforcing it.
+
+    An obligation the CORPUS cannot bind is not reported. `enforcement.bind` separates the two, and
+    only `unbound` — the corpus can enforce this, the design chose nothing that does — is the
+    architect's to answer. Reporting `unenforceable` would charge them for a gap in the framework.
+    """
+    ctx = context or {}
+    points = ctx.get("enforcement_points")
+    if not points:
+        return []                      # `_compose` defers by name; not this rule's to re-report
+    binding = enforcement.bind(
+        as_list((ctx.get("obligations") or {}).get("guardrails")), candidates=points,
+        selected=[str(c.get("component_id", "")) for c in out.get("selected") or []])
+    # Whole ids, never containment: `"G09" in text` is also true of "G09-annex" or "G090", and this
+    # is the only rule that would have surfaced G09, so a near-miss silently deletes the finding.
+    #
+    # What this still cannot do is tell a note that OWNS an obligation from one that merely cites it
+    # — free text carries no such distinction. The structured answer is `enforcement.bind`'s
+    # `advisory` argument, which takes exactly this list and refuses to launder an obligation the
+    # corpus cannot bind; wiring it needs `unresolved` to name the obligation it answers, which is a
+    # schema change and is deliberately not made here.
+    named = set(re.findall(r"\bG\d+\b", " ".join(str(u) for u in out.get("unresolved") or [])))
+    return [f"obligation {g} is required and no selected component enforces it — "
+            f"{', '.join(points.get(g) or ()) or 'nothing catalogued does'} would"
+            for g in binding.unbound if g not in named]
+
+
+OBLIGATION_REMEDY = ("select the component that enforces it — the finding names which ones would — "
+                     "or name it under `unresolved` as a control the design still owes")
+
+
 def _soft_21(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
-    """Step 21's soft findings: what the composition requires that nothing carries, and whether
-    anything selected actually runs the use case. Both are things the design OWES a reviewer, not
-    reasons to lose the run — recorded under `unresolved` after one corrective attempt."""
-    return _families_realised(out, context) + _does_the_work(out, context)
+    """Step 21's soft findings: what the composition requires that nothing carries, whether every
+    obligation is enforced by something selected, and whether anything selected actually runs the
+    use case. All three are things the design OWES a reviewer, not reasons to lose the run —
+    recorded under `unresolved` after one corrective attempt."""
+    return (_families_realised(out, context) + _obligations_bound(out, context)
+            + _does_the_work(out, context))
 
 
-SOFT_21_REMEDY = f"{FAMILY_REMEDY}; and {DELIVERY_REMEDY}"
+SOFT_21_REMEDY = f"{FAMILY_REMEDY}; {OBLIGATION_REMEDY}; and {DELIVERY_REMEDY}"
 
 
 # ---------------------------------------------------------------- the registry
@@ -658,6 +699,39 @@ def _number(value) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
+def _capability_query(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """One translation per function, and nothing invented.
+
+    The register is the whole point: an `ability` that is the function's own words rearranged has
+    translated nothing, and searching with it finds what searching with the function found.
+    """
+    bad = []
+    queries = out.get("queries") or []
+    functions = {str(b.get("name", "")).strip().lower()
+                 for b in ((context or {}).get("elements") or {}).get("behavioural") or []
+                 if isinstance(b, Mapping)}
+    named = {str(q.get("function", "")).strip().lower() for q in queries}
+    missing = sorted(functions - named)
+    if functions and missing:
+        bad.append(f"no ability written for {missing} — every function is translated, or the search "
+                   f"that follows cannot find what it never asked for")
+    invented = sorted(named - functions)
+    if functions and invented:
+        bad.append(f"{invented} are not functions from the inventory — translate what the use case "
+                   f"does, not what it might")
+    for q in queries:
+        ability = str(q.get("ability", "")).strip()
+        if ability.lower() == str(q.get("function", "")).strip().lower():
+            bad.append(f"{ability!r} repeats the function verbatim — that is not a translation, and "
+                       f"it will search for exactly what the function's own words already failed on")
+    return bad[:5]
+
+
+#: NOT a screening step: a sub-stage of step 5 that the `translate` matcher runs before it searches.
+#: It has a prompt and a schema like any other exercise, so it is gated like any other exercise.
+CAPABILITY_QUERY = Step("5q", "capability_query", "Business Architect", _capability_query)
+
+
 SCREENING_STEPS: tuple[Step, ...] = (
     Step("3", "frame", "Business Analyst", _frame),
     Step("4", "elements", "Business Architect", _elements),
@@ -686,6 +760,12 @@ DESIGN_STEPS: tuple[Step, ...] = (
 )
 
 STEPS: tuple[Step, ...] = SCREENING_STEPS + DESIGN_STEPS
+
+
+#: step key -> the number a person reads it by, agent steps and derived steps together. Lives here
+#: because it is the steps' own fact; it was previously a private table in the throwaway model-trace
+#: module, which is no home for something the design half now reads to decide a verdict.
+NUMBER_OF: dict[str, str] = {s.key: s.number for s in STEPS} | DERIVED_STEP_NUMBERS
 
 
 def step_for(number: str) -> Step:

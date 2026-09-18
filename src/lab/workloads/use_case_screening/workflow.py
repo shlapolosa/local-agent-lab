@@ -31,7 +31,9 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import coverage
+from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
+from lab.workloads.usecase.steps import step_for
 from lab.workloads.usecase import modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import SCREENING_STEPS
@@ -61,54 +63,93 @@ CORPORA = {
 #: scheme names the artifact (= the gateway's relevance store), and what is fetched up front is
 #: the top level (the drill's first candidates) and the leaves (what `leaves` reads whole, and
 #: what the drill fallback measures) — `id, parent, level, label, path`, a version cited.
-SCHEME = "healthcare-provider-v2.0"
-CAPABILITY_MAP = VectorStores.for_scheme(SCHEME)
+#: **Step 5 matches against the TECHNOLOGY capability map** (user decision, 18 Sep 2026), read from
+#: the governed corpus under the run's pin like any other artifact — nothing about it is in this
+#: file or in a prompt, so the map changes by publishing a new version and no code moves.
+#:
+#: It replaced the business map, which is retired until this enterprise publishes its own (see
+#: `docs/decisions/2026-09-18-two-capability-maps.md`; reinstating it means building the read path
+#: for THAT map — its record type, its levels and its store are its own, so a dormant setting here
+#: would have promised a switch that does not exist). The technology map answers a different
+#: question — *how would we do this* rather than *what ability does this exercise* — and it is the
+#: one the rest of the framework actually joins on: a match returns `"Domain · Capability"`, which
+#: IS the key `guardrails.cap` and `ai-capability-map.components` resolve against. So a matched
+#: capability reaches its obligations and its components with no further resolution, where a
+#: business-map match reached nothing this framework catalogues.
+CAPABILITY_ARTIFACT = "ai-capability-map"
+DOMAIN_ARTIFACT = "capability-domains"
 MAP_RECORD_TYPE = "capability"
-FETCHED_LEVELS = (1, coverage.DEEPEST_LEVEL)
-#: More than any level of the published maps holds (the healthcare map's L3 is ~1,000 rows);
-#: `reference.records` refuses a read the server truncated, so a map that outgrows this fails
-#: loudly rather than matching over a random subset.
-MAP_LIMIT = 5000
+DOMAIN_RECORD_TYPE = "domain"
 
 #: Fields a corpus record contributes to a PROMPT, by corpus. Everything else is dropped before the
 #: message is built.
 #:
 #: This is a projection, not a truncation — no concept is lost, so a coverage match still sees the
-#: whole published map and can still refuse to match. What goes is the prose: a capability record
-#: carries a `definition` that a MATCH does not read, and 1,666 of them made step 5's prompt 94,000
-#: tokens. Measured, on a live run that sat on step 5 for fifty-three minutes without failing —
-#: which is the worst way for a size problem to present, because a hang looks like slowness and
-#: slowness looks like patience.
-PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent", "path")}
-
-#: What this run pins: the capability map its coverage match reads.
-REFERENCE_ARTIFACTS = (CAPABILITY_MAP,)
-
-def required_stores() -> tuple[str, ...]:
-    """The relevance store the `vector` matcher searches — preflighted like a tool, for zero
-    tokens, only when that matcher is the one configured. Read at RUN time, not import time."""
-    return (CAPABILITY_MAP,) if config.COVERAGE_MATCHER == "vector" else ()
-
-#: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
-#: unavailable with its size, rather than sent — a step that silently receives half a corpus
-#: answers confidently from half a corpus.
+#: whole published map and can still refuse to match. What goes is everything a MATCH does not read.
 #:
-#: Sized by MEASUREMENT (10 Sep 2026): the healthcare map's `leaves` projection is 168,707 bytes
-#: (~42k tokens, well inside kimi-k3's window), and the harness ranked `leaves` first on both cases
-#: (F1 0.41/0.56 vs drill ~0.39/0.47, vector 0.24/0.41). At the old 120,000 the configured matcher
-#: fell back to drill on EVERY cloud run, silently — `coverage.resolve` is arithmetic, and the
-#: arithmetic said no. Raise this only with a measurement; lower it and the fallback returns.
+#: Both halves were learned on the business map and both still apply. Sending a `definition` per
+#: concept made step 5's prompt 94,000 tokens and a live run sat on it for fifty-three minutes
+#: without failing — the worst way for a size problem to present, because a hang looks like
+#: slowness and slowness looks like patience. Stripping the definition entirely then made every
+#: match in every cloud run come back `assumption`: a label is frequently ambiguous on its own, and
+#: the model was correctly reporting that it had inferred from words. So the definition travels,
+#: capped — bounded prose beats no prose, and unbounded prose is what hung the run.
+PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent", "path", "definition")}
+
+#: How much of a definition a match may read. The technology map's run to a sentence or two — the
+#: rationale for the row plus the products — and the cap is what keeps a map that GROWS from
+#: silently becoming a prompt nobody sized.
+DEFINITION_CHARS = 300
+
+#: More rows than any published map holds. `reference.records` REFUSES a read the server truncated,
+#: because the surviving subset is ordered by a content hash and nothing downstream could tell it
+#: was partial — so a map that outgrows this fails loudly rather than being matched over in part.
+MAP_LIMIT = 5000
+
+#: What one step's prompt may carry. A corpus over it is recorded as unavailable by name rather than
+#: sent in part: a step that silently receives half a corpus answers confidently from half a corpus.
 MAX_CORPUS_BYTES = 200_000
 
+#: What this run pins: the technology capability map its coverage match reads, and the domains that
+#: give it its top level. Both are corpus artifacts, so which map a run matched against is part of
+#: the record and a new version is a publish, never a deploy.
+REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, DOMAIN_ARTIFACT)
+
+def required_stores() -> tuple[str, ...]:
+    """The relevance stores this run must be granted — none, and it REFUSES rather than returning
+    an empty tuple when the configured matcher needs one.
+
+    The technology capability map is 74 rows read whole; it has no store. A deployment configured
+    for `vector` or `translate` therefore preflighted clean, ran for ten minutes, and then deferred
+    step 5 because the search seam raised — leaving readiness gate A unevidenced and the reason
+    buried in `pending_steps`, all for a configuration typo. Preflight is where that costs zero
+    tokens, which is the whole reason it exists.
+    """
+    if config.COVERAGE_MATCHER in coverage.STORE_BACKED:
+        raise RuntimeError(
+            f"COVERAGE_MATCHER={config.COVERAGE_MATCHER!r} searches a relevance store, and the "
+            f"technology capability map has none — it is a register read whole. "
+            f"Configure `leaves` or `drill`.")
+    return ()
 
 
 def project(name: str, corpus):
-    """A corpus as a step should READ it — the fields a match needs, and nothing else."""
+    """A corpus as a step should READ it — the fields a match needs, and nothing else.
+
+    Prose is TRUNCATED rather than dropped: `definition` is what makes a match a lookup instead of
+    a guess, and its first sentences carry the meaning."""
     fields = PROMPT_FIELDS.get(name)
     if not fields or not isinstance(corpus, list):
         return corpus
-    return [{k: c[k] for k in fields if c.get(k) is not None}
-            for c in corpus if isinstance(c, dict)]
+    out = []
+    for c in corpus:
+        if not isinstance(c, dict):
+            continue
+        row = {k: c[k] for k in fields if c.get(k) is not None}
+        if isinstance(row.get("definition"), str) and len(row["definition"]) > DEFINITION_CHARS:
+            row["definition"] = row["definition"][:DEFINITION_CHARS].rstrip() + "…"
+        out.append(row)
+    return out
 
 #: Corpora the assessment needs and this instance does not have. NAMED, because a step that reads
 #: an absent corpus answers confidently from nothing and the answer is indistinguishable from a
@@ -148,27 +189,22 @@ def make_cfg(*, credential="", mcp_url="", gateway_url="", traceparent="", agent
             "root_ctx": root_ctx, "run_id": run_id, "process": PROCESS}
 
 
-def _map_rows(rows) -> list[dict]:
-    """Corpus rows as the matchers read them: a level is a number and a root has no parent."""
-    out = []
-    for row in rows:
-        try:
-            level = int(row.get("level", 0))
-        except (TypeError, ValueError):
-            continue
-        out.append({**row, "level": level,
-                    "parent": None if row.get("parent") in ("-", "", None) else row["parent"]})
-    return out
-
-
 async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
-    """The map's top level and its leaves, under the pin, attributed to the coverage map."""
-    rows: list[dict] = []
-    for level in FETCHED_LEVELS:
-        rows += await reference.records(cfg, pin_id, CAPABILITY_MAP, record_type=MAP_RECORD_TYPE,
-                                        key={"level": str(level)}, field="coverage_map",
-                                        limit=MAP_LIMIT)
-    return _map_rows(rows)
+    """The technology capability map, whole, under the pin, attributed to the coverage map.
+
+    WHOLE and not by key: it is a small complete register (74 rows), and CAFÉ's own rule for such an
+    artifact is to read every record rather than "the relevant rows" — a selection would decide
+    relevance before the step whose job that is. `reference.records` with an empty key returns every
+    record of a `whole` artifact whatever the limit.
+
+    An empty read is NOT an error: step 5 then takes its declared default and the gap is stated on
+    the record, rather than a corpus outage being presented as a use case that matched nothing.
+    """
+    rows = await reference.records(cfg, pin_id, CAPABILITY_ARTIFACT, record_type=MAP_RECORD_TYPE,
+                                   key={}, field="coverage_map", limit=MAP_LIMIT)
+    domains = await reference.records(cfg, pin_id, DOMAIN_ARTIFACT, record_type=DOMAIN_RECORD_TYPE,
+                                      key={}, field="coverage_map", limit=MAP_LIMIT)
+    return capabilities.concepts(rows, domains)
 
 
 async def match_capabilities(cfg, d, pin_id: str) -> dict:
@@ -177,25 +213,44 @@ async def match_capabilities(cfg, d, pin_id: str) -> dict:
     The strategies live in `lab.workloads.usecase.coverage` with the evidence for choosing between
     them. The corpus and the two seams are supplied HERE — which artifact a run reads, and that it
     reads it under this pin attributed to this field, is the workload's decision; how the map is
-    matched is not."""
+    matched is not.
+
+    The grain is `capabilities.LEVEL`, the map's own: CAFÉ's M4 is domain -> capability -> product
+    and only the first two are rows. It is passed rather than left to the default, which is 3 and
+    would yield NO candidates over a two-level map — indistinguishable downstream from "nothing is
+    relevant".
+
+    The technology map has no relevance store, so a store-backed matcher has nothing to search and
+    `search` says so by name instead of returning an empty result.
+    """
     async def children(ids, level):
         found: list[dict] = []
         for ident in ids:
-            found += await reference.records(cfg, pin_id, CAPABILITY_MAP,
-                                             record_type=MAP_RECORD_TYPE,
-                                             key={"parent": ident, "level": str(level)},
-                                             field="coverage_map")
-        return _map_rows(found)
+            found += [c for c in (d.available.get("capabilities") or [])
+                      if c.get("parent") == ident and c.get("level") == level]
+        return found
 
     async def search(query, k):
-        return await gateway.vector_search(
-            cfg["gateway_url"], cfg["headers"], CAPABILITY_MAP, query, k=k,
-            filters={"pin_id": pin_id, **reference.attribution(cfg, "coverage_map")})
+        # Unreachable while `required_stores()` refuses a store-backed matcher at preflight. Kept,
+        # and loud, because the seam is part of the matcher contract and a silent empty result here
+        # would read as "the map knows nothing about this function".
+        raise RuntimeError(
+            f"{CAPABILITY_ARTIFACT} has no relevance store to search — it is a register read whole. "
+            f"Configure COVERAGE_MATCHER as `leaves` or `drill`.")
+
+    if not (d.available.get("capabilities") or []):
+        # No map. Run the step with NO context override so `capabilities` is genuinely absent from
+        # the pool and `run_step` takes the declared default — every matcher passes the candidate
+        # list AS context, and an empty list present under that name looks like a published map
+        # with nothing in it, which defers instead of defaulting.
+        await d.run_step(cfg, step_for("5"), label="match capabilities")
+        return {}
 
     return await coverage.match(
         cfg, d, d.available.get("capabilities") or [],
         name=config.COVERAGE_MATCHER, children=children, search=search,
-        project=lambda rows: project("capabilities", rows), budget=MAX_CORPUS_BYTES)
+        project=lambda rows: project("capabilities", rows), budget=MAX_CORPUS_BYTES,
+        deepest=capabilities.LEVEL)
 
 
 def build_workflow(cfg):
@@ -264,7 +319,7 @@ def build_workflow(cfg):
             # what of it goes into a prompt (`coverage.resolve` measures the leaves), so the
             # working set is not the prompt.
             try:
-                rows = await fetch_capabilities(cfg, pinned["pin_id"])
+                rows = project("capabilities", await fetch_capabilities(cfg, pinned["pin_id"]))
                 if rows:
                     fetched["capabilities"] = rows
                 else:

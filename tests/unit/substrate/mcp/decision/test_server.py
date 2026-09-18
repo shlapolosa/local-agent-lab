@@ -415,3 +415,29 @@ def test_the_encoder_and_the_mapper_are_inverses():
     # which it is must be declared rather than guessed.
     assert decode(encode(["G06"])) == "G06"
     assert decode(encode(["G06"]), "guardrails") == ["G06"]
+
+
+def test_the_feasibility_tool_carries_the_unknown_state_the_domain_has():
+    """The PORT must be able to say everything the domain can say.
+
+    `gates.feasibility_verdict` gained a third `capability_matched` state — unknown, when no
+    capability map could be read — and the tool's annotation stayed `bool`. The domain function was
+    tested directly and passed; the path a RUN takes is this tool, and FastMCP validates against the
+    annotation, so a defaulted run would have died here with a schema error about twenty minutes in.
+    Preflight could not have caught it: it resolves tool NAMES and argument names, never types.
+
+    This is the version-skew lesson applied inside one tree: assert the contract at the port, not
+    only in the domain.
+    """
+    out = S.decision_feasibility(capability_matched=None, existing_realisation=False,
+                                 capability_is_commodity=False, capability_is_mature=False,
+                                 capability_meets_target=False)
+    assert out["verdict"] == "escalate" and out["halts"] is True
+    assert "capability map" in out["rule"]
+
+
+def test_the_tool_still_rejects_when_a_map_answered_and_matched_nothing():
+    out = S.decision_feasibility(capability_matched=False, existing_realisation=False,
+                                 capability_is_commodity=False, capability_is_mature=False,
+                                 capability_meets_target=False)
+    assert out["verdict"] == "reject"

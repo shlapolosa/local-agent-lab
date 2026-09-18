@@ -359,5 +359,8 @@ def test_render_cafe_stores_the_drawing_and_its_preview_by_ref():
     assert r["drawio_ref"].endswith("/design.drawio") and r["svg_ref"].endswith("/design.cafe.svg")
     assert STORE.get(r["drawio_ref"]).startswith(b"<mxfile") and b"<svg" in STORE.get(r["svg_ref"])[:300]
     assert r["placed"] == ["ac-cmp-x"] and r["unplaced"] == ["ac-old"]
+    # The two counts a reviewer reads instead of opening the drawing — a run recorded them as None
+    # for a week because the tool computed them and did not return them (run 9, 17 Sep 2026).
+    assert r["catalogued"] == 0 and r["edges"] == 0
     assert "cafe.archetype" in call_error("semantic_render_cafe", spec={"name": "n", "id": "i", "elements": [],
                                                                         "relations": []})

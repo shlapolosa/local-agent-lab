@@ -37,12 +37,14 @@ import os
 import statistics
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab.platform import config
 from lab.core.semantic.service import SemanticService          # noqa: E402
+from lab.core.usecase import capabilities, seed                 # noqa: E402
 from lab.platform.contracts import VectorStores                # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
 from lab.workloads.usecase import agents as A                  # noqa: E402
@@ -55,6 +57,52 @@ from lab.workloads.usecase.steps import step_for               # noqa: E402
 def corpus_for(scheme: str, reference_dir: str) -> list[dict]:
     svc = SemanticService(reference_dir=reference_dir)
     return svc.concepts(scheme, None, None)
+
+
+#: A case's expected set is PER MAP: the same use case exercises different business abilities and
+#: different solution capabilities, and one file could only ever hold one of them. Naming the file
+#: by map also keeps the business sets — reviewed, and costly to reproduce — for the day an
+#: enterprise publishes a conformant map.
+EXPECTED = {"technology": "expected.technology.json", "business": "expected.json"}
+
+
+def expected_for(case: Path, which: str) -> set:
+    """The capabilities a human says this use case genuinely exercises, for THIS map.
+
+    Refuses by name rather than scoring against an absent file: recall against an empty expected set
+    is 0.0 for every matcher, which reads as a total failure and is in fact a missing input.
+    """
+    path = case / EXPECTED[which]
+    if not path.is_file():
+        raise SystemExit(f"{case.name}: no {EXPECTED[which]} — a case scored against the {which} "
+                         f"map needs its own expected set; scoring against the other map's would "
+                         f"measure nothing")
+    return set(json.loads(path.read_text())["applicable"])
+
+
+def technology_map() -> list[dict]:
+    """The TECHNOLOGY capability map, projected exactly as the screening run projects it.
+
+    Same artifacts, same mapper (`capabilities.concepts`), same grain — so what the harness scores
+    is what a run is shown. The rows come from the committed SEED rather than the corpus: the seed
+    is the publish-time master, so scoring it measures the map that is ABOUT to be published, which
+    is the version a baseline should gate on. A published corpus behind the seed would otherwise
+    make an eval pass on content no run will ever see.
+    """
+    return capabilities.concepts(seed.artifact("ai_capability_map")["capabilities"],
+                                 seed.artifact("capability_domains")["domains"])
+
+
+def corpus_from_file(path: str) -> list[dict]:
+    """A corpus read from a JSON file rather than the licensed scheme — how a DIFFERENT map is
+    scored on the same cases. Same row shape the SKOS service emits (`id, label, level, parent,
+    path, definition`), so every matcher and every seam below is unchanged. The `vector` matcher
+    is the exception and says so: its candidates come from a published store, and a file has none."""
+    rows = json.loads(Path(path).read_text())
+    missing = [k for k in ("id", "label", "level") if any(k not in r for r in rows)]
+    if missing:
+        raise SystemExit(f"{path}: every row needs {missing} — this is a corpus, not a table")
+    return rows
 
 
 def agents_for(gateway_url: str, model: str, credential: str, *steps) -> dict:
@@ -73,18 +121,57 @@ async def derive_elements(cfg, submission: str) -> dict:
     return d.derived["elements"]
 
 
-def children_of(corpus: list[dict]):
-    """The drill's `children` seam over the LOCAL tree — the same rows the corpus would serve."""
+#: What a match is SCORED as, per map. The technology map's id is its natural key — the string a
+#: guardrail and the component catalogue resolve against — so scoring a label there would measure
+#: something no downstream consumer uses. The business map's ids are synthetic content hashes that
+#: no human can review, and its expected sets are therefore written as labels. One vocabulary per
+#: map, named here rather than inferred from the shape of whatever the expected file happens to hold.
+SCORED_BY = {"technology": "id", "business": "label"}
+
+
+def identity_of(match: Mapping, corpus: list[dict], by: str = "id") -> str:
+    """What a match IS, scored the way the rest of the framework joins on it.
+
+    The technology map's id is its natural key, and that key is what a guardrail and the component
+    catalogue resolve against — so scoring a LABEL would measure something no downstream consumer
+    uses. But a reasoning model writes the label where the key belongs often enough to have been
+    measured (12 Sep 2026), and refusing those would score the model's field discipline rather than
+    its judgement. So: the id when the map knows it, otherwise the label resolved back to its id,
+    otherwise the raw string — which then matches nothing and is a visible wrong answer.
+
+    `bad_ids` still counts the ones that needed resolving, because a match a RUN could not join on
+    is a defect even when the harness can charitably read it.
+    """
+    if by == "label":
+        return str(match.get("capability_label") or "").strip()
+    by_id = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
+    by_label = {str(c.get("label", "")).strip(): str(c.get("id"))
+                for c in corpus if isinstance(c, dict) and c.get("label")}
+    ident = str(match.get("capability_id") or "").strip()
+    if ident in by_id:
+        return ident
+    return by_label.get(str(match.get("capability_label") or "").strip(), ident)
+
+
+def children_of(corpus: list[dict], seen: set | None = None, by: str = "id"):
+    """The drill's `children` seam over the LOCAL tree — the same rows the corpus would serve.
+
+    `seen` collects every label this seam ever handed the matcher: that is the `offered` set the
+    stage metrics need, and a seam is the only honest place to take it. Counting the corpus
+    instead would credit the drill with candidates it closed a branch on and never showed."""
     by_parent: dict = {}
     for c in corpus:
         by_parent.setdefault(c.get("parent"), []).append(c)
 
     async def children(ids, level):
-        return [c for i in ids for c in by_parent.get(i, [])]
+        rows = [c for i in ids for c in by_parent.get(i, [])]
+        if seen is not None:
+            seen.update(str(r.get(by) or "").strip() for r in rows)
+        return rows
     return children
 
 
-def search_of(cfg, scheme: str):
+def search_of(cfg, scheme: str, seen: set | None = None, by: str = "id"):
     """The `vector` seam: the map's store THROUGH THE GATEWAY under a pin — the same path a run
     takes, so what the harness scores is what a run gets."""
     store = VectorStores.for_scheme(scheme)
@@ -93,42 +180,101 @@ def search_of(cfg, scheme: str):
     async def search(query, k):
         if not pinned:
             pinned.update(await reference.pin(cfg, [store]))
-        return await gateway.vector_search(
+        hits = await gateway.vector_search(
             cfg["gateway_url"], cfg["headers"], store, query, k=k,
             filters={"pin_id": pinned["pin_id"], **reference.attribution(cfg, "coverage_map")})
+        if seen is not None:
+            seen.update(str(c.get(by) or "").strip()
+                        for c in coverage.candidates_from_hits(hits))
+        return hits
     return search
 
 
-async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set, float, str, list]:
-    """One matcher over one case: the capabilities it returned, the seconds it took, and why it
-    stopped if it did."""
+def present(corpus: list[dict], definitions: str, budget: int, deepest: int) -> list[dict]:
+    """The candidate rows AS THE MATCHER WILL SEE THEM — the experiment's real variable.
+
+    Every downstream derivation rests on this match, and for months the only thing varied was which
+    matcher ran, while the thing that decides whether a match is a lookup or a guess — whether the
+    candidate carries its DEFINITION — was fixed by a constant nobody re-measured after the model
+    changed. `none` is what production sent (labels and path), `full` is every definition whatever
+    it costs, `fit` is as much as the byte budget allows.
+    """
+    if definitions == "full":
+        return corpus
+    if definitions == "none":
+        return [{k: v for k, v in c.items() if k != "definition"} for c in corpus]
+    trimmed = coverage.leaves_for(corpus, deepest=deepest, budget=budget)   # budget-aware trim
+    keep = {t["id"]: t.get("definition") for t in trimmed}
+    return [{**c, **({"definition": keep[c["id"]]} if keep.get(c["id"]) else
+                     {k: v for k, v in c.items() if k != "definition"})}
+            if c.get("id") in keep else c for c in corpus]
+
+
+def payload_size(corpus: list[dict], matcher: str, budget: int, deepest: int) -> int:
+    """Roughly what one prompt will carry — printed so a recall number is read beside its cost."""
+    rows = coverage.leaves_for(corpus, deepest=deepest, budget=budget) if matcher == "leaves" \
+        else [c for c in corpus if c.get("level") == 1]
+    return len(json.dumps(rows, ensure_ascii=False, default=str))
+
+
+async def one_run(cfg, corpus, elements, matcher: str, scheme: str,
+                  deepest: int, by: str = "id") -> tuple[set, float, str, list, set]:
+    """One matcher over one case: the capabilities it returned, the seconds it took, why it
+    stopped if it did, and WHAT IT WAS SHOWN.
+
+    The last of those is what separates a retrieval failure from a choosing failure, and the two
+    have opposite fixes. `leaves` shows the whole leaf set and is computed directly; every other
+    matcher decides what to show as it goes, so its offered set is collected at the seams."""
     d = Derivation(available={"elements": elements, "capabilities": corpus})
+    offered: set = set()
+    if matcher == "leaves":
+        offered = {str(c.get(by) or "").strip()
+                   for c in coverage.leaves_for(corpus, deepest=deepest)}
     started = time.time()
     note = ""
     try:
-        await coverage.MATCHERS[matcher](cfg, d, corpus, children=children_of(corpus),
-                                         search=search_of(cfg, scheme), project=lambda r: r)
+        await coverage.MATCHERS[matcher](cfg, d, corpus,
+                                         children=children_of(corpus, offered, by),
+                                         search=search_of(cfg, scheme, offered, by),
+                                         project=lambda r: r, deepest=deepest)
     except GateFailed as refused:
         note = f"gate: {refused}"
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
         note = f"{type(exc).__name__}: {exc}"
     matched = (d.derived.get("coverage_map") or {}).get("matched") or []
-    got = {str(m.get("capability_label") or "").strip() for m in matched}
+    got = {identity_of(m, corpus, by) for m in matched}
     # What recall cannot see: an id that is not in the map. A reasoning model writes the label
     # where the key belongs (measured 12 Sep 2026); the label scores, the id would not join.
     ids = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
     bad_ids = sorted({str(m.get("capability_id")) for m in matched
                       if str(m.get("capability_id", "")).strip() not in ids})
-    return {g for g in got if g}, time.time() - started, note or d.pending.get("5", ""), bad_ids
+    return ({g for g in got if g}, time.time() - started, note or d.pending.get("5", ""),
+            bad_ids, {o for o in offered if o})
 
 
-def score(got: set, expected: set) -> dict:
+def score(got: set, expected: set, offered: set | None = None) -> dict:
+    """The outcome, and WHERE it was lost.
+
+    A pipeline scored only end to end cannot tell a retrieval problem from a chooser problem, and
+    they have opposite fixes. So two more numbers, both standard for a retrieve-then-rerank stack:
+    `reachable` is recall@k of the candidate set — the ceiling, since a chooser cannot return what
+    it was never shown — and `chose` is what the chooser took OF what was reachable. A low
+    `reachable` says fix retrieval (or the translation feeding it); a high `reachable` with a low
+    `chose` says fix the choosing prompt.
+    """
     tp = len(got & expected)
     precision = tp / len(got) if got else 0.0
     recall = tp / len(expected) if expected else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    return {"returned": len(got), "correct": tp, "precision": precision, "recall": recall,
-            "f1": f1, "wrong": sorted(got - expected), "missed": sorted(expected - got)}
+    out = {"returned": len(got), "correct": tp, "precision": precision, "recall": recall,
+           "f1": f1, "wrong": sorted(got - expected), "missed": sorted(expected - got)}
+    if offered is not None:
+        present = expected & offered
+        out |= {"candidates": len(offered),
+                "reachable": len(present) / len(expected) if expected else 0.0,
+                "chose": len(got & present) / len(present) if present else 0.0,
+                "unreachable": sorted(expected - offered)}
+    return out
 
 
 def means(results: dict) -> dict:
@@ -177,15 +323,18 @@ def report(results: dict, runs: int) -> int:
     recall target G18 asks for, so this can gate a deploy rather than merely inform one.
     """
     target = float(os.environ.get("COVERAGE_RECALL_TARGET", "0.6"))
-    print(f"\n{'matcher':10} {'case':22} {'prec':>6} {'recall':>7} {'F1':>6} {'sec':>6}   n={runs}")
+    print(f"\n{'matcher':10} {'case':22} {'prec':>6} {'recall':>7} {'F1':>6} "
+          f"{'reach':>6} {'chose':>6} {'sec':>6}   n={runs}")
     failed = []
     for matcher, cases in sorted(results.items()):
         for case, samples in sorted(cases.items()):
             mean = lambda k: statistics.fmean(s[k] for s in samples)
             spread = (f" ±{statistics.stdev(s['recall'] for s in samples):.2f}"
                       if len(samples) > 1 else "")
+            stage = (f"{mean('reachable'):6.2f} {mean('chose'):6.2f}"
+                     if all("reachable" in s for s in samples) else f"{'—':>6} {'—':>6}")
             print(f"  {matcher:8} {case:22} {mean('precision'):6.2f} {mean('recall'):7.2f}"
-                  f"{spread} {mean('f1'):6.2f} {mean('seconds'):6.0f}")
+                  f"{spread} {mean('f1'):6.2f} {stage} {mean('seconds'):6.0f}")
             if mean("recall") < target:
                 failed.append(f"{matcher}/{case} recall {mean('recall'):.2f}")
 
@@ -207,7 +356,31 @@ async def main() -> int:
     ap.add_argument("--matcher", action="append", choices=sorted(coverage.MATCHERS),
                     help="repeatable; default is every matcher")
     ap.add_argument("--runs", type=int, default=3, help="repeats per matcher per case")
+    ap.add_argument("--case", action="append",
+                    help="repeatable; run only these case directories (the tight loop is one case)")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="cases in flight at once. 5 turns a four-minute arm into one, at the cost "
+                         "of sharing the upstream's rate limit — keep it 1 beside a cloud run")
+    ap.add_argument("--show", action="store_true",
+                    help="print what a matcher WOULD send and stop — no model call, no cost. The "
+                         "loop for tuning presentation: change a field, see the candidates")
     ap.add_argument("--scheme", default="healthcare-provider-v2.0")
+    ap.add_argument("--deepest", type=int, default=0,
+                    help="the map's matching GRAIN — the level candidates are drawn from. Default "
+                         "is the published map's (3); with --corpus-file, the deepest level present")
+    ap.add_argument("--map", choices=("technology", "business"), default="technology",
+                    help="which capability map to score. `technology` is what step 5 matches "
+                         "against (the 74-row CAFE M4 register, read whole, no store); `business` "
+                         "is the licensed workbook named by --scheme, retired from the live path")
+    ap.add_argument("--corpus-file",
+                    help="score against THIS capability map (JSON rows) instead of --scheme. The "
+                         "`vector` matcher is unavailable: it reads a published store, not a file")
+    ap.add_argument("--definitions", choices=("none", "fit", "full"), default="fit",
+                    help="how a candidate is PRESENTED: labels only (what production sent until "
+                         "17 Sep 2026), as much definition as the byte budget allows, or all of it")
+    ap.add_argument("--budget", type=int, default=200_000,
+                    help="the prompt byte budget `fit` trims to; the production constant is "
+                         "MAX_CORPUS_BYTES and it was sized on a different upstream")
     ap.add_argument("--derive", action="store_true",
                     help="derive each case's elements.json and stop — run once per case")
     ap.add_argument("--out", default="var/eval/coverage-results.json")
@@ -223,20 +396,75 @@ async def main() -> int:
     if not credential:
         raise SystemExit("EVAL_AGENT_KEY is not set — evals run on their OWN identity, never on a "
                          "production agent's key (scripts/provision_usecase_agents.py mints it)")
-    cfg = {"agents": agents_for(gateway_url, config.USECASE_AGENT_MODEL,
-                                credential, step_for("3"), step_for("4"), step_for("5")),
+    cfg = {"agents": agents_for(gateway_url, config.USECASE_AGENT_MODEL, credential,
+                                step_for("3"), step_for("4"), step_for("5"),
+                                coverage.CAPABILITY_QUERY),   # the `translate` matcher's own stage
            # what the `vector` matcher needs to reach the store the way a run does
            "headers": gateway.auth_headers(credential), "gateway_url": gateway_url,
            "mcp_url": gateway_url.rstrip("/") + "/mcp/", "run_id": "eval", "process": "eval"}
-    corpus = corpus_for(args.scheme, os.environ.get(
-        "REFERENCE_MODELS_DIR", str(Path.home() / "Development/local-agent-lab/var/reference-sources")))
-    print(f"corpus: {len(corpus)} concepts | gateway: {gateway_url}")
+    if args.map == "technology" and not args.corpus_file:
+        corpus = technology_map()
+        args.deepest = args.deepest or capabilities.LEVEL
+        asked = set(args.matcher or []) & set(coverage.STORE_BACKED)
+        if asked:
+            raise SystemExit(f"the technology map has no relevance store, so {sorted(asked)} "
+                             f"cannot be scored against it — it is a register read whole")
+        args.matcher = args.matcher or [m for m in sorted(coverage.MATCHERS)
+                                        if m not in coverage.STORE_BACKED]
+    elif args.corpus_file:
+        corpus = corpus_from_file(args.corpus_file)
+        # A file's grain is the file's, not the published map's: the constant is 3 and a two-level
+        # map would yield zero candidates, which reads downstream as "nothing is relevant".
+        args.deepest = args.deepest or max(int(c.get("level") or 0) for c in corpus)
+        asked = set(args.matcher or []) & set(coverage.STORE_BACKED)
+        if asked:
+            raise SystemExit(f"--corpus-file cannot score {sorted(asked)}: those matchers search a "
+                             f"published store, and a file is not one")
+        args.matcher = args.matcher or [m for m in sorted(coverage.MATCHERS)
+                                        if m not in coverage.STORE_BACKED]
+    else:
+        corpus = corpus_for(args.scheme, os.environ.get(
+            "REFERENCE_MODELS_DIR",
+            str(Path.home() / "Development/local-agent-lab/var/reference-sources")))
+    args.deepest = args.deepest or coverage.DEEPEST_LEVEL
+    with_def = sum(1 for c in corpus if str(c.get("definition") or "").strip())
+    corpus = present(corpus, args.definitions, args.budget, args.deepest)
+    print(f"corpus: {len(corpus)} concepts ({with_def} carry a definition) | "
+          f"definitions={args.definitions} | gateway: {gateway_url}")
 
-    cases = sorted(p for p in Path(args.cases).glob("*") if (p / "submission.md").exists())
+    cases = sorted(p for p in Path(args.cases).glob("*")
+                   if (p / "submission.md").exists() and (p / EXPECTED[args.map]).is_file())
+    if args.case:
+        wanted = {c.strip() for c in args.case}
+        cases = [c for c in cases if c.name in wanted]
+        if not cases:
+            print(f"no case named {sorted(wanted)} under {args.cases}")
+            return 2
     if not cases:
         print(f"no cases under {args.cases} — a case is a directory with submission.md, "
               f"elements.json and expected.json")
         return 2
+
+    if args.show:
+        # Zero calls: what the matcher would be handed, and what it costs. Tuning the presentation
+        # is the tightest loop there is, and paying a model to see a prompt is absurd.
+        for matcher in (args.matcher or sorted(coverage.MATCHERS)):
+            rows = (coverage.leaves_for(corpus, deepest=args.deepest, budget=args.budget)
+                    if matcher == "leaves" else [c for c in corpus if c.get("level") == 1])
+            size = len(json.dumps(rows, ensure_ascii=False, default=str))
+            carry = sum(1 for r in rows if str(r.get("definition") or "").strip())
+            print(f"\n{matcher}: {len(rows)} candidates, {size:,} bytes (~{size // 4:,} tokens), "
+                  f"{carry} with a definition")
+            for row in rows[:3]:
+                print("   ", json.dumps(row, ensure_ascii=False)[:300])
+        for case in cases:
+            elements = json.loads((case / "elements.json").read_text())
+            expected = sorted(expected_for(case, args.map))
+            behavioural = [b.get("name") for b in elements.get("behavioural") or []]
+            print(f"\n{case.name}: {len(behavioural)} functions to match, {len(expected)} expected")
+            print(f"    functions: {behavioural[:6]}")
+            print(f"    expected:  {expected[:6]}")
+        return 0
 
     if args.derive:
         for case in cases:
@@ -250,19 +478,29 @@ async def main() -> int:
         return 0
 
     results: dict = {}
+    gate = asyncio.Semaphore(max(1, args.concurrency))
+
+    async def scored(matcher: str, case, run: int) -> tuple:
+        expected = expected_for(case, args.map)
+        elements = json.loads((case / "elements.json").read_text())
+        async with gate:
+            got, seconds, note, bad_ids, offered = await one_run(
+                cfg, corpus, elements, matcher, args.scheme, args.deepest, SCORED_BY[args.map])
+        row = score(got, expected, offered) | {"seconds": seconds, "note": note, "run": run,
+                                               "invalid_ids": bad_ids}
+        print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
+              f"P {row['precision']:.2f} R {row['recall']:.2f}  "
+              f"[reachable {row.get('reachable', 0):.2f} of {row.get('candidates', 0)} shown, "
+              f"chose {row.get('chose', 0):.2f}]  {seconds:4.0f}s"
+              f"{'  bad-ids ' + str(len(bad_ids)) if bad_ids else ''}"
+              f"{'  ' + note[:50] if note else ''}", flush=True)
+        return matcher, case.name, row
+
     for matcher in (args.matcher or sorted(coverage.MATCHERS)):
-        for case in cases:
-            expected = set(json.loads((case / "expected.json").read_text())["applicable"])
-            elements = json.loads((case / "elements.json").read_text())
-            for run in range(args.runs):
-                got, seconds, note, bad_ids = await one_run(cfg, corpus, elements, matcher, args.scheme)
-                row = score(got, expected) | {"seconds": seconds, "note": note, "run": run,
-                                              "invalid_ids": bad_ids}
-                results.setdefault(matcher, {}).setdefault(case.name, []).append(row)
-                print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
-                      f"P {row['precision']:.2f} R {row['recall']:.2f}  {seconds:4.0f}s"
-                      f"{'  bad-ids ' + str(len(bad_ids)) if bad_ids else ''}"
-                      f"{'  ' + note[:50] if note else ''}", flush=True)
+        print(f"    candidates ≈ {payload_size(corpus, matcher, args.budget, args.deepest):,} bytes")
+        todo = [scored(matcher, case, run) for case in cases for run in range(args.runs)]
+        for matcher_, name, row in await asyncio.gather(*todo):
+            results.setdefault(matcher_, {}).setdefault(name, []).append(row)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(results, indent=2))

@@ -22,7 +22,7 @@ from lab.platform.contracts import EATools, SemanticTools
 from lab.workloads import gateway
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.model import Model
-from lab.workloads.usecase.steps import DERIVED_STEP_NUMBERS, STEPS
+from lab.workloads.usecase import steps as steps_mod
 
 __all__ = ["TRACE", "tabs", "trace"]
 
@@ -31,7 +31,7 @@ TRACE = "model_trace"
 
 #: Step number by key, agent steps and derived steps alike — so a tab carries the number a person
 #: recognises. Both halves come from `steps`; nothing is numbered here.
-NUMBER_OF = {s.key: s.number for s in STEPS} | DERIVED_STEP_NUMBERS
+NUMBER_OF = steps_mod.NUMBER_OF          # re-exported; the table lives with the steps
 
 
 def _order(key: str) -> tuple[int, str]:

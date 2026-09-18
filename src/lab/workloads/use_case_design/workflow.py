@@ -26,6 +26,9 @@ from typing import Any, Mapping
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.core.usecase import cost
+# Aliased: `enforcement` is already the local name for the composition's family -> guardrail map,
+# and two different things called `enforcement` in one file is how the wrong one gets passed.
+from lab.core.usecase import enforcement as enforcement_binding
 from lab.core.usecase.model import canonical_criticality
 from lab.platform import config, contracts, runlog
 from lab.platform.contracts import (
@@ -44,7 +47,7 @@ from lab.workloads import gateway
 from lab.workloads.usecase import reference
 from lab.workloads.usecase import families, mappers, modeltrace, modelling, owed
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.steps import step_for
+from lab.workloads.usecase.steps import NUMBER_OF, step_for
 
 #: Declared on every approval this workload raises — see the screening workflow.
 PROCESS = USE_CASE_DESIGN.name
@@ -111,6 +114,18 @@ FINDING_PROMPT = (
     "submitter is told: a wrong rejection kills a valuable use case and produces no observable "
     "event afterwards, so this is the only place it can be caught.")
 
+#: An ESCALATE is not a finding to overturn — it is a question nobody could answer from the corpus,
+#: so asking a person to "confirm or overturn" would frame a decision they must MAKE as a machine
+#: judgement they may correct. Different verdict, different sentence.
+ESCALATED_PROMPT = (
+    "This use case could not be ruled on automatically — the evidence the feasibility rule needs is "
+    "not published in this tenant. Decide it: does this use case serve a named capability with "
+    "headroom? Nothing was rejected and nothing was approved; the rule is waiting on you.")
+
+
+def finding_prompt(verdict: str) -> str:
+    return ESCALATED_PROMPT if str(verdict).strip().lower() == "escalate" else FINDING_PROMPT
+
 
 def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=None,
              root_ctx=None, run_id=""):
@@ -138,11 +153,19 @@ def feasibility_evidence(screening: dict) -> dict:
     Every one is FALSE until the step that derives it exists — and false is not a guess here: "no
     capability match" is the reject rule, so an undeciable use case would reject rather than
     proceed. The readiness gate stops the run before that can happen, which is why it comes first.
+
+    `capability_matched` has a THIRD state. When step 5 was DEFAULTED — this tenant publishes no
+    business capability map — false would say "the use case serves no capability on the map", a
+    finding about a map nobody wrote, and it would reject every use case identically. `None` says
+    "not known" and the verdict escalates to an architect instead. Read off `defaulted_steps`
+    rather than from an empty `matched`, because a map that IS published and genuinely matches
+    nothing is the reject rule doing its job.
     """
     coverage = screening.get("coverage_map") or {}
     realisations = screening.get("realisation_match") or {}
     heat = coverage.get("heat_map") or {}
-    return {"capability_matched": bool(coverage.get("matched")),
+    defaulted = NUMBER_OF.get("coverage_map", "") in (screening.get("defaulted_steps") or {})
+    return {"capability_matched": None if defaulted else bool(coverage.get("matched")),
             "existing_realisation": bool(realisations.get("existing")),
             "capability_is_commodity": bool(heat.get("commodity")),
             "capability_is_mature": bool(heat.get("mature")),
@@ -274,13 +297,47 @@ async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
     # reference architecture does not have. Recorded before step 21 so the architect selecting
     # components can see what each one would satisfy, and the gate can hold it to that.
     enforcement = (d.derived.get("composition") or {}).get("enforcement") or {}
-    guardrails, capability_map = d.available.get("guardrails") or [], d.available.get("ai_capability_map") or []
+    # NOT `or []`. `_corpora` OMITS an artifact it could not read, so absent is None — and `or []`
+    # would turn "we never read the map" into "the map binds nothing", which reports every
+    # obligation as a gap in the FRAMEWORK when in fact nothing was read. `candidates()` refuses a
+    # None outright; `families` tolerates it, because a family join over an absent corpus is the
+    # silence it is designed to report.
+    guardrails = d.available.get("guardrails")
+    capability_map = d.available.get("ai_capability_map")
     d.record("component_families", {
         "by_component": families.by_component(enforcement, guardrails, capability_map),
         # Families whose guardrails name no capability in the published map: the corpus is silent,
         # which is not the same as the design failing to cover them.
         "unclaimed": families.unclaimed(enforcement, guardrails, capability_map)})
+    # Move 5's input: which catalogue component COULD enforce each guardrail. Recorded before step
+    # 21 so the architect selects an enforcing component deliberately rather than being failed for
+    # having missed one, and so the gate binds against exactly what the prompt was shown.
+    try:
+        d.record("enforcement_points", enforcement_binding.candidates(guardrails, capability_map))
+    except enforcement_binding.EnforcementError as absent:
+        d.defer("21", f"bind obligations to enforcement points: {absent}")
     await modelling.grow(cfg, d, "composition")
+
+
+async def _bind_obligations(d: Derivation) -> None:
+    """Composition move 5, after step 21 — every obligation on a component this design SELECTED.
+
+    Runs here and not inside `_compose` because it needs the selection. The gate on step 21 refuses
+    an `unbound` obligation already; this records the whole binding so the conformance reviewer sees
+    what enforces what, rather than only what does not.
+    """
+    points = d.derived.get("enforcement_points")
+    if points is None:
+        return                       # `_compose` already deferred by name; do not defer twice
+    selection = d.derived.get("component_selection") or {}
+    binding = enforcement_binding.bind(
+        list((d.derived.get("obligations") or {}).get("guardrails") or ()),
+        candidates=points,
+        selected=[str(c.get("component_id", "")) for c in selection.get("selected") or []])
+    d.record("enforcement", {"bound": {g: list(c) for g, c in binding.bound.items()},
+                             "unbound": list(binding.unbound),
+                             "unenforceable": list(binding.unenforceable),
+                             "complete": binding.complete})
 
 
 def design_version(derived: Mapping[str, Any]) -> str:
@@ -508,6 +565,7 @@ def build_workflow(cfg):
             await _compose(cfg, payload, d, pin_id)      # 22 the composition — its families...
             modelling.ensure(d)                          # ...on the model step 21 is shown
             await _agent_step(cfg, "21", d)              # the components, against those controls
+            await _bind_obligations(d)                   # 22 move 5 — obligation -> selected component
             await _agent_step(cfg, "23", d)              # what the design costs
             await _agent_step(cfg, "24", d)              # what evidences the benefit
             await _valuation(cfg, d, state)              # 23/24 arithmetic, by the governed service
@@ -586,7 +644,7 @@ async def _finding(cfg, state: dict) -> dict:
     not start the next process."""
     asked = await gateway.call(cfg, ApprovalTools.ask, {
         "subject": f'Feasibility finding: {state["verdict"]}',
-        "prompt": FINDING_PROMPT,
+        "prompt": finding_prompt(state.get("verdict", "")),
         "items": [{"label": "decision", "samples": ["confirm", "overturn"]},
                   {"label": "reason", "samples": []}],
         "artifacts": {"submission": state["submission_ref"],

@@ -83,7 +83,7 @@ def decision_readiness(gates_evidenced: dict, criticality: str = "routine",
 
 
 @server.tool()
-def decision_feasibility(capability_matched: bool, existing_realisation: bool,
+def decision_feasibility(capability_matched: bool | None, existing_realisation: bool,
                          capability_is_commodity: bool, capability_is_mature: bool,
                          capability_meets_target: bool) -> dict:
     """Step 16 — the feasibility verdict, over derived evidence rather than an estimate.
@@ -91,7 +91,12 @@ def decision_feasibility(capability_matched: bool, existing_realisation: bool,
     Rules in order, first to fire decides: no capability match rejects; an existing realisation
     returns the use case as an INTEGRATION; a capability that is commodity, mature and meeting
     target rejects; otherwise proceed. `halts` is true for anything but proceed — steps 17 to 25
-    must not be attempted and no partial design package produced."""
+    must not be attempted and no partial design package produced.
+
+    `capability_matched` is `bool | None` and the None is not defensive: it means no capability map
+    could be read, which is a different answer from "a map answered and matched nothing". False
+    rejects; None ESCALATES to an architect. The annotation is what FastMCP validates against, so a
+    port narrower than the domain does not degrade — it refuses the call."""
     out = gates.feasibility_verdict(
         capability_matched=capability_matched, existing_realisation=existing_realisation,
         capability_is_commodity=capability_is_commodity, capability_is_mature=capability_is_mature,

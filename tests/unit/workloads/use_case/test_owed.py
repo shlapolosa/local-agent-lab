@@ -19,8 +19,12 @@ PACKAGE = {
 
 
 def test_an_obligation_nobody_enforces_is_the_first_thing_a_reviewer_hears():
+    """This package carries no `enforcement` section — it is the shape staged before composition
+    move 5 was implemented, and those approvals stay open. So what it reports is the FAMILY-level
+    finding, and it now says that rather than claiming to be about an enforcement point: a family
+    is a shape, and an obligation a present family covers may still have nothing enforcing it."""
     lines = owed(PACKAGE)
-    assert lines[0].startswith("G04") and "NO enforcement point" in lines[0]
+    assert lines[0].startswith("G04") and "no family this composition requires carries it" in lines[0]
     assert lines[1].startswith("G08")
     assert "n3" in lines[2] and "commits without a human" in lines[2]
 
