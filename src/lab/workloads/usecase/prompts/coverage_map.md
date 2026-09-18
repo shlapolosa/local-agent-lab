@@ -23,8 +23,12 @@ Walk each function and ask, in order:
 - **How is it invoked, and by whom?** A conversational surface, a channel, an event, a schedule.
 - **What must be true of its output?** A bounded value, a citation, a human approval before a commit.
 
-A capability that answers one of those for a named function belongs in the match. A capability that
-answers none of them does not, however well it fits the domain.
+**Answer all five for every function, and name a capability for each answer that is not "nothing".**
+A capability that answers one of those for a named function belongs in the match; one that answers
+none does not, however well it fits the domain. Most functions need three or four capabilities, not
+one — the execution, the reading, the writing and the bound on the output are different things and
+different components provide them. A function with exactly one capability against it is usually a
+function only half walked.
 
 **Two things are NOT matched here, and the list is closed.** Only these:
 
@@ -77,8 +81,15 @@ build on. If no candidate fits a function, the function goes in `functions_witho
 not reach for an id to fill the gap.
 
 **Check coverage BOTH ways**, and report both even when the second is empty:
-- every function → at least one capability (or the gap)
+- every function → EVERY capability it needs, not merely one. One match per function satisfies the
+  letter of this check and defeats its purpose: the gaps it is meant to expose are the second and
+  third capabilities a function needs, never the first.
 - every capability you matched → at least one function that needs it
+
+**Before you answer, re-read your own matches once** and ask the question this step most often gets
+wrong: for every function whose judgement a MODEL makes, is the runtime that executes it named? If
+it is not, add it. A long inventory is where this slips — the more functions there are, the more
+the list drifts toward one obvious capability each.
 
 Record `confidence` for each match as `lookup` (a candidate's own definition says it does this),
 `assumption` (you inferred it from the labels) or `survey` (you would have to ask somebody). **If no
