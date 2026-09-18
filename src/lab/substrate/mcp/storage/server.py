@@ -101,14 +101,25 @@ def storage_read_document(ref: str, max_chars: int = docparse.MAX_DOC_CHARS) -> 
 
 
 @server.tool()
-def storage_read_artifact(ref: str, max_chars: int = docparse.MAX_DOC_CHARS) -> str:
+def storage_read_artifact(ref: str, max_chars: int = 0) -> str:
     """Read an ARTIFACT this lab produced (.json/.xml/.svg) back as text — a diarized transcript, a
-    stored spec, a rendered model. Returns the raw text (capped at max_chars with an explicit
-    truncation marker), so the caller parses it however its own contract says.
+    stored spec, a rendered model. Returns the raw text WHOLE, so the caller parses it however its
+    own contract says.
 
     Separate from storage_read_document on purpose: that one is for what a HUMAN uploaded and does
     prose and figure extraction, while this is for structured output the lab wrote itself and must
-    hand back byte-faithfully. Still READ-ONLY, still the only way a workload reaches the store."""
+    hand back byte-faithfully. Still READ-ONLY, still the only way a workload reaches the store.
+
+    **No default cap, and an explicit one REFUSES rather than truncating** (18 Sep 2026). It used to
+    default to `docparse.MAX_DOC_CHARS` — 60,000, a bound sized for PROSE reaching a prompt — and
+    cut the text there. A screening record crossed that once step 5 began matching every function
+    properly; the design run read it and `json.loads` died on "Invalid control character at: line 1
+    column 60001", eleven minutes in, with nothing in the message connecting it to a storage cap.
+
+    A truncated document is a shorter document and still readable. A truncated JSON is a CORRUPT
+    one: no caller wants half an object, so the cap could only ever convert a size problem into a
+    parse error two rooms from its cause. The parameter survives for a caller that genuinely wants
+    a bound, and it now fails by name."""
     span().set_attribute("storage.ref", ref)
     name = _name(ref)
     if filetypes.kind_for(name) != "artifact":
@@ -116,8 +127,10 @@ def storage_read_artifact(ref: str, max_chars: int = docparse.MAX_DOC_CHARS) -> 
                          "storage_read_document for an uploaded document or storage_get for an image")
     raw = server.uploads().get(ref)
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
-    if len(text) > max_chars:
-        text = text[:max_chars] + f"\n...[truncated at {max_chars} characters]"
+    if max_chars and len(text) > max_chars:
+        raise ValueError(f"{name} is {len(text)} characters, larger than the {max_chars} asked for "
+                         f"— refusing rather than returning a truncated artifact, which for JSON "
+                         f"is corrupt rather than short")
     span().set_attributes({"storage.kind": "artifact", "storage.chars": len(text)})
     return text
 
