@@ -180,9 +180,22 @@ def present(corpus: list[dict], definitions: str, budget: int, deepest: int) -> 
         return [{k: v for k, v in c.items() if k != "definition"} for c in corpus]
     trimmed = coverage.leaves_for(corpus, deepest=deepest, budget=budget)   # budget-aware trim
     keep = {t["id"]: t.get("definition") for t in trimmed}
-    return [{**c, **({"definition": keep[c["id"]]} if keep.get(c["id"]) else
-                     {k: v for k, v in c.items() if k != "definition"})}
-            if c.get("id") in keep else c for c in corpus]
+    # Built explicitly, because the dict-merge this used to be did not do what it read as:
+    # `{**c, **{k: v for k, v in c.items() if k != "definition"}}` spreads `c` INCLUDING its
+    # definition and then merges a copy without that key, which removes nothing. So `fit` never
+    # dropped a definition the budget could not afford — it only ever truncated one — and every
+    # `--definitions fit` measurement was of a prompt larger than the flag claimed.
+    out: list[dict] = []
+    for concept in corpus:
+        ident = concept.get("id")
+        if ident not in keep:
+            out.append(concept)
+            continue
+        row = {k: v for k, v in concept.items() if k != "definition"}
+        if keep.get(ident):
+            row["definition"] = keep[ident]
+        out.append(row)
+    return out
 
 
 def payload_size(corpus: list[dict], matcher: str, budget: int, deepest: int) -> int:

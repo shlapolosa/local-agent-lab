@@ -182,3 +182,31 @@ derived from the use case that needs it is precisely that.
 The branch's test calls it directly rather than through a run, which is the same shape as the
 instrumentation that stayed silent on the live run this morning. It is marked here so nobody reads
 its passing test as evidence the path works end to end.
+
+## Addendum — HyDE and the vector matchers are BUILT and DORMANT
+
+**Question: was HyDE finished, and do we need it?** Built, yes. Needed, no — and the evidence is the
+reason, not a preference.
+
+`coverage.translate` is a complete HyDE implementation: `register_of` shows the model a sample of the
+map's register, `CAPABILITY_QUERY` (step "5q", its own prompt and schema) translates every function
+into that register, the translations are what gets searched, and the hits plus their siblings and
+parents go to one choosing pass. `coverage.vector` is the same without the translation stage. Both
+are tested.
+
+**Both are unreachable, deliberately.** They search a published relevance store; the technology
+capability map has none, because it is 74 rows and ~5,700 tokens and goes into one prompt whole.
+`coverage.STORE_BACKED` names them, `use_case_screening.required_stores()` refuses a run configured
+for one at PREFLIGHT for zero tokens, and the eval harness refuses to score them.
+
+**Why they are not needed, measured.** Across six cases and three runs each, `reachable` is **1.00**
+— every expected capability was in front of the model on every run. HyDE improves RETRIEVAL. There
+is nothing to retrieve: the ceiling is already the whole map, and every miss is the chooser
+declining something it was looking at. Building a retrieval stage here could not have moved the
+number, and the +0.34 recall this session came entirely from what the chooser was asked.
+
+**Kept, like the Strategy-layer branch, as the reinstatement path.** They become necessary the moment
+a corpus too large for one prompt is matched against — an enterprise business capability map is
+~1,000 concepts at the matched level, which is exactly the case they were written for. Deleting them
+means rewriting them; what would be dishonest is leaving them looking live, which the preflight
+refusal and this note prevent.
