@@ -152,3 +152,33 @@ The chain closes: `component —Realization→ service —Serving→ business fu
 key, because step 5 and step 21 now name capabilities identically. Where that service exists, no
 `ApplicationFunction` is made for the same capability — one box holding the label and another the raw
 key is the same thing drawn twice.
+
+## Addendum — the Strategy layer is deliberately empty
+
+**Decision (user, 18 Sep 2026): leave it empty, keep the code in place.**
+
+The first live run staged 125 elements across Motivation (22), Business (34), Application (43) and
+Technology — and **zero** at the Strategy layer. That is not an oversight in the mapper; it is the
+direct consequence of retiring the business capability map. `mappers._coverage_map` emits a
+Strategy-layer `Capability` only when a match's id is NOT a technology-map key, and step 5 now reads
+one artifact whose every id IS one, so the branch is **unreachable by any path a run takes**.
+
+Stated plainly because it is a real limitation: the repository can answer *what the solution does*
+and *why* (the Motivation chain from step 3 is populated), but not **which business ability this use
+case exercises**. The reuse-versus-build question therefore has nothing to join on — the cost the
+"technology map only" option carried, arriving by a different route.
+
+Kept rather than deleted, against the no-dead-code standard, for one reason: it is the reinstatement
+path, and deleting it means rewriting it. **The named mechanism for reinstating it is two maps, not
+one** — business for *what ability*, technology for *how* — which needs the `CapabilityMap` value
+object the design review proposed (a map's artifact, record type, grain, ArchiMate element type and
+relation direction as DATA), selected by configuration. Until an enterprise publishes a conformant
+business map there is nothing to match, so that work does not pay yet.
+
+**Rejected: minting Capability elements from the run itself.** CAFÉ is explicit that "a capability
+invented to justify a use case is the failure this specification exists to prevent", and a capability
+derived from the use case that needs it is precisely that.
+
+The branch's test calls it directly rather than through a run, which is the same shape as the
+instrumentation that stayed silent on the live run this morning. It is marked here so nobody reads
+its passing test as evidence the path works end to end.
