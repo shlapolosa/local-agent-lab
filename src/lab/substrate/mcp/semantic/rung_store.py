@@ -53,12 +53,31 @@ class RungStore:
         return {_s(k): _s(v) for k, v in (self._redis().hgetall(KEY) or {}).items()}
 
     def restore(self, fabric: FabricService) -> dict[str, int]:
-        """Load every persisted graph into the service's dataset; returns name -> quads loaded."""
+        """Load every persisted graph into the service's dataset; returns name -> quads loaded.
+
+        A ref the store no longer holds is SKIPPED and named, never raised. The index lives in
+        Redis and the graphs in the artifact store — two stores with independent lifetimes — so
+        they can disagree, and on 19 Sep 2026 they did: the artifact store was rebuilt while Redis
+        kept its index, every ref pointed at nothing, and the `KeyError` came out of module import.
+        semantic-mcp crash-looped, the gateway could then list none of its tools, and every
+        workload's preflight refused with "gateway does not expose ['semantic_store_spec']". One
+        missing file stopped every business process in the lab.
+
+        A graph that cannot be read is a graph to rebuild. It is printed rather than swallowed,
+        because a server that comes up empty and silent is one nobody knows is empty.
+        """
         loaded: dict[str, int] = {}
         store = self._artifacts()
         for name, ref in self.refs().items():
-            if name in fabric.PERSISTED:
-                loaded[name] = fabric.restore([store.get(ref).decode("utf-8")])
+            if name not in fabric.PERSISTED:
+                continue
+            try:
+                text = store.get(ref).decode("utf-8")
+            except Exception as e:            # noqa: BLE001 — see the docstring
+                print(f"rung graph {name!r} not restored from {ref}: {type(e).__name__} — "
+                      f"it will be rebuilt on the next conforming write", flush=True)
+                continue
+            loaded[name] = fabric.restore([text])
         return loaded
 
 

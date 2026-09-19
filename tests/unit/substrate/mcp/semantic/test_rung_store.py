@@ -79,3 +79,37 @@ def test_save_skips_names_the_service_does_not_persist_and_an_empty_save_writes_
 def test_restore_on_an_empty_index_is_a_no_op():
     store, redis, rs, fab = parts()
     assert rs.restore(fab) == {}
+
+
+def test_a_ref_the_store_no_longer_holds_is_skipped_rather_than_crashing_the_server():
+    """The index lives in Redis and the graphs live in the artifact store — two stores with
+    independent lifetimes. Measured 19 Sep 2026: the artifact store was rebuilt (its previous
+    contents were unrecoverable) while Redis kept its index, so every ref pointed at nothing and
+    `restore` raised `KeyError: unknown artifact art://…/fabric-graph-C.nq` at IMPORT time.
+    semantic-mcp crash-looped, the gateway could list none of its tools, and every workload's
+    preflight then refused with "gateway does not expose ['semantic_store_spec']" — one missing
+    file took down every business process in the lab.
+
+    A graph that cannot be read is a graph to REBUILD, not a reason to refuse to start. It is named
+    in the log, because starting empty and silent is how a server comes up serving nothing and
+    nobody notices."""
+    store, redis, rs, fab = parts()
+    fab.catalog_upsert(DOC, title="Notes")
+    redis.hset(KEY, mapping={"C": "art://gone/fabric-graph-C.nq"})
+    fresh = FabricService(Dataset(default_union=True), MemoryCatalog(), DocumentTypes(), schemes=dict)
+    loaded = RungStore(artifacts=lambda: store, redis=lambda: redis).restore(fresh)
+    assert "C" not in loaded, "the unreadable graph is skipped"
+    assert loaded, "every OTHER graph still restores — one bad ref is not a bad restore"
+
+
+def test_the_skipped_graph_is_named_on_stdout_so_an_empty_server_is_visible():
+    store, redis, rs, fab = parts()
+    fab.catalog_upsert(DOC, title="Notes")
+    redis.hset(KEY, mapping={"C": "art://gone/fabric-graph-C.nq"})
+    fresh = FabricService(Dataset(default_union=True), MemoryCatalog(), DocumentTypes(), schemes=dict)
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        RungStore(artifacts=lambda: store, redis=lambda: redis).restore(fresh)
+    said = buf.getvalue()
+    assert "C" in said and "art://gone" in said
