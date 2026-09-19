@@ -125,3 +125,20 @@ def test_the_start_command_goes_THROUGH_the_images_entrypoint():
     re-execs as the postgres user, so it has to be named."""
     assert R.PG_CMD.startswith("docker-entrypoint.sh ")
     assert "postgres" in R.PG_CMD
+
+
+# ---------------------------------------------------------------- the live run view
+
+
+def test_the_live_view_holds_the_gate_and_redis_and_nothing_else():
+    """It shows what is HAPPENING, never what a run produced — so it needs no store, no model and
+    no EA credential. A public service with the narrowest possible slice."""
+    env = set(R.ROLE_ENV["live"])
+    assert {"REVIEW_APP_PASSWORD", "REDIS_URL"} <= env
+    for forbidden in ("DATABASE_URL", "ARTIFACTS_URL", "MCP_SHARED_SECRET", "LITELLM_MASTER_KEY",
+                      "OLLAMA_API_KEY", "ADOIT_PASSWORD", "S3_SECRET_ACCESS_KEY"):
+        assert forbidden not in env, forbidden
+
+
+def test_the_live_view_is_public_because_a_person_opens_it():
+    assert R.SUBSTRATE["live"]["port"] == 10000

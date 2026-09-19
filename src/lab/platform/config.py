@@ -90,6 +90,10 @@ STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
+#: The LIVE run view — not an MCP server: a page and its own event stream, served together so
+#: they are same-origin (the browser holds no Entra token, so it could never have watched
+#: through the gateway's /api).
+LIVE_PORT         = int(_e("LIVE_PORT", "10000"))
 REFERENCE_MCP_PORT = int(_e("REFERENCE_MCP_PORT", "9700"))
 DECISION_MCP_PORT = int(_e("DECISION_MCP_PORT", "9800"))
 VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
@@ -149,6 +153,9 @@ SOFFICE_BIN = _e("SOFFICE_BIN")                      # override for an install o
 # --- trust between services ---
 MCP_SHARED_SECRET = _e("MCP_SHARED_SECRET")          # gateway -> MCP servers bearer token; unset = open (local only)
 REVIEW_APP_PASSWORD = _e("REVIEW_APP_PASSWORD")      # minimal gate when no identity-aware proxy fronts the app
+#: Where the LIVE run view is served, if it is deployed. Unset = the review app simply does not
+#: offer the link, which is the honest degradation: the board still works, it just reloads.
+LIVE_APP_URL = _e("LIVE_APP_URL")
 
 # --- ADOIT write policy ---
 # The hosted Community Edition (adoit-ce.boc-cloud.com) BLOCKS REST write verbs at its edge proxy

@@ -182,6 +182,13 @@ SUBSTRATE = {
                             "--server.address :: --server.headless true", "port": 8501,
                      "s3": True,    # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
                      "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no reader DSN
+    # The LIVE run view. Its own service because Streamlit cannot be driven by an event stream —
+    # it is server-rendered, so the only way to change a page is a script rerun, and a three-second
+    # reload made the Runs board unusable. It serves the page AND the stream so the two are
+    # same-origin: the browser holds no Entra token and could never watch through the gateway's
+    # /api. PUBLIC domain because a person opens it; the gate is the review app's own password.
+    # Redis and nothing else — it reads the run log and never an artifact.
+    "live":         {"cmd": "python -m lab.substrate.live.server", "port": 10000},
 }
 S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
 
@@ -392,6 +399,10 @@ ROLE_ENV = {
         "MEETING_WEBHOOK_URL",  # where it POSTs. Unset = it logs what it would say
         _OTLP,                  # NO store, NO Graph credential, NO gateway: it reads run state and
     ],                          # posts ids and links. It never opens an artifact it announces.
+    # Watching is not reviewing: this holds the gate and Redis, and no store, model or EA
+    # credential whatsoever — the narrowest slice any public service here gets.
+    "live": ["REVIEW_APP_PASSWORD", "REDIS_URL", "BIND_HOST", "LIVE_PORT",
+             "OTEL_EXPORTER_OTLP_ENDPOINT"],
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the FALLBACK
         "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # the app's own Entra registration:

@@ -751,6 +751,12 @@ def _run_detail(h):
         if h.get(k):
             st.write(f"**{k}** `{h[k]}`")
 
+    # The way OUT to the live view: this page can only refresh by reloading (Streamlit is
+    # server-rendered), and the live service updates in place. A reader watching a run in flight
+    # wants that one; a reader reviewing what a run produced wants this one.
+    if config.LIVE_APP_URL and _should_refresh(h):
+        st.link_button("👁️ Watch this run live", f"{config.LIVE_APP_URL.rstrip('/')}/run/{sel}")
+
     st.markdown("**Roadmap**")
     _roadmap_view(h)
     with st.expander("Node timeline — the executors, for debugging the workflow itself"):
@@ -1238,6 +1244,20 @@ def _principal():
     st.stop()
 
 
+def _mode_from(params, offered: list) -> str:
+    """Which page is open, from the URL — the only thing that survives a page reload.
+
+    The Runs page refreshes by reloading, and a reload is a new session: a sidebar radio with no
+    key resets to its first option, so every refresh threw the reader back to `Review` and made the
+    board unusable. A URL that names the page fixes that and makes a page linkable besides.
+
+    The offered list is the authority: an unknown page, or one this principal's roles do not reach,
+    falls back to the first rather than failing — a stale link is not an error.
+    """
+    wanted = str((params or {}).get("mode") or "")
+    return wanted if wanted in offered else (offered[0] if offered else "")
+
+
 def main():
     _announce_build()
     st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
@@ -1264,7 +1284,11 @@ def main():
                        f"nothing here yet. Ask for one of {', '.join(identity.ROLES)} — it is "
                        f"granted in Entra, under Enterprise applications -> lab-review-app.")
             st.stop()
-    mode = st.sidebar.radio("Mode", offered, horizontal=True)
+    opened = _mode_from(st.query_params, offered)
+    mode = st.sidebar.radio("Mode", offered, horizontal=True,
+                            index=offered.index(opened) if opened in offered else 0)
+    if mode != opened:                                   # a click: record it so a reload stays put
+        st.query_params["mode"] = mode
     if who is not None and not may_open(who, mode):      # not merely hidden
         st.error(f"{reviewer} may not open {mode}."); st.stop()
     PAGES[mode][0](reviewer)

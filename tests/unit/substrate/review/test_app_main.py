@@ -3,6 +3,8 @@ reviewer/mode widgets and the PAGES dispatch table — run under the fake stream
 tests/unit/substrate/review/test_app_pages.py. Offline.
 Run: .venv/bin/python tests/unit/substrate/review/test_app_main.py   (also pytest-compatible)"""
 import os
+
+import pytest
 import sys
 from types import SimpleNamespace
 
@@ -11,11 +13,34 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.d
 from fixtures.streamlit import APP, FakeSt, FakeWorkflows, Rerun, Stop, install  # noqa: E402
 
 
+def _stub_config(**overrides):
+    """A config stub that starts from the REAL one.
+
+    It used to be a bare `SimpleNamespace` of the two fields a test needed, and the module global
+    was never restored — so every later test in the directory ran against that stub and the next
+    setting the app read was an `AttributeError` in a test that had nothing to do with config.
+    Starting from the real module means a new setting cannot break unrelated tests, and
+    `_restore_app_config` puts the original back.
+    """
+    import lab.platform.config as real
+    return SimpleNamespace(**{**{k: v for k, v in vars(real).items() if not k.startswith("__")},
+                              **overrides})
+
+
+@pytest.fixture(autouse=True)
+def _restore_app_config():
+    """`APP.config` is a MODULE GLOBAL — a test that swaps it and walks away hands its stub to
+    every test after it."""
+    saved = APP.config
+    yield
+    APP.config = saved
+
+
 def _main(st, password=None):
     install(st)
     # `build_id` too: the app announces which build it is on start, so a person reading the deploy
     # log can tell what is actually serving — the same line every other role prints.
-    APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=password, build_id=lambda: "build=test")
+    APP.config = _stub_config(REVIEW_APP_PASSWORD=password, build_id=lambda: "build=test")
     APP.main()
     return st
 
@@ -33,7 +58,7 @@ def test_main_without_password_dispatches_the_chosen_mode():
     wf = FakeWorkflows()
     st = FakeSt(Mode="Submit", Reviewer="ann", **{"▶️ Run visio_to_archimate": True})
     install(st, workflows=wf)
-    APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=None)
+    APP.config = _stub_config(REVIEW_APP_PASSWORD=None)
     st.session_state["submit_refs_visio_to_archimate"] = {"diagram": "art://d/s.vsdx"}
     try:
         APP.main()

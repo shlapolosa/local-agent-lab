@@ -196,6 +196,11 @@ services:
     command: ["streamlit", "run", "src/lab/substrate/review/app.py", "--server.port", "8501", "--server.headless", "true"]
     ports: ["8501:8501"]
 
+  live:                       # watch a run happen — public, same gate as the review app
+    <<: *sub
+    command: ["python", "-m", "lab.substrate.live.server"]
+    ports: ["10000:10000"]
+
   # --- approval channels: OPTIONAL, started only when configured (mirrors deploy/railway.py CHANNELS
   # and lab.sh's table). `docker compose --profile channels up` to run them.
   telegram:

@@ -126,3 +126,27 @@ def test_the_cache_is_bounded_so_a_long_lived_server_cannot_grow_without_limit()
     for i in range(app._CACHE_MAX + 25):
         app._cached(f"k{i}", 60, lambda i=i: i)
     assert len(app._CACHE) <= app._CACHE_MAX
+
+
+# ---------------------------------------------------------------- the page survives a reload
+
+def test_the_open_page_is_remembered_in_the_url():
+    """A reload starts a NEW session, so a sidebar radio with no key resets to its first option —
+    which is `Review`. The Runs page therefore threw the reader back to Review every three seconds
+    and was, in their words, completely unusable.
+
+    The URL is the only thing that survives a reload, so the open page lives there. It also makes
+    a page linkable, which is what somebody wants when they say "look at the Runs board"."""
+    assert app._mode_from({"mode": "Runs"}, ["Review", "Submit", "Runs"]) == "Runs"
+
+
+def test_an_unknown_or_forbidden_page_in_the_url_falls_back_rather_than_failing():
+    """A stale link, or a page this principal's roles do not reach. Neither is an error worth a
+    stack trace — the offered list is the authority and the first entry is the safe default."""
+    assert app._mode_from({"mode": "Artifacts"}, ["Review", "Runs"]) == "Review"
+    assert app._mode_from({"mode": "nonsense"}, ["Review", "Runs"]) == "Review"
+    assert app._mode_from({}, ["Review", "Runs"]) == "Review"
+
+
+def test_no_pages_offered_is_not_a_crash():
+    assert app._mode_from({"mode": "Runs"}, []) == ""
