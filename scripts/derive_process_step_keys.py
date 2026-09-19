@@ -18,7 +18,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-from lab.workloads.usecase.steps import DERIVED_STEP_NUMBERS, STEPS      # noqa: E402
+from lab.workloads.usecase.agents import CONTEXT_FOR                     # noqa: E402
+from lab.workloads.usecase.steps import (DERIVED_STEP_NUMBERS, DESIGN_STEPS,   # noqa: E402
+                                         SCREENING_STEPS, STEPS)
 
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                     "src", "lab", "core", "usecase", "seed")
@@ -36,6 +38,13 @@ COVERS = {
     "Q3.1–Q3.4": ("19",), "Q4.1–Q4.3": ("20",), "Q5.1–Q5.3": ("21",),
     "Q6.1–Q6.2": ("22",), "Q7.1": ("25",), "Q7.2–Q7.3": ("23", "24"),
 }
+
+#: Which PROCESS runs a published row. The roadmap drew all nineteen rows for every run, so a
+#: screening — which implements E0.1–E0.10 and the gate, and nothing below Q1.1 — showed ten rows
+#: permanently pending and read as half-finished when it had in fact completed. The split is not a
+#: judgement: `SCREENING_STEPS` and `DESIGN_STEPS` already declare it. Only the two rows with no
+#: numbered step of their own need saying, and the readiness gate closes screening by definition.
+GATE_PROCESS = {"Q0.8–Q0.9": "screening"}
 
 
 
@@ -66,6 +75,12 @@ def main() -> int:
     by_number = {s.number: (s.key, s.service) for s in STEPS}
     for key, number in DERIVED_STEP_NUMBERS.items():
         by_number.setdefault(number, (key, ""))          # derived: no agent, deliberately
+    # A derived step belongs to the process that runs the step it derives from; every derived
+    # number here (18, 19, 22, 23, 24) is part of the design half.
+    process_of = {s.number: "screening" for s in SCREENING_STEPS}
+    process_of |= {s.number: "design" for s in DESIGN_STEPS}
+    for number in DERIVED_STEP_NUMBERS.values():
+        process_of.setdefault(number, "design")
 
     rows = []
     for position, (ident, numbers) in enumerate(COVERS.items(), start=1):
@@ -79,14 +94,21 @@ def main() -> int:
             # verified on the running app, where the roadmap came back Q1.1, E0.3, E0.10, E0.4 — and
             # a roadmap out of process order is a list, not a roadmap. Lexical sorting cannot save
             # it either: "E0.10" sorts before "E0.2".
+            # What the agent is actually SHOWN. `CONTEXT_FOR` is the one declaration of it, and
+            # the roadmap needs it to say what a step's real INPUT was rather than repeating the
+            # methodology's prose — which was the same for every run and therefore told a reviewer
+            # nothing about theirs. Published as data for the same reason the rest of this file is:
+            # `substrate` may not import `workloads`.
+            reads = "; ".join(CONTEXT_FOR.get(key, ())) or NONE
             rows.append([ident, number, key, agent,
                          "derived" if number != NONE and not agent else "gate" if number == NONE
-                         else "agent", f"{position:02d}"])
+                         else "agent", f"{position:02d}",
+                         process_of.get(number, GATE_PROCESS.get(ident, "")) or NONE, reads])
     unknown = [r for r in rows if r[1] != NONE and not r[2]]
     if unknown:
         raise SystemExit(f"step numbers with no step: {[r[1] for r in unknown]}")
 
-    headers = ["Step", "Number", "Record key", "Agent", "Kind", "Order"]
+    headers = ["Step", "Number", "Record key", "Agent", "Kind", "Order", "Process", "Reads"]
     payload = {"step_keys": {"headers": headers, "rows": rows},
                "_source": "derived from lab.workloads.usecase.steps by "
                           "scripts/derive_process_step_keys.py — regenerate when a step is added"}

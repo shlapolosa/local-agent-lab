@@ -68,6 +68,21 @@ SPECS = (USE_CASE_SCREENING, USE_CASE_DESIGN, USE_CASE_INVESTMENT, USE_CASE_PROV
 
 # ---------------------------------------------------------------- the contract
 
+
+def _screening_record(h):
+    """The FINAL screening record the run stored, by the name it stored it under.
+
+    It used to be found as "the first store_spec whose spec has pending_steps", which was unique
+    only because the record was written once, at the very end. A run now republishes the record so
+    far after every step (so a live roadmap can show what each step produced), and those partials
+    carry `pending_steps` too — so the old selector silently started matching the FIRST partial,
+    which holds one step's output. The name is what actually distinguishes them.
+    """
+    return [c[1]["spec"] for c in h.router.calls
+            if c[0] == SemanticTools.store_spec
+            and c[1].get("name") == "screening.json"][-1]
+
+
 def test_only_the_first_process_can_be_started_from_outside():
     """The entire enforcement of "you cannot skip the gates": the tools and the REST routes are
     generated from the spec, so a grant cannot name an entry point that does not exist."""
@@ -161,8 +176,7 @@ def test_the_screening_record_says_which_steps_it_did_not_derive():
     from lab.workloads.use_case_screening import workflow as W
     with spine(W, _screening_router()) as h:
         run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
-    screening = [c[1]["spec"] for c in h.router.calls
-                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    screening = _screening_record(h)
     assert set(screening["pending_steps"]) >= {"3", "5", "10", "11"}
 
 
@@ -645,8 +659,7 @@ def test_a_wired_step_runs_and_lands_in_the_screening_record():
     with spine(W, router) as h:
         h.cfg["agents"] = agents
         run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
-    screening = [c[1]["spec"] for c in h.router.calls
-                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    screening = _screening_record(h)
     assert screening["frame"]["accountable_owner"] == "Dr Aisha Khan"
     assert screening["elements"]["behavioural"][0]["name"] == "assess referral"
     assert "3" not in screening["pending_steps"], "a step that ran is no longer pending"
@@ -672,8 +685,7 @@ def test_a_step_whose_corpus_is_missing_records_its_declared_default_and_never_r
     with spine(W, router) as h:
         h.cfg["agents"] = agents
         run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
-    screening = [c[1]["spec"] for c in h.router.calls
-                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    screening = _screening_record(h)
     # Step 6 needs only the elements and the landscape: the landscape is the one thing missing,
     # so its declared default is recorded and listed as defaulted.
     assert screening["realisation_match"]["gap_flags"][0]["what"].startswith("DEFAULT")
@@ -695,8 +707,7 @@ def test_an_unavailable_corpus_is_named_in_the_record_rather_than_being_silently
     with spine(W, router) as h:
         h.cfg["agents"] = agents
         run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
-    screening = [c[1]["spec"] for c in h.router.calls
-                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    screening = _screening_record(h)
     assert set(screening["corpora_unavailable"]) >= {"landscape", "service_levels",
                                                      "source_classification"}
 
@@ -710,8 +721,7 @@ def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
         h.cfg["agents"] = agents
         out = run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
     assert out["approval_id"] == "apr-1"
-    screening = [c[1]["spec"] for c in h.router.calls
-                 if c[0] == SemanticTools.store_spec and "pending_steps" in c[1]["spec"]][0]
+    screening = _screening_record(h)
     assert "capabilities" in screening["corpora_unavailable"]
     # Step 5 does not MATCH without its map — it records the declared default and says so, which is
     # what lets the run reach the end instead of stopping at readiness gate A.
@@ -1671,3 +1681,37 @@ def test_the_criticality_approval_carries_the_screening_summary_a_person_reads()
     asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
     assert asked["summary"]["criticality_band"] == "business-critical"
     assert "defaulted_steps" in asked["summary"]
+
+
+def test_the_record_is_republished_as_each_step_lands_not_only_at_the_end():
+    """A run is watched WHILE it runs, and until now nothing it produced could be seen until it
+    finished. `wfr-c53cdaa27bdb` (18 Sep 2026) died at step 7 holding four steps of real output
+    that no surface could display, because the record's ref reached the board only through the
+    workflow's final output."""
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    partials = [c[1]["spec"] for c in h.router.calls
+                if c[0] == SemanticTools.store_spec
+                and c[1].get("name") == "screening.partial.json"]
+    assert len(partials) > 1, "one per step that recorded an answer"
+    assert "frame" in partials[0], "the first step is visible as soon as it lands"
+    assert len(partials[-1]) > len(partials[0]), "the record GROWS across the run"
+    # The partial is a convenience; the named record is still the product, and it is stored last.
+    assert _screening_record(h)["frame"], "the final record is unchanged by any of this"
+
+
+def test_a_partial_record_never_overwrites_the_finished_one():
+    """They are different artifacts by NAME. `screening.json` is what every consumer downstream
+    reads — the notifier, the design run, the fabric ingest — and pointing any of them at a
+    half-built record to serve one page would be a lie told to all of them."""
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    names = [c[1].get("name") for c in h.router.calls if c[0] == SemanticTools.store_spec]
+    assert names[-1] == "screening.json", "the finished record is stored last"
+    assert "screening.partial.json" in names

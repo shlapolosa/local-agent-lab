@@ -34,7 +34,7 @@ __all__ = ["RoadmapStep", "build", "index_from"]
 #: kind, run together. Split rather than re-typed, so the artifact stays the single source.
 _ROW = re.compile(r"^(?P<id>\S+)\s+(?P<title>.*?)\s+(?P<kind>Pre-work|Decision|Gate)\s*$")
 
-#: `published id -> ((number, record key, agent), …)`. INJECTED, never imported: the three facts come
+#: `published id -> ((number, record key, agent, process, reads), …)`. INJECTED, never imported: the facts come
 #: from `lab.workloads.usecase.steps`, and `substrate` may not import `workloads` — that seam is what
 #: keeps a workload reachable only over the network. So they are derived into a published artifact
 #: (`process-step-keys`, by `scripts/derive_process_step_keys.py`) and read from the corpus like
@@ -57,12 +57,17 @@ class RoadmapStep:
     kind: str
     numbers: tuple[str, ...] = ()
     keys: tuple[str, ...] = ()
+    #: The record sections this step's agent is actually SHOWN (`agents.CONTEXT_FOR`, published).
+    reads: tuple[str, ...] = ()
     agent: str = ""
     derived: bool = False
     state: str = "pending"                 # pending | running | done | failed | defaulted
     inputs_declared: str = ""
     decided: str = ""
     outputs_declared: str = ""
+    #: What this run actually fed in — the record sections named by `reads`. Distinct from
+    #: `inputs_declared`, which is the methodology's prose and identical on every run.
+    input: Any = None
     output: Any = None
     gaps: tuple[str, ...] = ()
     note: str = ""
@@ -98,18 +103,29 @@ def index_from(rows: Sequence[Sequence[str]], headers: Sequence[str]) -> dict:
     if not rows or not headers:
         return {}
     col = {name: i for i, name in enumerate(headers)}
-    out: dict[str, list[tuple[str, str, str]]] = {}
+    def cell(row, name):
+        return str(row[col[name]]).strip() if name in col and col[name] < len(row) else ""
+
+    out: dict[str, list[tuple[str, str, str, str, tuple[str, ...]]]] = {}
     for row in rows:
         ident = str(row[col.get("Step", 0)]).strip()
-        number = str(row[col["Number"]]).strip() if "Number" in col else ""
-        key = str(row[col["Record key"]]).strip() if "Record key" in col else ""
-        agent = str(row[col["Agent"]]).strip() if "Agent" in col else ""
+        number, key, agent = cell(row, "Number"), cell(row, "Record key"), cell(row, "Agent")
+        # "Process" and "Reads" arrived after the first roadmap shipped. A corpus published before
+        # them yields "" for both, and every consumer below treats "" as "do not filter" / "nothing
+        # declared" — an app must still draw a roadmap against an older corpus.
+        process = cell(row, "Process")
+        reads = tuple(r.strip() for r in cell(row, "Reads").split(";") if r.strip() and r.strip() != "—")
         out.setdefault(ident, [])
         # "—" is the corpus's marker for a published step with no numbered implementation step (the
         # readiness gate). It keeps its row — the process still has that step — and contributes no
         # state, because there is nothing running to have a state.
         if number and number != "—":
-            out[ident].append((number, key, agent))
+            out[ident].append((number, key, agent, process, reads))
+        elif process:
+            # A gate runs no numbered step but still BELONGS to a process, and the roadmap has to
+            # know that to keep it when filtering — otherwise the step that closes screening
+            # disappears from screening's own roadmap.
+            out[ident].append(("", "", "", process, ()))
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -148,7 +164,7 @@ def _gaps(section: Any, record: Mapping[str, Any], keys: Sequence[str]) -> tuple
 
 def build(rows: Sequence[Sequence[str]], headers: Sequence[str], index: Index | None = None, *,
           order: Order | None = None, nodes: Sequence[Mapping[str, Any]] = (),
-          record: Mapping[str, Any] | None = None,
+          record: Mapping[str, Any] | None = None, process: str = "",
           activity: Sequence[Any] = ()) -> list[RoadmapStep]:
     """The roadmap for one run.
 
@@ -171,9 +187,15 @@ def build(rows: Sequence[Sequence[str]], headers: Sequence[str], index: Index | 
         m = _ROW.match(head)
         ident = m.group("id") if m else head.split(" ", 1)[0]
         entries = tuple((index or {}).get(ident, ()))
-        numbers = tuple(n for n, _, _ in entries)
-        keys = tuple(k for _, k, _ in entries if k)
-        agents = [a for _, _, a in entries if a]
+        # A row whose process is KNOWN and is not this one belongs to another run entirely. A row
+        # whose process is unknown ("" — an older corpus, or a step nothing declares) is kept: the
+        # filter removes what is certainly foreign, never what is merely unrecognised.
+        if process and entries and all(p and p != process for *_, p, _ in entries):
+            continue
+        numbers = tuple(n for n, _, _, _, _ in entries if n)
+        keys = tuple(k for _, k, _, _, _ in entries if k)
+        agents = [a for _, _, a, _, _ in entries if a]
+        reads = tuple(dict.fromkeys(r for *_, rs in entries for r in rs))
 
         # The state of a row covering several numbers is the WORST of them: a row is not done while
         # any part of it is still running, and a failure anywhere is what a reader must see first.
@@ -185,17 +207,21 @@ def build(rows: Sequence[Sequence[str]], headers: Sequence[str], index: Index | 
             state, note = "defaulted", next(defaulted[n] for n in numbers if n in defaulted)
 
         section = next((record[k] for k in keys if k in record), None)
+        # The ACTUAL input: the record sections this step was shown. A name the record does not
+        # carry (`capabilities`, `ontology` — corpus reads, not record sections) is omitted rather
+        # than shown empty, which would claim the agent saw nothing.
+        shown = {k: record[k] for k in reads if k in record}
         act = next((spend[n] for n in numbers if n in spend), None)
         llm = list(getattr(act, "llm", ()) or ()) if act else []
         out.append(RoadmapStep(
             id=ident, title=(m.group("title") if m else head).strip(),
-            kind=(m.group("kind") if m else ""), numbers=numbers, keys=keys,
+            kind=(m.group("kind") if m else ""), numbers=numbers, keys=keys, reads=reads,
             agent=agents[0] if agents else "", derived=bool(numbers) and not agents,
             state=state, note=note,
             inputs_declared=str(row[col["Input artifacts"]]) if "Input artifacts" in col else "",
             decided=str(row[col["What is decided"]]) if "What is decided" in col else "",
             outputs_declared=str(row[col["Output artifacts"]]) if "Output artifacts" in col else "",
-            output=section, gaps=_gaps(section, record, numbers),
+            input=shown or None, output=section, gaps=_gaps(section, record, numbers),
             elapsed=next((states[n]["elapsed"] for n in numbers if n in states), None),
             error=next((states[n]["error"] for n in numbers if n in states and states[n]["error"]), ""),
             model=str(getattr(llm[0], "model", "")) if llm else "",

@@ -253,6 +253,39 @@ async def match_capabilities(cfg, d, pin_id: str) -> dict:
         deepest=capabilities.LEVEL)
 
 
+def _live_record(cfg):
+    """A publisher that puts the record SO FAR on the run board after every step, or None.
+
+    Why it has to exist at all: the record was stored once, at the end, and its ref reached the
+    board only through the workflow's final output — so for the entire window in which a person
+    watches a run, no step could show what it had actually produced, and a run that died showed
+    nothing ever. `wfr-c53cdaa27bdb` (18 Sep 2026) died at step 7 holding four steps of real
+    output that no surface could display.
+
+    Written under its OWN field. `screening_ref` means "the screening record" and other consumers
+    read it — the notifier, the fabric ingest, the design run — so pointing it at a half-built
+    record mid-run would be a lie told to everything downstream, to serve one page. The review app
+    prefers `record_ref` while a run is live and falls back to `screening_ref` once it is done.
+
+    Returns None when the run is not on the board (a CLI or test run): nothing to publish to.
+    """
+    from lab.platform import runlog
+
+    run_id = cfg.get("run_id")
+    if not run_id:
+        return None
+
+    async def publish(record: dict) -> None:
+        # Awaited in order, never concurrent: two partial records landing out of sequence would
+        # make the roadmap go backwards, which is worse than one arriving a second late. It is one
+        # small gateway call between steps that each take tens of seconds.
+        stored = await gateway.call(cfg, SemanticTools.store_spec,
+                                    {"spec": record, "name": "screening.partial.json"})
+        runlog.update(run_id, record_ref=gateway.ref_from(stored))
+
+    return publish
+
+
 def build_workflow(cfg):
     """The static graph. No model chooses the next node — NFR-14 holds by construction."""
 
@@ -366,7 +399,8 @@ def build_workflow(cfg):
         with gateway.node_span(cfg, "derive"):
             d = Derivation(available={"submission": state["submission_record"]["prose"],
                                       **(state.get("corpora") or {})},
-                           pending=dict(PENDING_STEPS))
+                           pending=dict(PENDING_STEPS),
+                           publish=_live_record(cfg))
             for step in SCREENING_STEPS:
                 if step.key == "coverage_map":
                     # Run by the configured matcher, not by this loop. The keys are spelled

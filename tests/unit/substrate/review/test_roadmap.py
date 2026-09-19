@@ -157,3 +157,68 @@ def test_without_an_order_the_artifacts_own_row_order_stands():
     does not is not given a fabricated sequence."""
     shuffled = [PUBLISHED[3], PUBLISHED[0]]
     assert [s.id for s in roadmap.build(shuffled, HEADERS, INDEX)] == ["Q0.8–Q0.9", "E0.1"]
+
+
+# ---------------------------------------------------------------- actuals, not the methodology
+
+
+def test_a_step_reports_what_it_was_actually_SHOWN_not_the_published_prose():
+    """The three columns were all published text, identical on every run, so a reviewer read the
+    methodology back rather than their own run. `Reads` names the record sections the agent is
+    given (`agents.CONTEXT_FOR`, published as data because substrate may not import workloads), so
+    the roadmap can resolve the real input from the record."""
+    record = {"frame": {"problem": "referrals take too long"},
+              "elements": {"functions": ["triage"]}}
+    step = {s.id: s for s in _build(record=record)}["E0.2"]     # E0.2 reads `frame`
+    assert step.reads == ("frame",)
+    assert step.input == {"frame": {"problem": "referrals take too long"}}
+
+
+def test_a_section_the_record_does_not_carry_is_simply_absent_not_invented():
+    """`capabilities` is a CORPUS read, not a record section — it is named in Reads but never
+    lands in the record. Showing it as empty would imply the agent saw nothing; omitting it is
+    honest about what the record can account for."""
+    step = {s.id: s for s in _build(record={"elements": {"a": 1}})}["E0.3"]
+    assert step.reads == ("elements", "capabilities")
+    assert step.input == {"elements": {"a": 1}}
+
+
+def test_a_step_with_no_declared_reads_has_no_actual_input():
+    assert _build()[0].input is None
+
+
+def test_the_output_is_still_the_records_own_section():
+    """Unchanged — `output` was always the actual. It was invisible only because the record itself
+    arrived at the very end of the run."""
+    assert _build(record={"frame": {"problem": "x"}})[0].output == {"problem": "x"}
+
+
+# ---------------------------------------------------------------- one process, not the whole book
+
+
+def test_a_roadmap_shows_only_the_steps_the_running_process_implements():
+    """Screening implements E0.1-E0.10 and the readiness gate; everything from Q1.1 down belongs to
+    design, investment and provisioning — separate processes, separate runs. Drawing all nineteen
+    made a COMPLETED screening look half-finished, with ten rows permanently pending."""
+    rows = PUBLISHED + [["Q1.1–Q1.5 Decide determinism Decision", "x", "y", "z"]]
+    got = [s.id for s in roadmap.build(rows, HEADERS, INDEX, process="screening")]
+    assert "Q1.1–Q1.5" not in got
+    assert got == ["E0.1", "E0.2", "E0.3", "Q0.8–Q0.9"]
+
+
+def test_the_gate_belongs_to_screening_because_it_is_what_closes_it():
+    assert "Q0.8–Q0.9" in [s.id for s in roadmap.build(PUBLISHED, HEADERS, INDEX,
+                                                       process="screening")]
+
+
+def test_no_process_named_means_the_whole_methodology_as_before():
+    """A caller that does not know which process it is looking at gets everything, which is the
+    old behaviour and the honest default."""
+    assert len(roadmap.build(PUBLISHED, HEADERS, INDEX)) == len(PUBLISHED)
+
+
+def test_an_index_without_the_process_column_does_not_filter_everything_away():
+    """An app running against a corpus published before this column existed must still draw a
+    roadmap — degrade to showing all steps, never to showing none."""
+    old = roadmap.index_from([r[:6] for r in _KEYS["rows"]], _KEYS["headers"][:6])
+    assert len(roadmap.build(PUBLISHED, HEADERS, old, process="screening")) == len(PUBLISHED)

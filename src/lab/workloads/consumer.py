@@ -36,6 +36,26 @@ from lab.platform.contracts import PROCESSES, WORKFLOW_OPEN, WorkflowRequest, Wo
 
 __all__ = ["consumer_name", "flush", "handle", "serve"]
 
+#: Why a run that died with its consumer says it failed. One string, written to BOTH records of the
+#: run, so the front door and the Runs board give a person the same answer.
+STALE = "consumer restarted mid-run"
+
+
+def _close_stale_board_row(rid: str, r) -> None:
+    """Close the RUN-LOG row of a request that died mid-run, if it got far enough to have one.
+
+    The link is the trace id the run published as soon as its span existed (`governed_run` sets
+    `run_id = trace_id`). A request that died BEFORE that has no board row, and no row is not an
+    error — it is a run nobody ever saw. Guarded: `runlog.finish` writes with `hset`, so calling it
+    for an id that does not exist would MINT a closed run that never ran.
+    """
+    try:
+        trace = (workflows.status(rid, client=r) or {}).get("trace_id") or ""
+        if trace and runlog.get(trace, client=r).get("status") == "running":
+            runlog.finish(trace, "failed", error=STALE, client=r)
+    except Exception as e:                    # noqa: BLE001 — hygiene must not stop the consumer
+        print(f"run board row for {rid} not closed: {e}", flush=True)
+
 
 def consumer_name() -> str:
     """This replica's name INSIDE its group — stable per replica, so its pending list survives a
@@ -111,15 +131,24 @@ def serve(*, process: str, service: str, run: Callable, shutdown: Callable | Non
     def close_stale_runs():
         """Crash hygiene. A request this consumer took and never acked belongs to a run that died
         with the process — it is not retried, because a 600-second run half-done is not a run to
-        resume, and a request left `running` forever is worse than one that says it failed."""
+        resume, and a request left `running` forever is worse than one that says it failed.
+
+        BOTH records of the run are closed. They are keyed differently — the request by `wfr-<id>`,
+        the run log by the TRACE id — and for a long time only the first was, because
+        `runlog.finish_from` runs inside the workload process and that process is exactly what
+        died. Measured 18 Sep 2026: `wfr-c53cdaa27bdb` read FAILED at the front door and
+        `running · at step_7` on the Runs board, elapsed climbing past four DAYS because `_parse`
+        computes elapsed live for anything still `running`. Two records of one run disagreeing is
+        worse than either being wrong — a person believes the board.
+        """
         for eid, f in workflows.channel_events(group, name, pending_only=True, count=50, client=r):
             rid = f.get("request_id", "?")
             try:
                 if workflows.status(rid, client=r).get("status") in WORKFLOW_OPEN:
-                    workflows.mark(rid, WorkflowStatus.FAILED, error="consumer restarted mid-run",
-                                   client=r)
+                    workflows.mark(rid, WorkflowStatus.FAILED, error=STALE, client=r)
             except KeyError:
                 pass
+            _close_stale_board_row(rid, r)
             workflows.ack(group, eid, client=r)
             print(f"request {rid} marked failed (stale from a previous run)", flush=True)
 

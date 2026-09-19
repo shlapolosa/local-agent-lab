@@ -103,6 +103,16 @@ def _mapping_labels(process: str, field: str) -> list[str]:
 #: the implementation's step numbers, record keys and AGENTS.
 ROADMAP_ARTIFACTS = (("process-steps", "process-step"), ("process-step-keys", "step-key"))
 
+#: Which HALF of the published methodology a run belongs to, so the roadmap draws that run's steps
+#: and not the whole book. Screening implements E0.1-E0.10 and the readiness gate; everything from
+#: Q1.1 down is the design half, run later and separately. Drawing all nineteen rows made a
+#: COMPLETED screening look half-finished, with ten rows permanently pending that were never its
+#: to run. A process absent here is not filtered — unknown is shown in full, never hidden.
+PROCESS_HALF = {
+    "use_case_screening": "screening",
+    "use_case_design": "design",
+}
+
 
 def _corpus_table(artifact: str, record_type: str) -> tuple:
     """`(rows, headers)` for a whole-retrieval artifact, read under a pin and cached per session.
@@ -145,6 +155,7 @@ def _roadmap_view(h):
                          roadmap.index_from(key_rows, key_headers),
                          order=roadmap.order_from(key_rows, key_headers),
                          nodes=h.get("nodes") or [], record=record,
+                         process=PROCESS_HALF.get(h.get("process", ""), ""),
                          activity=_trace_activity(h))
     for step in plan:
         icon = {"done": "✅", "running": "🏃", "failed": "⛔", "defaulted": "⚠️"}.get(step.state, "⚪")
@@ -165,14 +176,30 @@ def _roadmap_view(h):
                 st.warning(gap)
             if step.model:
                 st.caption(f"{step.model} · {step.tokens:,} tokens · ${step.cost:.4f}")
-            if step.output is not None:
-                st.json(step.output, expanded=False)
+            # The three captions above are the PUBLISHED contract — the same words on every run.
+            # These two are what THIS run did, and they are what a reviewer came for.
+            actual = st.columns(2)
+            with actual[0]:
+                st.caption(f"**What it was shown**  \n`{'`, `'.join(step.reads) or '—'}`")
+                if step.input is not None:
+                    st.json(step.input, expanded=False)
+            with actual[1]:
+                st.caption("**What it produced**")
+                if step.output is not None:
+                    st.json(step.output, expanded=False)
+                else:
+                    st.caption("— nothing recorded yet")
 
 
 def _record_of(h) -> dict:
     """The run's own record, for the per-step sections the roadmap shows. Absent is `{}` — a run
     still in flight has not written one, and every step then shows its published shape alone."""
-    ref = h.get("screening_ref") or h.get("design_ref") or h.get("xml_ref")
+    # `record_ref` FIRST: it is the partial record a live run republishes after every step, so a
+    # run in flight — the only time anyone is watching — shows what each step actually produced.
+    # `screening_ref` is the finished article and wins once the run closes, because `finish_from`
+    # writes it last. Preferring the partial for a DONE run would show a record one step short.
+    ref = (h.get("screening_ref") or h.get("design_ref") or h.get("xml_ref")
+           or h.get("record_ref"))
     if not ref or not str(ref).endswith(".json"):
         return {}
     try:
@@ -298,6 +325,17 @@ def _mapping_editor(process: str, field, key: str) -> dict:
             if str(r.get("label", "")).strip() and str(r.get("value", "")).strip()}
 
 
+#: What a text field's kind expects, shown IN the empty box. Derived from the kind's own validator
+#: (`InputField._handle`/`._identity`/`._conversation`), not invented here — a placeholder that
+#: disagreed with the validator would be worse than none.
+PLACEHOLDERS = {
+    contracts.InputKind.HANDLE: "collab://item/<drive-id>/<item-id>",
+    contracts.InputKind.IDENTITY: "name@domain, or a directory object id",
+    contracts.InputKind.CONVERSATION: "the provider's conversation id",
+    contracts.InputKind.REF: "art://<id>/<name>",
+}
+
+
 def _field_widget(spec, field) -> object:
     """One input field, rendered from its KIND. Adding a process adds no code here.
 
@@ -321,7 +359,13 @@ def _field_widget(spec, field) -> object:
         picked = st.selectbox(label, ["", *field.choices], key=f"in_{spec.name}_{field.name}",
                               help=field.description)
         return picked or ""
-    return st.text_input(label, key=f"in_{spec.name}_{field.name}", help=field.description)
+    # Three kinds fall through to a text box, and each has a STRICT validator behind it: HANDLE
+    # parses as `collab://kind/scope/id`, IDENTITY refuses a display name, CONVERSATION refuses
+    # whitespace and URLs. They looked identical to free text with the format hidden in a hover,
+    # so a person typed their own name into the first box on the form and learned the rule from a
+    # rejection. A placeholder shows the shape before it is typed, which is the whole difference.
+    return st.text_input(label, key=f"in_{spec.name}_{field.name}", help=field.description,
+                         placeholder=PLACEHOLDERS.get(field.kind, ""))
 
 
 # ============================================================================ Submit mode
@@ -370,7 +414,25 @@ def _submit_page(reviewer):
             st.write(f"**{name}**", " ".join(f"`{v}`" for v in
                                              (value if isinstance(value, list) else [value])))
 
-    ready = all(refs.get(n) for n in required_files)
+    # What Run is allowed to send. It used to check only REQUIRED FILE fields, and for
+    # `use_case_screening` that list is EMPTY — both submission routes are individually optional
+    # because the real rule is "exactly one of them" — so Run was always enabled and pressing it
+    # with nothing attached queued a run that died at the first executor. Now the button asks the
+    # same three questions `ProcessSpec.validate` will ask, so the form refuses what the contract
+    # would refuse, rather than a 600-second run discovering it.
+    def _supplied(name: str) -> bool:
+        value = refs.get(name, widgets.get(name))
+        return bool(value) if not isinstance(value, str) else bool(value.strip())
+
+    missing = [f.name for f in spec.inputs if f.required and not _supplied(f.name)]
+    unmet = [g for g in spec.one_of if sum(_supplied(n) for n in g) != 1]
+    ready = not missing and not unmet
+    for group in unmet:
+        st.caption("Supply exactly one of " + " or ".join(f"**{n}**" for n in group)
+                   + " — upload a document, or give the handle of one already in the "
+                     "collaboration platform.")
+    if missing:
+        st.caption("Still needed: " + ", ".join(f"**{n}**" for n in missing))
     if st.button(f"▶️ Run {spec.name}", type="primary", disabled=not ready):
         inputs = dict(refs)
         for field in spec.inputs:
@@ -551,8 +613,12 @@ def _node_events(h):
                 st.caption("no LLM or tool call in this step")
 
 
-def _runs_board():
-    act, rec = runlog.active(), runlog.recent(20)
+def _runs_board(live: bool = True):
+    # `live=False` holds the view still by reusing the last read rather than by not drawing — see
+    # `_runs_board_live`. A first render always reads, because there is nothing to hold yet.
+    if live or "runs_snapshot" not in st.session_state:
+        st.session_state["runs_snapshot"] = (runlog.active(), runlog.recent(20))
+    act, rec = st.session_state["runs_snapshot"]
     if not act and not rec:
         st.info("No runs recorded yet. Start one with `python -m lab.workloads.visio_to_archimate.host …`, "
                 "from **Submit** mode, or in DevUI; it appears here the moment its first node starts.")
@@ -607,19 +673,30 @@ def _run_detail(h):
 
 @st.fragment(run_every=5)
 def _runs_board_live():
-    _runs_board()
+    """The board, re-rendered every 5 s.
+
+    Called UNCONDITIONALLY, and that is the whole point. It used to be `if auto: _runs_board_live()
+    else: _runs_board()`, which walks into two known Streamlit defects at once: a `run_every`
+    fragment that stops being called loses its id (streamlit#9080, "Could not find fragment with
+    id"), and a fragment registered in a previous session is stale after a browser reload
+    (streamlit#11660, "Fragment does not exist anymore after reloading the page"). Measured
+    18 Sep 2026: auto-refresh stopped after a manual page refresh and never restarted.
+
+    So the toggle gates the WORK rather than the CALL. Off, the board re-renders from the snapshot
+    it last read instead of hitting Redis — which is also what a person means by turning it off:
+    hold the view still, not stop drawing it.
+    """
+    _runs_board(live=bool(st.session_state.get("runs_auto", True)))
 
 
 def _runs_page(_reviewer):
     st.title("Runs")
     top = st.columns([1, 1, 6])
     if top[0].button("🔄 Refresh"):
+        st.session_state.pop("runs_snapshot", None)
         st.rerun()
-    auto = top[1].toggle("Auto (5 s)", value=True, key="runs_auto")
-    if auto:
-        _runs_board_live()          # st.fragment re-runs only this board every 5 s
-    else:
-        _runs_board()
+    top[1].toggle("Auto (5 s)", value=True, key="runs_auto")
+    _runs_board_live()
 
 
 # ============================================================================ Review mode

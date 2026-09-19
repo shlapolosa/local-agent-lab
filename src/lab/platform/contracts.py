@@ -1247,6 +1247,14 @@ class ProcessSpec:
     # is declared here and refused on every external surface at once. Note the asymmetry: submit is
     # refused, status/result are not — a caller may always observe a run it caused indirectly.
     external: bool = True
+    # Groups of inputs of which EXACTLY ONE must be supplied — alternatives, not options. No single
+    # field can say this: each member is individually optional, so `required` cannot express it and
+    # the rule used to live inside the workload's first executor. That meant an invalid submission
+    # passed `validate`, queued, got a request_id and a TRACE, started a run and died at step 1 —
+    # measured 18 Sep 2026, where a person received a trace id instead of a form error. Declared
+    # here, it is refused by EVERY surface at once (MCP tool, REST front door, the review app), for
+    # the same reason `external` is: a rule about the process belongs to the process.
+    one_of: tuple[tuple[str, ...], ...] = ()
 
     def tool(self, verb: str) -> str:
         """The name of one of this process's generated tools (`<process>_<verb>`)."""
@@ -1272,6 +1280,15 @@ class ProcessSpec:
             v = f.coerce(values.get(f.name))
             if v is not None:
                 out[f.name] = v
+        # Checked AFTER coercion, so a field present but empty counts as absent — the same reading
+        # every other rule here takes, and the one a person filling a form expects.
+        for group in self.one_of:
+            given = [n for n in group if out.get(n)]
+            if len(given) != 1:
+                raise ValueError(
+                    f"{self.name}: supply exactly one of "
+                    + " or ".join(f"`{n}`" for n in group)
+                    + f"; got {'both' if len(given) > 1 else 'neither'}")
         return out
 
 
@@ -1465,6 +1482,9 @@ USE_CASE_SCREENING = ProcessSpec(
                    "Optional id of the conversation the submission came from, so the outcome can "
                    "be announced where it was asked for.", required=False),
     ),
+    # The submission arrives EITHER as an uploaded ref OR as a handle to fetch. Neither field can
+    # carry that rule alone, and leaving it to the workload cost a run per mistake.
+    one_of=(("submission", "submission_handle"),),
     outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
              # What a person looking for a past use case actually searches by. Without it a listing
              # of runs is a column of `art://` refs and nobody can find "the referral triage one".

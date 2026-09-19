@@ -48,6 +48,13 @@ class Derivation:
     #: ceiling on every number downstream of it — and a pipeline scored only end-to-end cannot say
     #: which stage lost the answer.
     candidates: list = field(default_factory=list)
+    #: Called with the record SO FAR each time a step records an answer — the Observer seam that
+    #: lets a run be watched while it runs. The record used to be stored once, at the end, and its
+    #: ref reached the board only through the workflow's final output: for the whole window in
+    #: which anybody actually watches a run, no step could show what it had produced, and a run
+    #: that died showed nothing ever (`wfr-c53cdaa27bdb`, 18 Sep 2026 — four steps of real output,
+    #: visible on no surface). `None` keeps every existing caller unchanged.
+    publish: Any = None
 
     def record(self, key: str, out: Any, number: str = "") -> None:
         """A derived output, immediately readable by the steps after it. The invariant, in one
@@ -56,6 +63,32 @@ class Derivation:
         self.derived[key] = self.available[key] = out
         if number:
             self.pending.pop(number, None)
+
+    def snapshot(self) -> dict:
+        """The record SO FAR — what a person watching the run can be shown now.
+
+        `pending` and `defaulted` travel with it: a partial record without them reads as a run that
+        simply has fewer steps, rather than one whose steps did not run and said why.
+        """
+        return {**self.derived,
+                **({"pending_steps": dict(self.pending)} if self.pending else {}),
+                **({"defaulted_steps": dict(self.defaulted)} if self.defaulted else {})}
+
+    async def announce(self) -> None:
+        """Publish the record so far. BEST EFFORT, always: the record is the run's product and
+        showing it early is a convenience, so a store that is down must never turn a completed step
+        into a failed run.
+
+        Awaited from `run_step` rather than called from `record`, because publishing goes through
+        the GATEWAY — a workload holds no store credential — and that is a coroutine. `record`
+        stays the synchronous invariant it has always been.
+        """
+        if not self.publish:
+            return
+        try:
+            await self.publish(self.snapshot())
+        except Exception as e:                 # noqa: BLE001 — see the docstring
+            print(f"live record not published: {e}", flush=True)
 
     def defer(self, number: str, why: str) -> None:
         """A step that did not run, named with its reason. Never silently skipped: a record simply
@@ -102,6 +135,7 @@ class Derivation:
                 self.record(step.key, out, step.number)
                 self.defaulted[step.number] = (f"{label or step.key} — {corpus} is not published; "
                                                f"the declared default was recorded instead")
+                await self.announce()
                 return True
             self.defer(step.number, f"{label or step.key} — needs {needs}")
             return False
@@ -117,6 +151,7 @@ class Derivation:
                                         if step.soft else None),
                                   soft_key=step.soft_key, soft_remedy=step.soft_remedy)
         self.record(step.key, out, step.number)
+        await self.announce()
         return True
 
     def package(self, **base: Any) -> dict:
