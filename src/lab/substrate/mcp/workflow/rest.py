@@ -43,12 +43,16 @@ continuation-only process gets no submit route, for every caller, including the 
 """
 from __future__ import annotations
 
+import asyncio
+import json
+
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from lab.platform import config, workflows
-from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_OPEN, Decision,
+from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_FINISHED,
+                                    WORKFLOW_OPEN, Decision,
                                     ProcessSpec, speaker_candidates, speaker_prompts)
 from lab.substrate import approvals
 from lab.substrate.mcp.workflow import listing
@@ -91,6 +95,78 @@ def _submit_route(server, spec: ProcessSpec):
     return submit
 
 
+#: How often the event stream re-reads the run, and for how long it will hold a connection open.
+#: The ceiling exists so a forgotten tab cannot pin a consumer forever; a browser's EventSource
+#: reconnects on its own when the server closes, so the watch survives the ceiling.
+EVENTS_POLL_S = 2
+EVENTS_MAX_TICKS = 900                                   # 30 minutes at the poll interval
+
+
+def _run_view(state: dict, spec: ProcessSpec) -> dict:
+    """One run as this door describes it. ONE shape for the poll route and the event stream — two
+    descriptions of the same run that could drift is how a client ends up trusting the wrong one."""
+    out = {k: state.get(k) for k in ("request_id", "process", "status", "created_at",
+                                     "started_at", "finished_at", "trace_id", "error")
+           if state.get(k)}
+    out |= {k: state[k] for k in spec.outputs if state.get(k) is not None}
+    return out
+
+
+def _run_token(state: dict) -> tuple:
+    """What makes a run DIFFERENT from the last time it was sent. Only these: a timestamp that
+    ticks on every read would make every poll an event and the stream a busy loop with extra steps.
+    """
+    return (state.get("status"), state.get("trace_id"), state.get("finished_at"),
+            state.get("error"), state.get("approval_id"))
+
+
+def _run_events_route(server, spec: ProcessSpec):
+    """Watch one run as server-sent events, instead of asking for it in a loop.
+
+    SSE rather than a WebSocket because the traffic is one-way — the server reports, the client
+    never sends — so it needs no upgrade handshake, no framing, and browsers reconnect on their own.
+
+    It POLLS Redis internally and pushes only CHANGES. That is deliberate: the run log is a hash
+    written by whichever host owns the run, with no notification channel of its own, and adding one
+    would put a publish in the path of every node transition for the benefit of whoever happens to
+    be watching. Polling in one place, and only sending when something moved, keeps the cost where
+    it belongs and the client free of it.
+
+    The stream ENDS when the run settles: `done` and `failed` are terminal, and a stream that stayed
+    open on a finished run would be a connection held for an event that cannot arrive.
+    """
+    async def events(request: Request) -> Response:
+        rid = request.path_params["request_id"]
+        redis = server.container.redis()
+        state = workflows.status(rid, client=redis)
+        if not state:
+            return _error(404, f"no such run {rid!r}")
+        if state.get("process") != spec.name:
+            return _error(409, f"{rid} belongs to {state.get('process')!r}, not {spec.name!r}",
+                          process=state.get("process"))
+
+        async def stream():
+            last = None
+            for _ in range(EVENTS_MAX_TICKS):
+                current = workflows.status(rid, client=redis) or {}
+                token = _run_token(current)
+                if token != last:
+                    last = token
+                    yield f"data: {json.dumps(_run_view(current, spec))}\n\n"
+                if str(current.get("status")) in WORKFLOW_FINISHED:
+                    return
+                if await request.is_disconnected():
+                    return
+                await asyncio.sleep(EVENTS_POLL_S)
+
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache", "Connection": "keep-alive",
+            # Nothing may buffer an event stream: a proxy that waits for a full response turns
+            # "live" into "all at once at the end", which is indistinguishable from broken.
+            "X-Accel-Buffering": "no"})
+    return events
+
+
 def _run_route(server, spec: ProcessSpec):
     async def run(request: Request) -> JSONResponse:
         rid = request.path_params["request_id"]
@@ -102,11 +178,7 @@ def _run_route(server, spec: ProcessSpec):
             # right id and the wrong path, and those are different problems.
             return _error(409, f"{rid} belongs to {state.get('process')!r}, not {spec.name!r}",
                           process=state.get("process"))
-        out = {k: state.get(k) for k in ("request_id", "process", "status", "created_at",
-                                         "started_at", "finished_at", "trace_id", "error")
-               if state.get(k)}
-        out |= {k: state[k] for k in spec.outputs if state.get(k) is not None}
-        return JSONResponse(out)
+        return JSONResponse(_run_view(state, spec))
     return run
 
 
@@ -245,6 +317,10 @@ def routes(server) -> list[Route]:
                          _runs_list_route(server, spec), methods=["GET"]))
         out.append(Route(f"{API_PREFIX}/processes/{spec.name}/runs/{{request_id}}",
                          _run_route(server, spec), methods=["GET"]))
+        # Watching the same run, pushed. Registered for every process for the same reason the
+        # listing is: observing is not starting.
+        out.append(Route(f"{API_PREFIX}/processes/{spec.name}/runs/{{request_id}}/events",
+                         _run_events_route(server, spec), methods=["GET"]))
     return out
 
 

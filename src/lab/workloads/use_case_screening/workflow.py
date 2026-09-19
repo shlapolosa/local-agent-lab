@@ -281,7 +281,17 @@ def _live_record(cfg):
         # small gateway call between steps that each take tens of seconds.
         stored = await gateway.call(cfg, SemanticTools.store_spec,
                                     {"spec": record, "name": "screening.partial.json"})
-        runlog.update(run_id, record_ref=gateway.ref_from(stored))
+        fields = {"record_ref": gateway.ref_from(stored)}
+        # WHAT THIS RUN IS ABOUT, as soon as step 3 has framed it. A run is addressed by its trace
+        # id, so a board of runs is a column of 32-character hex nobody can read — a person came
+        # looking for the run they had just started and could not tell which row was theirs. The
+        # subject already existed but only on the FINISHED run's output, which is exactly too late:
+        # the moment you need to find a run is while it is still going. A run that dies before step
+        # 3 has no subject, and no subject is honest.
+        problem = str(((record.get("frame") or {}).get("problem") or "")).strip()
+        if problem:
+            fields["subject"] = problem[:160]
+        runlog.update(run_id, **fields)
 
     return publish
 

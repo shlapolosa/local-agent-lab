@@ -27,6 +27,7 @@ import base64
 import json
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
 from html import escape
 
@@ -120,7 +121,17 @@ def _corpus_table(artifact: str, record_type: str) -> tuple:
     Same contract as `_mapping_labels`: a corpus that cannot answer is a view missing, never a page
     that fails — and the roadmap says so rather than inventing the process from code.
     """
-    cache = st.session_state.setdefault("corpus_tables", {})
+    # Process-global and time-boxed, NOT session state: the page refreshes by reloading, and a
+    # reload is a new session. Kept per session this re-pinned the corpus every three seconds.
+    # 10 minutes of staleness is nothing against a RELEASED artifact, and it is the difference
+    # between one consumption row per reader and one per tick.
+    def read():
+        return _read_corpus_table(artifact, record_type)
+    return _cached(f"corpus:{artifact}:{record_type}", 600, read)
+
+
+def _read_corpus_table(artifact: str, record_type: str) -> tuple:
+    cache: dict = {}
     if artifact in cache:
         return cache[artifact]
     try:
@@ -150,7 +161,10 @@ def _roadmap_view(h):
         st.caption("the published process steps could not be read from the corpus, so there is no "
                    "roadmap to draw — the methodology is an artifact, not a list in this app")
         return
-    record = _record_of(h)
+    ref = (h or {}).get("record_ref") or ""
+    record = (_cached(f"record:{ref}", 3600,
+                      lambda: _record_cached(h, store=container.artifacts(), cache={}))
+              if ref else {}) or _record_of(h)
     plan = roadmap.build(steps_rows, steps_headers,
                          roadmap.index_from(key_rows, key_headers),
                          order=roadmap.order_from(key_rows, key_headers),
@@ -510,12 +524,94 @@ def _fmt_elapsed(s):
     return f"{s:.0f}s" if s < 90 else f"{s / 60:.1f}m"
 
 
+def _about(h) -> str:
+    """One line naming what this run is about, or the input it was given.
+
+    The workload writes `subject` to the board as soon as its framing step produces one, so a run
+    is findable WHILE it runs — which is when somebody is looking. Before that (and for a process
+    that names no subject) the input filename is the honest fallback: less useful, never wrong.
+    """
+    subject = str(h.get("subject") or "").strip()
+    return subject if subject else os.path.basename(h.get("input", "") or "")
+
+
+#: A run still moving is worth watching; a finished one will never change again, and a page that
+#: keeps reloading it spends a round trip a second to redraw the same thing while stealing the
+#: reader's scroll position. An UNKNOWN status refreshes: a host recording something new must not
+#: leave the page permanently stale, because a staleness nobody can notice is the worse failure.
+_SETTLED = ("done", "failed")
+
+
+#: A cache that OUTLIVES a session. The Runs page refreshes by reloading the browser, and a reload
+#: begins a fresh Streamlit session with empty `st.session_state` — so anything kept there is
+#: discarded a few seconds after it is filled. For the corpus that meant taking a new reference PIN
+#: on every reload, writing a `ref_consumption` row every three seconds for a page nobody is
+#: reading. The server process outlives the sessions connected to it, so the cache lives here.
+#:
+#: Bounded, because the server runs for weeks and the keys are per (artifact, run, ref): unbounded
+#: it is a slow leak nobody would attribute to a cache.
+_CACHE: dict = {}
+_CACHE_MAX = 256
+
+
+def _cached(key: str, ttl: float, produce):
+    """`produce()` at most once per `ttl` seconds for this key."""
+    now = time.time()
+    hit = _CACHE.get(key)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]
+    value = produce()
+    if len(_CACHE) >= _CACHE_MAX:                        # oldest first; plain FIFO is enough here
+        for stale in sorted(_CACHE, key=lambda k: _CACHE[k][0])[:len(_CACHE) - _CACHE_MAX + 1]:
+            _CACHE.pop(stale, None)
+    _CACHE[key] = (now, value)
+    return value
+
+
+def _should_refresh(h) -> bool:
+    return str((h or {}).get("status") or "") not in _SETTLED
+
+
+def _change_token(h) -> tuple:
+    """What makes this run DIFFERENT from the last time we drew it.
+
+    `elapsed` is deliberately absent: `runlog._parse` recomputes it live for every running run, so
+    including it would make every single tick a change and defeat the whole purpose.
+    """
+    h = h or {}
+    return (h.get("status"), h.get("node"), len(h.get("nodes") or ()), h.get("record_ref"))
+
+
+def _record_cached(h, *, store, cache):
+    """The run's record, fetched once per REF rather than once per tick.
+
+    The record used to be written once at the very end, so re-reading it per tick cost nothing.
+    It is now republished after every step (so a live roadmap can show each step's real output),
+    which turned that same read into an artifact-store download every five seconds. The ref changes
+    exactly when the record does, so it is the right cache key.
+    """
+    ref = (h or {}).get("record_ref") or ""
+    if not ref:
+        return {}
+    if cache.get("ref") != ref:
+        try:
+            raw = store.get(ref)
+            cache.update(ref=ref, body=json.loads(raw if isinstance(raw, str) else raw.decode()))
+        except Exception:                     # noqa: BLE001 — a view missing, never a page that fails
+            cache.update(ref=ref, body={})
+    return cache.get("body") or {}
+
+
 def _run_row(h):
     node = h.get("node") or ""
     if h.get("status") == "running" and node:
         node = f"{node} ({h.get('node_status', '')})"
     return {"run": h.get("run_id", ""), "process": h.get("process", ""),
-            "host": h.get("host", ""), "input": os.path.basename(h.get("input", "") or ""),
+            # WHAT IT IS ABOUT, first among the descriptive columns. A run is keyed by its trace id,
+            # so without this the board is a column of 32-character hex and the only way to find
+            # the run you just started is to remember where it was.
+            "about": _about(h), "host": h.get("host", ""),
+            "input": os.path.basename(h.get("input", "") or ""),
             "status": h.get("status", ""),
             "current node": node, "started": (h.get("started_at") or "")[:19].replace("T", " "),
             "elapsed": _fmt_elapsed(h.get("elapsed")),
@@ -564,11 +660,9 @@ def _trace_activity(h):
     unique: every run of one DevUI session shares its session trace. Jaeger down or trace expired =
     an empty panel (never an error)."""
     key = (h.get("run_id"), h.get("trace_id"), h.get("status"), len(h.get("nodes") or []))
-    hit = st.session_state.get("trace_detail")
-    if not hit or hit[0] != key:
-        hit = (key, traces.activity(TRACES.spans(h.get("trace_id") or ""), h.get("nodes") or []))
-        st.session_state["trace_detail"] = hit
-    return hit[1]
+    return _cached("trace:" + "|".join(str(k) for k in key), 3600,
+                   lambda: traces.activity(TRACES.spans(h.get("trace_id") or ""),
+                                           h.get("nodes") or []))
 
 
 def _activity_label(a):
@@ -613,12 +707,8 @@ def _node_events(h):
                 st.caption("no LLM or tool call in this step")
 
 
-def _runs_board(live: bool = True):
-    # `live=False` holds the view still by reusing the last read rather than by not drawing — see
-    # `_runs_board_live`. A first render always reads, because there is nothing to hold yet.
-    if live or "runs_snapshot" not in st.session_state:
-        st.session_state["runs_snapshot"] = (runlog.active(), runlog.recent(20))
-    act, rec = st.session_state["runs_snapshot"]
+def _runs_board():
+    act, rec = runlog.active(), runlog.recent(20)
     if not act and not rec:
         st.info("No runs recorded yet. Start one with `python -m lab.workloads.visio_to_archimate.host …`, "
                 "from **Submit** mode, or in DevUI; it appears here the moment its first node starts.")
@@ -627,11 +717,15 @@ def _runs_board(live: bool = True):
     ids = [r["run"] for r in rows]
     default = st.session_state.get("runs_selected")
     # the DETAIL is the view (watch a run); the list is one expander below (pick another run)
-    sel = st.selectbox("Run", ids, index=ids.index(default) if default in ids else 0)
+    # Labelled by SUBJECT, so choosing a run is reading rather than matching hex.
+    about = {r["run"]: r["about"] for r in rows}
+    sel = st.selectbox("Run", ids, index=ids.index(default) if default in ids else 0,
+                       format_func=lambda r: f"{about.get(r) or r}  ·  {r[:12]}")
     st.session_state["runs_selected"] = sel
     h = runlog.get(sel)
     if h:
         _run_detail(h)
+        _auto_refresh(h)          # armed only while this run can still change
     else:
         st.warning(f"run {sel} expired")
 
@@ -671,22 +765,34 @@ def _run_detail(h):
     _node_events(h)
 
 
-@st.fragment(run_every=5)
-def _runs_board_live():
-    """The board, re-rendered every 5 s.
+#: How often a WATCHED run is re-read. Low because a tick is now cheap — the record is cached on
+#: its ref and the board is only redrawn when the run actually moved.
+REFRESH_S = 3
 
-    Called UNCONDITIONALLY, and that is the whole point. It used to be `if auto: _runs_board_live()
-    else: _runs_board()`, which walks into two known Streamlit defects at once: a `run_every`
-    fragment that stops being called loses its id (streamlit#9080, "Could not find fragment with
-    id"), and a fragment registered in a previous session is stale after a browser reload
-    (streamlit#11660, "Fragment does not exist anymore after reloading the page"). Measured
-    18 Sep 2026: auto-refresh stopped after a manual page refresh and never restarted.
 
-    So the toggle gates the WORK rather than the CALL. Off, the board re-renders from the snapshot
-    it last read instead of hitting Redis — which is also what a person means by turning it off:
-    hold the view still, not stop drawing it.
+def _auto_refresh(h) -> None:
+    """Reload the page while the run is still moving, and not once it has settled.
+
+    `st.fragment(run_every=…)` was the obvious mechanism and is not a dependable one: a fragment
+    that stops being called loses its id (streamlit#9080) and one registered in a previous session
+    is stale after a browser reload (streamlit#11660) — which is exactly what was reported, twice.
+    Neither could be reproduced here without a browser, and a mechanism whose failure mode is
+    "silently never fires" is not one to keep guessing at.
+
+    So the timer lives in the page instead, where it either runs or visibly does not. The cost of
+    that honesty is a whole-page reload rather than a partial redraw; the cost is bounded by only
+    arming it while something can still change, and by a tick that re-reads almost nothing.
     """
-    _runs_board(live=bool(st.session_state.get("runs_auto", True)))
+    if not _should_refresh(h) or not st.session_state.get("runs_auto", True):
+        return
+    # `st.iframe`, not `st.components.v1.html`: the latter is deprecated for removal after
+    # 2026-06-01 and already warns. The markup is ours, not a caller's — `st.iframe` runs an HTML
+    # string with same-origin access, which is exactly why it must never be handed anything from
+    # outside this function.
+    # height=1, not 0: `st.iframe` refuses a zero height ("must be a positive integer, 'stretch',
+    # or 'content'"). One pixel is the smallest thing it will accept for markup that draws nothing.
+    st.iframe(f"<script>setTimeout(function(){{ parent.window.location.reload(); }}, "
+              f"{REFRESH_S * 1000});</script>", height=1)
 
 
 def _runs_page(_reviewer):
@@ -695,8 +801,8 @@ def _runs_page(_reviewer):
     if top[0].button("🔄 Refresh"):
         st.session_state.pop("runs_snapshot", None)
         st.rerun()
-    top[1].toggle("Auto (5 s)", value=True, key="runs_auto")
-    _runs_board_live()
+    top[1].toggle(f"Auto ({REFRESH_S} s)", value=True, key="runs_auto")
+    _runs_board()
 
 
 # ============================================================================ Review mode

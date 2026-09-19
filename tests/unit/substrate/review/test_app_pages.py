@@ -356,7 +356,10 @@ def test_runs_board_rows_selection_timeline_and_roadmap():
     assert st.said("expander", "All runs — 1 active, 1 recent")
     board = [a[0] for p, a, _ in st.calls if p.endswith("dataframe")][-1]
     assert [r["run"] for r in board] == ["run-1", "run-0"]
-    assert board[0] == {"run": "run-1", "process": "visio_to_archimate", "host": "", "input": "sys.vsdx",
+    # `about` is what the run IS — the workload's own subject once it has framed one, and the input
+    # filename until then. Without it a board of runs is a column of 32-character trace ids.
+    assert board[0] == {"run": "run-1", "process": "visio_to_archimate", "about": "sys.vsdx",
+                        "host": "", "input": "sys.vsdx",
                         "status": "running", "current node": "ba (start)", "started": "2026-09-03 10:00:00",
                         "elapsed": "42s", "trace": APP.JAEGER + "ff" * 16}
     assert board[1]["current node"] == "render" and board[1]["elapsed"] == "3.3m" and board[1]["trace"] is None
@@ -476,6 +479,10 @@ def test_node_with_no_calls_says_so_and_a_missing_trace_leaves_an_empty_panel():
     assert st.said("caption", "no trace detail (no node has run yet, the trace expired")
     st = install(FakeSt(), runlog=FakeRunlog(active=[h], runs={"run-1": h}))
     _traces([traces.Span("quiet", "process-x", T0 + 1, 0.1, {})])    # a span that is neither LLM nor tool
+    # The trace SOURCE is swapped, which the cache key cannot see — it keys on the run having
+    # MOVED, and in a real deployment the reader does not change under a run. Clearing it is what
+    # the second scenario means.
+    APP._CACHE.clear()
     APP._runs_board()
     assert st.said("expander", "• ba — 0 LLM call(s) · 0 tool call(s)")
     assert st.said("caption", "no LLM or tool call in this step")
@@ -851,3 +858,19 @@ def test_a_continuation_this_build_cannot_start_leaves_the_approval_decidable():
     APP._review_page("ann")
     assert st.said("warning", "not_a_process_yet")
     assert st.said("button", "Decline")
+
+
+def test_a_run_that_has_framed_its_problem_is_named_by_it_not_by_its_trace_id():
+    """The fix for "I started a run and cannot find it". A run is keyed by its trace id, so the
+    board was a column of hex; the workload now writes `subject` as soon as its framing step
+    produces one, which is seconds in rather than at the end."""
+    assert APP._about({"subject": "Referral triage takes too long", "input": "art://x/u.md"}) \
+        == "Referral triage takes too long"
+
+
+def test_without_a_subject_the_input_filename_stands_rather_than_a_blank():
+    """A run that died before framing, or a process that names no subject at all. Less useful than
+    a subject, never wrong — and never an empty cell that reads as a broken row."""
+    assert APP._about({"input": "art://7d0/use-case-submission.md"}) == "use-case-submission.md"
+    assert APP._about({"subject": "   ", "input": "art://7d0/x.vsdx"}) == "x.vsdx"
+    assert APP._about({}) == ""

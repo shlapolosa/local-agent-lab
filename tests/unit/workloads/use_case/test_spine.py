@@ -1715,3 +1715,30 @@ def test_a_partial_record_never_overwrites_the_finished_one():
     names = [c[1].get("name") for c in h.router.calls if c[0] == SemanticTools.store_spec]
     assert names[-1] == "screening.json", "the finished record is stored last"
     assert "screening.partial.json" in names
+
+
+def test_the_run_board_learns_what_the_use_case_IS_as_soon_as_step_3_frames_it():
+    """A run is addressed by its TRACE id — a 32-character hex string — so a board of them is a
+    column nobody can read. Measured 19 Sep 2026: a person started a run and could not find it,
+    and the answer was "the hex one, third row down".
+
+    The subject already existed, but only on the finished run's OUTPUT, which is exactly too late:
+    the moment you need to find a run is while it is still going. Step 3 produces `frame.problem`
+    within seconds, so the board learns it then — and a run that dies before step 3 simply has no
+    subject, which is honest rather than blank-by-default.
+    """
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents()
+    seen = {}
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        import lab.platform.runlog as runlog
+        real = runlog.update
+        runlog.update = lambda rid, **f: (seen.update(f), real(rid, **f))[1] if False else seen.update(f)
+        try:
+            run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+        finally:
+            runlog.update = real
+    assert "subject" in seen, "the board is told what this run is about"
+    assert seen["subject"], "and it is not empty"
+    assert len(seen["subject"]) <= 160, "one line, not the whole submission"

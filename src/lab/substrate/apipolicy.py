@@ -74,6 +74,13 @@ OPERATIONS: tuple[Operation, ...] = (
         "finds a use case submitted earlier. Same power as reading one run, so the same role."),
     _op("processes.run", "GET", rf"/processes/{_SEG}/runs/{_SEG}", ApiRoles.SUBMIT,
         "the status and outputs of one run"),
+    # WATCHING one run, as server-sent events, instead of asking for it in a loop. Declared BEFORE
+    # nothing and matched exactly, because `{_SEG}` is "anything but a slash" — a pattern loose
+    # enough to also match `/runs/{id}` would hand one operation the other's role. Same role as
+    # reading the run once, deliberately: watching and polling are the same power, and a weaker
+    # rule for the streaming version would be a way around the stronger one.
+    _op("processes.run.events", "GET", rf"/processes/{_SEG}/runs/{_SEG}/events", ApiRoles.SUBMIT,
+        "watch one run as it moves, as server-sent events"),
     # What a DEPLOY must wait for: a run in flight dies when the gateway restarts under it
     # (measured 11 Sep 2026 — derives, adjudications and a publish all 502'd during one rollout).
     _op("runs.open", "GET", r"/runs/open", ApiRoles.SUBMIT,
