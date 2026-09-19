@@ -111,6 +111,21 @@ def _require_railway():
         raise SystemExit(f"missing {', '.join(missing)} — set -a && source .env && set +a first")
 
 # --- substrate services: name -> role command, ingress, health ---
+# ADDING A SERVICE HERE? Five things are learned, written down, and still walked into — twice in
+# one day (19 Sep 2026: Postgres ran as root, the live view 502'd). Nothing in this table prompts
+# you at the moment you need them, so they are here, where a service is actually declared:
+#
+#   1. BIND — a service reached on the PRIVATE network binds `::` (Railway's internal DNS is
+#      IPv6-only); one reached by a PERSON over the public edge binds `0.0.0.0` (that edge is
+#      IPv4). Binding the wrong stack deploys healthily and 502s every request.
+#   2. HEALTHCHECK — the probe runs over IPv6. A service bound `0.0.0.0` must declare NONE, or
+#      Railway kills a deploy that is actually serving.
+#   3. ENTRYPOINT — a start command REPLACES the image's entrypoint and is exec'd without a shell.
+#      `a && b` runs only `a`, and an image whose entrypoint drops privileges (postgres) will run
+#      as root and refuse. Name `docker-entrypoint.sh` explicitly, or wrap in `sh -c '…'`.
+#   4. VOLUME — anything with state needs one, and PGDATA-style dirs want a SUBDIRECTORY of the
+#      mount (the mount root already contains `lost+found`).
+#   5. PORT — must be unique across config's `*_PORT` settings; a test asserts it.
 SUBSTRATE = {
     "semantic-mcp": {"cmd": "python -m lab.substrate.mcp.semantic.server", "port": None},
     "adoit-mcp":    {"cmd": "python -m lab.substrate.mcp.adoit.server", "port": None},
@@ -188,7 +203,14 @@ SUBSTRATE = {
     # same-origin: the browser holds no Entra token and could never watch through the gateway's
     # /api. PUBLIC domain because a person opens it; the gate is the review app's own password.
     # Redis and nothing else — it reads the run log and never an artifact.
-    "live":         {"cmd": "python -m lab.substrate.live.server", "port": 10000},
+    # BIND_HOST 0.0.0.0 and no healthcheck, for the SAME measured reason as the gateway: Railway
+    # reaches a container over TWO paths — the public edge over IPv4, the healthcheck probe over
+    # IPv6 — and uvicorn binds one stack. `::` passes the probe and 502s every real request, which
+    # is exactly what this service did on its first deploy. The substrate default is `::` because
+    # every other server here is reached on the PRIVATE network, whose DNS is IPv6-only; this one
+    # is reached by a person, so it is the exception and says so.
+    "live":         {"cmd": "python -m lab.substrate.live.server", "port": 10000,
+                     "env": {"BIND_HOST": "0.0.0.0"}},
 }
 S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
 
@@ -405,6 +427,8 @@ ROLE_ENV = {
              "OTEL_EXPORTER_OTLP_ENDPOINT"],
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the FALLBACK
+        "LIVE_APP_URL",                            # where to send a reader who wants to WATCH a run
+                                                   # rather than review one; absent = no link offered
         "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # the app's own Entra registration:
                                                    # signs a PERSON in, so the approval ledger names
                                                    # a human the tenant vouches for rather than a

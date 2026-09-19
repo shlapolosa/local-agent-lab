@@ -142,3 +142,11 @@ def test_the_live_view_holds_the_gate_and_redis_and_nothing_else():
 
 def test_the_live_view_is_public_because_a_person_opens_it():
     assert R.SUBSTRATE["live"]["port"] == 10000
+
+
+def test_the_live_view_binds_ipv4_because_a_PERSON_reaches_it_over_the_public_edge():
+    """The substrate default is `::` — right for every other server, which is reached on the
+    private network where DNS is IPv6-only. A public service is reached over IPv4 and 502s on a
+    v6-only bind; this one did, on its first deploy. Same fix and same reason as the gateway."""
+    assert R.SUBSTRATE["live"]["env"]["BIND_HOST"] == "0.0.0.0"
+    assert "health" not in R.SUBSTRATE["live"], "the IPv6 probe must never run against a v4 bind"
