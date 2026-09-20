@@ -236,6 +236,9 @@ async def one_run(cfg, corpus, elements, matcher: str, deepest: int, samples: in
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
         note = f"{type(exc).__name__}: {exc}"
     matched = (d.derived.get("coverage_map") or {}).get("matched") or []
+    # The whole tally, so `report` can score this ONE sampled pass at every threshold.
+    trail = (d.derived.get("coverage_trail") or [{}])[-1] if d.derived.get("coverage_trail") else {}
+    tally = {"matched": matched, "excluded": list(trail.get("excluded") or [])}
     got = {identity_of(m, corpus) for m in matched}
     # What recall cannot see: an id that is not in the map. A reasoning model writes the label
     # where the key belongs (measured 12 Sep 2026); the label scores, the id would not join.
@@ -243,7 +246,22 @@ async def one_run(cfg, corpus, elements, matcher: str, deepest: int, samples: in
     bad_ids = sorted({str(m.get("capability_id")) for m in matched
                       if str(m.get("capability_id", "")).strip() not in ids})
     return ({g for g in got if g}, time.time() - started, note or d.pending.get("5", ""),
-            bad_ids, {o for o in offered if o})
+            bad_ids, {o for o in offered if o}, tally)
+
+
+def at_threshold(trail: Mapping, k: int) -> list[dict]:
+    """The matches a sampled run would have kept at threshold `k`.
+
+    A sampled run holds the WHOLE tally: `matched` is everything at or above the threshold it ran
+    at, `excluded` everything below it, and both carry `votes`. So one sampling pass scores at
+    every k, instead of one pass per k — which costs twice the tokens AND compares two different
+    draws, leaving the difference partly threshold and partly luck with nothing to separate them.
+
+    A match with no `votes` is a single UNSAMPLED pass and counts once, not zero: scoring an
+    ordinary run as having matched nothing would be the worst possible reading of it.
+    """
+    rows = list(trail.get("matched") or []) + list(trail.get("excluded") or [])
+    return [m for m in rows if int(m.get("votes", 1)) >= k]
 
 
 def score(got: set, expected: set, offered: set | None = None) -> dict:
@@ -331,6 +349,20 @@ def report(results: dict, runs: int) -> int:
                   f"{spread} {mean('f1'):6.2f} {stage} {mean('seconds'):6.0f}")
             if mean("recall") < target:
                 failed.append(f"{matcher}/{case} recall {mean('recall'):.2f}")
+
+    by_k: dict = {}
+    for matcher, cases in results.items():
+        for samples in cases.values():
+            for row in samples:
+                for k, scored in (row.get("by_k") or {}).items():
+                    by_k.setdefault(int(k), []).append(scored)
+    if by_k:
+        print(f"\nthreshold sweep — the SAME samples scored at every k (n={sum(len(v) for v in by_k.values()) // len(by_k)} runs):")
+        print(f"  {'k':>3} {'prec':>6} {'recall':>7} {'F1':>6}")
+        for k in sorted(by_k):
+            rows = by_k[k]
+            mean = lambda f: statistics.fmean(r[f] for r in rows)
+            print(f"  {k:>3} {mean('precision'):6.2f} {mean('recall'):7.2f} {mean('f1'):6.2f}")
 
     print("\nwhat the best-scoring matcher still MISSES (the comprehensiveness gap):")
     for matcher, cases in sorted(results.items()):
@@ -480,10 +512,18 @@ async def main() -> int:
         expected = expected_for(case)
         elements = json.loads((case / "elements.json").read_text())
         async with gate:
-            got, seconds, note, bad_ids, offered = await one_run(
+            got, seconds, note, bad_ids, offered, tally = await one_run(
                 cfg, corpus, elements, matcher, args.deepest, args.samples, args.votes)
         row = score(got, expected, offered) | {"seconds": seconds, "note": note, "run": run,
                                                "invalid_ids": bad_ids}
+        # Every threshold, from the ONE sampling pass just paid for. `at_threshold` reads the
+        # tally that `matched` + `excluded` already carry, so this costs nothing and compares
+        # thresholds over the SAME draw rather than over two different ones.
+        asked_for = args.samples if args.samples is not None else coverage.SAMPLES
+        if asked_for > 1:
+            row["by_k"] = {k: score({identity_of(m, corpus) for m in at_threshold(tally, k)},
+                                    expected)
+                           for k in range(1, asked_for + 1)}
         print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
               f"P {row['precision']:.2f} R {row['recall']:.2f}  "
               f"[reachable {row.get('reachable', 0):.2f} of {row.get('candidates', 0)} shown, "

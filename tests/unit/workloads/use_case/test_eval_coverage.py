@@ -147,3 +147,34 @@ def test_the_baseline_records_the_model_it_was_scored_on():
     import json
     recorded = json.loads((ROOT / ev.BASELINE).read_text())
     assert recorded.get("model"), "the baseline names no model, so no run can tell it apart"
+
+
+def test_a_tally_is_recoverable_from_one_sampled_run_so_every_k_scores_from_it():
+    """Scoring k=2 and k=3 by SAMPLING TWICE costs twice the tokens and compares two different
+    draws — a difference between them is then partly the threshold and partly the second sample,
+    and nothing separates the two.
+
+    It is unnecessary: a sampled run keeps every pair that got at least one vote — `matched` at or
+    above the threshold, `excluded` below it — and both carry `votes`. So one pass at k=1 holds the
+    whole tally, and every threshold is arithmetic over it.
+    """
+    trail = {"matched": [{"capability_id": "c1", "votes": 3}, {"capability_id": "c2", "votes": 2},
+                         {"capability_id": "c3", "votes": 1}],
+             "excluded": []}
+    assert {m["capability_id"] for m in ev.at_threshold(trail, 1)} == {"c1", "c2", "c3"}
+    assert {m["capability_id"] for m in ev.at_threshold(trail, 2)} == {"c1", "c2"}
+    assert {m["capability_id"] for m in ev.at_threshold(trail, 3)} == {"c1"}
+
+
+def test_the_tally_includes_what_the_run_s_own_threshold_excluded():
+    trail = {"matched": [{"capability_id": "c1", "votes": 3}],
+             "excluded": [{"capability_id": "c2", "votes": 1}]}
+    assert {m["capability_id"] for m in ev.at_threshold(trail, 1)} == {"c1", "c2"}
+
+
+def test_an_unsampled_run_counts_every_match_once_rather_than_scoring_nothing():
+    """A single pass records no `votes`. Treating a missing vote as zero would score an ordinary
+    run as having matched nothing at all."""
+    trail = {"matched": [{"capability_id": "c1"}]}
+    assert {m["capability_id"] for m in ev.at_threshold(trail, 1)} == {"c1"}
+    assert ev.at_threshold(trail, 2) == []
