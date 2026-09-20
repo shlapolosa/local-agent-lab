@@ -29,6 +29,45 @@ from lab.workloads.usecase.steps import Step
 __all__ = ["Derivation"]
 
 
+def _stamp(cfg, step, out) -> None:
+    """Record the step's record key and the SHAPE of its output on the run-log node.
+
+    Best effort: the board is an instrument, and a run must not fail because one could not be
+    written. `run_id` absent means this run is not on a board at all (a CLI or test run).
+    """
+    from lab.platform import runlog
+
+    run_id = (cfg or {}).get("run_id")
+    if not run_id:
+        return
+    try:
+        runlog.node(run_id, f"step_{step.number}", "done", key=step.key, produced=shape_of(out))
+    except Exception as e:                     # noqa: BLE001 — see the docstring
+        print(f"step {step.number} shape not stamped: {type(e).__name__}: {e}", flush=True)
+
+
+def shape_of(out) -> dict:
+    """What a step produced, as COUNTS AND TYPES — never a value.
+
+    This travels onto the run log, which the live view reads, and that view is reachable by anyone
+    holding its gate. So it carries what a span in this lab is allowed to carry: a reader watching
+    a run learns that a step produced 13 matches and 1 gap flag, and the 13 matches themselves stay
+    behind the review app's decision surface, which is the surface with a decision on it.
+
+    A container is counted, not walked: "how much" is the question a watcher has, and walking would
+    eventually put a leaf value in the answer.
+    """
+    if not isinstance(out, dict):
+        return {}
+    shape = {}
+    for key, value in out.items():
+        if isinstance(value, (list, tuple, set, dict)):
+            shape[key] = len(value)
+        else:
+            shape[key] = type(value).__name__
+    return shape
+
+
 @dataclass
 class Derivation:
     """What a run knows, what it has worked out, and what it has not.
@@ -151,6 +190,10 @@ class Derivation:
                                         if step.soft else None),
                                   soft_key=step.soft_key, soft_remedy=step.soft_remedy)
         self.record(step.key, out, step.number)
+        # What this step produced, in SHAPE, onto the run log — so a reader watching the run can
+        # open a step and see that it matched 13 capabilities and raised 1 gap, without the page
+        # that shows it needing to read the run's content.
+        _stamp(cfg, step, out)
         await self.announce()
         return True
 

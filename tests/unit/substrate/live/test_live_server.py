@@ -45,7 +45,8 @@ def test_a_frame_carries_what_a_watcher_needs_and_nothing_it_does_not():
     runlog.node(rid, "step_3", "done", client=redis, elapsed=8.0)
     frame = live.frame(runlog.get(rid, client=redis))
     assert frame["status"] == "running" and frame["subject"] == "Referral triage takes too long"
-    assert frame["steps"][0] == {"name": "step_3", "status": "done", "elapsed": 8.0, "error": ""}
+    assert frame["steps"][0] == {"name": "step_3", "status": "done", "at": frame["steps"][0]["at"],
+                                 "elapsed": 8.0, "error": "", "key": "", "produced": {}}
     assert "record_ref" not in json.dumps(frame), "no artifact refs: this page never reads content"
 
 
@@ -201,3 +202,83 @@ def test_everything_named_in___all___actually_exists():
     error waiting for the first person who trusts it."""
     for name in live.__all__:
         assert hasattr(live, name), name
+
+
+# ---------------------------------------------------------------- one row per step
+
+def test_a_step_appears_ONCE_however_many_transitions_it_recorded():
+    """The run log records `start` and then `done` as separate entries, and the page rendered every
+    one — so every step showed twice, once as "• receive" and again as "✓ receive". Seen on the
+    live page 20 Sep 2026. A step is a THING, not a stream of its transitions."""
+    h = {"nodes": [{"name": "receive", "status": "start", "attrs": {}},
+                   {"name": "receive", "status": "done", "attrs": {"elapsed": 0.4}},
+                   {"name": "step_3", "status": "start", "attrs": {}}]}
+    steps = live.frame({**h, "run_id": "r", "status": "running"})["steps"]
+    assert [s["name"] for s in steps] == ["receive", "step_3"]
+
+
+def test_the_LATEST_transition_is_the_one_shown():
+    h = {"nodes": [{"name": "receive", "status": "start", "attrs": {}},
+                   {"name": "receive", "status": "done", "attrs": {"elapsed": 0.4}}]}
+    [step] = live.frame({**h, "run_id": "r", "status": "running"})["steps"]
+    assert step["status"] == "done" and step["elapsed"] == 0.4
+
+
+def test_a_failure_is_not_overwritten_by_anything_after_it():
+    """`fail` is terminal for that step. If a later transition could replace it the page would
+    quietly lose the only row anybody is looking for."""
+    h = {"nodes": [{"name": "step_5", "status": "start", "attrs": {}},
+                   {"name": "step_5", "status": "fail", "attrs": {"error": "gate refused"}},
+                   {"name": "step_5", "status": "start", "attrs": {}}]}
+    [step] = live.frame({**h, "run_id": "r", "status": "failed"})["steps"]
+    assert step["status"] == "fail" and step["error"] == "gate refused"
+
+
+def test_the_order_is_the_order_they_STARTED():
+    """Sorting by anything else — completion, name — would make the list jump around under a
+    reader as a run progresses."""
+    h = {"nodes": [{"name": "a", "status": "start", "attrs": {}},
+                   {"name": "b", "status": "start", "attrs": {}},
+                   {"name": "a", "status": "done", "attrs": {"elapsed": 9.0}}]}
+    steps = live.frame({**h, "run_id": "r", "status": "running"})["steps"]
+    assert [s["name"] for s in steps] == ["a", "b"]
+
+
+# ---------------------------------------------------------------- what a step carries
+
+def test_a_step_carries_the_detail_a_reader_opens_it_for():
+    """Whatever the workload stamped on the node travels: counts and shapes, the step's own key,
+    and its timings. NOT model output — this page is reachable by anyone holding the gate, and a
+    run's content stays behind the review app's decision surface."""
+    h = {"nodes": [{"name": "step_3", "status": "done", "ts": "2026-09-20T05:00:01",
+                    "attrs": {"elapsed": 6.7, "key": "frame", "produced": {"problem": "str",
+                                                                           "gap_flags": 2}}}]}
+    [step] = live.frame({**h, "run_id": "r", "status": "running"})["steps"]
+    assert step["key"] == "frame" and step["produced"] == {"problem": "str", "gap_flags": 2}
+    assert step["at"] == "2026-09-20T05:00:01"
+
+
+def test_a_step_with_nothing_stamped_still_renders():
+    h = {"nodes": [{"name": "corpora", "status": "done", "attrs": {"elapsed": 1.9}}]}
+    [step] = live.frame({**h, "run_id": "r", "status": "running"})["steps"]
+    assert step["key"] == "" and step["produced"] == {} and step["elapsed"] == 1.9
+
+
+def test_the_page_renders_each_step_as_something_a_reader_can_OPEN():
+    html = live.page("r1")
+    assert "<details>" in html and "<summary>" in html
+    assert "function detail(" in html
+
+
+def test_an_open_step_STAYS_open_when_the_next_frame_arrives():
+    """A frame arrives every time the run moves. A details element that closed itself on each one
+    would be unusable — the reader would be fighting the stream to read anything."""
+    html = live.page("r1")
+    assert "details[open]" in html and "det.open = true" in html
+
+
+def test_the_page_still_carries_no_secret_and_no_reload():
+    html = live.page("r1")
+    assert "location.reload" not in html
+    for leak in ("postgres://", "redis://", "sk-"):
+        assert leak not in html

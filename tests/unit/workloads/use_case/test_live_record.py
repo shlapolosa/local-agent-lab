@@ -84,3 +84,37 @@ def test_the_published_record_carries_what_did_not_run_as_well_as_what_did():
     _record_and_announce(d, ("frame", {"problem": "x"}, "3"))
     assert published[-1]["pending_steps"]["8"].startswith("quality attributes")
     assert published[-1]["defaulted_steps"]["6"].startswith("match realisations")
+
+
+# ---------------------------------------------------------------- what a step SAYS it produced
+
+def test_a_steps_output_is_described_by_shape_never_by_content():
+    """The live view is reachable by anyone holding its gate, so what travels onto the run log is
+    counts and types — what a span is allowed to carry in this lab, for the same reason. A reader
+    watching a run wants to know a step produced 13 matches and 1 gap; the 13 matches themselves
+    are the review app's business."""
+    from lab.workloads.usecase.derivation import shape_of
+
+    out = {"matched": [1, 2, 3], "gap_flags": [{"what": "x"}], "problem": "referrals take too long",
+           "existing": False, "depth": 3}
+    assert shape_of(out) == {"matched": 3, "gap_flags": 1, "problem": "str",
+                             "existing": "bool", "depth": "int"}
+
+
+def test_no_value_from_the_output_ever_reaches_the_shape():
+    """The whole point: a shape that leaked a string would put model output on a page with a
+    weaker gate than the one that decides on it."""
+    from lab.workloads.usecase.derivation import shape_of
+
+    secret = "a patient's name"
+    assert secret not in str(shape_of({"problem": secret, "notes": [secret]}))
+
+
+def test_a_nested_structure_is_counted_not_walked():
+    from lab.workloads.usecase.derivation import shape_of
+    assert shape_of({"model": {"elements": [1, 2], "relations": []}}) == {"model": 2}
+
+
+def test_an_empty_or_odd_output_does_not_raise():
+    from lab.workloads.usecase.derivation import shape_of
+    assert shape_of({}) == {} and shape_of(None) == {} and shape_of([1, 2]) == {}

@@ -74,11 +74,43 @@ def frame(h) -> dict:
         "node": h.get("node", ""),
         "elapsed": h.get("elapsed"),
         "error": str(h.get("error") or ""),
-        "steps": [{"name": n.get("name", ""), "status": n.get("status", ""),
-                   "elapsed": (n.get("attrs") or {}).get("elapsed"),
-                   "error": str((n.get("attrs") or {}).get("error") or "")}
-                  for n in (h.get("nodes") or ())],
+        "steps": _steps(h.get("nodes") or ()),
     }
+
+
+#: A step's own transitions, collapsed. `fail` is terminal: a later `start` must not overwrite the
+#: one row anybody is looking for.
+_TERMINAL = ("fail",)
+
+
+def _steps(nodes) -> list:
+    """One row per STEP, in the order they started, showing its latest transition.
+
+    The run log records `start` and then `done` as separate entries and the page rendered every
+    one, so every step appeared twice — "• receive" and again "✓ receive" (seen 20 Sep 2026). A
+    step is a thing, not a stream of its transitions.
+
+    Whatever the workload stamped on the node travels with it: the record key the step writes, and
+    a SHAPE of what it produced — counts and types, never model output. This page is reachable by
+    anyone holding the gate, and a run's content belongs behind the review app's decision surface.
+    """
+    rows: dict = {}
+    for n in nodes:
+        name = n.get("name", "")
+        attrs = n.get("attrs") or {}
+        if rows.get(name, {}).get("status") in _TERMINAL:
+            continue
+        rows[name] = {
+            "name": name,
+            "status": n.get("status", ""),
+            "at": n.get("ts", ""),
+            "elapsed": attrs.get("elapsed"),
+            "error": str(attrs.get("error") or ""),
+            # What the workload chose to say about this step, if anything.
+            "key": str(attrs.get("key") or ""),
+            "produced": attrs.get("produced") or {},
+        }
+    return list(rows.values())
 
 
 #: The page. Deliberately one file with no build step and no CDN: a live view that could not render
@@ -98,10 +130,21 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>run %(run)s</title>
  .running{background:#fef3c7;color:var(--run)}.done{background:#dcfce7;color:var(--ok)}
  .failed{background:#fee2e2;color:var(--bad)}
  ol{list-style:none;margin:0;padding:0}
- li{display:flex;gap:.75rem;align-items:baseline;padding:.5rem 0;border-bottom:1px solid var(--line)}
- li .n{font-variant-numeric:tabular-nums;color:var(--dim);min-width:5.5rem}
- li .s{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--dim);font-size:.82rem}
- .err{color:var(--bad);font-size:.82rem;padding:.25rem 0 .5rem 6.25rem}
+ li{border-bottom:1px solid var(--line)}
+ summary{display:flex;gap:.75rem;align-items:baseline;padding:.55rem 0;cursor:pointer;
+         list-style:none}
+ summary::-webkit-details-marker{display:none}
+ summary::before{content:"\25B8";color:var(--dim);font-size:.7rem;width:.8rem;flex:none;
+                 transition:transform .12s}
+ details[open] summary::before{transform:rotate(90deg)}
+ summary .mark{width:1rem;flex:none}
+ summary .s{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--dim);font-size:.82rem}
+ .detail{padding:.25rem 0 .9rem 1.8rem;font-size:.85rem;color:var(--dim)}
+ .detail dl{display:grid;grid-template-columns:auto 1fr;gap:.2rem .9rem;margin:0}
+ .detail dt{color:var(--dim)}
+ .detail dd{margin:0;color:var(--fg);font-variant-numeric:tabular-nums}
+ .detail .none{font-style:italic}
+ .err{color:var(--bad)}
  .idle{color:var(--dim);font-style:italic}
 </style>
 <main>
@@ -116,6 +159,30 @@ const RUN = %(run_json)s;
 const $ = (id) => document.getElementById(id);
 const secs = (v) => v == null ? "" : (v < 60 ? v.toFixed(1) + "s" : (v / 60).toFixed(1) + "m");
 
+function detail(s) {
+  const dl = document.createElement("dl");
+  const add = (term, value, cls) => {
+    const dt = document.createElement("dt"); dt.textContent = term;
+    const dd = document.createElement("dd"); dd.textContent = value;
+    if (cls) dd.className = cls;
+    dl.append(dt, dd);
+  };
+  add("status", s.status || "—");
+  if (s.at) add("at", s.at.replace("T", " ").slice(0, 19));
+  if (s.elapsed != null) add("took", secs(s.elapsed));
+  if (s.key) add("writes", s.key);
+  const produced = Object.entries(s.produced || {});
+  if (produced.length) {
+    // COUNTS AND TYPES, never a value — what the workload stamped. The run's content lives in the
+    // review app, which is the surface with a decision on it.
+    for (const [field, shape] of produced) add(field, shape);
+  } else if (s.status === "done") {
+    add("produced", "nothing recorded", "none");
+  }
+  if (s.error) add("error", s.error, "err");
+  return dl;
+}
+
 function render(d) {
   $("subject").textContent = d.subject || RUN;
   const st = $("status");
@@ -126,13 +193,22 @@ function render(d) {
   $("note").className = d.error ? "err" : "idle";
   // Rebuilt from the frame rather than patched step by step: the list is short, and a diff is a
   // second description of the same state that can disagree with the first.
+  // Which rows the reader had OPEN, kept across re-renders: a frame arrives every time the run
+  // moves, and a details element that closed itself on each one would be unusable.
+  const open = new Set([...document.querySelectorAll("li details[open]")].map(d => d.dataset.step));
   $("steps").replaceChildren(...(d.steps || []).map(s => {
     const li = document.createElement("li");
-    const mark = s.status === "done" ? "✓" : s.status === "fail" ? "✗" : "•";
-    li.innerHTML = '<span class="n"></span><span class="m"></span><span class="s"></span>';
-    li.querySelector(".n").textContent = mark + " " + s.name;
-    li.querySelector(".m").textContent = s.error || "";
+    const mark = s.status === "done" ? "\u2713" : s.status === "fail" ? "\u2717" : "\u2022";
+    li.innerHTML =
+      '<details><summary><span class="mark"></span><span class="nm"></span>' +
+      '<span class="s"></span></summary><div class="detail"></div></details>';
+    const det = li.querySelector("details");
+    det.dataset.step = s.name;
+    if (open.has(s.name)) det.open = true;
+    li.querySelector(".mark").textContent = mark;
+    li.querySelector(".nm").textContent = s.name;
     li.querySelector(".s").textContent = secs(s.elapsed);
+    li.querySelector(".detail").replaceChildren(detail(s));
     return li;
   }));
 }
