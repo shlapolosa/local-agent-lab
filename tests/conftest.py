@@ -100,6 +100,20 @@ def _isolated_otel():
 
 
 @pytest.fixture(autouse=True)
+def _reset_runlog_latch():
+    """`runlog._RETRY_AT` holds a retry window PER Redis client after a failure.
+
+    Per client now, so one dead client no longer silences everybody — but the map itself is still a
+    process global, and a test that latches a client must not hand that window to the next test.
+    This file exists to close exactly these seams.
+    """
+    from lab.platform import runlog
+    runlog._RETRY_AT.clear()
+    yield
+    runlog._RETRY_AT.clear()
+
+
+@pytest.fixture(autouse=True)
 def _empty_review_cache():
     """The review app caches corpus tables, records and trace activity PROCESS-GLOBALLY.
 

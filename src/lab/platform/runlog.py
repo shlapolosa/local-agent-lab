@@ -28,6 +28,7 @@ Usage in a host:
 """
 import json
 import sys
+import weakref
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -42,7 +43,9 @@ ERROR_CHARS = 300              # how much of an exception message any record of 
 
 from lab.platform import redis_client  # noqa: E402
 
-_RETRY_AT = 0.0                # epoch seconds until which Redis is NOT tried (0 = try now)
+#: Per CLIENT, epoch seconds until which that Redis is not tried again. Weak so a client the
+#: caller has finished with does not keep a latch (or the client) alive.
+_RETRY_AT: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 
 
 def _client():
@@ -60,20 +63,44 @@ def _say(line):
 
 
 def _redis(op, client=None):
-    """Run `op(r)` against Redis (`client` or the shared pool). On ANY failure: one stderr notice,
-    print-only until RETRY_AFTER_S has passed, return None. Success clears the latch."""
-    global _RETRY_AT
-    if _RETRY_AT and time.time() < _RETRY_AT:
+    """Run `op(r)` against Redis (`client` or the shared pool). On failure: one stderr notice,
+    print-only until RETRY_AFTER_S has passed, return None. Success clears that latch.
+
+    The latch is PER CLIENT. A run must not spend a round trip per node against a Redis that is
+    down — that is why it exists, and it applies to a workload's own client as much as to the pool.
+    But one client being down says nothing about another's, and a single global latch meant it did:
+    in CI on 20 Sep 2026 a workload step stamped its shape through the POOL, CI has no Redis, and
+    every later `FakeRedis` write in that process was silently dropped — ten failures in a
+    different file, surfacing as `KeyError: 'status'`. An instrument that switches itself off for
+    everybody, on evidence about somebody else's connection, can only be debugged from outside.
+    """
+    target = client if client is not None else _client()
+    try:
+        latched = _RETRY_AT.get(target, 0.0)
+    except TypeError:                            # unhashable client: no latch, always try
+        latched = 0.0
+    if latched and time.time() < latched:
         return None
     try:
-        out = op(client if client is not None else _client())
+        out = op(target)
     except Exception as e:                       # noqa: BLE001 — visibility must never break a run
-        _RETRY_AT = time.time() + RETRY_AFTER_S
+        _remember(target, time.time() + RETRY_AFTER_S)
         print(f"[runlog] redis unavailable ({type(e).__name__}: {e}) — print-only for {RETRY_AFTER_S}s",
               file=sys.stderr, flush=True)
         return None
-    _RETRY_AT = 0.0
+    _remember(target, 0.0)
     return out
+
+
+def _remember(target, until: float) -> None:
+    """Record (or clear) one client's retry window, ignoring a client that cannot be a key."""
+    try:
+        if until:
+            _RETRY_AT[target] = until
+        else:
+            _RETRY_AT.pop(target, None)
+    except TypeError:
+        pass
 
 
 def _key(run_id):
