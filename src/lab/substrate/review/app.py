@@ -464,6 +464,10 @@ def _submit_page(reviewer):
     rid = st.session_state.get(f"submit_rid_{spec.name}")
     if rid:
         _run_status(rid)
+        # Same page-level timer as the Runs board, and armed by the same rule: while the run can
+        # still change. It is what makes the "Watch" link APPEAR without the reader reloading by
+        # hand — a submission sits `pending` for a few seconds before a host takes it.
+        _auto_refresh(workflows.status(rid) or {"status": "pending"})
 
     st.divider()
     st.subheader("Recent submissions")
@@ -479,8 +483,15 @@ def _submit_page(reviewer):
         st.write(line)
 
 
-@st.fragment(run_every=5)
 def _run_status(rid):
+    """What became of a submission, and the way to WATCH it.
+
+    No longer a `run_every` fragment. That mechanism silently never fires (streamlit#9080, #11660)
+    — reported here as "on the submitter page, no updates" — and the honest replacement is not a
+    better poll but a different surface: the live view updates in place and this page cannot. So
+    this refreshes with the page and, the moment the run has a trace, hands the reader a link to
+    something that actually streams.
+    """
     s = workflows.status(rid)
     if not s:
         st.warning(f"unknown request {rid}"); return
@@ -492,10 +503,16 @@ def _run_status(rid):
     cols[1].write(f'**Started** {s.get("started_at", "—")}')
     cols[2].write(f'**Finished** {s.get("finished_at", "—")}')
     cols[3].write(f'**Consumer** {s.get("consumer", "—")}')
+    # The run id IS the trace id (`governed_run` sets them equal), so the live view is addressable
+    # the moment a host has started the run — which is the moment somebody wants to watch it.
+    if s.get("trace_id") and config.LIVE_APP_URL:
+        st.link_button(f"👁️ Watch this run — {status}",
+                       f"{config.LIVE_APP_URL.rstrip('/')}/run/{s['trace_id']}",
+                       type="primary", use_container_width=True)
     if s.get("trace_id"):
         st.write(f'**Trace** [{s["trace_id"][:16]}…]({JAEGER}{s["trace_id"]})')
     if status == "pending":
-        st.info("Waiting for a workload host to pick this up (the wf-visio consumer).")
+        st.info("Waiting for a workload host to pick this up — the link appears as soon as it does.")
     elif status == "running":
         st.info("BA → Architect → validate/render in progress…")
     elif status == "done":

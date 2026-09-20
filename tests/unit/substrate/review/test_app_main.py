@@ -119,12 +119,12 @@ def test_streamlit_entry_point_runs_main():
         else:
             del sys.modules["streamlit"]
     names = [c[0] for c in fake_st.calls]
-    # ONE fragment registered at module load — `_run_status`, which polls a submission the person
-    # is watching. The Runs board no longer uses one: `run_every` has upstream defects whose
-    # failure mode is "silently never fires" (streamlit#9080, #11660), and the board refreshes from
-    # a timer in the page instead, where it either works or visibly does not.
-    assert names[0] == "fragment" and names.count("fragment") == 1
-    assert "set_page_config" in names                                          # then main()
+    # NO fragment at module load any more. `run_every`'s failure mode is "silently never fires"
+    # (streamlit#9080, #11660) and it was reported on both pages that used one — the Runs board and
+    # the submitter's status panel. Both refresh from a timer in the page instead, which either
+    # works or visibly does not, and both link out to the live view, which actually streams.
+    assert "fragment" not in names
+    assert names[0] == "set_page_config"
     assert fake_st.said("title", "Runs")
     assert fake_st.said("info", "No runs recorded yet")
 

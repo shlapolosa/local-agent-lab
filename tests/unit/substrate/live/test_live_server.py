@@ -150,3 +150,23 @@ def test_the_live_port_collides_with_nothing_else_in_the_substrate():
     from lab.platform import config as cfg
     ports = [v for k, v in vars(cfg).items() if k.endswith("_PORT") and isinstance(v, int)]
     assert len(ports) == len(set(ports)), sorted(ports)
+
+
+def test_the_page_asks_for_an_ABSOLUTE_stream_url():
+    """A relative "events/<id>" resolves against `/run/<id>` to `/run/events/<id>` — the last path
+    segment is REPLACED, not appended to — and that matches no route. Measured live: the page
+    rendered, the EventSource 404'd, and all the reader saw was "reconnecting…".
+
+    It passed a curl check because curl was given the absolute path the route actually declares.
+    The browser is the only thing that resolves the relative one, so the browser is the only thing
+    that could find this."""
+    html = live.page("abc123")
+    assert 'EventSource("/events/' in html, "absolute, from the site root"
+    assert 'EventSource("events/' not in html
+
+
+def test_the_declared_routes_include_the_one_the_page_asks_for():
+    """Belt and braces: the URL the page builds must be a route that exists."""
+    from types import SimpleNamespace
+    paths = {r.path for r in live.build(SimpleNamespace(redis=lambda: None)).routes}
+    assert "/events/{run_id}" in paths

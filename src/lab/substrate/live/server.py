@@ -139,7 +139,7 @@ function render(d) {
 
 // The browser reconnects on its own when the server closes the stream, which is how a watch
 // outlives the server's per-connection ceiling without anybody refreshing anything.
-const es = new EventSource("events/" + encodeURIComponent(RUN));
+const es = new EventSource("/events/" + encodeURIComponent(RUN));
 es.onmessage = (e) => render(JSON.parse(e.data));
 es.onerror = () => { $("note").textContent = "reconnecting…"; };
 </script>"""
@@ -224,8 +224,11 @@ def build(container) -> Starlette:
     return Starlette(routes=[
         Route("/healthz", _healthz, methods=["GET"]),
         Route("/run/{run_id}", _watch(container), methods=["GET"]),
-        Route("/run/{run_id}/events/{stream_id}", _events(container), methods=["GET"]),
-        # The page asks for "events/<id>" RELATIVE to /run/<id>, so both shapes resolve.
+        # ONE stream route, absolute. There used to be a second, nested one to catch a RELATIVE
+        # "events/<id>" — which does not resolve the way that comment assumed: from `/run/<id>`
+        # the browser REPLACES the last segment, asking for `/run/events/<id>`, which matched
+        # neither. Two routes for one thing is also how the page came to be tested against a URL
+        # it never requests.
         Route("/events/{run_id}", _events(container), methods=["GET"]),
     ])
 
