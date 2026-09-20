@@ -213,3 +213,37 @@ def test_the_re_stamp_goes_through_the_one_helper_that_knows_about_boards():
     d = _Sampling([sample(m("f", "c1"))])          # no run_id: the helper returns, nothing raises
     asyncio.run(coverage._one_pass({}, d, CANDS, label="x", samples=1))
     assert d.derived["coverage_map"]["matched"][0]["votes"] == 1
+
+
+# ------------------------------------------------ naming a match the corpus already named
+
+def test_a_match_is_given_the_label_of_the_candidate_its_id_was_copied_from():
+    """`capability_label` is optional and the model routinely omits it, so the record — and every
+    reader of it — was left with `tec-cap-0031`. The id was COPIED character for character from a
+    candidate this step was shown, and that candidate carries the label, so the name is a join the
+    workload can do itself rather than a thing to ask a model for or to render around."""
+    matched = [{"function": "f", "capability_id": "c1", "confidence": "lookup"}]
+    named = coverage.named(matched, CANDS)
+    assert named[0]["capability_label"] == "One"
+    assert named[0]["capability_id"] == "c1", "the id is untouched — it is what joins"
+
+
+def test_a_label_the_model_did_supply_is_not_overwritten():
+    """The model saw the candidate too. If it chose different words, that is its answer and this
+    is not the place to silently correct it."""
+    matched = [{"function": "f", "capability_id": "c1", "capability_label": "its own words"}]
+    assert coverage.named(matched, CANDS)[0]["capability_label"] == "its own words"
+
+
+def test_an_id_no_candidate_carries_is_left_exactly_as_it_is():
+    """A hallucinated or mistyped id must stay visible as one. Inventing a label for it would make
+    an unjoinable row look like a good one — which the eval counts as `invalid_ids` precisely
+    because it cannot be allowed to read as a match."""
+    matched = [{"function": "f", "capability_id": "not-on-the-list"}]
+    assert "capability_label" not in coverage.named(matched, CANDS)[0]
+
+
+def test_the_vote_hands_back_matches_that_are_already_named():
+    d = _Sampling([sample(m("f", "c1", label=""))])
+    _run(d, samples=1)
+    assert d.derived["coverage_map"]["matched"][0]["capability_label"] == "One"

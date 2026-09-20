@@ -47,3 +47,34 @@ def test_a_truncation_still_happens_somewhere_and_still_says_so():
     out = D.outline({"matched": [{"label": f"Capability {i}"} for i in range(D.MAX_ITEMS + 5)]})
     assert out["matched"]["truncated"] is True
     assert len(out["matched"]["items"]) == D.MAX_ITEMS
+
+
+def test_a_match_without_the_optional_label_still_names_the_CAPABILITY_not_the_function():
+    """Seen live on run 38545b7f (20 Sep 2026): `matched: 38`, then "prepare design pack" seven
+    times and "validate design pack" eight. Those are FUNCTIONS — what each match was made FROM —
+    repeated once per capability the function matched to, which is the least useful line the row
+    could carry.
+
+    `capability_label` is OPTIONAL in the coverage_map schema (only `function`, `capability_id`
+    and `confidence` are required) and the model frequently omits it, so the label chain fell
+    through to `function`. The id is the fallback that matters: it names the thing DECIDED, and it
+    is distinct per row. The function is last — it answers a question the reader did not ask.
+    """
+    matched = [{"function": "prepare design pack", "capability_id": "tec-cap-0031",
+                "confidence": "lookup"},
+               {"function": "prepare design pack", "capability_id": "tec-cap-0042",
+                "confidence": "lookup"}]
+    assert D.outline({"matched": matched})["matched"]["items"] == ["tec-cap-0031", "tec-cap-0042"]
+
+
+def test_the_label_still_wins_when_the_model_did_supply_one():
+    assert D.outline({"matched": [{"function": "f", "capability_id": "tec-cap-0031",
+                                   "capability_label": "Submission Validation"}]}
+                     )["matched"]["items"] == ["Submission Validation"]
+
+
+def test_a_function_is_still_how_an_entry_with_nothing_else_is_named():
+    """`functions_without_capability` entries and anything else carrying only a function must not
+    become unnamed by demoting the field."""
+    assert D.outline({"gaps": [{"function": "reconcile the ledger"}]}
+                     )["gaps"]["items"] == ["reconcile the ledger"]

@@ -65,8 +65,14 @@ MAX_BYTES = 12000
 #: What a record calls itself, in the order a record is likely to use. Records in this corpus name
 #: themselves differently by step — a capability by `capability_id`, an element by `name` — and
 #: guessing one field would render the rest as an empty label.
-_LABELS = ("capability_label", "label", "name", "title", "what", "function", "capability_id",
-           "id", "source")
+#: An ID beats a FUNCTION here, and that ordering was paid for: `capability_label` is optional in
+#: the coverage_map schema and the model routinely omits it, so the chain fell through to
+#: `function` and a 38-row match rendered as "prepare design pack" seven times — the thing each
+#: match was made FROM, repeated once per capability it matched to. An id at least names the thing
+#: decided and is distinct per row. `function` stays last so an entry carrying nothing else is
+#: still named.
+_LABELS = ("capability_label", "label", "name", "title", "what", "capability_id", "id", "source",
+           "function")
 
 
 def outline(out) -> dict:

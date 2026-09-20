@@ -54,8 +54,8 @@ from lab.workloads.usecase.gates import GateFailed
 from lab.workloads.usecase.steps import CAPABILITY_QUERY, step_for
 
 __all__ = ["MATCHERS", "SAMPLES", "STORE_BACKED", "VECTOR_HITS", "candidates_from_hits", "composed",
-           "leaves_for", "majority", "match", "matched_ids", "matched_labels", "queries_for",
-           "resolve", "vote"]
+           "leaves_for", "majority", "match", "matched_ids", "matched_labels", "named",
+           "queries_for", "resolve", "vote"]
 
 #: How many times step 5 is asked before its answers vote. ONE is the behaviour that was there
 #: before this existed, and is the default so that turning sampling on is a deliberate act with a
@@ -256,6 +256,33 @@ def _pair(match: Mapping[str, Any]) -> tuple[str, str]:
     return str(match.get("function") or ""), str(match.get("capability_id") or "")
 
 
+def named(matched: list[Mapping[str, Any]], candidates: list[dict]) -> list[dict]:
+    """Give every match the LABEL of the candidate its id was copied from.
+
+    `capability_label` is optional in the coverage_map schema — only `function`, `capability_id`
+    and `confidence` are required — and the model routinely omits it, which left the record, the
+    approval and the live page holding `tec-cap-0031` where a capability's name belongs.
+
+    It is a join, not a guess: the id was copied character for character from a candidate this step
+    was SHOWN, and that candidate carries the label. So nothing is asked of a model and nothing is
+    rendered around. Two things it deliberately will not do — overwrite a label the model did
+    supply (it saw the same candidate; different words are its answer, not an error to correct
+    silently), and invent one for an id no candidate carries, because an unjoinable id must keep
+    looking unjoinable.
+    """
+    labels = {str(c.get("id")): str(c.get("label") or "") for c in candidates or []
+              if isinstance(c, dict) and c.get("id")}
+    out = []
+    for match in matched:
+        row = dict(match)
+        if not row.get("capability_label"):
+            label = labels.get(str(row.get("capability_id") or ""))
+            if label:
+                row["capability_label"] = label
+        out.append(row)
+    return out
+
+
 def majority(n: int) -> int:
     """More than half of n. The default threshold, and the only one that means "most runs said so"
     for every n rather than for the n it was tuned on."""
@@ -344,6 +371,7 @@ async def _one_pass(cfg, d, candidates: list[dict], *, label: str,
                                                 else min(wanted, len(answers))))
     # The VOTE is the step's answer — the last sample is an arbitrary one of n, and recording it
     # would spend n times the tokens to keep exactly the variance this was bought to remove.
+    agreed["matched"] = named(agreed.get("matched") or [], candidates)
     d.record("coverage_map", agreed, "5")
     # Each SAMPLE stamped `step_5` as it ran, so the board holds an arbitrary one of n. Re-stamp
     # with what was agreed, or a person watching the run reads a different answer from the record.
