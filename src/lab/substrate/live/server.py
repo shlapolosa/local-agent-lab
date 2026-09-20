@@ -102,6 +102,13 @@ def _steps(nodes) -> list:
             continue
         rows[name] = {
             "name": name,
+            # What this step DOES, as the WORKLOAD declared it — never composed here. A node id is
+            # an address, and a label invented in this service would be it naming somebody else's
+            # step, so adding or renaming a step changes no code on this page. Sticky across the
+            # collapse: `span_node` stamps the title on the START entry and the `done` entry it
+            # writes carries only timings, so taking the latest transition wholesale lost the label
+            # exactly when a step finished.
+            "title": str(attrs.get("title") or rows.get(name, {}).get("title") or ""),
             "status": n.get("status", ""),
             "at": n.get("ts", ""),
             "elapsed": attrs.get("elapsed"),
@@ -131,6 +138,7 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>run %(run)s</title>
  .failed{background:#fee2e2;color:var(--bad)}
  ol{list-style:none;margin:0;padding:0}
  li{border-bottom:1px solid var(--line)}
+ .id{color:var(--dim);font-size:.75rem;font-family:ui-monospace,SFMono-Regular,monospace}
  summary{display:flex;gap:.75rem;align-items:baseline;padding:.55rem 0;cursor:pointer;
          list-style:none}
  summary::-webkit-details-marker{display:none}
@@ -215,12 +223,17 @@ function render(d) {
     const mark = s.status === "done" ? "\u2713" : s.status === "fail" ? "\u2717" : "\u2022";
     li.innerHTML =
       '<details><summary><span class="mark"></span><span class="nm"></span>' +
-      '<span class="s"></span></summary><div class="detail"></div></details>';
+      '<span class="id"></span><span class="s"></span></summary>' +
+      '<div class="detail"></div></details>';
     const det = li.querySelector("details");
     det.dataset.step = s.name;
     if (open.has(s.name)) det.open = true;
     li.querySelector(".mark").textContent = mark;
-    li.querySelector(".nm").textContent = s.name;
+    // The declaration's label leads; the node id stays beside it, smaller, because it is what a
+    // log line and a trace span are keyed by. Neither is composed here — a step with no declared
+    // title simply reads as its id.
+    li.querySelector(".nm").textContent = s.title || s.name;
+    li.querySelector(".id").textContent = s.title ? s.name : "";
     li.querySelector(".s").textContent = secs(s.elapsed);
     li.querySelector(".detail").replaceChildren(detail(s));
     return li;

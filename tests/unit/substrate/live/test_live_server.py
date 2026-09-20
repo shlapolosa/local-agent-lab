@@ -45,7 +45,8 @@ def test_a_frame_carries_what_a_watcher_needs_and_nothing_it_does_not():
     runlog.node(rid, "step_3", "done", client=redis, elapsed=8.0)
     frame = live.frame(runlog.get(rid, client=redis))
     assert frame["status"] == "running" and frame["subject"] == "Referral triage takes too long"
-    assert frame["steps"][0] == {"name": "step_3", "status": "done", "at": frame["steps"][0]["at"],
+    assert frame["steps"][0] == {"name": "step_3", "title": "", "status": "done",
+                                 "at": frame["steps"][0]["at"],
                                  "elapsed": 8.0, "error": "", "key": "", "produced": {}}
     assert "record_ref" not in json.dumps(frame), "no artifact refs: this page never reads content"
 
@@ -282,3 +283,29 @@ def test_the_page_still_carries_no_secret_and_no_reload():
     assert "location.reload" not in html
     for leak in ("postgres://", "redis://", "sk-"):
         assert leak not in html
+
+
+def test_a_step_keeps_the_title_its_start_declared_after_it_finishes():
+    """`span_node` stamps the declaration's label on the START entry; the `done` entry it writes
+    afterwards carries only timings. Collapsing to the latest transition therefore LOST the label
+    at the moment the step finished — every completed step falling back to its bare id, which is
+    the state the page was in when this was asked for."""
+    rows = live._steps([
+        {"name": "derive", "status": "start", "ts": "t0",
+         "attrs": {"title": "run the screening steps"}},
+        {"name": "derive", "status": "done", "ts": "t1", "attrs": {"elapsed": 2.0}}])
+    assert rows[0]["title"] == "run the screening steps" and rows[0]["elapsed"] == 2.0
+
+
+def test_a_later_title_wins_so_a_renamed_step_is_not_pinned_by_its_first_frame():
+    rows = live._steps([
+        {"name": "step_5", "status": "start", "ts": "t0", "attrs": {"title": "old"}},
+        {"name": "step_5", "status": "done", "ts": "t1", "attrs": {"title": "match capabilities"}}])
+    assert rows[0]["title"] == "match capabilities"
+
+
+def test_a_step_that_declared_no_title_reports_none_rather_than_inventing_one():
+    """The page falls back to the id. A label invented here would be this service naming somebody
+    else's step, which is the whole thing being avoided."""
+    rows = live._steps([{"name": "corpora", "status": "done", "ts": "t", "attrs": {}}])
+    assert rows[0]["title"] == ""

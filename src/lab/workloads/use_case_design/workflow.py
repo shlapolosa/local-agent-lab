@@ -457,6 +457,24 @@ async def _views(cfg, model: Mapping[str, Any]) -> dict:
     return out
 
 
+#: What each executor DOES, declared beside the graph that declares the executors. A node id is an
+#: address — `derive` says where a run is, not what it is doing — and the live page must not be
+#: where a human name for somebody else's step is invented. Stamped on the node by `_node` below,
+#: so the SSE frame carries the label and the page renders whatever arrived.
+#: Held honest by `tests/unit/workloads/test_node_titles.py`, which reads the `@executor(id=...)`
+#: declarations themselves rather than a list kept in step with them.
+NODES = {"readiness": "check readiness gates",
+         "feasibility": "judge feasibility",
+         "derive_design": "run the design steps",
+         "render_views": "render the views",
+         "route": "route for approval"}
+
+
+def _node(cfg, name: str):
+    """A run-log span for one executor, labelled from `NODES`."""
+    return gateway.node_span(cfg, name, title=NODES.get(name, ""))
+
+
 def build_workflow(cfg):
     @executor(id="readiness")
     async def readiness(state: dict, ctx: WorkflowContext[dict]) -> None:
@@ -470,7 +488,7 @@ def build_workflow(cfg):
         A FAIL halts the run and returns the use case with the failed gates named (FR-19). It is
         not an exception: "return to CAM phase 2 or 3" is a correct outcome, and the record that
         says which gates failed is the whole point of producing it."""
-        with gateway.node_span(cfg, "readiness"):
+        with _node(cfg, "readiness"):
             raw = await gateway.call(cfg, StorageTools.read_artifact, {"ref": state["screening_ref"]})
             screening = raw if isinstance(raw, dict) else json.loads(raw or "{}")
             # The canonical submission record, for what a person captured at INTAKE: the volume
@@ -505,7 +523,7 @@ def build_workflow(cfg):
     @executor(id="feasibility")
     async def feasibility(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Steps 15-16 — classify determinism, then rule on feasibility. The switch FR-11 turns on."""
-        with gateway.node_span(cfg, "feasibility"):
+        with _node(cfg, "feasibility"):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
@@ -541,7 +559,7 @@ def build_workflow(cfg):
         deterministic link is a governed tool, so the rule a run obeyed is the released one rather
         than a copy living here.
         """
-        with gateway.node_span(cfg, "derive_design"):
+        with _node(cfg, "derive_design"):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
@@ -583,7 +601,7 @@ def build_workflow(cfg):
         is best-effort in its own right: a run that produced a model but no picture is still a run,
         and the warning it records is the visible degradation (neither render tool is REQUIRED).
         """
-        with gateway.node_span(cfg, "render_views"):
+        with _node(cfg, "render_views"):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
@@ -614,7 +632,7 @@ def build_workflow(cfg):
     @executor(id="route")
     async def route(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Step 26a, the FR-12 finding, or a readiness return. Terminal in every case."""
-        with gateway.node_span(cfg, "route"):
+        with _node(cfg, "route"):
             if state.get("readiness") == "fail":
                 out = _not_ready(state)
             elif state.get("halted"):

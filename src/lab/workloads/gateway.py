@@ -249,14 +249,20 @@ def auth_headers(credential: str, traceparent: str = "") -> dict[str, str]:
     return headers
 
 
-def node_span(cfg: Mapping[str, Any], node: str):
+def node_span(cfg: Mapping[str, Any], node: str, **attrs):
     """A run-log span for one node, or nothing when the run is not on the board (a CLI or test
-    run). A null context rather than a branch at every call site."""
+    run). A null context rather than a branch at every call site.
+
+    `attrs` — `title=` above all — are stamped on the node. A node id is an ADDRESS: `derive` and
+    `step_5` say where a run is, not what it is doing, and the workload that declares the node is
+    the only place that knows. So the label travels from the declaration and the page renders what
+    arrived, rather than a screen inventing names for somebody else's steps.
+    """
     import contextlib
 
     from lab.platform import runlog
     rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
+    return runlog.span_node(rid, node, **attrs) if rid else contextlib.nullcontext()
 
 
 #: Tools that must never be asked twice. Each mints a durable, human-facing object, and a second

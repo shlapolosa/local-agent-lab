@@ -46,7 +46,8 @@ def stamp_shape(cfg, step, out) -> None:
     if not run_id:
         return
     try:
-        runlog.node(run_id, f"step_{step.number}", "done", key=step.key, produced=outline(out))
+        runlog.node(run_id, f"step_{step.number}", "done", key=step.key, title=step.title,
+                    produced=outline(out))
     except Exception as e:                     # noqa: BLE001 — see the docstring
         print(f"step {step.number} shape not stamped: {type(e).__name__}: {e}", flush=True)
 
@@ -54,13 +55,18 @@ def stamp_shape(cfg, step, out) -> None:
 #: What an outline may carry onto the run log. Every frame the live view sends carries this, so it
 #: is bounded three ways — per string, per list, and overall — and a truncation always SAYS so.
 MAX_CHARS = 200
-MAX_ITEMS = 12
-MAX_BYTES = 4000
+#: Sized to the steps that actually run rather than to a round number: step 5 matched THIRTEEN
+#: capabilities against a ceiling of twelve, so the page said `truncated` and a reader could not
+#: tell whether the one it dropped was the one they were looking for. Still bounded — this rides
+#: every frame to every watcher — and a truncation still says so.
+MAX_ITEMS = 40
+MAX_BYTES = 12000
 
 #: What a record calls itself, in the order a record is likely to use. Records in this corpus name
 #: themselves differently by step — a capability by `capability_id`, an element by `name` — and
 #: guessing one field would render the rest as an empty label.
-_LABELS = ("capability_id", "name", "label", "title", "what", "id", "source", "function")
+_LABELS = ("capability_label", "label", "name", "title", "what", "function", "capability_id",
+           "id", "source")
 
 
 def outline(out) -> dict:
@@ -88,8 +94,12 @@ def outline(out) -> dict:
                              "items": [_label(i) for i in items[:MAX_ITEMS]],
                              **({"truncated": True} if len(items) > MAX_ITEMS else {})}
         elif isinstance(value, dict):
+            # `key: value`, not the keys alone. A heat map rendered as
+            # "commodity, mature, meets_target, source" is the QUESTION written out — the reader
+            # opened the row for the answer, and every one of them was thrown away here.
             outlined[key] = {"count": len(value),
-                             "items": [_clip(str(k)) for k in list(value)[:MAX_ITEMS]],
+                             "items": [_clip(f"{k}: {_label(v)}")
+                                       for k, v in list(value.items())[:MAX_ITEMS]],
                              **({"truncated": True} if len(value) > MAX_ITEMS else {})}
         else:
             outlined[key] = value
@@ -102,7 +112,12 @@ def _clip(text: str) -> str:
 
 
 def _label(item) -> str:
-    """One list entry as a reader would name it."""
+    """One entry as a READER would name it — the human-facing field first.
+
+    `capability_id` used to lead, so thirteen matched capabilities rendered as `tec-cap-0031` and
+    twelve siblings: an id is how a record is joined, not what was decided. The id is still the
+    fallback, because naming something badly beats naming it not at all.
+    """
     if isinstance(item, dict):
         for field in _LABELS:
             if item.get(field):
@@ -236,7 +251,7 @@ class Derivation:
         context_seen = A.context_for(step.key, pool)
         # Every completeness rule takes the CONTEXT the agent was shown (step 21 checks a component
         # id against the catalogue it was given) — exactly that, and nothing more.
-        with gateway.node_span(cfg, f"step_{step.number}"):
+        with gateway.node_span(cfg, f"step_{step.number}", title=step.title):
             out = await run_gated(agent, A.message(step, context_seen),
                                   step=step.number, validator=step.validator(),
                                   normalise=step.normalise,

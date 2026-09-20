@@ -98,6 +98,11 @@ class Step:
     #: `(out, context)` — the context is what the agent was shown; most rules ignore it, step
     #: 21's checks a component id against the pinned catalogue it was given.
     complete: Callable[[dict, Mapping[str, Any] | None], list[str]]
+    #: A few words for what this step DOES, for a person watching a run. `step_5` is an address,
+    #: not a description, and nobody should have to hold a 25-step numbering in their head to read
+    #: a progress page. It lives here because the same label is wanted by the screening record
+    #: (`pending_steps`), the run log and the live view — three readers, one home.
+    title: str = ""
     normalise: Callable[[dict], None] | None = None
     #: A rule whose second shortfall is RECORDED on the answer under `soft_key` rather than raised —
     #: something the design still owes, which a reviewer must see (see `gates.run_gated`).
@@ -729,34 +734,34 @@ def _capability_query(out: dict, context: Mapping[str, Any] | None = None) -> li
 
 #: NOT a screening step: a sub-stage of step 5 that the `translate` matcher runs before it searches.
 #: It has a prompt and a schema like any other exercise, so it is gated like any other exercise.
-CAPABILITY_QUERY = Step("5q", "capability_query", "Business Architect", _capability_query)
+CAPABILITY_QUERY = Step("5q", "capability_query", "Business Architect", _capability_query, title="translate the functions")
 
 
 SCREENING_STEPS: tuple[Step, ...] = (
-    Step("3", "frame", "Business Analyst", _frame),
-    Step("4", "elements", "Business Architect", _elements),
-    Step("5", "coverage_map", "Business Architect", _coverage_map),
-    Step("6", "realisation_match", "Application Architect", _realisation_match),
-    Step("7", "criticality_band", "Risk Officer", _criticality_band),
-    Step("8", "quality_attributes", "Product Owner", _quality_attributes),
-    Step("9", "ontology_delta", "Data Architect", _ontology_delta),
-    Step("10", "workflow_graph", "Business Analyst", _workflow_graph),
-    Step("11", "source_contracts", "Data Architect", _source_contracts),
+    Step("3", "frame", "Business Analyst", _frame, title="frame use case"),
+    Step("4", "elements", "Business Architect", _elements, title="decompose elements"),
+    Step("5", "coverage_map", "Business Architect", _coverage_map, title="match capabilities"),
+    Step("6", "realisation_match", "Application Architect", _realisation_match, title="match realisations"),
+    Step("7", "criticality_band", "Risk Officer", _criticality_band, title="assign criticality band"),
+    Step("8", "quality_attributes", "Product Owner", _quality_attributes, title="derive quality attributes"),
+    Step("9", "ontology_delta", "Data Architect", _ontology_delta, title="check ontology"),
+    Step("10", "workflow_graph", "Business Analyst", _workflow_graph, title="sequence workflow"),
+    Step("11", "source_contracts", "Data Architect", _source_contracts, title="contract sources"),
 )
 
 #: Steps 13-21 — the interpretive half of the DESIGN process. 14, 16, 18, 19 and 22 are absent
 #: because they are deterministic: they are `decision-mcp`'s, not an agent's, and putting one here
 #: would be a second implementation of a published rule.
 DESIGN_STEPS: tuple[Step, ...] = (
-    Step("13", "assertions", "Product Owner", _assertions),
-    Step("15", "determinism", "Solution Architect", _determinism),
-    Step("17", "facet_vectors", "Risk Officer", _facet_vectors, normalise=_normalise_facets),
-    Step("20", "build_surface", "Technology Architect", _build_surface),
-    Step("21", "component_selection", "Solution Architect", _component_selection,
+    Step("13", "assertions", "Product Owner", _assertions, title="write assertions"),
+    Step("15", "determinism", "Solution Architect", _determinism, title="decide determinism"),
+    Step("17", "facet_vectors", "Risk Officer", _facet_vectors, title="score risk facets", normalise=_normalise_facets),
+    Step("20", "build_surface", "Technology Architect", _build_surface, title="shape build surface"),
+    Step("21", "component_selection", "Solution Architect", _component_selection, title="select components",
          soft=_soft_21, soft_remedy=SOFT_21_REMEDY),
-    Step("23", "cost_inputs", "Cost Engineer", _cost_inputs),
-    Step("24", "benefit_inputs", "Value Analyst", _benefit_inputs),
-    Step("25", "delivery_artifacts", "Product Owner", _delivery_artifacts),
+    Step("23", "cost_inputs", "Cost Engineer", _cost_inputs, title="gather cost inputs"),
+    Step("24", "benefit_inputs", "Value Analyst", _benefit_inputs, title="gather benefit inputs"),
+    Step("25", "delivery_artifacts", "Product Owner", _delivery_artifacts, title="plan delivery artifacts"),
 )
 
 STEPS: tuple[Step, ...] = SCREENING_STEPS + DESIGN_STEPS

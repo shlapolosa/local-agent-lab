@@ -33,7 +33,7 @@ from lab.workloads import gateway
 from lab.workloads.usecase import coverage
 from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
-from lab.workloads.usecase.steps import step_for
+from lab.workloads.usecase.steps import STEPS, step_for
 from lab.workloads.usecase import modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import SCREENING_STEPS
@@ -163,11 +163,10 @@ UNAVAILABLE = {
 
 #: The steps this spine does not yet derive. Named rather than silently skipped: a screening record
 #: that simply lacked these fields would be indistinguishable from one whose agents found nothing.
-PENDING_STEPS = {
-    "3": "frame use case", "4": "decompose elements", "5": "match capabilities",
-    "6": "match realisations", "7": "assign criticality band", "8": "derive quality attributes",
-    "9": "check ontology", "10": "sequence workflow", "11": "contract sources",
-}
+#: What a deferred step is CALLED in the record, derived from the steps themselves rather than
+#: typed out a second time: these were nine hand-maintained labels that had to be kept in step with
+#: `Step.title`, and a renamed step would have quietly kept its old name here.
+PENDING_STEPS = {s.number: s.title for s in STEPS}
 
 PROMPT = ("Confirm the criticality class derived for this use case. It sets the rigour of the "
           "system that gets built — the evaluation depth, the approval shape and the corroboration "
@@ -296,6 +295,24 @@ def _live_record(cfg):
     return publish
 
 
+#: What each executor DOES, declared beside the graph that declares the executors. A node id is an
+#: address — `derive` says where a run is, not what it is doing — and the live page must not be
+#: where a human name for somebody else's step is invented. Stamped on the node by `_node` below,
+#: so the SSE frame carries the label and the page renders whatever arrived.
+#: Held honest by `tests/unit/workloads/test_node_titles.py`, which reads the `@executor(id=...)`
+#: declarations themselves rather than a list kept in step with them.
+NODES = {"receive": "accept the submission",
+         "validate_and_persist": "validate and store it",
+         "corpora": "pin the corpora",
+         "derive": "run the screening steps",
+         "ask_criticality": "ask to confirm criticality"}
+
+
+def _node(cfg, name: str):
+    """A run-log span for one executor, labelled from `NODES`."""
+    return gateway.node_span(cfg, name, title=NODES.get(name, ""))
+
+
 def build_workflow(cfg):
     """The static graph. No model chooses the next node — NFR-14 holds by construction."""
 
@@ -306,7 +323,7 @@ def build_workflow(cfg):
         Exactly one of `submission` and `submission_handle` is required. `ProcessSpec.validate`
         cannot express an xor, so it is checked here — stated plainly rather than hidden, because
         it is the one input rule the contract does not carry."""
-        with gateway.node_span(cfg, "receive"):
+        with _node(cfg, "receive"):
             ref, handle = state.get("submission", ""), state.get("submission_handle", "")
             if bool(ref) == bool(handle):
                 raise ValueError(
@@ -326,7 +343,7 @@ def build_workflow(cfg):
         FR-04: every later step reads the datastore, never the channel. The workload holds no store
         credential, so it reads through the governed store and persists through `semantic_store_spec`
         — the same move the Visio architect makes with its spec."""
-        with gateway.node_span(cfg, "validate_and_persist"):
+        with _node(cfg, "validate_and_persist"):
             text = await gateway.call(cfg, StorageTools.read_document, {"ref": state["submission"]})
             prose = text if isinstance(text, str) else json.dumps(text)
             if not prose.strip():
@@ -354,7 +371,7 @@ def build_workflow(cfg):
         an absent capability map answers confidently from nothing, and the answer is
         indistinguishable from one grounded in a real map. What could not be read is named, and the
         steps that needed it stay pending."""
-        with gateway.node_span(cfg, "corpora"):
+        with _node(cfg, "corpora"):
             pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS)
             fetched: dict = {}
             missing: dict = dict(UNAVAILABLE)
@@ -406,7 +423,7 @@ def build_workflow(cfg):
         field omitted — an absent coverage map and one an agent produced empty are different
         findings, and only one of them is a gap flag.
         """
-        with gateway.node_span(cfg, "derive"):
+        with _node(cfg, "derive"):
             d = Derivation(available={"submission": state["submission_record"]["prose"],
                                       **(state.get("corpora") or {})},
                            pending=dict(PENDING_STEPS),
@@ -458,7 +475,7 @@ def build_workflow(cfg):
     @executor(id="ask_criticality")
     async def ask_criticality(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Step 12 — derive the class, then ask an architect to confirm it. Terminal."""
-        with gateway.node_span(cfg, "ask_criticality"):
+        with _node(cfg, "ask_criticality"):
             # Derived by step 7 when its agent ran. Absent, the question still goes to an
             # architect — with nothing proposed, which is honest: an unasked question is
             # worse than one whose default is blank.
