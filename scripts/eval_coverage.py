@@ -57,6 +57,12 @@ from lab.workloads.usecase.gates import GateFailed             # noqa: E402
 from lab.workloads.usecase.steps import step_for               # noqa: E402
 
 
+#: The recorded bar. NAMED rather than spelled at the flag, because it was spelled there and the
+#: file was renamed out from under it: `--baseline` defaulted to `coverage-baseline.json` while the
+#: file on disk was `technology-baseline.json`, so `base_path.exists()` was False and every run
+#: compared against nothing, silently. A test asserts this path is a file that exists.
+BASELINE = "docs/evals/technology-baseline.json"
+
 #: The capabilities a human says this use case genuinely exercises. One map now, so one file.
 EXPECTED = "expected.json"
 
@@ -367,8 +373,12 @@ async def main() -> int:
                          "MAX_CORPUS_BYTES and it was sized on a different upstream")
     ap.add_argument("--derive", action="store_true",
                     help="derive each case's elements.json and stop — run once per case")
+    ap.add_argument("--model", default=config.USECASE_AGENT_MODEL,
+                    help="the model the matcher's agents run on. The default is what production "
+                         "runs; naming another is how a model change is MEASURED against the "
+                         "frozen bar before it ships, rather than argued about")
     ap.add_argument("--out", default="var/eval/coverage-results.json")
-    ap.add_argument("--baseline", default="docs/evals/coverage-baseline.json",
+    ap.add_argument("--baseline", default=BASELINE,
                     help="recorded means to refuse a regression against (recall, per matcher/case)")
     ap.add_argument("--record-baseline", action="store_true",
                     help="write this run's means AS the baseline (after a reviewed improvement)")
@@ -380,7 +390,7 @@ async def main() -> int:
     if not credential:
         raise SystemExit("EVAL_AGENT_KEY is not set — evals run on their OWN identity, never on a "
                          "production agent's key (scripts/provision_usecase_agents.py mints it)")
-    cfg = {"agents": agents_for(gateway_url, config.USECASE_AGENT_MODEL, credential,
+    cfg = {"agents": agents_for(gateway_url, args.model, credential,
                                 step_for("3"), step_for("4"), step_for("5"),
                                 coverage.CAPABILITY_QUERY),   # the `translate` matcher's own stage
            # what the `vector` matcher needs to reach the store the way a run does
@@ -405,7 +415,7 @@ async def main() -> int:
     with_def = sum(1 for c in corpus if str(c.get("definition") or "").strip())
     corpus = present(corpus, args.definitions, args.budget, args.deepest)
     print(f"corpus: {len(corpus)} concepts ({with_def} carry a definition) | "
-          f"definitions={args.definitions} | gateway: {gateway_url}")
+          f"definitions={args.definitions} | model: {args.model} | gateway: {gateway_url}")
 
     cases = sorted(p for p in Path(args.cases).glob("*")
                    if (p / "submission.md").exists() and (p / EXPECTED).is_file())
@@ -486,11 +496,23 @@ async def main() -> int:
     if args.record_baseline:
         base_path.parent.mkdir(parents=True, exist_ok=True)
         base_path.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"),
-                                         "map": "technology", "means": current}, indent=2) + "\n")
+                                         "map": "technology", "model": args.model,
+                                         "means": current}, indent=2) + "\n")
         print(f"baseline recorded: {base_path}")
-    elif base_path.exists():
-        fell = regressions(current, json.loads(base_path.read_text()).get("means") or {},
-                           results_cases=results)
+    elif not base_path.exists():
+        # Loudly: the gate's whole value is refusing a regression, and a missing file used to mean
+        # it quietly did not run.
+        print(f"\nNO BASELINE at {base_path} — nothing was gated. "
+              f"`--record-baseline` writes one from this run.")
+    else:
+        recorded = json.loads(base_path.read_text())
+        # A baseline scored on ANOTHER model is not the same bar. Comparing across them is exactly
+        # what this flag is for, so it is reported rather than refused — but never silently, or a
+        # model swap reads as a regression in the matcher.
+        if recorded.get("model", args.model) != args.model:
+            print(f"\nNOTE: baseline was recorded on {recorded['model']}, this run is "
+                  f"{args.model} — the comparison below is across MODELS, not matchers.")
+        fell = regressions(current, recorded.get("means") or {}, results_cases=results)
         if fell:
             print(f"\nREGRESSION against {base_path}: {fell}")
             rc = 2

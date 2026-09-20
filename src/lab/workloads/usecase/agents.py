@@ -23,6 +23,7 @@ from agent_framework import Agent, ChatOptions
 from agent_framework.openai import OpenAIChatClient
 from openai import AsyncOpenAI
 
+from lab.platform import config
 from lab.workloads.usecase.steps import Step, schema
 
 __all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "build_all", "context_for", "instructions",
@@ -112,7 +113,8 @@ def instructions(step: Step) -> str:
 
 def make_agent(step: Step, *, credential: str, gateway_url: str, model: str,
                headers: Mapping[str, str] | None = None, store: bool = False,
-               timeout: float = 300.0, max_tokens: int = 32000) -> Agent:
+               timeout: float = 300.0, max_tokens: int = 32000,
+               temperature: float = 0.0, seed: int | None = None) -> Agent:
     """One agent for one step.
 
     `base_url` is the GATEWAY's `/v1/` and the key is this workload's own credential, so spend
@@ -124,8 +126,26 @@ def make_agent(step: Step, *, credential: str, gateway_url: str, model: str,
     http = AsyncOpenAI(base_url=gateway_url.rstrip("/") + "/v1/", api_key=credential,
                        default_headers=dict(headers or {}), timeout=timeout, max_retries=3)
     client = OpenAIChatClient(model=model, api_key=credential, async_client=http)
+    # Asked the same way every time. Nothing set `temperature` anywhere in this codebase, so every
+    # agent ran at the provider's default — and a setting that must be remembered per call site is
+    # one that gets missed, so the deterministic ask is the DEFAULT here.
+    #
+    # It is NOT reproducibility, and the first version of this comment claimed it was. Measured on
+    # a SHORT prompt (20 Sep 2026), `gpt-5.4-mini` and `gpt-4.1` at temperature=0 with a seed came
+    # back byte-identical, and that was written down as "this makes a non-reasoning model exactly
+    # reproducible". Re-measured the same day on what step 5 ACTUALLY sends — 74 candidates with
+    # definitions, ~22 KB, a long structured answer — both `gpt-5.4-mini` and `gpt-5.4-mini-think`
+    # returned THREE DISTINCT answers out of three. The seed narrows nothing that survives a
+    # payload of this size.
+    #
+    # So the deterministic ask stays, because asking the same way every time costs nothing and is
+    # a precondition for anything else — but consistency at step 5 has to be bought by SAMPLING and
+    # a vote, not by decoding options. The lesson is the cheaper one: a spike measures the prompt
+    # it was given, and step 5's prompt is not a sentence.
     return Agent(client=client, name=f"usecase-{step.key}", instructions=instructions(step),
-                 default_options=ChatOptions(store=store, max_tokens=max_tokens))
+                 default_options=ChatOptions(store=store, max_tokens=max_tokens,
+                                             temperature=temperature,
+                                             seed=config.AGENT_SEED if seed is None else seed))
 
 
 def message(step: Step, context: Mapping[str, Any]) -> str:

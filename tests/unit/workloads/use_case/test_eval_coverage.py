@@ -130,3 +130,20 @@ def test_the_technology_map_projects_at_its_own_grain_and_is_not_empty():
     assert len(made) > 50
     assert {c["level"] for c in made} == {1, capabilities.LEVEL}
     assert all(capabilities.SEP in c["id"] for c in made if c["level"] == capabilities.LEVEL)
+
+
+def test_the_default_baseline_is_a_file_that_exists():
+    """The gate's default pointed at `coverage-baseline.json` for two days after the file was
+    renamed `technology-baseline.json`. `base_path.exists()` was simply False, so every run since
+    printed nothing and compared against nothing — a gate that cannot fail is not a gate. The
+    default is asserted rather than the rename remembered."""
+    assert (ROOT / ev.BASELINE).is_file(), f"{ev.BASELINE} does not exist"
+
+
+def test_the_baseline_records_the_model_it_was_scored_on():
+    """A baseline is a bar for ONE model. Comparing a run on another model against it measures the
+    swap, not the matcher — which is legitimate and is why `--model` exists, but it has to be said
+    out loud. Recording the model is what makes saying it possible."""
+    import json
+    recorded = json.loads((ROOT / ev.BASELINE).read_text())
+    assert recorded.get("model"), "the baseline names no model, so no run can tell it apart"

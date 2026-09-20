@@ -350,6 +350,10 @@ TOOL_CALL_TIMEOUT_S = float(_e("TOOL_CALL_TIMEOUT_S", "1000"))
 #: its own artifact, so a step's contribution is proven on the run itself. One store + one render per
 #: mapped step, so off by default; `lab.workloads.usecase.modeltrace` is the whole of it.
 USECASE_MODEL_TRACE = _e("USECASE_MODEL_TRACE", "false").lower() == "true"
+#: The seed every agent asks with. A fixed one makes two identical calls the SAME call on a model
+#: that honours it (measured: gpt-5.4-mini and gpt-4.1 do; a *-think model does not). Settable so
+#: a sampling run can vary it deliberately rather than by accident.
+AGENT_SEED = int(_e("AGENT_SEED", "20260920"))
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

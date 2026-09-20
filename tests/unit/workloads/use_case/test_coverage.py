@@ -184,7 +184,10 @@ def test_the_vector_matcher_brings_every_hit_s_siblings_along():
     asyncio.run(coverage.vector({}, d, SIBLINGS, search=search))
     ids = [c["id"] for c in d.contexts[0]["capabilities"]]
     assert ids[0] == "a", "a hit stays first"
-    assert set(ids) == {"a", "a2", "a3"}, "its siblings join; nothing from another branch"
+    # `x` is the hit's own BRANCH, added by `with_parents` because an answer is not always a leaf.
+    # This asserted {a, a2, a3} while `with_parents` was a no-op, so it pinned the defect in place.
+    assert set(ids) == {"a", "a2", "a3", "x"}, ("its siblings and its branch join; nothing from "
+                                                "another branch")
     assert len(ids) == len(set(ids))
     assert coverage.VECTOR_HITS >= 30, "12 hits per element was measured too narrow"
 
@@ -227,3 +230,59 @@ def test_the_drill_fetches_children_by_the_ids_it_matched_through_the_caller_s_s
     out = asyncio.run(coverage.drill({}, d, TREE, children=children, project=lambda r: r))
     assert asked == [(["a"], 2), (["b"], 3)]
     assert out["capability_depth"] == 2, "no L3 children came back, so the drill stopped there"
+
+
+# --------------------------------------------- the candidate list a step 5 sample is drawn from
+
+def test_the_candidate_list_is_a_pure_function_of_the_corpus_it_was_built_from():
+    """Sampling step 5 N times is only evidence if the N samples saw the SAME candidates in the
+    SAME order: a list that varies between samples makes a disagreement between them unreadable —
+    the model might have changed its mind, or it might have been shown a different question.
+
+    The order is the CORPUS's (`ORDER BY r.artifact_id, r.record_id` in `pg_library`, which is why
+    the pinned read repeats), and every stage between that read and the prompt preserves it: the
+    sets in `with_siblings` and `candidates_from_hits` decide MEMBERSHIP and never iteration.
+    Checked rather than assumed — this is the property the whole sampling design rests on.
+    """
+    corpus = TREE + [concept("e", "Work Queue Routing", 3, "b"),
+                     concept("f", "Schedule Optimisation", 3, "d")]
+    hits = [{"attributes": {"key": '{"id": "c"}', "label": "Work Queue Prioritization",
+                            "path": "Work Management > Work Queue Management > "
+                                    "Work Queue Prioritization"}}]
+
+    def build():
+        return coverage.with_parents(
+            coverage.with_siblings(coverage.candidates_from_hits(hits), corpus, deepest=3), corpus)
+
+    first = build()
+    assert [c["id"] for c in first] == ["c", "e", "b"]    # the hit, its sibling, then its branch
+    for _ in range(5):
+        assert build() == first
+
+
+def test_the_leaves_a_matcher_offers_repeat_for_the_same_corpus():
+    corpus = TREE + [concept("e", "Work Queue Routing", 3, "b")]
+    first = coverage.leaves_for(corpus, deepest=3)
+    assert [c["id"] for c in first] == ["c", "e"]
+    for _ in range(5):
+        assert coverage.leaves_for(corpus, deepest=3) == first
+
+
+def test_the_branch_widening_works_on_what_the_pipeline_actually_hands_it():
+    """`with_parents` exists because "an answer is not always a leaf" — the referral case's
+    expected set is level 2 as well as level 3. It read `candidate["parent"]`, and the two callers
+    hand it the output of `candidates_from_hits` -> `with_siblings`, which is `{id, label, path}`
+    and carries NO parent. So it added nothing, on every run, since it was written.
+
+    It passed review because its own test invented the key: a hand-written `{"id", "label",
+    "parent"}` that no caller produces. Same shape of defect as the Soniox fixtures — the code and
+    the test agreed with each other and neither agreed with production. The candidate's branch is
+    therefore resolved from the CORPUS, which is the only place the parent is actually known.
+    """
+    corpus = TREE + [concept("e", "Work Queue Routing", 3, "b")]
+    from_pipeline = coverage.candidates_from_hits(
+        [{"attributes": {"key": '{"id": "c"}', "label": "Work Queue Prioritization",
+                         "path": "Work Management > Work Queue Management > "
+                                 "Work Queue Prioritization"}}])
+    assert "parent" not in from_pipeline[0], "the fixture must be what the pipeline really emits"
+    assert [c["id"] for c in coverage.with_parents(from_pipeline, corpus)] == ["c", "b"]

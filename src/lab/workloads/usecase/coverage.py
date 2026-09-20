@@ -418,19 +418,30 @@ async def translate(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_
                                  f"{len(queries)} translated abilities)")
 
 
+#: What a widened parent row carries into the prompt — the same keys a candidate has, and no more.
+_PARENT_KEYS = ("id", "label", "path", "level", "parent", "definition")
+
+
 def with_parents(candidates: list[dict], corpus) -> list[dict]:
     """The candidates plus the branch each sits under — because an answer is not always a leaf.
+
+    The parent is resolved from the CORPUS by the candidate's id, NOT read off the candidate. That
+    distinction was the defect: this read `candidate["parent"]`, and the two callers hand it
+    `candidates_from_hits` -> `with_siblings` output, which is `{id, label, path}` and carries no
+    parent — so it widened nothing on every run since it was written, while its test supplied a
+    `parent` key by hand and agreed with it. The corpus is where a concept's branch is actually
+    known, and a candidate the corpus does not contain simply has no branch to add.
 
     Nothing here reaches the store; the parents come from the map already in hand."""
     rows = {str(r.get("id")): r for r in (corpus or []) if isinstance(r, dict) and r.get("id")}
     seen = {str(c.get("id")) for c in candidates}
     out = list(candidates)
     for c in candidates:
-        parent = rows.get(str(c.get("parent") or ""))
+        row = rows.get(str(c.get("id") or ""))
+        parent = rows.get(str((row or c).get("parent") or ""))
         if parent and str(parent["id"]) not in seen:
             seen.add(str(parent["id"]))
-            out.append({k: v for k, v in parent.items() if k in ("id", "label", "path", "level",
-                                                                 "parent", "definition")})
+            out.append({k: v for k, v in parent.items() if k in _PARENT_KEYS})
     return out
 
 
