@@ -119,6 +119,42 @@ class Step:
         return prompt(self.key)
 
 
+@dataclass(frozen=True)
+class Derived:
+    """A step the framework DERIVES rather than asks — no agent, no schema, no gate.
+
+    It is still a step of the 27, and was invisible on every surface until 20 Sep 2026: the board
+    is written by `run_step`, which is the path an AGENT step takes, so these recorded their output
+    and appeared nowhere. A reader watching a design run saw the agent steps either side of them
+    and nothing in between.
+
+    Declared here beside `STEPS` so there is one place that knows what a step number means, and
+    kept SEPARATE from them because the difference matters to a reviewer: no model formed this
+    answer, so there is nothing to have hallucinated and nothing a retry would change.
+    """
+    number: str
+    key: str                    # the field it contributes to the design record
+    title: str
+
+
+#: The deterministic derivations of the design half. Their inputs are derived rather than
+#: estimated, which is exactly why they are D0 in the specification.
+DERIVED: tuple[Derived, ...] = (
+    Derived("18", "risk", "derive exposure and influence"),
+    Derived("19", "obligations", "evaluate obligations"),
+    Derived("22", "composition", "compose architecture"),
+)
+
+
+def derived_for(number: str) -> Derived:
+    """The derived step with this number, or a KeyError. Refusing beats stamping a node whose
+    title and key are empty, which would put an unnamed row on the board."""
+    for step in DERIVED:
+        if step.number == number:
+            return step
+    raise KeyError(f"{number!r} is not a derived step; have {[d.number for d in DERIVED]}")
+
+
 # ---------------------------------------------------------------- the completeness rules
 
 def _frame(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:

@@ -47,6 +47,7 @@ from lab.workloads import gateway
 from lab.workloads.usecase import reference
 from lab.workloads.usecase import families, mappers, modeltrace, modelling, owed
 from lab.workloads.usecase.derivation import Derivation
+from lab.workloads.usecase.steps import derived_for
 from lab.workloads.usecase.steps import NUMBER_OF, step_for
 
 #: Declared on every approval this workload raises — see the screening workflow.
@@ -274,9 +275,10 @@ async def _risk_and_obligations(cfg, payload: dict, d: Derivation, pin_id: str) 
         d.defer("18", "derive exposure and influence — needs a facet vector per step")
         d.defer("19", "evaluate obligations — needs a facet vector per step")
         return
-    d.record("risk", await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
+    await d.derive(cfg, derived_for("18"),
+                   await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
     await modelling.grow(cfg, d, "risk")
-    d.record("obligations", await gateway.call(cfg, DecisionTools.obligations, {
+    await d.derive(cfg, derived_for("19"), await gateway.call(cfg, DecisionTools.obligations, {
         "workflow": payload, "pin_id": pin_id, **reference.attribution(cfg, "obligations")}))
     await modelling.grow(cfg, d, "obligations")
 
@@ -288,10 +290,10 @@ async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
     if not (payload["steps"] and topology):
         d.defer("22", "compose architecture — needs a topology from step 20")
         return
-    d.record("composition", await gateway.call(cfg, DecisionTools.composition, {
+    await d.derive(cfg, derived_for("22"), await gateway.call(cfg, DecisionTools.composition, {
         "workflow": payload, "topology": topology,
         "obligations_required": list((d.derived.get("obligations") or {}).get("guardrails") or ()),
-        "pin_id": pin_id, **reference.attribution(cfg, "composition")}), "22")
+        "pin_id": pin_id, **reference.attribution(cfg, "composition")}))
     # Which component carries which of THIS design's families, followed through the published chain
     # (family -> guardrail -> capability -> component) rather than read off a catalogue column the
     # reference architecture does not have. Recorded before step 21 so the architect selecting

@@ -24,7 +24,7 @@ from lab.workloads import gateway
 from lab.workloads.usecase import agents as A
 from lab.workloads.usecase import fallbacks
 from lab.workloads.usecase.gates import GateFailed, gate, run_gated
-from lab.workloads.usecase.steps import Step
+from lab.workloads.usecase.steps import Derived, Step
 
 __all__ = ["Derivation"]
 
@@ -47,6 +47,11 @@ def stamp_shape(cfg, step, out) -> None:
         return
     try:
         runlog.node(run_id, f"step_{step.number}", "done", key=step.key, title=step.title,
+                    # A DERIVED step says so. "No model formed this answer" is something a reviewer
+                    # is entitled to see — there is nothing to have hallucinated and nothing a
+                    # retry would change — and it is a property of the node, so the page needs no
+                    # list of which numbers are which.
+                    derived=True if isinstance(step, Derived) else None,
                     produced=outline(out))
     except Exception as e:                     # noqa: BLE001 — see the docstring
         print(f"step {step.number} shape not stamped: {type(e).__name__}: {e}", flush=True)
@@ -272,6 +277,19 @@ class Derivation:
         stamp_shape(cfg, step, out)
         await self.announce()
         return True
+
+    async def derive(self, cfg: Mapping[str, Any], step: Derived, out: Any) -> None:
+        """Record a DERIVED step's output and put it on the board — the deterministic sibling of
+        `run_step`.
+
+        Everything `run_step` does around an answer EXCEPT asking for one: the record, the pending
+        entry cleared, the shape stamped and the watcher told. Those four were what made an agent
+        step visible, and steps 18, 19 and 22 went through `record` alone — so they produced real,
+        gated outputs that appeared on no surface at all.
+        """
+        self.record(step.key, out, step.number)
+        stamp_shape(cfg, step, out)
+        await self.announce()
 
     def package(self, **base: Any) -> dict:
         """The record this half produced: what was asked of it, what it derived, and what it did

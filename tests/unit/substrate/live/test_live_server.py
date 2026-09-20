@@ -45,8 +45,8 @@ def test_a_frame_carries_what_a_watcher_needs_and_nothing_it_does_not():
     runlog.node(rid, "step_3", "done", client=redis, elapsed=8.0)
     frame = live.frame(runlog.get(rid, client=redis))
     assert frame["status"] == "running" and frame["subject"] == "Referral triage takes too long"
-    assert frame["steps"][0] == {"name": "step_3", "title": "", "status": "done",
-                                 "at": frame["steps"][0]["at"],
+    assert frame["steps"][0] == {"name": "step_3", "title": "", "derived": False,
+                                 "status": "done", "at": frame["steps"][0]["at"],
                                  "elapsed": 8.0, "error": "", "key": "", "produced": {}}
     assert "record_ref" not in json.dumps(frame), "no artifact refs: this page never reads content"
 
@@ -309,3 +309,19 @@ def test_a_step_that_declared_no_title_reports_none_rather_than_inventing_one():
     else's step, which is the whole thing being avoided."""
     rows = live._steps([{"name": "corpora", "status": "done", "ts": "t", "attrs": {}}])
     assert rows[0]["title"] == ""
+
+
+def test_a_derived_step_is_carried_as_such_and_is_sticky_like_its_title():
+    """"No model formed this answer" is a thing a reviewer is entitled to see: there is nothing to
+    have hallucinated and nothing a retry would change. It rides the node as a flag, so this page
+    still holds no list of which step numbers are deterministic."""
+    rows = live._steps([
+        {"name": "step_18", "status": "start", "ts": "t0",
+         "attrs": {"title": "derive exposure and influence", "derived": True}},
+        {"name": "step_18", "status": "done", "ts": "t1", "attrs": {"elapsed": 0.4}}])
+    assert rows[0]["derived"] is True and rows[0]["title"] == "derive exposure and influence"
+
+
+def test_an_ordinary_step_is_not_marked_derived():
+    rows = live._steps([{"name": "step_5", "status": "done", "ts": "t", "attrs": {}}])
+    assert rows[0]["derived"] is False

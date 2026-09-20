@@ -109,6 +109,9 @@ def _steps(nodes) -> list:
             # writes carries only timings, so taking the latest transition wholesale lost the label
             # exactly when a step finished.
             "title": str(attrs.get("title") or rows.get(name, {}).get("title") or ""),
+            # DERIVED: no model formed this answer. Sticky for the same reason the title is — it
+            # is stamped once, on the transition that knew it.
+            "derived": bool(attrs.get("derived") or rows.get(name, {}).get("derived")),
             "status": n.get("status", ""),
             "at": n.get("ts", ""),
             "elapsed": attrs.get("elapsed"),
@@ -233,7 +236,8 @@ function render(d) {
     // log line and a trace span are keyed by. Neither is composed here — a step with no declared
     // title simply reads as its id.
     li.querySelector(".nm").textContent = s.title || s.name;
-    li.querySelector(".id").textContent = s.title ? s.name : "";
+    li.querySelector(".id").textContent =
+      (s.title ? s.name : "") + (s.derived ? "  derived" : "");
     li.querySelector(".s").textContent = secs(s.elapsed);
     li.querySelector(".detail").replaceChildren(detail(s));
     return li;

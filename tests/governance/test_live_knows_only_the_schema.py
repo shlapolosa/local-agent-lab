@@ -20,7 +20,8 @@ SOURCE = pathlib.Path(server.__file__)
 
 #: Every key a frame and a step row carry. The page reads these and only these.
 FRAME_FIELDS = {"run_id", "status", "subject", "elapsed", "error", "steps", "settled"}
-STEP_FIELDS = {"name", "title", "status", "at", "elapsed", "error", "key", "produced"}
+STEP_FIELDS = {"name", "title", "derived", "status", "at", "elapsed", "error", "key",
+               "produced"}
 
 #: Workload vocabulary. Not a blocklist of everything — a sample of the words that would appear if
 #: this page ever started knowing what a step MEANS.
