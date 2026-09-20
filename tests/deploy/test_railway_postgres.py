@@ -150,3 +150,70 @@ def test_the_live_view_binds_ipv4_because_a_PERSON_reaches_it_over_the_public_ed
     v6-only bind; this one did, on its first deploy. Same fix and same reason as the gateway."""
     assert R.SUBSTRATE["live"]["env"]["BIND_HOST"] == "0.0.0.0"
     assert "health" not in R.SUBSTRATE["live"], "the IPv6 probe must never run against a v4 bind"
+
+
+def test_the_review_app_prints_its_build_at_CONTAINER_start_not_on_first_page_load():
+    """`substrate versions` compares what a service was ASKED to run with what it SAYS it is
+    running, and for the review app it could say nothing: the app prints its build from `main()`,
+    and Streamlit runs the script only when a browser session begins. A freshly deployed app nobody
+    had opened reported "(no build line in its logs)" — exactly when you want to know what is
+    serving. So the START COMMAND prints it, before streamlit.
+
+    `sh -c` is not decoration: a Railway start command is exec'd WITHOUT a shell, so an unwrapped
+    `a && b` runs only `a` — the gotcha that also made Postgres run as root.
+    """
+    cmd = R.SUBSTRATE["review"]["cmd"]
+    assert cmd.startswith("sh -c "), "a chained start command needs a shell"
+    assert "build_id()" in cmd and "streamlit run" in cmd
+    assert cmd.index("build_id()") < cmd.index("streamlit run"), "printed BEFORE the server starts"
+
+
+def test_the_build_line_matches_what_substrate_versions_greps_for():
+    """A line in a different shape is the same as no line: the report would still say it could not
+    tell. `BUILD_RE` is the contract between the two."""
+    import re
+    from lab.platform import config
+    printed = f"review: serving {config.build_id()}"
+    assert R.BUILD_RE.search(printed), printed
+
+
+# ------------------------------------------------- one bad service must not strand the rest
+
+def test_substrate_up_deploys_every_OTHER_service_when_one_fails(monkeypatch, capsys):
+    """Measured 19 Sep 2026: one transient Railway API error ("Problem processing request") on a
+    single service left the THIRTEEN behind it on the previous commit — the gateway and the review
+    app among them — while the workload loop beside it deployed fine. Half a fleet on the previous
+    build is the failure the image pinning exists to prevent, and it must not be a side effect of
+    another service's bad minute."""
+    import pytest
+
+    seen, boom = [], "storage-mcp"
+
+    def ensure_service(name):
+        if name == boom:
+            raise SystemExit("railway error: ['Problem processing request']")
+        seen.append(name)
+        return f"svc-{name}", False
+
+    monkeypatch.setattr(R, "ensure_service", ensure_service)
+    monkeypatch.setattr(R, "configure", lambda *a, **k: None)
+    monkeypatch.setattr(R, "deploy", lambda *a, **k: None)
+    monkeypatch.setattr(R, "ensure_jaeger", lambda *a, **k: None)
+    monkeypatch.setattr(R, "ensure_redis", lambda: "svc-redis")
+    monkeypatch.setattr(R, "postgres_enabled", lambda base: False)
+    monkeypatch.setattr(R, "embedder_enabled", lambda base: False)
+    monkeypatch.setattr(R, "_require_quiet", lambda base: None)
+    monkeypatch.setattr(R, "load_env_for_cloud", lambda: {})
+    monkeypatch.setattr(R, "substrate_services", lambda base: dict(R.SUBSTRATE))
+    monkeypatch.setattr(R, "services", lambda: {n: f"svc-{n}" for n in R.SUBSTRATE})
+    monkeypatch.setattr(R, "domain_of", lambda sid: "example")
+
+    with pytest.raises(SystemExit) as exit_info:
+        R.substrate_up()
+    assert exit_info.value.code == 1, "the run is RED — nothing passes unnoticed"
+
+    out = capsys.readouterr().out
+    assert boom not in seen, "the failing one was not deployed"
+    others = [n for n in R.SUBSTRATE if n != boom]
+    assert all(n in seen for n in others), f"every other service ran: missing {set(others) - set(seen)}"
+    assert "NOT deployed" in out and boom in out, "and the operator is told which to re-run"

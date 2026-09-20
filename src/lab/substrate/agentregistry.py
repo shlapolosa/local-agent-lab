@@ -61,6 +61,23 @@ __all__ = ["AgentPublisher", "LiteLLMPublisher", "NullPublisher", "AGENT_PUBLISH
 SETTING = "AGENT_REGISTRY"          # named in every refusal, so a reader knows what to set
 
 
+def dangling_identities(client_to_key, live_keys) -> dict:
+    """Which `ENTRA_CLIENT_TO_KEY` entries point at a key that no longer exists.
+
+    The gateway turns a validated JWT into a virtual key through this map, so an entry pointing at
+    a deleted key is an identity that authenticates and then fails, with an error naming neither
+    end of the map.
+
+    `AgentRegistry.publish` already refuses a MISMATCH, but only for agents that publish a CARD.
+    The Power Automate connector publishes none, so when the registry was rebuilt onto a new
+    database its client id kept pointing at its old key and nothing noticed. Hence: the WHOLE map,
+    against the keys that actually exist, and no naming convention, because the connector's key
+    lives under a variable name no agent spec knows.
+    """
+    live = set(live_keys or ())
+    return {client: key for client, key in (client_to_key or {}).items() if key not in live}
+
+
 @runtime_checkable
 class AgentPublisher(Protocol):
     """Put one agent's card where discovery can find it. Returns the id it was published under, or

@@ -200,6 +200,7 @@ def main() -> int:
 
     have = already_published()
     deferred: dict[str, str] = {}                         # artifact -> why it is not in this run
+    failures: dict[str, str] = {}                         # artifact -> why it could not be published
     published = released = skipped = 0
     refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_MODELS_REFS}
     everything = {**{a: ("markdown",) + spec for a, spec in ARTIFACTS.items()},
@@ -236,8 +237,16 @@ def main() -> int:
                 print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
                 continue
             if code:
-                print(f"FAILED {artifact_id}: {out.strip().splitlines()[-1]}")
-                return 1
+                # NAMED AND CARRIED ON, not `return 1`. Stopping here stranded every artifact
+                # alphabetically after the failure: measured 19 Sep 2026, one unreadable workbook
+                # took down a publish at artifact 8 of 55 and the 47 behind it — none of which had
+                # anything wrong — simply never ran. The reason is the same one this script already
+                # gives for a deferral: an artifact silently absent from the corpus is read
+                # downstream as "the corpus says there is none", and 47 of those is worse than one.
+                # The exit code still reports the failure, so nothing passes unnoticed.
+                failures[artifact_id] = out.strip().splitlines()[-1]
+                print(f"  {artifact_id:38} FAILED — {failures[artifact_id]}")
+                continue
             published += 1
         if args.release:
             code, out = run("release", artifact_id, VERSION, "--ring", str(args.ring),
@@ -252,7 +261,11 @@ def main() -> int:
           f"{released} released to ring {args.ring}")
     for artifact_id, why in deferred.items():
         print(f"deferred {artifact_id}: {why}")
-    return 0
+    for artifact_id, why in failures.items():
+        print(f"FAILED {artifact_id}: {why}", file=sys.stderr)
+    # Non-zero when anything failed — every OTHER artifact is published, and the operator is told
+    # exactly which ones were not. A green run that published 8 of 55 is the outcome to avoid.
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

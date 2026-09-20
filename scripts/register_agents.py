@@ -45,6 +45,34 @@ def _identity(prefix: str) -> tuple[str, str]:
     return os.environ.get(f"{prefix}_KEY", ""), os.environ.get(f"{prefix}_CLIENT_ID", "")
 
 
+def _live_keys(wanted) -> set:
+    """Which of `wanted` this gateway actually holds, asked one key at a time.
+
+    `/key/list` cannot answer this: it returns HASHED tokens, never the `sk-…` value, so comparing
+    the map against that list reports EVERY identity as dangling — which is how this check first
+    behaved, and a check that condemns everything is worse than none, because the next person turns
+    it off. `/key/info?key=…` is authoritative: 200 for a key that exists, 404 for one that does
+    not. Twenty-odd requests once per push is the right price for an answer that is true.
+    """
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    url = (config.PUBLIC_GATEWAY_URL or config.GATEWAY_URL).rstrip("/")
+    live = set()
+    for key in {k for k in wanted if k}:
+        req = urllib.request.Request(
+            f"{url}/key/info?key={urllib.parse.quote(key)}",
+            headers={"Authorization": f"Bearer {config.LITELLM_MASTER_KEY}"})
+        try:
+            with urllib.request.urlopen(req, timeout=30):
+                live.add(key)
+        except urllib.error.HTTPError as e:
+            if e.code != 404:                  # a 404 is the ANSWER; anything else is not asked
+                raise
+    return live
+
+
 def main(argv: list[str]) -> int:
     dry = "--dry-run" in argv
     public = "--public" in argv
@@ -96,6 +124,24 @@ def main(argv: list[str]) -> int:
     if stale:
         print(f"already registered but invisible to this gateway ({len(stale)}): "
               f"{', '.join(stale)}")
+    # The WHOLE identity map, not only the agents published above. `publish` refuses a MISMATCH for
+    # an agent that has a card; the Power Automate connector has none, so when the registry was
+    # rebuilt onto a new database its client id went on pointing at a deleted key and nothing
+    # noticed — an identity that authenticates and then fails, with an error naming neither end.
+    # Checked against the keys the GATEWAY actually holds, because the connector's key lives under
+    # a variable name no agent spec knows.
+    if not dry:
+        try:
+            mapped = config.ENTRA_CLIENT_TO_KEY or {}
+            dangling = agentregistry.dangling_identities(
+                mapped, _live_keys(mapped.values()))
+        except Exception as e:                 # noqa: BLE001 — a check that cannot run is reported
+            print(f"identity map not checked: {type(e).__name__}: {e}", file=sys.stderr)
+        else:
+            for client, key in dangling.items():
+                failed.append(f"ENTRA_CLIENT_TO_KEY: {client} -> {key[:12]}… is not a key this "
+                              f"gateway holds. That identity would authenticate and then fail. "
+                              f"Re-run its provisioning script.")
     for line in failed:
         print(f"FAILED {line}", file=sys.stderr)
     return 1 if failed else 0

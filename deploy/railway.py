@@ -193,8 +193,15 @@ SUBSTRATE = {
                      # Neon is already migrated by the native bootstrap; skip the ~152-migration cold-start
                      # replay a fresh container otherwise runs against remote Neon.
                      "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
-    "review":       {"cmd": "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
-                            "--server.address :: --server.headless true", "port": 8501,
+    # The build line is printed BEFORE streamlit, by the start command, not by the app. The app
+    # prints it from `main()`, and Streamlit runs the script only when a browser session begins —
+    # so a freshly deployed app nobody has opened reported "(no build line in its logs)" in
+    # `substrate versions`, which is precisely when you want to know what is serving. `sh -c`
+    # because a start command is exec'd WITHOUT a shell, so an unwrapped `a && b` runs only `a`.
+    "review":       {"cmd": "sh -c 'python -c \"from lab.platform import config; "
+                            "print(f\\\"review: serving {config.build_id()}\\\", flush=True)\" && "
+                            "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
+                            "--server.address :: --server.headless true'", "port": 8501,
                      "s3": True,    # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
                      "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no reader DSN
     # The LIVE run view. Its own service because Streamlit cannot be driven by an event stream —
@@ -1315,11 +1322,26 @@ def substrate_up():
     else:
         print(f"  {EMBED_NAME:13} skipped  (REFERENCE_EMBED_MODEL={base.get('REFERENCE_EMBED_MODEL')!r} "
               f"is served by a vendor through the gateway; an existing service is left to `down`)")
+    # Each service is deployed INDEPENDENTLY and the failures are reported at the end. It used to
+    # stop at the first one, and on 19 Sep 2026 a single transient Railway API error
+    # ("Problem processing request") on one service left the THIRTEEN behind it on the previous
+    # commit — including the gateway and the review app — while the workload loop beside it
+    # deployed fine. Half a fleet on the previous build is the failure the image pinning exists to
+    # prevent; it must not be a side effect of another service's bad minute. Exactly the reasoning
+    # already applied to the workload loop in CI, applied here at last.
+    failed: dict[str, str] = {}
     for name, spec in table.items():
-        sid, created = ensure_service(name)
-        print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
-        configure(sid, name, spec, base)
-        deploy(sid)
+        try:
+            sid, created = ensure_service(name)
+            print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
+            configure(sid, name, spec, base)
+            deploy(sid)
+        except SystemExit as e:                # gql() raises SystemExit on a Railway API error
+            failed[name] = str(e)
+            print(f"  {name:13} FAILED — {str(e)[:110]}")
+        except Exception as e:                 # noqa: BLE001 — one service must not hide the rest
+            failed[name] = f"{type(e).__name__}: {e}"
+            print(f"  {name:13} FAILED — {failed[name][:110]}")
     ensure_jaeger(services())                              # observability is part of the substrate
     print("\ntriggered builds. Public URLs (once healthy):")
     ids = services()
@@ -1327,6 +1349,13 @@ def substrate_up():
         print(f"  {name:8} https://{domain_of(ids[name]) or '(pending)'}")
     print(f"  jaeger   {os.environ.get('JAEGER_UI_URL', '(see .env)')}")
     print("Watch builds: railway dashboard, or `python deploy/railway.py substrate status`.")
+    if failed:
+        # Loud and LAST, so it is the final thing on the terminal, and non-zero so CI is red. Every
+        # other service is deployed; these are the ones to re-run.
+        print(f"\n{len(failed)} service(s) NOT deployed — re-run `substrate up` for them:")
+        for name, why in failed.items():
+            print(f"  {name:13} {why[:140]}")
+        raise SystemExit(1)
 
 
 def substrate_env_report():
