@@ -381,7 +381,7 @@ def test_runs_board_selected_run_details_and_fallbacks():
                request_id="wfr-1", approval_id="apr-1", xml_ref="art://x/m.xml", trace_id="")
     rl = FakeRunlog(recent=[rec], runs={"run-0": rec})
     st = install(FakeSt(), runlog=rl); _traces()
-    st.session_state["runs_selected"] = "run-0"
+    st.query_params["run"] = "run-0"          # selection lives in the URL now
     APP._runs_board()
     assert st.said("subheader", "`run-0` — failed") and not st.said("subheader", "· at")
     assert st.said("error", "RuntimeError: boom") and not st.said("write", "**Trace**")
@@ -394,7 +394,7 @@ def test_runs_board_selected_run_details_and_fallbacks():
     # a stale default selection falls back to the first row; an expired hash warns
     rl = FakeRunlog(recent=[rec], runs={})
     st = install(FakeSt(), runlog=rl); _traces()
-    st.session_state["runs_selected"] = "gone"
+    st.query_params["run"] = "gone"           # a stale link falls back to the newest
     APP._runs_board()
     assert st.said("warning", "run run-0 expired") and st.count("subheader") == 0
     assert st.said("expander", "All runs — 0 active, 1 recent")      # the list stays reachable
@@ -523,7 +523,7 @@ def test_two_runs_of_one_devui_session_do_not_share_the_memoised_trace_detail():
              traces.Span("litellm_request", "litellm-gateway", T0 + 101, 1.0, {"gen_ai.request.model": "m2"})])
     APP._runs_board()                                        # both runs carry trace_id "ff"*16
     assert st.said("expander", "• ba — 1 LLM call(s)")
-    st.session_state["runs_selected"] = "s-2"
+    st.query_params["run"] = "s-2"
     APP._runs_board()
     labels = [t for t in st.texts("expander") if "LLM call(s)" in t]
     assert labels[-2:] == ["• ba — 1 LLM call(s) · 0 tool call(s)", "• store — 0 LLM call(s) · 0 tool call(s)"]

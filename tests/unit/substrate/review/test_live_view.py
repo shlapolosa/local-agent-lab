@@ -150,3 +150,31 @@ def test_an_unknown_or_forbidden_page_in_the_url_falls_back_rather_than_failing(
 
 def test_no_pages_offered_is_not_a_crash():
     assert app._mode_from({"mode": "Runs"}, []) == ""
+
+
+# ---------------------------------------------------------------- the reload is gone
+
+def test_nothing_in_the_app_reloads_itself_any_more():
+    """The live view is the surface that updates, and it updates IN PLACE. A Streamlit page can
+    only refresh by reloading, which loses scroll position and open expanders — so with somewhere
+    better to send a reader, the reload has no job left. `_should_refresh` stays: it still decides
+    whether a run can still change, which is what gates the Watch link."""
+    import inspect
+    src = inspect.getsource(app)
+    assert "location.reload" not in src, "no page reloads itself"
+    assert "_auto_refresh" not in src, "and the helper is gone, not merely unused"
+    assert callable(app._should_refresh), "still needed: it gates the Watch link"
+
+
+def test_the_selected_run_is_remembered_in_the_url():
+    """A browser refresh starts a NEW session, so a selectbox with no key resets to the first run —
+    the reader lands on someone else's. The run belongs in the URL beside the page, so a refresh
+    lands where it left."""
+    assert app._selected_from({"mode": "Runs", "run": "abc123"}, ["zzz", "abc123"]) == "abc123"
+
+
+def test_a_run_in_the_url_that_no_longer_exists_falls_back_to_the_newest():
+    """A link kept from last week, or a run past its 7-day TTL. The list is the authority."""
+    assert app._selected_from({"run": "gone"}, ["newest", "older"]) == "newest"
+    assert app._selected_from({}, ["newest"]) == "newest"
+    assert app._selected_from({"run": "x"}, []) == ""

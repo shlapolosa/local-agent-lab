@@ -464,10 +464,6 @@ def _submit_page(reviewer):
     rid = st.session_state.get(f"submit_rid_{spec.name}")
     if rid:
         _run_status(rid)
-        # Same page-level timer as the Runs board, and armed by the same rule: while the run can
-        # still change. It is what makes the "Watch" link APPEAR without the reader reloading by
-        # hand — a submission sits `pending` for a few seconds before a host takes it.
-        _auto_refresh(workflows.status(rid) or {"status": "pending"})
 
     st.divider()
     st.subheader("Recent submissions")
@@ -734,15 +730,18 @@ def _runs_board():
     ids = [r["run"] for r in rows]
     default = st.session_state.get("runs_selected")
     # the DETAIL is the view (watch a run); the list is one expander below (pick another run)
-    # Labelled by SUBJECT, so choosing a run is reading rather than matching hex.
+    # Labelled by SUBJECT, so choosing a run is reading rather than matching hex. The choice lives
+    # in the URL beside the page, so a browser refresh lands on the SAME run.
     about = {r["run"]: r["about"] for r in rows}
-    sel = st.selectbox("Run", ids, index=ids.index(default) if default in ids else 0,
+    opened = _selected_from(st.query_params, ids)
+    sel = st.selectbox("Run", ids, index=ids.index(opened) if opened in ids else 0,
                        format_func=lambda r: f"{about.get(r) or r}  ·  {r[:12]}")
+    if sel != opened:
+        st.query_params["run"] = sel
     st.session_state["runs_selected"] = sel
     h = runlog.get(sel)
     if h:
         _run_detail(h)
-        _auto_refresh(h)          # armed only while this run can still change
     else:
         st.warning(f"run {sel} expired")
 
@@ -788,43 +787,10 @@ def _run_detail(h):
     _node_events(h)
 
 
-#: How often a WATCHED run is re-read. Low because a tick is now cheap — the record is cached on
-#: its ref and the board is only redrawn when the run actually moved.
-REFRESH_S = 3
-
-
-def _auto_refresh(h) -> None:
-    """Reload the page while the run is still moving, and not once it has settled.
-
-    `st.fragment(run_every=…)` was the obvious mechanism and is not a dependable one: a fragment
-    that stops being called loses its id (streamlit#9080) and one registered in a previous session
-    is stale after a browser reload (streamlit#11660) — which is exactly what was reported, twice.
-    Neither could be reproduced here without a browser, and a mechanism whose failure mode is
-    "silently never fires" is not one to keep guessing at.
-
-    So the timer lives in the page instead, where it either runs or visibly does not. The cost of
-    that honesty is a whole-page reload rather than a partial redraw; the cost is bounded by only
-    arming it while something can still change, and by a tick that re-reads almost nothing.
-    """
-    if not _should_refresh(h) or not st.session_state.get("runs_auto", True):
-        return
-    # `st.iframe`, not `st.components.v1.html`: the latter is deprecated for removal after
-    # 2026-06-01 and already warns. The markup is ours, not a caller's — `st.iframe` runs an HTML
-    # string with same-origin access, which is exactly why it must never be handed anything from
-    # outside this function.
-    # height=1, not 0: `st.iframe` refuses a zero height ("must be a positive integer, 'stretch',
-    # or 'content'"). One pixel is the smallest thing it will accept for markup that draws nothing.
-    st.iframe(f"<script>setTimeout(function(){{ parent.window.location.reload(); }}, "
-              f"{REFRESH_S * 1000});</script>", height=1)
-
-
 def _runs_page(_reviewer):
     st.title("Runs")
-    top = st.columns([1, 1, 6])
-    if top[0].button("🔄 Refresh"):
-        st.session_state.pop("runs_snapshot", None)
+    if st.button("🔄 Refresh"):
         st.rerun()
-    top[1].toggle(f"Auto ({REFRESH_S} s)", value=True, key="runs_auto")
     _runs_board()
 
 
@@ -1259,6 +1225,17 @@ def _principal():
     st.title("Architecture Review")
     st.link_button("Sign in with Microsoft", flow.login_url(state="review"), type="primary")
     st.stop()
+
+
+def _selected_from(params, ids: list) -> str:
+    """Which run is open, from the URL — the page alone is not enough.
+
+    A browser refresh starts a NEW session, so a selectbox with no key resets to the first run and
+    the reader lands on somebody else's. The list is the authority: a run from an old link, or one
+    past the run log's seven-day TTL, falls back to the newest rather than failing.
+    """
+    wanted = str((params or {}).get("run") or "")
+    return wanted if wanted in ids else (ids[0] if ids else "")
 
 
 def _mode_from(params, offered: list) -> str:
