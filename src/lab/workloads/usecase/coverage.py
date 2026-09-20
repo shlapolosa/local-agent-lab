@@ -48,11 +48,19 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Mapping
 
+from lab.platform import config
+from lab.workloads.usecase import derivation
 from lab.workloads.usecase.gates import GateFailed
 from lab.workloads.usecase.steps import CAPABILITY_QUERY, step_for
 
-__all__ = ["MATCHERS", "STORE_BACKED", "VECTOR_HITS", "candidates_from_hits", "composed", "leaves_for", "match",
-           "matched_ids", "matched_labels", "queries_for", "resolve"]
+__all__ = ["MATCHERS", "SAMPLES", "STORE_BACKED", "VECTOR_HITS", "candidates_from_hits", "composed",
+           "leaves_for", "majority", "match", "matched_ids", "matched_labels", "queries_for",
+           "resolve", "vote"]
+
+#: How many times step 5 is asked before its answers vote. ONE is the behaviour that was there
+#: before this existed, and is the default so that turning sampling on is a deliberate act with a
+#: measured threshold behind it rather than a cost every deployment pays by surprise.
+SAMPLES = config.COVERAGE_SAMPLES
 
 #: How many hits one behavioural element's relevance query brings back. Twelve, so the union over a
 #: dozen elements is a few dozen candidates — enough to disagree with, not enough to be a corpus.
@@ -237,27 +245,116 @@ async def drill(cfg, d, corpus, *, children, project, deepest: int = DEEPEST_LEV
     return {"capability_depth": trail[-1]["level"], "coverage_trail": trail}
 
 
+#: The list fields of a coverage map, voted on exactly the same terms as the matches. A function
+#: one run of three called uncovered is not a gap — it is the same disagreement from the other side.
+_VOTED_LISTS = ("functions_without_capability", "capabilities_without_function")
+
+#: What identifies a MATCH for the purpose of agreeing on it. The pair, never the capability alone:
+#: the same capability serving two functions is two separate claims, and pooling them would let a
+#: well-agreed function carry a second claim nothing agreed on.
+def _pair(match: Mapping[str, Any]) -> tuple[str, str]:
+    return str(match.get("function") or ""), str(match.get("capability_id") or "")
+
+
+def majority(n: int) -> int:
+    """More than half of n. The default threshold, and the only one that means "most runs said so"
+    for every n rather than for the n it was tuned on."""
+    return n // 2 + 1
+
+
+def vote(samples: list[Mapping[str, Any]], *, threshold: int) -> tuple[dict, list[dict]]:
+    """Several independent answers to the same question -> the answer they agree on, and what they
+    did not agree on.
+
+    Returns `(agreed, excluded)`. Every kept match carries `votes` and `of`, so a reader can see
+    that thirteen capabilities were unanimous and one scraped in two-of-three; every EXCLUDED match
+    carries the same, because a capability some runs chose is a disagreement and not a wrong
+    answer, and the approver is who is entitled to settle it. Dropping them silently is what made
+    the spread invisible in the first place.
+
+    Order is the FIRST sample's, so the vote does not trade one kind of jitter for another. The
+    kept match is the first sample's own object, so `capability_label`, `confidence` and anything
+    else a real answer carried survive rather than being re-synthesised here.
+    """
+    if not samples:
+        return {}, []
+    tally: dict[tuple[str, str], int] = {}
+    first: dict[tuple[str, str], dict] = {}
+    for s in samples:
+        for match in (s or {}).get("matched") or []:
+            if not isinstance(match, Mapping):
+                continue
+            key = _pair(match)
+            tally[key] = tally.get(key, 0) + 1
+            first.setdefault(key, dict(match))
+    n = len(samples)
+    agreed, excluded = [], []
+    for key, seen in ((k, tally[k]) for k in first):        # first-sample order
+        row = first[key] | {"votes": seen, "of": n}
+        (agreed if seen >= threshold else excluded).append(row)
+    out: dict = dict(samples[0]) | {"matched": agreed}
+    for field_name in _VOTED_LISTS:
+        counted: dict[str, int] = {}
+        for s in samples:
+            for value in (s or {}).get(field_name) or []:
+                counted[str(value)] = counted.get(str(value), 0) + 1
+        out[field_name] = [v for v, seen in counted.items() if seen >= threshold]
+    return out, excluded
+
+
 async def _one_pass(cfg, d, candidates: list[dict], *, label: str,
-                    deepest: int = DEEPEST_LEVEL) -> dict:
-    """ONE pass of step 5 over a candidate set that already carries its paths — what `leaves` and
-    `vector` share. A gate failure defers the step by name rather than losing the run."""
+                    deepest: int = DEEPEST_LEVEL, samples: int | None = None,
+                    threshold: int | None = None, _stamp=derivation.stamp_shape) -> dict:
+    """Step 5 over a candidate set that already carries its paths — what `leaves`, `vector` and
+    `translate` share. A gate failure defers the step by name rather than losing the run.
+
+    Asked `samples` times, and what the samples AGREE on is the answer. `COVERAGE_SAMPLES=1` is
+    exactly the single pass this used to be, so sampling has a real off switch rather than a
+    differently-shaped answer. More than one because the alternatives were measured and do not
+    work: at temperature 0 with a seed, on this step's real payload, both a reasoning and a
+    non-reasoning model returned three distinct answers out of three (20 Sep 2026). The variance
+    is in the question, not in the decoding.
+
+    A sample that does not RUN — an unwired agent, a gate it could not satisfy — is not a vote
+    against anything; the runs that answered still stand and the threshold is of those. Only when
+    none answers does the step defer, exactly as the single pass did.
+    """
     if not candidates:
         return {}
     d.candidates = list(candidates)          # the ceiling: what the chooser could possibly return
-    try:
-        if not await d.run_step(cfg, step_for("5"), label=label,
-                                context={"capabilities": candidates}):
-            return {}
-    except GateFailed as refused:
-        d.defer("5", f"match capabilities: {refused}")
+    n = SAMPLES if samples is None else samples
+    answers: list[dict] = []
+    for i in range(max(1, n)):
+        try:
+            if not await d.run_step(cfg, step_for("5"), context={"capabilities": candidates},
+                                    label=label if n <= 1 else f"{label} — sample {i + 1}/{n}"):
+                break                        # nothing more will run; vote on what did
+        except GateFailed as refused:
+            if not answers:
+                d.defer("5", f"match capabilities: {refused}")
+                return {}
+            break                            # a sample that failed its gate is simply not a vote
+        answers.append(dict(d.derived.get("coverage_map") or {}))
+    if not answers:
         return {}
-    found = dict(d.derived.get("coverage_map") or {})
+    wanted = config.COVERAGE_VOTES if threshold is None else threshold
+    # A threshold above what actually answered would agree on nothing and read as a step that found
+    # no capabilities — the one outcome worse than a wide match.
+    agreed, excluded = vote(answers, threshold=(majority(len(answers)) if wanted <= 0
+                                                else min(wanted, len(answers))))
+    # The VOTE is the step's answer — the last sample is an arbitrary one of n, and recording it
+    # would spend n times the tokens to keep exactly the variance this was bought to remove.
+    d.record("coverage_map", agreed, "5")
+    # Each SAMPLE stamped `step_5` as it ran, so the board holds an arbitrary one of n. Re-stamp
+    # with what was agreed, or a person watching the run reads a different answer from the record.
+    _stamp(cfg, step_for("5"), agreed)
     return {"capability_depth": deepest,
-            "coverage_trail": [{"level": deepest, "candidates": len(candidates), **found}]}
+            "coverage_trail": [{"level": deepest, "candidates": len(candidates),
+                                "samples": len(answers), "excluded": excluded, **agreed}]}
 
 
 async def leaves(cfg, d, corpus, *, budget: int = 0, deepest: int = DEEPEST_LEVEL,
-                 **_) -> dict:
+                 samples: int | None = None, threshold: int | None = None, **_) -> dict:
     """One pass over every leaf, each carrying its path.
 
     No branch is ever closed, which is the whole difference: the drill's L1 decision is the
@@ -267,7 +364,8 @@ async def leaves(cfg, d, corpus, *, budget: int = 0, deepest: int = DEEPEST_LEVE
     """
     candidates = leaves_for(corpus, deepest=deepest, budget=budget)
     carries = sum(1 for c in candidates if c.get("definition"))
-    return await _one_pass(cfg, d, candidates, deepest=deepest,
+    return await _one_pass(cfg, d, candidates, deepest=deepest, samples=samples,
+                           threshold=threshold,
                            label=f"match capabilities ({len(candidates)} leaves, "
                                  f"{carries} with a definition)")
 
@@ -311,7 +409,8 @@ def candidates_from_hits(hits) -> list[dict]:
     return out
 
 
-async def vector(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_) -> dict:
+async def vector(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL,
+                 samples: int | None = None, threshold: int | None = None, **_) -> dict:
     """One relevance query per behavioural element, the hits unioned, one pass of step 5 over the
     union. `search(query, k)` is the caller's — the map's store through the gateway, under the
     run's pin, attributed to this field."""
@@ -327,7 +426,7 @@ async def vector(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_) -
             d.defer("5", f"match capabilities: the relevance search refused — {exc}")
             return {}
     candidates = with_parents(with_siblings(candidates_from_hits(hits), corpus, deepest), corpus)
-    return await _one_pass(cfg, d, candidates,
+    return await _one_pass(cfg, d, candidates, samples=samples, threshold=threshold,
                            label=f"match capabilities ({len(candidates)} candidates from "
                                  f"{len(queries)} queries)")
 
@@ -378,7 +477,8 @@ def register_of(corpus, n: int = REGISTER_SAMPLE) -> list[dict]:
             for r in rows[::stride][:n]]
 
 
-async def translate(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_) -> dict:
+async def translate(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL,
+                    samples: int | None = None, threshold: int | None = None, **_) -> dict:
     """Translate, then search, then choose — the three stages the other matchers collapse.
 
     Measured 17 Sep 2026: the functions a submission names ("assess urgency", "reconcile the
@@ -413,7 +513,7 @@ async def translate(cfg, d, corpus, *, search, deepest: int = DEEPEST_LEVEL, **_
             d.defer("5", f"match capabilities: the relevance search refused — {exc}")
             return {}
     candidates = with_parents(with_siblings(candidates_from_hits(hits), corpus, deepest), corpus)
-    return await _one_pass(cfg, d, candidates,
+    return await _one_pass(cfg, d, candidates, samples=samples, threshold=threshold,
                            label=f"match capabilities ({len(candidates)} candidates from "
                                  f"{len(queries)} translated abilities)")
 
@@ -476,7 +576,8 @@ def resolve(name: str, corpus, budget: int, deepest: int = DEEPEST_LEVEL) -> Cal
 
 
 async def match(cfg, d, corpus, *, name: str, children, search, project, budget: int,
-                deepest: int = DEEPEST_LEVEL) -> dict:
+                deepest: int = DEEPEST_LEVEL, samples: int | None = None,
+                threshold: int | None = None) -> dict:
     """Step 5, by whichever strategy this deployment runs. Every strategy is handed every seam and
     takes what it needs — the registry stays one line per strategy.
 
@@ -484,7 +585,11 @@ async def match(cfg, d, corpus, *, name: str, children, search, project, budget:
     that neither this function nor `resolve` forwarded, so every live run matched at the constant 3
     however shallow its map. Against a two-level map that is no candidates at all, and no candidates
     is indistinguishable downstream from "nothing is relevant".
+
+    `samples` and `threshold` override `COVERAGE_SAMPLES`/`COVERAGE_VOTES` for one call, which is
+    how the eval harness tunes k on the frozen cases. `drill` takes them and ignores them — it runs
+    step 5 once per LEVEL rather than through `_one_pass`, so there is no single pass to sample.
     """
     return await resolve(name, corpus, budget, deepest)(
         cfg, d, corpus, children=children, search=search, project=project, budget=budget,
-        deepest=deepest)
+        deepest=deepest, samples=samples, threshold=threshold)

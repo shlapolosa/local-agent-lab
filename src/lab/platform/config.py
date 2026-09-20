@@ -354,6 +354,18 @@ USECASE_MODEL_TRACE = _e("USECASE_MODEL_TRACE", "false").lower() == "true"
 #: that honours it (measured: gpt-5.4-mini and gpt-4.1 do; a *-think model does not). Settable so
 #: a sampling run can vary it deliberately rather than by accident.
 AGENT_SEED = int(_e("AGENT_SEED", "20260920"))
+
+#: How many times step 5 (match capabilities) is asked before its answers vote. 1 = the single pass
+#: that was there before sampling existed. Above 1 costs that many step-5 calls and buys down the
+#: spread that decoding options cannot: measured 20 Sep 2026 on the step's real payload, both
+#: `gpt-5.4-mini` and `gpt-5.4-mini-think` at temperature 0 WITH a seed returned three distinct
+#: answers out of three.
+COVERAGE_SAMPLES = int(_e("COVERAGE_SAMPLES", "1"))
+
+#: How many of those samples must agree before a match is kept. 0 = a majority of the samples that
+#: actually answered, which is the only threshold that means "most runs said so" for every sample
+#: count rather than for the one it was tuned at.
+COVERAGE_VOTES = int(_e("COVERAGE_VOTES", "0"))
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

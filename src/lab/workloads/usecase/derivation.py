@@ -29,8 +29,13 @@ from lab.workloads.usecase.steps import Step
 __all__ = ["Derivation"]
 
 
-def _stamp(cfg, step, out) -> None:
+def stamp_shape(cfg, step, out) -> None:
     """Record the step's record key and the SHAPE of its output on the run-log node.
+
+    PUBLIC because a sampled step stamps more than once: `coverage._one_pass` asks step 5 several
+    times and the answer is what the samples VOTED, so the last sample's shape would otherwise be
+    what a person watching the run sees while the record holds something else. It re-stamps with
+    the agreed output, and one instrument disagreeing with the record is worse than no instrument.
 
     Best effort: the board is an instrument, and a run must not fail because one could not be
     written. `run_id` absent means this run is not on a board at all (a CLI or test run).
@@ -243,7 +248,7 @@ class Derivation:
         # What this step produced, in SHAPE, onto the run log — so a reader watching the run can
         # open a step and see that it matched 13 capabilities and raised 1 gap, without the page
         # that shows it needing to read the run's content.
-        _stamp(cfg, step, out)
+        stamp_shape(cfg, step, out)
         await self.announce()
         return True
 

@@ -211,8 +211,8 @@ def payload_size(corpus: list[dict], matcher: str, budget: int, deepest: int) ->
     return len(json.dumps(rows, ensure_ascii=False, default=str))
 
 
-async def one_run(cfg, corpus, elements, matcher: str,
-                  deepest: int) -> tuple[set, float, str, list, set]:
+async def one_run(cfg, corpus, elements, matcher: str, deepest: int, samples: int | None = None,
+                  threshold: int | None = None) -> tuple[set, float, str, list, set]:
     """One matcher over one case: the capabilities it returned, the seconds it took, why it
     stopped if it did, and WHAT IT WAS SHOWN.
 
@@ -229,7 +229,8 @@ async def one_run(cfg, corpus, elements, matcher: str,
     try:
         await coverage.MATCHERS[matcher](cfg, d, corpus,
                                          children=children_of(corpus, offered),
-                                         search=_no_store, project=lambda r: r, deepest=deepest)
+                                         search=_no_store, project=lambda r: r, deepest=deepest,
+                                         samples=samples, threshold=threshold)
     except GateFailed as refused:
         note = f"gate: {refused}"
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
@@ -373,6 +374,14 @@ async def main() -> int:
                          "MAX_CORPUS_BYTES and it was sized on a different upstream")
     ap.add_argument("--derive", action="store_true",
                     help="derive each case's elements.json and stop — run once per case")
+    ap.add_argument("--samples", type=int, default=None,
+                    help="ask step 5 this many times and keep what the answers AGREE on. The "
+                         "default is COVERAGE_SAMPLES (1). Measured 20 Sep 2026: temperature 0 "
+                         "with a seed still returns three distinct answers out of three on this "
+                         "step's real payload, so the spread is bought down here or not at all")
+    ap.add_argument("--votes", type=int, default=None,
+                    help="how many samples must agree before a match is kept; 0 (the default) is "
+                         "a majority of those that answered. This is the k to tune")
     ap.add_argument("--model", default=config.USECASE_AGENT_MODEL,
                     help="the model the matcher's agents run on. The default is what production "
                          "runs; naming another is how a model change is MEASURED against the "
@@ -414,8 +423,10 @@ async def main() -> int:
                                     if m not in coverage.STORE_BACKED]
     with_def = sum(1 for c in corpus if str(c.get("definition") or "").strip())
     corpus = present(corpus, args.definitions, args.budget, args.deepest)
+    per_case = args.samples if args.samples is not None else coverage.SAMPLES
     print(f"corpus: {len(corpus)} concepts ({with_def} carry a definition) | "
-          f"definitions={args.definitions} | model: {args.model} | gateway: {gateway_url}")
+          f"definitions={args.definitions} | model: {args.model} | samples={per_case} "
+          f"votes={'majority' if not args.votes else args.votes} | gateway: {gateway_url}")
 
     cases = sorted(p for p in Path(args.cases).glob("*")
                    if (p / "submission.md").exists() and (p / EXPECTED).is_file())
@@ -470,7 +481,7 @@ async def main() -> int:
         elements = json.loads((case / "elements.json").read_text())
         async with gate:
             got, seconds, note, bad_ids, offered = await one_run(
-                cfg, corpus, elements, matcher, args.deepest)
+                cfg, corpus, elements, matcher, args.deepest, args.samples, args.votes)
         row = score(got, expected, offered) | {"seconds": seconds, "note": note, "run": run,
                                                "invalid_ids": bad_ids}
         print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
