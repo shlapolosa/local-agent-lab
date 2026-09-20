@@ -480,7 +480,12 @@ ROLE_ENV = {
         "REDIS_URL",                               # workflows.py (consume requests) + runlog.py (live node status)
         _OTLP,                                     # lab.platform.otel.tracer; service name is set in code, not from env
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE",   # identity.py MSAL authority + scope
-        "AGENT_*",                                 # agents.py: AGENT_RESPONSES_STORE / REQUEST_TIMEOUT / MAX_RETRIES / MAX_OUTPUT_TOKENS
+        "AGENT_*",                                 # agents.py: AGENT_RESPONSES_STORE / REQUEST_TIMEOUT / MAX_RETRIES / MAX_OUTPUT_TOKENS / SEED
+        # usecase/coverage.py: which matcher runs, how many times step 5 is asked, and how many of
+        # those must agree. Read INSIDE the workload, and absent here until 20 Sep 2026 — so they
+        # could be set in .env, shipped in LAB_ENV, and change nothing about the running service.
+        # A knob that looks connected and is not is worse than no knob.
+        "COVERAGE_*",
         "WF_CONSUMER",                             # consumer.py replica name (spec env)
     ],
     # image services built from nothing in this repo: they get NO .env keys at all

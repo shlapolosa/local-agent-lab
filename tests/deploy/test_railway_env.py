@@ -638,3 +638,22 @@ def test_every_placeholder_a_client_template_uses_is_one_lab_sh_renders():
         used |= set(re.findall(r"\$\{([A-Z_]+)\}", open(tpl).read()))
     assert used, "the templates are the reason this test exists"
     assert used <= rendered, f"lab.sh renders no value for {sorted(used - rendered)}"
+
+
+def test_a_workload_receives_the_coverage_knobs_it_actually_reads():
+    """`COVERAGE_MATCHER`, `COVERAGE_SAMPLES` and `COVERAGE_VOTES` are read by
+    `lab.workloads.usecase.coverage` inside the workload process. None of them was in the
+    workload's allowlist, so which matcher runs and whether step 5 is sampled were settings that
+    could be changed in `.env`, shipped in `LAB_ENV`, and have no effect whatever on the deployed
+    service — the most expensive kind of knob, one that looks connected.
+
+    A least-privilege allowlist is the right shape; a setting the role reads and cannot receive is
+    a hole in it, not a protection.
+    """
+    from deploy.railway import ROLE_ENV
+    assert any(p in ROLE_ENV["workload"] for p in ("COVERAGE_*", "COVERAGE_MATCHER")), \
+        "the workload cannot be told which matcher to run"
+    allowed = ROLE_ENV["workload"]
+    for name in ("COVERAGE_MATCHER", "COVERAGE_SAMPLES", "COVERAGE_VOTES"):
+        assert any(p == name or (p.endswith("*") and name.startswith(p[:-1])) for p in allowed), \
+            f"{name} is read by the workload and cannot reach it"
