@@ -126,6 +126,11 @@ def _require_railway():
 #   4. VOLUME — anything with state needs one, and PGDATA-style dirs want a SUBDIRECTORY of the
 #      mount (the mount root already contains `lost+found`).
 #   5. PORT — must be unique across config's `*_PORT` settings; a test asserts it.
+#   6. BUILD LINE — the service must print `config.build_id()` at START, in the shape `BUILD_RE`
+#      greps for, or `substrate versions` answers "(no build line in its logs)" about it for ever.
+#      Added to this list because the review app's was fixed in the morning and the live view
+#      shipped with the same blind spot the same afternoon: a new service inherits the gap unless
+#      it inherits the line.
 SUBSTRATE = {
     "semantic-mcp": {"cmd": "python -m lab.substrate.mcp.semantic.server", "port": None},
     "adoit-mcp":    {"cmd": "python -m lab.substrate.mcp.adoit.server", "port": None},

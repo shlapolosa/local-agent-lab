@@ -170,3 +170,34 @@ def test_the_declared_routes_include_the_one_the_page_asks_for():
     from types import SimpleNamespace
     paths = {r.path for r in live.build(SimpleNamespace(redis=lambda: None)).routes}
     assert "/events/{run_id}" in paths
+
+
+def test_it_announces_its_build_like_every_other_role(monkeypatch, capsys):
+    """`substrate versions` compares what a service was ASKED to run with what it SAYS it is
+    running, and a service that says nothing gets "(no build line in its logs)" — which is worth
+    nothing precisely when somebody is trying to find out what is serving. A NEW service inherits
+    that gap unless it inherits the line, and this one did: it shipped silent."""
+    from lab.platform import config as cfg
+
+    monkeypatch.setattr(live, "build", lambda container: None)
+    monkeypatch.setitem(__import__("sys").modules, "uvicorn",
+                        type("U", (), {"run": staticmethod(lambda *a, **k: None)}))
+    monkeypatch.setattr("lab.substrate.container.build", lambda name: None)
+    live.main()
+    said = capsys.readouterr().out
+    assert "live: serving" in said and cfg.build_id() in said
+
+
+def test_the_line_matches_what_the_version_report_greps_for():
+    """A line in a different shape is the same as no line."""
+    import re
+    from lab.platform import config as cfg
+    assert re.search(r"build=([0-9a-f]{7,40}|dev)", f"live: serving on http://x  {cfg.build_id()}")
+
+
+def test_everything_named_in___all___actually_exists():
+    """It listed `app`, which this module has never had — the ASGI app is built by `build(...)`
+    because the container is injected. A name in `__all__` that resolves to nothing is an import
+    error waiting for the first person who trusts it."""
+    for name in live.__all__:
+        assert hasattr(live, name), name

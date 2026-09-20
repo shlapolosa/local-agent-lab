@@ -30,7 +30,7 @@ from starlette.routing import Route
 
 from lab.platform import config, runlog
 
-__all__ = ["app", "frame", "page", "settled", "token", "POLL_S", "MAX_TICKS"]
+__all__ = ["build", "frame", "main", "page", "settled", "token", "POLL_S", "MAX_TICKS"]
 
 #: How often the stream re-reads the run, and how long it will hold one connection. The ceiling
 #: stops a forgotten tab pinning a connection for ever; an `EventSource` reconnects by itself, so a
@@ -237,6 +237,12 @@ def main() -> None:
     import uvicorn
 
     from lab.substrate.container import build as build_container
+    # The same line every other role prints, in the same shape `deploy/railway.py substrate
+    # versions` greps for. Without it the report says "(no build line in its logs)" — which is what
+    # it said about the review app until today, and is worth exactly nothing when you are trying to
+    # find out which build is serving. A new service inherits the gap unless it inherits the line.
+    print(f"live: serving on http://{config.BIND_HOST}:{config.LIVE_PORT}  {config.build_id()}",
+          flush=True)
     uvicorn.run(build(build_container("live")), host=config.BIND_HOST, port=config.LIVE_PORT)
 
 

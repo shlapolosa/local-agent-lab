@@ -44,18 +44,37 @@ def _token() -> str:
     return token
 
 
-def call(path: str, *, method: str = "GET", body: dict | None = None, raw: bool = False):
-    """One API call. `raw` returns bytes (logs are a zip), otherwise parsed JSON."""
+def call(path: str, *, method: str = "GET", body: dict | None = None, raw: bool = False,
+         attempts: int = 3):
+    """One API call. `raw` returns bytes (logs are a zip), otherwise parsed JSON.
+
+    A TRANSPORT error is retried; an HTTP error is not. `watch` polls for the length of a deploy,
+    and a single DNS hiccup killed one mid-run with a stack trace — the network dropping for a
+    second is not news about the workflow. An HTTPError, by contrast, is the server's ANSWER: a 404
+    or a 403 means the same thing on the third try as the first, and retrying it only delays the
+    report. Same split `deploy/railway.py` already makes.
+    """
     url = path if path.startswith("http") else f"{API}/repos/{REPO}/{path}"
     request = urllib.request.Request(
         url, method=method, data=json.dumps(body).encode() if body is not None else None,
         headers={"Authorization": f"Bearer {_token()}", "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        payload = response.read()
-        if raw:
-            return payload, response.status
-        return (json.loads(payload) if payload else {}), response.status
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                payload = response.read()
+                if raw:
+                    return payload, response.status
+                return (json.loads(payload) if payload else {}), response.status
+        except urllib.error.HTTPError:
+            raise                                          # the server's answer, not a hiccup
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            if attempt == attempts:
+                raise
+            print(f"  network hiccup ({type(e).__name__}) — retrying {attempt}/{attempts - 1}",
+                  file=sys.stderr)
+            time.sleep(2 * attempt)
+    raise AssertionError("unreachable")
 
 
 def runs(limit: int = 10) -> int:
