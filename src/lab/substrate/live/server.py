@@ -144,6 +144,8 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>run %(run)s</title>
  .detail dt{color:var(--dim)}
  .detail dd{margin:0;color:var(--fg);font-variant-numeric:tabular-nums}
  .detail .none{font-style:italic}
+ .detail .items{grid-column:2;display:flex;flex-direction:column;gap:.1rem;margin:.1rem 0 .4rem}
+ .detail .items div{color:var(--fg);font-size:.82rem}
  .err{color:var(--bad)}
  .idle{color:var(--dim);font-style:italic}
 </style>
@@ -173,9 +175,21 @@ function detail(s) {
   if (s.key) add("writes", s.key);
   const produced = Object.entries(s.produced || {});
   if (produced.length) {
-    // COUNTS AND TYPES, never a value — what the workload stamped. The run's content lives in the
-    // review app, which is the surface with a decision on it.
-    for (const [field, shape] of produced) add(field, shape);
+    for (const [field, value] of produced) {
+      if (value && typeof value === "object" && Array.isArray(value.items)) {
+        // A list shows WHAT IS IN IT. "matched: 13" is the same complaint one level down — it does
+        // not say which 13 — and the workload already truncates and says when it did.
+        add(field, value.count + (value.truncated ? " (first " + value.items.length + " shown)" : ""));
+        const dd = document.createElement("dd");
+        dd.className = "items";
+        dd.append(...value.items.map(i => {
+          const li = document.createElement("div"); li.textContent = i; return li;
+        }));
+        dl.append(document.createElement("dt"), dd);
+      } else {
+        add(field, value === null ? "—" : String(value));
+      }
+    }
   } else if (s.status === "done") {
     add("produced", "nothing recorded", "none");
   }

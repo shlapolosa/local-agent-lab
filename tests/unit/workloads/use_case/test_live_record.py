@@ -88,33 +88,62 @@ def test_the_published_record_carries_what_did_not_run_as_well_as_what_did():
 
 # ---------------------------------------------------------------- what a step SAYS it produced
 
-def test_a_steps_output_is_described_by_shape_never_by_content():
-    """The live view is reachable by anyone holding its gate, so what travels onto the run log is
-    counts and types — what a span is allowed to carry in this lab, for the same reason. A reader
-    watching a run wants to know a step produced 13 matches and 1 gap; the 13 matches themselves
-    are the review app's business."""
-    from lab.workloads.usecase.derivation import shape_of
+def test_a_step_reports_VALUES_not_the_names_of_their_types():
+    """`problem: str` tells a reader nothing — and the page already shows that very string, in
+    full, as its heading. A type name where a value would fit is not a safeguard, it is a worse
+    page. The gate is the control; this is what it is guarding."""
+    from lab.workloads.usecase.derivation import outline
 
-    out = {"matched": [1, 2, 3], "gap_flags": [{"what": "x"}], "problem": "referrals take too long",
-           "existing": False, "depth": 3}
-    assert shape_of(out) == {"matched": 3, "gap_flags": 1, "problem": "str",
-                             "existing": "bool", "depth": "int"}
+    out = {"problem": "referrals take too long", "existing": False, "depth": 3}
+    assert outline(out) == {"problem": "referrals take too long", "existing": False, "depth": 3}
 
 
-def test_no_value_from_the_output_ever_reaches_the_shape():
-    """The whole point: a shape that leaked a string would put model output on a page with a
-    weaker gate than the one that decides on it."""
-    from lab.workloads.usecase.derivation import shape_of
+def test_a_list_shows_ITS_ITEMS_and_says_how_many_there_are():
+    """A count alone is the same complaint one level down: "matched: 13" does not say which 13."""
+    from lab.workloads.usecase.derivation import outline
 
-    secret = "a patient's name"
-    assert secret not in str(shape_of({"problem": secret, "notes": [secret]}))
+    got = outline({"matched": [{"capability_id": "Business · X"}, {"capability_id": "Cognitive · Y"}]})
+    assert got["matched"]["count"] == 2
+    assert got["matched"]["items"] == ["Business · X", "Cognitive · Y"]
 
 
-def test_a_nested_structure_is_counted_not_walked():
-    from lab.workloads.usecase.derivation import shape_of
-    assert shape_of({"model": {"elements": [1, 2], "relations": []}}) == {"model": 2}
+def test_a_long_list_is_truncated_and_SAYS_it_was():
+    """The run log is a Redis hash read on every frame. A truncation nobody is told about is the
+    failure this codebase keeps naming: a partial answer indistinguishable from a complete one."""
+    from lab.workloads.usecase.derivation import outline, MAX_ITEMS
+
+    got = outline({"rows": [f"row {i}" for i in range(MAX_ITEMS + 9)]})
+    assert got["rows"]["count"] == MAX_ITEMS + 9
+    assert len(got["rows"]["items"]) == MAX_ITEMS
+    assert got["rows"]["truncated"] is True
+
+
+def test_a_long_string_is_capped():
+    from lab.workloads.usecase.derivation import outline, MAX_CHARS
+    got = outline({"problem": "x" * (MAX_CHARS + 200)})["problem"]
+    assert len(got) <= MAX_CHARS + 1 and got.endswith("…")
+
+
+def test_the_whole_outline_is_bounded_so_one_step_cannot_bloat_the_board():
+    """Every frame carries this to every watcher. A step that produced a hundred long rows must
+    not make the run hash something nobody wants to read per second."""
+    from lab.workloads.usecase.derivation import outline, MAX_BYTES
+    import json
+    big = {f"field_{i}": ["y" * 200] * 50 for i in range(40)}
+    assert len(json.dumps(outline(big))) <= MAX_BYTES
+
+
+def test_an_item_is_named_by_whatever_it_calls_itself():
+    """Records in this corpus identify themselves differently by step — a capability by
+    `capability_id`, an element by `name`. Guessing one field would show `[object Object]` for the
+    rest."""
+    from lab.workloads.usecase.derivation import outline
+    got = outline({"a": [{"name": "nurse"}], "b": [{"label": "triage"}], "c": ["plain"]})
+    assert got["a"]["items"] == ["nurse"]
+    assert got["b"]["items"] == ["triage"]
+    assert got["c"]["items"] == ["plain"]
 
 
 def test_an_empty_or_odd_output_does_not_raise():
-    from lab.workloads.usecase.derivation import shape_of
-    assert shape_of({}) == {} and shape_of(None) == {} and shape_of([1, 2]) == {}
+    from lab.workloads.usecase.derivation import outline
+    assert outline({}) == {} and outline(None) == {} and outline([1, 2]) == {}

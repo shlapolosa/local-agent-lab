@@ -41,31 +41,81 @@ def _stamp(cfg, step, out) -> None:
     if not run_id:
         return
     try:
-        runlog.node(run_id, f"step_{step.number}", "done", key=step.key, produced=shape_of(out))
+        runlog.node(run_id, f"step_{step.number}", "done", key=step.key, produced=outline(out))
     except Exception as e:                     # noqa: BLE001 — see the docstring
         print(f"step {step.number} shape not stamped: {type(e).__name__}: {e}", flush=True)
 
 
-def shape_of(out) -> dict:
-    """What a step produced, as COUNTS AND TYPES — never a value.
+#: What an outline may carry onto the run log. Every frame the live view sends carries this, so it
+#: is bounded three ways — per string, per list, and overall — and a truncation always SAYS so.
+MAX_CHARS = 200
+MAX_ITEMS = 12
+MAX_BYTES = 4000
 
-    This travels onto the run log, which the live view reads, and that view is reachable by anyone
-    holding its gate. So it carries what a span in this lab is allowed to carry: a reader watching
-    a run learns that a step produced 13 matches and 1 gap flag, and the 13 matches themselves stay
-    behind the review app's decision surface, which is the surface with a decision on it.
+#: What a record calls itself, in the order a record is likely to use. Records in this corpus name
+#: themselves differently by step — a capability by `capability_id`, an element by `name` — and
+#: guessing one field would render the rest as an empty label.
+_LABELS = ("capability_id", "name", "label", "title", "what", "id", "source", "function")
 
-    A container is counted, not walked: "how much" is the question a watcher has, and walking would
-    eventually put a leaf value in the answer.
+
+def outline(out) -> dict:
+    """What a step produced, for a reader watching the run: values, and lists of what is in them.
+
+    It used to report TYPES (`problem: str`), on the argument that the run's content belongs behind
+    the review app's decision surface. That argument did not survive contact with the page: the
+    subject — `frame.problem`, model output — is already its heading, in full. A type name where a
+    value would fit protected nothing and cost the reader the only thing they opened the row for.
+    So the gate is the control, and this is what it guards.
+
+    Bounded, because this rides every frame to every watcher, and a truncation is always named:
+    a partial answer indistinguishable from a complete one is the failure this codebase keeps
+    running into.
     """
     if not isinstance(out, dict):
         return {}
-    shape = {}
+    outlined: dict = {}
     for key, value in out.items():
-        if isinstance(value, (list, tuple, set, dict)):
-            shape[key] = len(value)
+        if isinstance(value, str):
+            outlined[key] = _clip(value)
+        elif isinstance(value, (list, tuple, set)):
+            items = list(value)
+            outlined[key] = {"count": len(items),
+                             "items": [_label(i) for i in items[:MAX_ITEMS]],
+                             **({"truncated": True} if len(items) > MAX_ITEMS else {})}
+        elif isinstance(value, dict):
+            outlined[key] = {"count": len(value),
+                             "items": [_clip(str(k)) for k in list(value)[:MAX_ITEMS]],
+                             **({"truncated": True} if len(value) > MAX_ITEMS else {})}
         else:
-            shape[key] = type(value).__name__
-    return shape
+            outlined[key] = value
+    return _fit(outlined)
+
+
+def _clip(text: str) -> str:
+    text = str(text)
+    return text if len(text) <= MAX_CHARS else text[:MAX_CHARS] + "\u2026"
+
+
+def _label(item) -> str:
+    """One list entry as a reader would name it."""
+    if isinstance(item, dict):
+        for field in _LABELS:
+            if item.get(field):
+                return _clip(str(item[field]))
+        return _clip(", ".join(str(k) for k in list(item)[:4]))
+    return _clip(str(item))
+
+
+def _fit(outlined: dict) -> dict:
+    """Drop whole fields, largest first, until the outline fits. Dropping a FIELD leaves the rest
+    readable; trimming inside one would make every value suspect."""
+    import json
+
+    while len(json.dumps(outlined)) > MAX_BYTES and outlined:
+        biggest = max(outlined, key=lambda k: len(json.dumps(outlined[k])))
+        outlined.pop(biggest)
+        outlined["…"] = "some fields omitted — the record has them in full"
+    return outlined
 
 
 @dataclass
