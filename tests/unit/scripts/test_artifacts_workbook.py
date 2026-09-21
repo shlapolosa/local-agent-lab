@@ -214,3 +214,117 @@ def test_the_index_shows_the_vector_artifacts_that_have_no_sheet(tmp_path):
     assert vector, "no vector artifact is listed at all"
     assert all(not r[-1] for r in vector), "a licensed workbook has no sheet to point at"
     assert any("licen" in str(c).lower() for r in vector for c in r), "and it says why"
+
+
+# ------------------------------------------------------- which step reads it, and the tab name
+
+def test_a_sheet_is_named_for_the_step_that_reads_it():
+    """`step-16-ai-capability-map` sorts and reads as the process does. The artifact name alone
+    made a reader match names against a 27-step framework in their head."""
+    assert wb.sheet_name("AI capability map", "16, 21") == "step-16-ai-capability-map"
+
+
+def test_a_sheet_name_stays_inside_excel_s_limit():
+    """Excel refuses a name over 31 characters; the index carries the full name either way."""
+    name = wb.sheet_name("Reference architecture model", "22")
+    assert len(name) <= 31 and name.startswith("step-22-")
+
+
+def test_an_artifact_no_step_consumes_is_named_without_a_step():
+    assert wb.sheet_name("Risk register", "") == "risk-register"
+
+
+def test_a_step_with_a_decimal_keeps_it():
+    """Steps 23 and 24 are compositions and the register cites their sub-steps (23.5, 24.6)."""
+    assert wb.sheet_name("Role rate registry", "24.2").startswith("step-24.2-")
+
+
+def test_the_retired_business_capability_map_realises_nothing_and_says_why():
+    """Step 5 matches the TECHNOLOGY map. Asking the team for the business map would ask for work
+    nothing consumes — but it stays in the register with the reason, because a row that vanished
+    would read as an oversight."""
+    entry = wb.primary_map()["inputs"]["Business capability map"]
+    assert entry["corpus"] == [] and "retired" in entry["note"]
+
+
+# ------------------------------------------- the PRIMARY registers, and full accounting
+
+def test_every_register_row_is_accounted_for():
+    """The docx register is the authority for what is primary. A row with no entry in the map is
+    an artifact nobody decided about — and the decision that gets skipped is always the one for an
+    artifact nobody is asking for yet."""
+    register, mapping = wb.register(), wb.primary_map()
+    named = {r[0] for r in register["inputs"]["rows"]}
+    assert named - set(mapping["inputs"]) == set(), "register rows with no mapping"
+    assert set(mapping["inputs"]) - named == set(), "mappings for rows the register does not have"
+
+
+def test_every_published_artifact_is_either_primary_or_declared_framework():
+    """The other direction. A published artifact in neither list is one that drifted in."""
+    mapping = wb.primary_map()
+    claimed = {c for v in mapping["inputs"].values() for c in v.get("corpus", ())}
+    claimed |= {k for k in mapping["framework"] if not k.startswith("_")}
+    assert set(wb.catalogue()) - claimed == set(), "published artifacts accounted for nowhere"
+
+
+def test_a_primary_artifact_groups_its_sub_tables_under_one_sheet():
+    """`Reference architecture model` is one artifact in the register and ten tables in the corpus.
+    A sheet per table asked the team to review ten things that are one thing."""
+    assert len(wb.primary_map()["inputs"]["Reference architecture model"]["corpus"]) > 1
+
+
+def test_a_missing_artifact_with_a_declared_schema_is_offered_as_an_empty_table():
+    """Six are missing but SPECIFIED — the fields are declared in the contract or, better, in the
+    module that reads them. The team gets the columns and no rows."""
+    entry = wb.primary_map()["inputs"]["Delegation of authority matrix"]
+    assert entry["schema"] == ["limit", "authority"] and entry["schema_from"] == "code"
+
+
+def test_a_missing_artifact_with_no_schema_gets_no_invented_columns():
+    """An invented header is worse than an honest gap: the team would fill it in good faith and
+    the result would not be readable by anything."""
+    entry = wb.primary_map()["inputs"]["Risk register"]
+    assert not entry.get("corpus") and not entry.get("schema") and entry.get("note")
+
+
+def test_a_grouped_sheet_still_round_trips_to_every_master_in_it(tmp_path):
+    """Grouping sub-tables under one sheet made the sheet hold several tables — and very nearly
+    made the exporter one-way, which would have abandoned the round trip that was the entire
+    argument for accepting a spreadsheet. Each table is delimited by its own `— <artifact-id>`
+    marker, so it splits back exactly."""
+    out = tmp_path / "a.xlsx"
+    wb.build_workbook(out)
+    title = wb.sheet_name("Facet schema and defaults", "17, 18")
+    back = wb.read_primary_sheet(out, title)
+    assert set(back) == {"facet-schema", "facet-schema-defaults", "facet-schema-readers"}
+    for artifact_id, parsed in back.items():
+        original = wb.master.parse(wb.master_path(artifact_id).read_text())
+        assert parsed.headers == original.headers, artifact_id
+        assert parsed.rows == original.rows, artifact_id
+
+
+def test_a_sheet_for_an_artifact_nobody_supplied_yields_no_master(tmp_path):
+    """A declared schema with no rows is not a master. Writing one would publish an empty artifact
+    over nothing, which reads downstream as 'the corpus says there are none'."""
+    out = tmp_path / "a.xlsx"
+    wb.build_workbook(out)
+    assert wb.read_primary_sheet(out, wb.sheet_name("Risk register", "12")) == {}
+
+
+def test_a_row_whose_last_cell_is_legitimately_empty_keeps_it(tmp_path):
+    """Trailing empties are trimmed on the HEADER row, to find the table's real width. Doing the
+    same to a data row drops a cell the artifact declares and the row comes back one column short
+    — it still parses, still looks like a table, and has quietly lost a value."""
+    src = '''# T
+
+**Artifact:** t
+
+| A | B | C |
+|---|---|---|
+| one | two |  |
+'''
+    parsed = master.parse(src)
+    assert parsed.rows[0] == ("one", "two", ""), "the fixture must really end empty"
+    path = tmp_path / "a.xlsx"
+    wb.export({"criticality-taxonomy": (parsed, ("t", "A", "x"))}, path)
+    assert wb.read_sheet(path, "criticality-taxonomy").rows == parsed.rows

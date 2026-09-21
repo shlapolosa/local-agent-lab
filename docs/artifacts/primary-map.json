@@ -1,0 +1,226 @@
+{
+ "_source": "Which corpus artifacts realise each PRIMARY artifact of the docx register, and the declared schema for those nothing yet realises. Reviewable data, not inference: the docx names differ from the published ids, and a mapping guessed at publish time is one nobody can check. `tests/unit/scripts/test_artifacts_workbook.py` asserts every register row is accounted for here — mapped, or explicitly declared unrealised — so a new register row cannot be silently dropped.",
+ "_schema_sources": "declared = a field list this repository actually states. `html` = the contract prose of the HTML artifact register. `code` = a module that reads the table and names its fields, which is the strongest kind: the reader and the schema cannot drift.",
+ "inputs": {
+  "Business capability map": {
+   "corpus": [],
+   "note": "retired 18 Sep 2026 — step 5 matches the AI capability map, which is what the rest of the framework joins on. The licensed BA Guild maps are vector-mode and never files in this repository."
+  },
+  "AI capability map": {
+   "corpus": [
+    "ai-capability-map",
+    "capability-domains"
+   ]
+  },
+  "Traditional capability map": {
+   "corpus": [],
+   "note": "no schema declared anywhere — the contract names abstract TYPES (incident management, ERP, EHR, master data, identity...) but no per-row fields."
+  },
+  "AI as-is architecture": {
+   "corpus": [],
+   "schema": [
+    "service name",
+    "consumers",
+    "offered behaviour",
+    "current service level",
+    "owned entities",
+    "failure semantics",
+    "operator"
+   ],
+   "schema_from": "html"
+  },
+  "Traditional as-is architecture": {
+   "corpus": [],
+   "schema": [
+    "service name",
+    "consumers",
+    "offered behaviour",
+    "current service level",
+    "owned entities",
+    "failure semantics",
+    "operator"
+   ],
+   "schema_from": "html",
+   "note": "the contract says 'same schema' as the AI as-is architecture."
+  },
+  "Ontology": {
+   "corpus": [],
+   "note": "served by semantic-mcp (`semantic_ontologies`), not by the reference corpus — a tool, so it has no master to edit."
+  },
+  "Grounding source classification": {
+   "corpus": [],
+   "schema": [
+    "source",
+    "sensitivity",
+    "permission scope and propagation",
+    "freshness",
+    "provenance and trust"
+   ],
+   "schema_from": "html",
+   "note": "a classification OVERLAY on systems already inventoried, not a second estate list. `source-register` (32 rows) is adjacent but is not this."
+  },
+  "Risk register": {
+   "corpus": [],
+   "note": "no schema declared — the contract says step-level risks map to enterprise entries, without naming the entry's fields."
+  },
+  "Readiness gate definitions": {
+   "corpus": [
+    "readiness-gates",
+    "readiness-gates-verdicts"
+   ]
+  },
+  "Criticality taxonomy": {
+   "corpus": [
+    "criticality-taxonomy"
+   ]
+  },
+  "Determinism criteria register": {
+   "corpus": [
+    "determinism-criteria"
+   ]
+  },
+  "Facet schema and defaults": {
+   "corpus": [
+    "facet-schema",
+    "facet-schema-defaults",
+    "facet-schema-readers"
+   ]
+  },
+  "Guardrail set with predicates": {
+   "corpus": [
+    "guardrails",
+    "retired-guardrails",
+    "opportunity-obligations"
+   ]
+  },
+  "Risk class to guardrail mapping": {
+   "corpus": [
+    "guardrail-mapping",
+    "risk-derivation",
+    "risk-derivation-classes",
+    "risk-derivation-moves"
+   ]
+  },
+  "Surface enforceability matrix": {
+   "corpus": [
+    "surface-enforceability"
+   ]
+  },
+  "Build surface matrix": {
+   "corpus": [
+    "build-surface"
+   ]
+  },
+  "Quality attribute patterns": {
+   "corpus": [
+    "quality-attributes",
+    "quality-attributes-envelope-patterns"
+   ]
+  },
+  "Tradeoff catalogue": {
+   "corpus": [
+    "tradeoff-catalogue",
+    "decision-record-schema"
+   ]
+  },
+  "Reference architecture model": {
+   "corpus": [
+    "reference-architecture",
+    "reference-architecture-zones",
+    "reference-architecture-detail",
+    "reference-architecture-topologies",
+    "reference-architecture-topology-archetypes",
+    "reference-architecture-components",
+    "reference-architecture-guardrail-origin",
+    "archetypes",
+    "composition-moves",
+    "building-block-schema"
+   ]
+  },
+  "Exercise guidance": {
+   "corpus": [
+    "process-steps",
+    "process-step-keys",
+    "capability-map-rules",
+    "capability-map-rules-levels",
+    "capability-map-rules-heatmap",
+    "domain-model",
+    "service-contract-schema"
+   ]
+  },
+  "Reference price sheet": {
+   "corpus": [
+    "price-sheet",
+    "component-prices",
+    "cost-formulas",
+    "component-families",
+    "component-families-modifiers",
+    "family-triggers"
+   ]
+  },
+  "Historical delivery actuals": {
+   "corpus": [],
+   "note": "no schema declared anywhere."
+  },
+  "Role rate registry": {
+   "corpus": [],
+   "schema": [
+    "role",
+    "headcount",
+    "frequency_per_week",
+    "current_minutes",
+    "expected_minutes"
+   ],
+   "schema_from": "code",
+   "note": "`lab.core.usecase.benefit._EFFORT_FIELDS` plus `role` — the module that reads the table names every field it requires, and refuses a row missing one."
+  },
+  "Cost-per-error reference": {
+   "corpus": [],
+   "schema": [
+    "error_class",
+    "current_volume",
+    "error_rate",
+    "expected_reduction"
+   ],
+   "schema_from": "code",
+   "note": "`lab.core.usecase.benefit._QUALITY_FIELDS`."
+  },
+  "Benefit benchmark library": {
+   "corpus": [
+    "benefit-drivers",
+    "financial-formulas"
+   ],
+   "note": "partially realised — the drivers and formulas are published; the benchmark VALUES are not."
+  },
+  "Finance assumptions": {
+   "corpus": [
+    "financial-formulas"
+   ]
+  },
+  "Delegation of authority matrix": {
+   "corpus": [],
+   "schema": [
+    "limit",
+    "authority"
+   ],
+   "schema_from": "code",
+   "note": "`lab.core.usecase.authority.route` reads exactly these. With no table it ESCALATES and says why — routing money by a figure this lab invented is the one outcome it refuses. A live run escalated here on 13 Sep 2026."
+  },
+  "Work item and IDP templates": {
+   "corpus": [],
+   "note": "no schema declared anywhere."
+  }
+ },
+ "outputs": {
+  "_note": "Outputs are PRODUCED by a run, not supplied to it. They have no master to edit, so they appear in the index with the step that produces them and carry no sheet — the workbook is for artifacts the team provides."
+ },
+ "framework": {
+  "_note": "Published corpus artifacts that are NOT primary artifacts of the process: they describe the framework rather than supply it. Listed so every published id is accounted for — an unaccounted artifact is one nobody decided about.",
+  "input-artifacts": "the register of input artifacts itself",
+  "output-artifacts": "the register of output artifacts itself",
+  "intake-fields": "the Submit form's field groups, read by the review app",
+  "intake-field-specs": "the typed field specification behind that form",
+  "business-case-sections": "the eight sections step 24's business case must fill",
+  "source-register": "the lab's own source inventory — adjacent to the grounding source classification, and not it"
+ }
+}

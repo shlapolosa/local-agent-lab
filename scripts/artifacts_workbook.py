@@ -24,6 +24,7 @@ become the master it came from is a second source of truth, and that is the fail
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -96,6 +97,48 @@ def _retrieval_table() -> dict:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return dict(getattr(module, "RETRIEVAL", {}))
+
+
+#: The docx register (what is PRIMARY) and the map from a primary artifact to the corpus tables
+#: that realise it. Both committed under docs/artifacts/, so the generator depends on no file
+#: outside the repository and both are reviewable in a diff.
+REGISTER = ROOT / "docs/artifacts/primary-register.json"
+PRIMARY_MAP = ROOT / "docs/artifacts/primary-map.json"
+
+#: Artifacts the register names and the corpus does not realise, by whether anything declares
+#: their shape. `schema` -> the team gets columns and no rows; `none` -> no sheet, and the index
+#: says so. An invented header is worse than an honest gap: the team would fill it in good faith
+#: and nothing could read the result.
+MISSING_NOTE = {
+    "schema": "NOT YET SUPPLIED. The columns below are the declared schema — fill the rows.",
+    "none": "NOT YET SUPPLIED, and no schema is declared anywhere for it. The columns have to be "
+            "agreed before the content can be: ask rather than assume.",
+}
+
+
+def register() -> dict:
+    return json.loads(REGISTER.read_text())
+
+
+def primary_map() -> dict:
+    return json.loads(PRIMARY_MAP.read_text())
+
+
+def _slug(name: str) -> str:
+    keep = [c.lower() if c.isalnum() else "-" for c in name]
+    return "-".join(w for w in "".join(keep).split("-") if w)
+
+
+def sheet_name(name: str, step: str) -> str:
+    """`step-05-ai-capability-map` — the process's order, not the alphabet's.
+
+    An artifact id alone made a reader match names against a 27-step framework in their head.
+    Excel refuses a name over 31 characters, so it is trimmed; the index carries the full name
+    either way. A step with no number (an artifact nothing reads) is named without a prefix.
+    """
+    first = str(step or "").split(",")[0].strip()
+    prefix = f"step-{first.zfill(2) if first.replace('.', '').isdigit() else first}-" if first else ""
+    return (prefix + _slug(name))[:31]
 
 
 class WorkbookError(ValueError):
@@ -217,6 +260,7 @@ def read_sheet(path: Path, artifact_id: str, key_fields=()) -> master.Master:
     while cells and not cells[-1]:
         cells.pop()
     headers = tuple(cells)
+    width = len(headers)
     for field in [f.strip() for f in key_fields if f and f.strip()]:
         if field not in headers:
             raise WorkbookError(
@@ -224,65 +268,207 @@ def read_sheet(path: Path, artifact_id: str, key_fields=()) -> master.Master:
                 " — a renamed key column makes every row look new to the publisher")
     rows = []
     for row in sheet.iter_rows(min_row=head + 1):
-        values = tuple(("" if c.value is None else str(c.value)).strip()
-                       for c in row[:len(headers)])
-        if any(values):                       # a blank row is spacing, not a record
-            rows.append(values)
+        got = [("" if c.value is None else str(c.value)).strip() for c in row]
+        if any(got):                          # a blank row is spacing, not a record
+            # Padded to the header width rather than trimmed — see `read_primary_sheet`.
+            rows.append(tuple((got + [""] * width)[:width]))
     return master.Master(title=meta.get("Artifact", artifact_id), headers=headers,
                          rows=tuple(rows), meta=meta)
+
+
+def primary_sheet(name: str, entry: dict, row: dict) -> list[list]:
+    """One PRIMARY artifact: what it is, then every corpus table that realises it, in order.
+
+    Grouped because the register is what the team recognises. `Reference architecture model` is one
+    artifact there and ten tables in the corpus; a sheet per table asked them to review ten things
+    that are one thing.
+    """
+    ids = list(entry.get("corpus") or ())
+    out = [["Artifact", name],
+           ["Consumed at step", row.get("Consumed at step", "")],
+           ["Owner", row.get("Owner", "")],
+           ["Scope", row.get("Scope", "")],
+           ["Form", row.get("Form", "")]]
+    if entry.get("note"):
+        out.append(["Note", entry["note"]])
+    if not ids:
+        kind = "schema" if entry.get("schema") else "none"
+        out.append(["Status", MISSING_NOTE[kind]])
+        if entry.get("schema"):
+            out += [["Schema declared in", entry.get("schema_from", "")], [],
+                    list(entry["schema"])]
+        return out
+
+    for artifact_id in ids:
+        path = master_path(artifact_id)
+        if not path.is_file():
+            continue
+        parsed = master.parse(path.read_text())
+        mode = retrieval_for(artifact_id, catalogue().get(artifact_id, ("", "", ""))[0])
+        out += [[],
+                [f"— {artifact_id}", parsed.title],
+                ["Read as", f"{mode}: {RETRIEVAL_NOTE[mode]}"],
+                [],
+                list(parsed.headers)]
+        out += [list(r) for r in parsed.rows]
+    return out
+
+
+#: How a table inside a grouped sheet names the artifact it belongs to. Written by
+#: `primary_sheet` and read by `read_primary_sheet` — the one marker both sides agree on.
+_TABLE_MARKER = "— "
+
+
+def read_primary_sheet(path: Path, title: str) -> dict:
+    """One grouped sheet back into `{artifact_id: Master}`.
+
+    Grouping made a sheet hold several tables, and that nearly cost the round trip — the whole
+    justification for accepting a spreadsheet at all (DR-02: what publishes must be DERIVED from
+    what a person edited, not transcribed beside it). Each table carries its own marker row, so
+    the split is exact rather than positional.
+
+    A sheet for an artifact nobody has supplied yields NOTHING. A declared schema with no rows is
+    not a master, and writing one would publish an empty artifact over nothing — which reads
+    downstream as "the corpus says there are none", the most dangerous answer in this layer.
+    """
+    book = openpyxl.load_workbook(path, data_only=True)
+    if title not in book.sheetnames:
+        raise WorkbookError(f"no sheet {title!r} in {path.name}")
+    sheet = book[title]
+    out, current, headers, rows = {}, "", (), []
+
+    def close():
+        if current and headers and rows:
+            out[current] = master.Master(title=current, headers=headers, rows=tuple(rows),
+                                         meta={"Artifact": current.replace("-", "_")})
+
+    for row in sheet.iter_rows():
+        cells = [("" if c.value is None else str(c.value).strip()) for c in row]
+        first = cells[0] if cells else ""
+        if first.startswith(_TABLE_MARKER):
+            close()
+            current, headers, rows = first[len(_TABLE_MARKER):].strip(), (), []
+            continue
+        if not current or first in ("Read as",) or not any(cells):
+            continue
+        trimmed = list(cells)
+        while trimmed and not trimmed[-1]:
+            trimmed.pop()
+        if not headers:
+            headers = tuple(trimmed)          # trailing empties trimmed: the table's real width
+        elif trimmed:
+            # PADDED to that width, never trimmed: a row may legitimately end in an empty cell,
+            # and trimming it returns a row one column short that still looks like a table.
+            rows.append(tuple((cells + [""] * len(headers))[:len(headers)]))
+    close()
+    return out
+
+
+def build_workbook(out: Path) -> Path:
+    """The register, as one workbook: a sheet per PRIMARY input artifact, plus the outputs listed.
+
+    Outputs carry no sheet — they are PRODUCED by a run, so there is no master to edit and nothing
+    for the team to supply. They are listed because "what does this process give back" is half of
+    what a reviewer is here to check.
+    """
+    reg, mapping = register(), primary_map()
+    inputs = {r[0]: dict(zip(reg["inputs"]["headers"], r)) for r in reg["inputs"]["rows"]}
+
+    book = openpyxl.Workbook()
+    index = book.active
+    index.title = INDEX
+    index.append(["#", "Primary artifact", "Step(s)", "Status", "Corpus tables", "Rows", "Owner",
+                  "Sheet"])
+    for cell in index[1]:
+        cell.font, cell.fill = _HEAD, _BAND
+
+    for n, (name, row) in enumerate(inputs.items(), start=1):
+        entry = mapping["inputs"].get(name, {})
+        ids = [a for a in (entry.get("corpus") or ()) if master_path(a).is_file()]
+        step = row.get("Consumed at step", "")
+        status = ("deployed" if ids else
+                  "missing — schema declared" if entry.get("schema") else "missing — no schema")
+        sheet = book.create_sheet(sheet_name(name, step))
+        for line in primary_sheet(name, entry, row):
+            sheet.append(line)
+        rows_total = 0
+        for artifact_id in ids:
+            rows_total += len(master.parse(master_path(artifact_id).read_text()).rows)
+        for column in sheet.columns:
+            width = max((len(str(c.value or "")) for c in column), default=10)
+            sheet.column_dimensions[column[0].column_letter].width = min(max(width + 2, 14), 70)
+            for c in column:
+                c.alignment = _WRAP
+        index.append([n, name, step, status, ", ".join(ids), rows_total,
+                      row.get("Owner", ""), sheet.title])
+
+    index.append([])
+    index.append(["OUTPUTS — produced by the process, no sheet to edit"])
+    index[index.max_row][0].font = _HEAD
+    index.append(["#", "Artifact", "Produced at step", "Persisted", "Past go-live"])
+    for cell in index[index.max_row]:
+        cell.font, cell.fill = _HEAD, _BAND
+    for n, r in enumerate(reg["outputs"]["rows"], start=1):
+        index.append([n] + list(r))
+
+    for column in index.columns:
+        width = max((len(str(c.value or "")) for c in column), default=10)
+        index.column_dimensions[column[0].column_letter].width = min(max(width + 2, 10), 52)
+    index.freeze_panes = "A2"
+    book.save(out)
+    return out
 
 
 def main(argv: list[str]) -> int:
     if not argv:
         raise SystemExit(__doc__)
     command, rest = argv[0], argv[1:]
-    table = catalogue()
 
     if command == "export":
         out = Path(rest[0]) if rest else ROOT / "var/out/cafe-artifacts.xlsx"
         out.parent.mkdir(parents=True, exist_ok=True)
-        sheets, missing = {}, []
-        for artifact_id, entry in sorted(table.items()):
-            path = master_path(artifact_id)
-            if not path.is_file():
-                missing.append(artifact_id)
-                continue
-            sheets[artifact_id] = (master.parse(path.read_text()), entry)
-        export(sheets, out)
-        print(f"{out}  —  {len(sheets)} artifacts, "
-              f"{sum(len(m.rows) for m, _ in sheets.values()):,} rows")
-        if missing:
-            print(f"  no master on disk (nothing to share yet): {missing}")
+        build_workbook(out)
+        reg, mapping = register(), primary_map()
+        ins = mapping["inputs"]
+        deployed = sum(1 for v in ins.values()
+                       if any(master_path(a).is_file() for a in v.get("corpus") or ()))
+        schema_only = sum(1 for v in ins.values() if not v.get("corpus") and v.get("schema"))
+        print(f"{out}")
+        print(f"  {len(ins)} primary input artifacts: {deployed} deployed, "
+              f"{schema_only} missing with a declared schema, "
+              f"{len(ins) - deployed - schema_only} missing with none")
+        print(f"  {len(reg['outputs']['rows'])} output artifacts listed (no sheet — produced, "
+              f"not supplied)")
         return 0
 
     if command in ("import", "check"):
         if not rest:
             raise SystemExit("which workbook?")
-        path = Path(rest[0])
-        book = openpyxl.load_workbook(path, data_only=True)
+        path, reg = Path(rest[0]), register()
+        mapping = primary_map()["inputs"]
         changed, failed = [], []
-        for artifact_id, entry in sorted(table.items()):
-            if artifact_id[:31] not in book.sheetnames:
-                continue
+        for name, row in ((r[0], dict(zip(reg["inputs"]["headers"], r)))
+                          for r in reg["inputs"]["rows"]):
+            title = sheet_name(name, row.get("Consumed at step", ""))
             try:
-                back = read_sheet(path, artifact_id, key_fields=str(entry[1]).split(","))
+                back = read_primary_sheet(path, title)
             except WorkbookError as e:
-                failed.append(f"{artifact_id}: {e}")
+                failed.append(f"{name}: {e}")
                 continue
-            target = master_path(artifact_id)
-            before = master.parse(target.read_text()) if target.is_file() else None
-            if before and before.rows == back.rows and before.headers == back.headers:
-                continue
-            was = len(before.rows) if before else 0
-            changed.append(f"{artifact_id}: {was} -> {len(back.rows)} rows")
-            if command == "import":
-                # Rendered from the PARSED workbook, so what is published is derived rather than
-                # transcribed — the whole point of the round trip.
-                target.write_text(master.render(back))
-        for line in changed:
+            for artifact_id, parsed in back.items():
+                target = master_path(artifact_id)
+                before = master.parse(target.read_text()) if target.is_file() else None
+                if before and before.rows == parsed.rows and before.headers == parsed.headers:
+                    continue
+                changed.append(f"{artifact_id}: "
+                               f"{len(before.rows) if before else 0} -> {len(parsed.rows)} rows")
+                if command == "import":
+                    # Rendered from the PARSED workbook: derived, never transcribed.
+                    keep = before.meta if before else parsed.meta
+                    target.write_text(master.render(master.Master(
+                        title=parsed.title, headers=parsed.headers, rows=parsed.rows, meta=keep)))
+        for line in changed + [f"REFUSED {f}" for f in failed]:
             print(f"  {line}")
-        for line in failed:
-            print(f"  REFUSED {line}")
         print(f"{'written' if command == 'import' else 'checked'}: "
               f"{len(changed)} changed, {len(failed)} refused")
         return 1 if failed else 0

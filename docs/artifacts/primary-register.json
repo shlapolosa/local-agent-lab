@@ -1,0 +1,400 @@
+{
+ "_source": "Intake_Agent_Requirements_v2_7.docx — table 29 (inputs), table 30 (outputs). The register is the AUTHORITY for which artifacts are primary; extracted once and committed so the generator does not depend on a file outside the repository.",
+ "inputs": {
+  "headers": [
+   "Artifact",
+   "Scope",
+   "Owner",
+   "Consumed at step",
+   "Form"
+  ],
+  "rows": [
+   [
+    "Business capability map",
+    "Per area",
+    "Enterprise architecture",
+    "5, 24",
+    "Graph"
+   ],
+   [
+    "AI capability map",
+    "Shared",
+    "Architecture Board",
+    "16, 21",
+    "Structured"
+   ],
+   [
+    "Traditional capability map",
+    "Per area",
+    "Enterprise architecture",
+    "6",
+    "Structured"
+   ],
+   [
+    "AI as-is architecture",
+    "Shared",
+    "Platform and AI operations",
+    "6",
+    "Read in place"
+   ],
+   [
+    "Traditional as-is architecture",
+    "Per area",
+    "Application owners",
+    "6",
+    "Read in place"
+   ],
+   [
+    "Ontology",
+    "Shared",
+    "Domain stewards; Ontology Council arbitrates",
+    "4, 9",
+    "Graph"
+   ],
+   [
+    "Grounding source classification",
+    "Shared",
+    "Knowledge Council",
+    "11",
+    "Structured"
+   ],
+   [
+    "Risk register",
+    "Per area",
+    "Risk function",
+    "12",
+    "Read in place"
+   ],
+   [
+    "Readiness gate definitions",
+    "Shared",
+    "Ontology and Knowledge Councils",
+    "14",
+    "Structured"
+   ],
+   [
+    "Criticality taxonomy",
+    "Shared",
+    "Architecture Board",
+    "7, 12",
+    "Structured"
+   ],
+   [
+    "Determinism criteria register",
+    "Shared",
+    "Architecture Board",
+    "15",
+    "Structured"
+   ],
+   [
+    "Facet schema and defaults",
+    "Shared",
+    "Agent Council",
+    "17, 18",
+    "Structured"
+   ],
+   [
+    "Guardrail set with predicates",
+    "Shared",
+    "Agent Council",
+    "19",
+    "Structured"
+   ],
+   [
+    "Risk class to guardrail mapping",
+    "Shared",
+    "Agent Council",
+    "19",
+    "Structured"
+   ],
+   [
+    "Surface enforceability matrix",
+    "Shared",
+    "Architecture Board",
+    "20",
+    "Structured"
+   ],
+   [
+    "Build surface matrix",
+    "Shared",
+    "Architecture Board",
+    "20",
+    "Structured"
+   ],
+   [
+    "Quality attribute patterns",
+    "Shared",
+    "Architecture Board",
+    "8",
+    "Index"
+   ],
+   [
+    "Tradeoff catalogue",
+    "Shared",
+    "Architecture Board",
+    "21",
+    "Index"
+   ],
+   [
+    "Reference architecture model",
+    "Shared",
+    "Agent Council",
+    "22",
+    "Structured"
+   ],
+   [
+    "Exercise guidance",
+    "Shared",
+    "Architecture Board",
+    "16, 4, 8, 10",
+    "Index"
+   ],
+   [
+    "Reference price sheet",
+    "Shared",
+    "FinOps and platform engineering",
+    "23.2, 23.3, 23.4",
+    "Structured"
+   ],
+   [
+    "Historical delivery actuals",
+    "Shared",
+    "Delivery management",
+    "23.5",
+    "Structured"
+   ],
+   [
+    "Role rate registry",
+    "Shared",
+    "Finance",
+    "24.2",
+    "Structured"
+   ],
+   [
+    "Cost-per-error reference",
+    "Shared",
+    "Finance and clinical governance",
+    "24.3",
+    "Structured"
+   ],
+   [
+    "Benefit benchmark library",
+    "Shared",
+    "Finance",
+    "24.4",
+    "Index"
+   ],
+   [
+    "Finance assumptions",
+    "Shared",
+    "Finance",
+    "24.5",
+    "Structured"
+   ],
+   [
+    "Delegation of authority matrix",
+    "Shared",
+    "Finance",
+    "24.6",
+    "Structured"
+   ],
+   [
+    "Work item and IDP templates",
+    "Shared",
+    "Platform engineering",
+    "25",
+    "Structured"
+   ]
+  ]
+ },
+ "outputs": {
+  "headers": [
+   "Artifact",
+   "Produced at step",
+   "Persisted",
+   "Past go-live"
+  ],
+  "rows": [
+   [
+    "Validated submission record",
+    "2",
+    "Yes",
+    "No"
+   ],
+   [
+    "Use case record",
+    "3",
+    "Yes",
+    "No"
+   ],
+   [
+    "Element inventory",
+    "4",
+    "Yes",
+    "No"
+   ],
+   [
+    "Capability coverage map",
+    "5",
+    "Yes",
+    "No"
+   ],
+   [
+    "Realisation match with confidence",
+    "6",
+    "Yes",
+    "No"
+   ],
+   [
+    "Criticality band",
+    "7",
+    "Yes",
+    "No"
+   ],
+   [
+    "Quality attribute scenarios and envelope values",
+    "8",
+    "Yes",
+    "No"
+   ],
+   [
+    "Ontology delta",
+    "9",
+    "Yes",
+    "No — merges into the ontology"
+   ],
+   [
+    "Workflow graph",
+    "10",
+    "Yes",
+    "No"
+   ],
+   [
+    "Retrieval contracts",
+    "11",
+    "Yes",
+    "Yes — enforced at runtime"
+   ],
+   [
+    "Criticality class and router definition",
+    "12",
+    "Yes",
+    "No"
+   ],
+   [
+    "Outcome assertions",
+    "13",
+    "Yes",
+    "Yes — monitored in production"
+   ],
+   [
+    "Readiness record",
+    "14",
+    "Yes",
+    "No"
+   ],
+   [
+    "Step tiers and containment record",
+    "15",
+    "Yes",
+    "No"
+   ],
+   [
+    "Feasibility verdict with the rule that fired",
+    "16",
+    "Yes",
+    "No"
+   ],
+   [
+    "Facet vectors and override log",
+    "17",
+    "Yes",
+    "No"
+   ],
+   [
+    "Exposure and influence classes",
+    "18",
+    "Yes",
+    "No"
+   ],
+   [
+    "Control requirement set",
+    "19",
+    "Yes",
+    "No"
+   ],
+   [
+    "Build surface decision",
+    "20",
+    "Yes",
+    "No"
+   ],
+   [
+    "Component selection and decision records",
+    "21",
+    "Yes",
+    "Yes — until the review trigger fires"
+   ],
+   [
+    "Conceptual, logical and physical designs",
+    "22",
+    "Yes",
+    "No"
+   ],
+   [
+    "Cost model with itemised lines and Year-1 total",
+    "23",
+    "Yes",
+    "Yes — the baseline actuals are measured against"
+   ],
+   [
+    "Business case in eight sections",
+    "24",
+    "Yes",
+    "Yes — the record of why the investment was made"
+   ],
+   [
+    "Recommendation and gate conditions",
+    "24",
+    "Yes",
+    "Yes — conditions are tracked to closure"
+   ],
+   [
+    "Draft work item tree and portal artifacts",
+    "25",
+    "Yes",
+    "No"
+   ],
+   [
+    "Design package",
+    "26",
+    "Yes",
+    "No"
+   ],
+   [
+    "Conformance approval record",
+    "26a",
+    "Yes",
+    "Yes"
+   ],
+   [
+    "Investment approval record",
+    "26b",
+    "Yes",
+    "Yes"
+   ],
+   [
+    "Provisioned work items and catalog entries",
+    "27",
+    "Yes",
+    "Yes"
+   ],
+   [
+    "Gap flags",
+    "5, 6, 9, 12, 17, 21, 23.2",
+    "Yes",
+    "No — adjudicated by the Review Board"
+   ]
+  ]
+ }
+}
