@@ -7,6 +7,7 @@
     python scripts/github.py watch <id>            # block until it finishes, then report
     python scripts/github.py rerun <id>            # re-run just the FAILED jobs of a run
     python scripts/github.py secret <NAME> <path>  # set an Actions secret from a file
+    python scripts/github.py dispatch evals.yml samples=3 runs=3   # start a manual workflow
     python scripts/github.py whoami                # what this token can actually do
 
 `gh` was a second credential and a second thing to keep signed in, and its token was scoped
@@ -147,6 +148,26 @@ def rerun(run_id: str) -> int:
     return 0
 
 
+def dispatch(workflow: str, *pairs: str) -> int:
+    """Start a `workflow_dispatch` workflow on main, with `key=value` inputs.
+
+    The evals workflow is manual by design — it spends real money and shares an upstream account
+    with live runs — so there has to be a way to start one deliberately that is not a browser.
+    """
+    inputs = dict(p.split("=", 1) for p in pairs)
+    _, status = call(f"actions/workflows/{urllib.parse.quote(workflow)}/dispatches", method="POST",
+                     body={"ref": "main", "inputs": inputs})
+    print(f"dispatched {workflow} {inputs or ''} -> HTTP {status}")
+    # The API returns 204 with no body, so the run id has to be looked up: the newest run OF THIS
+    # workflow, which is what `runs` cannot tell you because it lists every workflow.
+    time.sleep(4)
+    data, _ = call(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?per_page=1")
+    for run in data.get("workflow_runs", []):
+        print(f"  {run['id']}  {run.get('status')}  {run.get('created_at')}")
+        print(f"  watch: python scripts/github.py watch {run['id']}")
+    return 0
+
+
 def secret(name: str, path: str) -> int:
     """Set an Actions secret from a FILE, sealed before it leaves this machine.
 
@@ -202,7 +223,8 @@ def main(argv: list[str]) -> int:
     command, rest = argv[0], argv[1:]
     table = {"runs": lambda: runs(int(rest[0]) if rest else 10), "run": lambda: run(*rest),
              "failed": lambda: failed(*rest), "watch": lambda: watch(rest[0]),
-             "rerun": lambda: rerun(*rest), "secret": lambda: secret(*rest), "whoami": whoami}
+             "rerun": lambda: rerun(*rest), "secret": lambda: secret(*rest),
+             "dispatch": lambda: dispatch(*rest), "whoami": whoami}
     if command not in table:
         raise SystemExit(__doc__)
     try:
