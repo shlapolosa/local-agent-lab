@@ -178,3 +178,23 @@ def test_an_unsampled_run_counts_every_match_once_rather_than_scoring_nothing():
     trail = {"matched": [{"capability_id": "c1"}]}
     assert {m["capability_id"] for m in ev.at_threshold(trail, 1)} == {"c1"}
     assert ev.at_threshold(trail, 2) == []
+
+
+def test_a_baseline_missing_cases_the_run_attempted_is_refused():
+    """Measured 21 Sep 2026: the eval key hit its budget mid-run, four of six cases scored nothing,
+    and `--record-baseline` wrote a two-case baseline over a six-case one. Nothing failed loudly.
+
+    That is worse than a wrong number, because `regressions` only checks pairs the BASELINE holds:
+    the four missing cases would simply have stopped being gated, and the next run would have
+    reported "no recall regression" while measuring a third of the bar.
+    """
+    attempted = {"leaves": {"a": [], "b": [], "c": []}}
+    scored = {"leaves": {"a": {"recall": 0.8, "n": 3}}}
+    missing = ev.unscored(scored, attempted)
+    assert missing == ["leaves/b", "leaves/c"]
+
+
+def test_a_baseline_covering_everything_it_attempted_is_accepted():
+    attempted = {"leaves": {"a": [], "b": []}}
+    scored = {"leaves": {"a": {"recall": 0.8}, "b": {"recall": 0.7}}}
+    assert ev.unscored(scored, attempted) == []

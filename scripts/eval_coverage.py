@@ -303,6 +303,20 @@ def means(results: dict) -> dict:
     return out
 
 
+def unscored(current: dict, results: dict) -> list[str]:
+    """matcher/case pairs the run ATTEMPTED but could not score — the ones a baseline would omit.
+
+    A baseline is a bar, and a bar with holes in it is the most dangerous kind: `regressions` only
+    checks pairs the BASELINE holds, so a case missing from it is a case that has silently stopped
+    being gated, and the next run reports "no recall regression" while measuring a fraction of the
+    suite. Measured 21 Sep 2026 — the eval key hit its budget mid-run, four of six cases scored
+    nothing, and a two-case baseline was written over a six-case one with no complaint.
+    """
+    return sorted(f"{matcher}/{case}"
+                  for matcher, cases in results.items() for case in cases
+                  if case not in (current.get(matcher) or {}))
+
+
 def regressions(current: dict, baseline: dict, tolerance: float = 0.05,
                 results_cases: dict | None = None) -> list[str]:
     """What fell below the recorded baseline by more than `tolerance` recall — the sentence a
@@ -544,7 +558,14 @@ async def main() -> int:
     rc = report(results, args.runs)
     current = means(results)
     base_path = Path(args.baseline)
-    if args.record_baseline:
+    if args.record_baseline and unscored(current, results):
+        # Refused, not warned: a half-recorded bar looks exactly like a full one on every run after
+        # it, and the thing it stops gating is invisible.
+        print(f"\nNOT RECORDED — these were attempted and scored nothing: "
+              f"{unscored(current, results)}. Fix the cause and re-run; "
+              f"{base_path} is unchanged.")
+        rc = 2
+    elif args.record_baseline:
         base_path.parent.mkdir(parents=True, exist_ok=True)
         base_path.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"),
                                          "map": "technology", "model": args.model,
