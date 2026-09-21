@@ -222,3 +222,32 @@ def test_a_merged_set_is_still_refused_as_a_baseline_when_a_case_is_missing():
     applies, now over the merged whole."""
     merged = ev.merge([{"leaves": {"c1": [{"precision": 1.0, "recall": 1.0, "f1": 1.0}]}}])
     assert ev.unscored(ev.means(merged), {"leaves": {"c1": [], "c2": []}}) == ["leaves/c2"]
+
+
+def test_the_baseline_records_the_sample_count_it_was_measured_at():
+    """A bar is a bar for ONE configuration. It already records the model, for exactly this reason:
+    comparing a samples=3 run against a samples=1 bar measures the change in sampling, not a
+    regression in the matcher — and sampling moved mean recall 0.715 -> 0.79, which would read as
+    a spectacular improvement or, reversed, a spectacular loss."""
+    import json
+    recorded = json.loads((ROOT / ev.BASELINE).read_text())
+    assert "samples" in recorded, "the baseline does not say how many samples it was measured at"
+
+
+def test_record_from_refuses_when_a_case_on_disk_is_not_in_the_results():
+    """The guard that catches a budget failure does NOT catch this one: `unscored` compares the
+    scored means against the results it was GIVEN, and `--record-from` is given only the files that
+    exist. Two result files therefore looked complete and recorded a two-case bar — the very defect
+    this harness was fixed for, through a door opened by the fix.
+
+    The authority for "what a full bar covers" is the cases DIRECTORY, so that is what it is
+    checked against.
+    """
+    on_disk = ["appointment-no-show", "imaging-order-triage", "policy-qa"]
+    merged = {"leaves": {"appointment-no-show": [], "imaging-order-triage": []}}
+    assert ev.cases_missing(merged, on_disk) == ["policy-qa"]
+    assert ev.cases_missing({"leaves": {c: [] for c in on_disk}}, on_disk) == []
+
+
+def test_a_case_directory_that_is_empty_makes_no_claim():
+    assert ev.cases_missing({"leaves": {"a": []}}, []) == []

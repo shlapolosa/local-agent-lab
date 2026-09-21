@@ -303,6 +303,19 @@ def means(results: dict) -> dict:
     return out
 
 
+def cases_missing(results: Mapping, on_disk: list[str]) -> list[str]:
+    """Cases the repository HAS that these results do not cover.
+
+    `unscored` cannot catch this: it compares the scored means against the results it was handed,
+    and `--record-from` is handed only the files that happen to exist. Two result files therefore
+    looked complete and recorded a two-case bar over a six-case one — the same defect the harness
+    had just been fixed for, through the door the fix opened. The authority for what a full bar
+    covers is the cases DIRECTORY, so that is what it is checked against.
+    """
+    covered = {case for cases in results.values() for case in cases}
+    return sorted(c for c in on_disk if c not in covered)
+
+
 def merge(sets: list[Mapping]) -> dict:
     """Several result sets into one, samples concatenated per matcher/case.
 
@@ -464,13 +477,17 @@ async def main() -> int:
         loaded = [json.loads(Path(f).read_text()) for f in args.record_from]
         results = merge(loaded)
         current = means(results)
-        missing = unscored(current, results)
+        on_disk = sorted(p.name for p in Path(args.cases).glob("*")
+                         if (p / EXPECTED).is_file())
+        missing = unscored(current, results) + cases_missing(results, on_disk)
         if missing:
-            print(f"NOT RECORDED — scored nothing: {missing}")
+            print(f"NOT RECORDED — these are not covered: {sorted(set(missing))}. "
+                  f"{args.baseline} is unchanged.")
             return 2
         Path(args.baseline).parent.mkdir(parents=True, exist_ok=True)
         Path(args.baseline).write_text(json.dumps(
             {"recorded": time.strftime("%Y-%m-%d"), "map": "technology", "model": args.model,
+             "samples": args.samples if args.samples is not None else coverage.SAMPLES,
              "means": current}, indent=2) + "\n")
         print(f"baseline recorded from {len(loaded)} result file(s): {args.baseline}")
         for matcher, cases in current.items():
@@ -608,6 +625,7 @@ async def main() -> int:
         base_path.parent.mkdir(parents=True, exist_ok=True)
         base_path.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"),
                                          "map": "technology", "model": args.model,
+                                         "samples": per_case,
                                          "means": current}, indent=2) + "\n")
         print(f"baseline recorded: {base_path}")
     elif not base_path.exists():
@@ -623,6 +641,11 @@ async def main() -> int:
         if recorded.get("model", args.model) != args.model:
             print(f"\nNOTE: baseline was recorded on {recorded['model']}, this run is "
                   f"{args.model} — the comparison below is across MODELS, not matchers.")
+        if recorded.get("samples", per_case) != per_case:
+            # Sampling moved mean recall 0.715 -> 0.79. Compared blind, that reads as a spectacular
+            # improvement or, reversed, a spectacular regression — and neither is about the matcher.
+            print(f"\nNOTE: baseline was recorded at samples={recorded['samples']}, this run is "
+                  f"samples={per_case} — the comparison below is across SAMPLING, not matchers.")
         fell = regressions(current, recorded.get("means") or {}, results_cases=results)
         if fell:
             print(f"\nREGRESSION against {base_path}: {fell}")

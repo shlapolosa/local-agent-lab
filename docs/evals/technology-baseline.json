@@ -2,6 +2,7 @@
   "recorded": "2026-09-18",
   "map": "technology",
   "model": "gpt-5.4-mini-think",
+  "samples": 1,
   "means": {
     "leaves": {
       "appointment-no-show": {
