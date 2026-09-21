@@ -787,8 +787,37 @@ def _run_detail(h):
     _node_events(h)
 
 
+def _artifact_download(ref: str) -> None:
+    """Offer ONE artifact, named by `?artifact=<ref>` — where the live view's links land.
+
+    That page holds no store credential and never will: it emits a link, this app reads the store,
+    and a person has already signed in (or passed the gate) before reaching here. So the watcher
+    stays credential-free and the bytes stay behind the door that authenticates.
+
+    It knows nothing about what the artifact IS — the filename and type come from the ref, exactly
+    as the import-artifact list already does, so a new kind of output needs no change here.
+    """
+    if not ref:
+        return
+    try:
+        art = contracts.ArtifactRef.parse(ref)
+    except ValueError:
+        # Never reach the store on a ref that cannot be one: a malformed link is a caller's
+        # mistake, and answering it with a store error would blame the wrong thing.
+        st.warning(f"not an artifact reference: {ref!r}")
+        return
+    try:
+        data = container.artifacts().get(ref)
+    except Exception as e:      # artifacts outlive the run log on a different clock
+        st.warning(f"{art.name}: not available ({e})")
+        return
+    st.download_button(f"⬇️ {art.name}", data, file_name=art.name,
+                       mime=content_type_for(art.name))
+
+
 def _runs_page(_reviewer):
     st.title("Runs")
+    _artifact_download(str(st.query_params.get("artifact") or ""))
     if st.button("🔄 Refresh"):
         st.rerun()
     _runs_board()

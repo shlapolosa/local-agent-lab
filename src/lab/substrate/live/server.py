@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import urllib.parse
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -58,10 +59,14 @@ def token(h) -> str:
 
 
 def frame(h) -> dict:
-    """One run as this page shows it: counts, ids and step names.
+    """One run as this page shows it: what each step did, and links to what it wrote.
 
-    Never model output and never an artifact ref. Anyone holding the gate can watch, and what a run
-    CONTAINS is the review app's business — it has a decision surface and this does not.
+    It used to carry neither model output nor an artifact ref, on the argument that a run's
+    CONTENTS are the review app's business. That argument has been retired twice by contact with
+    the page — first for values (a type name where a value belongs protected nothing), now for
+    artifacts. The boundary that actually matters is unchanged and is stronger than the old rule:
+    this service never holds a store credential and never serves bytes. It emits a LINK, the review
+    app reads the store, and the review app authenticates the person before it does.
     """
     if not h:
         return {}
@@ -74,8 +79,21 @@ def frame(h) -> dict:
         "node": h.get("node", ""),
         "elapsed": h.get("elapsed"),
         "error": str(h.get("error") or ""),
-        "steps": _steps(h.get("nodes") or ()),
+        "steps": _with_links(_steps(h.get("nodes") or ()), config.REVIEW_APP_URL or ""),
     }
+
+
+def _with_links(steps: list, review_app: str) -> list:
+    """Give every artifact the URL a person opens it at.
+
+    Built HERE rather than in the page, so the browser holds no URL logic at all: it renders
+    `a.url` if there is one and nothing if there is not. No review app configured means no `url`,
+    which means no link — never a link that goes nowhere.
+    """
+    for step in steps:
+        for art in step.get("artifacts") or ():
+            art["url"] = download_url(review_app, art.get("ref", ""))
+    return steps
 
 
 #: A step's own transitions, collapsed. `fail` is terminal: a later `start` must not overwrite the
@@ -119,8 +137,29 @@ def _steps(nodes) -> list:
             # What the workload chose to say about this step, if anything.
             "key": str(attrs.get("key") or ""),
             "produced": attrs.get("produced") or {},
+            # What the step WROTE, as {ref, name}. This service cannot read an artifact — it holds
+            # no store credential and that stays true — so these become LINKS to the review app,
+            # which can, and which authenticates the person first.
+            "artifacts": list(attrs.get("artifacts") or rows.get(name, {}).get("artifacts") or []),
         }
     return list(rows.values())
+
+
+def download_url(review_app: str, ref: str) -> str:
+    """Where a person opens this artifact: the review app, carrying the ref.
+
+    A LINK and never the bytes. `ROLE_ENV["live"]` grants this service `REDIS_URL` and the gate and
+    nothing else — no `ARTIFACTS_URL`, no `DATABASE_URL`, no S3 — so it could not serve an artifact
+    if it wanted to, and should not: the review app already reads the store and already
+    authenticates a person before it does. Giving this page a store credential to save a click
+    would put the bytes behind the weaker of the two doors.
+
+    No review app configured means NO link, rather than one that goes nowhere.
+    """
+    if not review_app or not ref:
+        return ""
+    return (review_app.rstrip("/") + "/?"
+            + urllib.parse.urlencode({"mode": "Runs", "artifact": ref}))
 
 
 #: The page. Deliberately one file with no build step and no CDN: a live view that could not render
@@ -142,6 +181,8 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>run %(run)s</title>
  ol{list-style:none;margin:0;padding:0}
  li{border-bottom:1px solid var(--line)}
  .id{color:var(--dim);font-size:.75rem;font-family:ui-monospace,SFMono-Regular,monospace}
+ .items a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+ .items a:hover{text-decoration-thickness:2px}
  summary{display:flex;gap:.75rem;align-items:baseline;padding:.55rem 0;cursor:pointer;
          list-style:none}
  summary::-webkit-details-marker{display:none}
@@ -203,6 +244,20 @@ function detail(s) {
     }
   } else if (s.status === "done") {
     add("produced", "nothing recorded", "none");
+  }
+  // What the step WROTE. A link per artifact, to the review app — this page never serves bytes.
+  const wrote = (s.artifacts || []).filter(a => a.url);
+  if (wrote.length) {
+    const dt = document.createElement("dt"); dt.textContent = "wrote";
+    const dd = document.createElement("dd"); dd.className = "items";
+    dd.append(...wrote.map(a => {
+      const div = document.createElement("div");
+      const link = document.createElement("a");
+      link.href = a.url; link.textContent = a.name;
+      link.target = "_blank"; link.rel = "noopener";
+      div.append(link); return div;
+    }));
+    dl.append(dt, dd);
   }
   if (s.error) add("error", s.error, "err");
   return dl;

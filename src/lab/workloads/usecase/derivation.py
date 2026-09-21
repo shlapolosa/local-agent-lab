@@ -24,9 +24,50 @@ from lab.workloads import gateway
 from lab.workloads.usecase import agents as A
 from lab.workloads.usecase import fallbacks
 from lab.workloads.usecase.gates import GateFailed, gate, run_gated
+from lab.platform.contracts import ArtifactRef
 from lab.workloads.usecase.steps import Derived, Step
 
 __all__ = ["Derivation"]
+
+
+#: The most artifacts one step will be offered as links. A step that wrote more than this has
+#: produced a directory, not a result, and the row would stop being readable.
+MAX_ARTIFACTS = 20
+
+
+def artifacts_in(out) -> list[dict]:
+    """Every artifact this step wrote, as `{ref, name}`, first-seen order.
+
+    Found by SCHEME and never by field name. `screening_ref`, `xml_ref`, `svg_refs`, `record_ref`
+    and whatever the next step calls its output are all strings beginning `art://`, and a list of
+    known field names is a list somebody forgets to update — the failure being a missing download
+    rather than a loud one.
+
+    A malformed ref is NOT an artifact: a link that 404s reads to a person as a lost artifact,
+    which is worse than no link. The `#<page>` fragment is kept, so a multi-page source opens at
+    the page the step actually used.
+    """
+    found: dict[str, dict] = {}
+
+    def walk(value):
+        if len(found) >= MAX_ARTIFACTS:
+            return
+        if isinstance(value, str):
+            if ArtifactRef.is_ref(value):
+                try:
+                    ref = ArtifactRef.parse(value)
+                except ValueError:
+                    return                     # malformed: not an artifact, and not a broken link
+                found.setdefault(value, {"ref": value, "name": ref.name})
+        elif isinstance(value, Mapping):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                walk(item)
+
+    walk(out if isinstance(out, (Mapping, list, tuple, set)) else None)
+    return list(found.values())
 
 
 def stamp_shape(cfg, step, out) -> None:
@@ -52,6 +93,9 @@ def stamp_shape(cfg, step, out) -> None:
                     # retry would change — and it is a property of the node, so the page needs no
                     # list of which numbers are which.
                     derived=True if isinstance(step, Derived) else None,
+                    # What this step WROTE, so a watcher can open it. None rather than [] — an
+                    # empty list would put an empty heading on every step that wrote nothing.
+                    artifacts=artifacts_in(out) or None,
                     produced=outline(out))
     except Exception as e:                     # noqa: BLE001 — see the docstring
         print(f"step {step.number} shape not stamped: {type(e).__name__}: {e}", flush=True)

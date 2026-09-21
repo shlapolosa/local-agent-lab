@@ -47,7 +47,8 @@ def test_a_frame_carries_what_a_watcher_needs_and_nothing_it_does_not():
     assert frame["status"] == "running" and frame["subject"] == "Referral triage takes too long"
     assert frame["steps"][0] == {"name": "step_3", "title": "", "derived": False,
                                  "status": "done", "at": frame["steps"][0]["at"],
-                                 "elapsed": 8.0, "error": "", "key": "", "produced": {}}
+                                 "elapsed": 8.0, "error": "", "key": "", "produced": {},
+                                 "artifacts": []}
     assert "record_ref" not in json.dumps(frame), "no artifact refs: this page never reads content"
 
 
@@ -325,3 +326,37 @@ def test_a_derived_step_is_carried_as_such_and_is_sticky_like_its_title():
 def test_an_ordinary_step_is_not_marked_derived():
     rows = live._steps([{"name": "step_5", "status": "done", "ts": "t", "attrs": {}}])
     assert rows[0]["derived"] is False
+
+
+def test_a_step_carries_the_artifacts_it_wrote():
+    rows = live._steps([{"name": "step_5", "status": "done", "ts": "t",
+                         "attrs": {"artifacts": [{"ref": "art://a/one.json",
+                                                  "name": "one.json"}]}}])
+    assert rows[0]["artifacts"] == [{"ref": "art://a/one.json", "name": "one.json"}]
+
+
+def test_a_step_that_wrote_nothing_carries_an_empty_list():
+    rows = live._steps([{"name": "step_5", "status": "done", "ts": "t", "attrs": {}}])
+    assert rows[0]["artifacts"] == []
+
+
+def test_the_download_link_points_at_the_review_app_which_holds_the_credentials():
+    """This service has no ARTIFACTS_URL, no DATABASE_URL and no S3 keys — by design, and that
+    stays true. So it hands out a LINK and never bytes: the review app reads the store, and it
+    authenticates the person before it does."""
+    url = live.download_url("https://review.example", "art://a/one.json")
+    assert url.startswith("https://review.example/?")
+    assert "artifact=art%3A%2F%2Fa%2Fone.json" in url and "mode=Runs" in url
+
+
+def test_no_review_app_configured_means_no_link_rather_than_a_broken_one():
+    assert live.download_url("", "art://a/one.json") == ""
+
+
+def test_the_frame_hands_the_page_a_finished_url_so_the_browser_builds_none():
+    rid = _run(redis := FakeRedis(), subject="x")
+    runlog.node(rid, "step_5", "done", client=redis,
+                artifacts=[{"ref": "art://a/one.json", "name": "one.json"}])
+    art = live.frame(runlog.get(rid, client=redis))["steps"][0]["artifacts"][0]
+    assert art["name"] == "one.json"
+    assert art["url"] == "" or "artifact=art%3A%2F%2Fa%2Fone.json" in art["url"]
