@@ -303,6 +303,23 @@ def means(results: dict) -> dict:
     return out
 
 
+def merge(sets: list[Mapping]) -> dict:
+    """Several result sets into one, samples concatenated per matcher/case.
+
+    A full baseline is one long invocation, and on an 8 GB box a long invocation is one the OS can
+    kill — measured twice on 21 Sep 2026, at 17 of 30 runs and again after. So the bar can be built
+    from SAVED results instead: score a case at a time with `--out`, then `--record-from` them all.
+    The guard in `unscored` still applies to the merged whole, so resumability cannot become a way
+    to record a partial bar by accident.
+    """
+    out: dict = {}
+    for one in sets:
+        for matcher, cases in (one or {}).items():
+            for case, samples in cases.items():
+                out.setdefault(matcher, {}).setdefault(case, []).extend(samples)
+    return out
+
+
 def unscored(current: dict, results: dict) -> list[str]:
     """matcher/case pairs the run ATTEMPTED but could not score — the ones a baseline would omit.
 
@@ -435,9 +452,31 @@ async def main() -> int:
     ap.add_argument("--out", default="var/eval/coverage-results.json")
     ap.add_argument("--baseline", default=BASELINE,
                     help="recorded means to refuse a regression against (recall, per matcher/case)")
+    ap.add_argument("--record-from", nargs="*", metavar="RESULTS.json",
+                    help="record the baseline from saved --out files instead of running anything. "
+                         "The resumable path: score a case at a time, then record once")
     ap.add_argument("--record-baseline", action="store_true",
                     help="write this run's means AS the baseline (after a reviewed improvement)")
     args = ap.parse_args()
+
+    if args.record_from:
+        # No model calls, no gateway, no key: arithmetic over what earlier runs already paid for.
+        loaded = [json.loads(Path(f).read_text()) for f in args.record_from]
+        results = merge(loaded)
+        current = means(results)
+        missing = unscored(current, results)
+        if missing:
+            print(f"NOT RECORDED — scored nothing: {missing}")
+            return 2
+        Path(args.baseline).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.baseline).write_text(json.dumps(
+            {"recorded": time.strftime("%Y-%m-%d"), "map": "technology", "model": args.model,
+             "means": current}, indent=2) + "\n")
+        print(f"baseline recorded from {len(loaded)} result file(s): {args.baseline}")
+        for matcher, cases in current.items():
+            for case, v in sorted(cases.items()):
+                print(f"  {matcher}/{case:28} recall {v['recall']:.2f}  n={v['n']}")
+        return 0
 
     gateway_url = os.environ.get("EVAL_GATEWAY") or os.environ.get("GATEWAY_URL",
                                                                    "http://127.0.0.1:4000")

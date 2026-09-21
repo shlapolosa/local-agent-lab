@@ -198,3 +198,27 @@ def test_a_baseline_covering_everything_it_attempted_is_accepted():
     attempted = {"leaves": {"a": [], "b": []}}
     scored = {"leaves": {"a": {"recall": 0.8}, "b": {"recall": 0.7}}}
     assert ev.unscored(scored, attempted) == []
+
+
+def test_results_from_several_runs_merge_into_one_set_of_samples():
+    """A 30-run baseline is one long invocation, and on an 8 GB box a long invocation is one the
+    OS can kill — twice, measured 21 Sep 2026, at 17 of 30 runs and then again. Recording the bar
+    from SAVED results makes it resumable: score a case at a time, merge, record once.
+    """
+    a = {"leaves": {"c1": [{"precision": 0.8, "recall": 0.8, "f1": 0.8}]}}
+    b = {"leaves": {"c1": [{"precision": 0.6, "recall": 0.6, "f1": 0.6}],
+                    "c2": [{"precision": 0.5, "recall": 0.5, "f1": 0.5}]}}
+    merged = ev.merge([a, b])
+    assert len(merged["leaves"]["c1"]) == 2 and len(merged["leaves"]["c2"]) == 1
+    assert ev.means(merged)["leaves"]["c1"]["recall"] == 0.7
+
+
+def test_merging_nothing_is_an_empty_set_rather_than_an_error():
+    assert ev.merge([]) == {}
+
+
+def test_a_merged_set_is_still_refused_as_a_baseline_when_a_case_is_missing():
+    """Resumability must not become a way to record a partial bar by accident — the same guard
+    applies, now over the merged whole."""
+    merged = ev.merge([{"leaves": {"c1": [{"precision": 1.0, "recall": 1.0, "f1": 1.0}]}}])
+    assert ev.unscored(ev.means(merged), {"leaves": {"c1": [], "c2": []}}) == ["leaves/c2"]
