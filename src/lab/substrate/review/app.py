@@ -958,18 +958,24 @@ def _import_files(p):
     That is the point — the vendor's knowledge stays on the vendor's adapter. Approvals staged before
     this shape existed still render (the normaliser turns their flat `*_ref` fields into downloads),
     so a reviewer can open the ~10 requests already waiting."""
-    for art in contracts.import_artifacts(p):
+    declared = contracts.import_artifacts(p)
+    readable = 0
+    for art in declared:
         try:
             data = container.artifacts().get(art.ref)
         except Exception as e:      # an old approval whose artifact expired must not break the gate
             st.warning(f"{art.label}: not available ({e})")
             continue
+        readable += 1
         st.download_button(art.label, data, file_name=art.filename, mime=art.mime)
         if art.note:
             st.caption(art.note)
     if p.get("instructions"):
         with st.expander("Import instructions (from the EA repository)"):
             st.text(p["instructions"])
+    # Whether the EVIDENCE still exists. Declared-but-none-readable is not cosmetic: approving
+    # releases a run that reads these same refs, so the decision cannot be carried out.
+    return bool(declared) and readable == 0
 
 
 def _views(p):
@@ -1165,8 +1171,17 @@ def _review_page(reviewer):
 
     _model_contents(p)
     _views(p)
-    _import_files(p)
+    evidence_gone = _import_files(p)
     answer, blocked = _answer_form(p, req["request_id"])
+    # An approval whose evidence the store no longer holds cannot be APPROVED — approving releases
+    # the next run, which reads those same refs and dies on them (measured 23 Sep 2026: a design
+    # run failed in 3 s on `unknown artifact art://…/screening.json`). Declining and requesting
+    # changes stay open, because a request nobody can action is one a person should be able to
+    # close. This never overrides a block the question form already raised.
+    blocked = blocked or (evidence_gone and
+                          "the evidence this request rests on is no longer in the artifact store, "
+                          "so approving would release a run that cannot read it — decline it "
+                          "instead, or re-run the submission")
 
     # --- decision ---
     st.divider()
