@@ -787,6 +787,26 @@ def _run_detail(h):
     _node_events(h)
 
 
+def released_run(approval_id: str, tries: int = 12, wait: float = 0.5) -> tuple:
+    """`(request_id, process)` of the run this decision released — once the release records it.
+
+    The release is ASYNCHRONOUS: a consumer picks the approval off a stream and submits the
+    continuation, so the released id appears a moment after the decision rather than with it.
+    Waiting a bounded moment is the whole trick — waiting forever hangs the page on a handover
+    that may never come (a final approval, or a declined one, releases nothing), and not waiting
+    at all is what left three people in one session asking what had happened.
+    """
+    import time as _time
+    for attempt in range(max(1, tries)):
+        state = approvals.status(approval_id) or {}
+        rid = str(state.get("released_request_id") or "")
+        if rid:
+            return rid, str(state.get("released_process") or "")
+        if attempt < tries - 1 and wait:
+            _time.sleep(wait)
+    return "", ""
+
+
 def _artifact_download(ref: str) -> None:
     """Offer ONE artifact, named by `?artifact=<ref>` — where the live view's links land.
 
@@ -1127,7 +1147,18 @@ def _review_page(reviewer):
                                      answer=answer if d == "approve" else None)
         except ValueError as e:                 # blank reviewer, or already decided
             st.error(str(e)); return
-        st.success(f"Recorded: {d}"); st.rerun()
+        # A decision that releases a run says WHICH run, and takes the person to it. Asked three
+        # times in one session — "why is it not progressing", "no idea what to do next" — and every
+        # time the work had moved somewhere nobody was told about.
+        released, process = released_run(req["request_id"])
+        if released:
+            st.success(f"Recorded: {d} — {process or 'the next run'} started ({released}). "
+                       f"Opening it…")
+            st.session_state["runs_selected"] = released
+            st.query_params.update({"mode": "Runs", "run": released})
+        else:
+            st.success(f"Recorded: {d}")
+        st.rerun()
     # An approval that asks a question is approved by ANSWERING it, so the button says so and is
     # disabled until every speaker has one — better than letting someone submit and be refused.
     # ...and says what approving STARTS, read from the continuation the asker declared. Guarded,

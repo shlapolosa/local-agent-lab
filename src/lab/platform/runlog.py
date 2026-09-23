@@ -276,7 +276,13 @@ def get(run_id: str, *, client=None) -> dict:
 
 
 def active(*, client=None) -> list[dict]:
-    """Runs currently in flight, oldest first. Ids whose hash expired are pruned from the set."""
+    """Runs currently in flight, NEWEST first. Ids whose hash expired are pruned from the set.
+
+    Newest first to match `recent`, and because the board concatenates the two: with this oldest
+    first, the top of the list — and so the default selection — was the oldest thing still
+    running, which is the one a person is least likely to be looking for. Two sibling readers with
+    opposite orders is a trap whichever way the caller reads it.
+    """
     ids = _redis(lambda r: list(r.smembers("runs:active")), client) or []
     out = []
     for i in ids:
@@ -285,7 +291,7 @@ def active(*, client=None) -> list[dict]:
             out.append(h)
         else:
             _redis(lambda r, i=i: r.srem("runs:active", i), client)
-    return sorted(out, key=lambda h: h.get("started_at", ""))
+    return sorted(out, key=lambda h: h.get("started_at", ""), reverse=True)
 
 
 def recent(n: int = 20, *, client=None) -> list[dict]:

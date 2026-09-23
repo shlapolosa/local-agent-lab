@@ -78,3 +78,71 @@ def test_a_function_is_still_how_an_entry_with_nothing_else_is_named():
     become unnamed by demoting the field."""
     assert D.outline({"gaps": [{"function": "reconcile the ledger"}]}
                      )["gaps"]["items"] == ["reconcile the ledger"]
+
+
+# ---------------------------------------- an entry with no "name" field still shows its VALUES
+
+def test_an_entry_with_no_name_field_renders_its_values_not_its_keys():
+    """Seen live on the design run: `selected 15`, then "capability, component_id, component,
+    rejected_alternatives" fifteen times. The fallback joined the dict's KEYS — the same column
+    headings repeated once per row, which is the least informative thing the row could say.
+
+    Nine array-of-object fields across seven steps land here (checked against every step's schema,
+    not against the three that were screenshotted), so the fallback is fixed rather than the label
+    list extended for each."""
+    out = D.outline({"selected": [{"capability": "Grounding and retrieval",
+                                   "component_id": "cmp-a9c03320dd",
+                                   "component": "Azure AI Search",
+                                   "rejected_alternatives": ["x", "y"]}]})
+    item = out["selected"]["items"][0]
+    assert "Grounding and retrieval" in item and "Azure AI Search" in item
+    assert "component_id" not in item, "that is a heading, not an answer"
+
+
+def test_the_named_field_still_wins_when_there_is_one():
+    out = D.outline({"matched": [{"capability_label": "Submission Validation",
+                                  "capability_id": "tec-cap-0031"}]})
+    assert out["matched"]["items"] == ["Submission Validation"]
+
+
+def test_containers_inside_an_entry_are_not_flattened_into_the_label():
+    """A row's nested list is its own detail. Splicing it into the one-line label is how a row
+    becomes unreadable — `rejected_alternatives` is four more names nobody asked for here."""
+    out = D.outline({"rows": [{"conflict": "latency vs assurance",
+                               "options": ["a", "b", "c"], "sacrificed": "latency"}]})
+    assert out["rows"]["items"] == ["latency vs assurance · latency"]
+
+
+def test_an_entry_of_only_containers_says_what_it_has_rather_than_nothing():
+    out = D.outline({"rows": [{"meanings": ["a", "b"]}]})
+    assert out["rows"]["items"][0]
+
+
+def test_every_schema_declared_list_renders_a_value_for_a_realistic_row():
+    """The systematic check: for every array-of-object field any step declares, a row built from
+    its own schema must render something that is not a heading."""
+    from lab.workloads.usecase import steps as S
+    for st in list(S.STEPS) + [S.CAPABILITY_QUERY]:
+        for prop, spec in (S.schema(st.key).get("properties") or {}).items():
+            if spec.get("type") != "array" or (spec.get("items") or {}).get("type") != "object":
+                continue
+            fields = list((spec["items"].get("properties") or {}))
+            row = {f: f"value-of-{f}" for f in fields}
+            label = D.outline({prop: [row]})[prop]["items"][0]
+            assert label.startswith("value-of-"), f"step {st.number} {prop}: {label!r}"
+
+
+def test_a_mapping_whose_values_are_lists_summarises_them():
+    """`by_step` on the obligations is `{step: [obligation, ...]}` and rendered as a raw Python
+    repr — `n1: [{'guardrail': 'G01', 'text': ...}]`. A reader gets the count and the first one,
+    which is what the row is for; the record has the rest."""
+    out = D.outline({"by_step": {"n1": [{"guardrail": "G01", "text": "prompt integrity"},
+                                        {"guardrail": "G03", "text": "output scanning"}]}})
+    item = out["by_step"]["items"][0]
+    assert item.startswith("n1: ") and "G01" in item and "2" in item
+    assert "{" not in item and "'" not in item, "a Python repr is not a rendering"
+
+
+def test_an_empty_list_value_says_none_rather_than_an_empty_bracket():
+    out = D.outline({"by_step": {"n1": []}})
+    assert out["by_step"]["items"] == ["n1: none"]

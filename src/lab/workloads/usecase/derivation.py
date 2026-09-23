@@ -120,8 +120,10 @@ MAX_BYTES = 12000
 #: match was made FROM, repeated once per capability it matched to. An id at least names the thing
 #: decided and is distinct per row. `function` stays last so an entry carrying nothing else is
 #: still named.
-_LABELS = ("capability_label", "label", "name", "title", "what", "capability_id", "id", "source",
-           "function")
+#: `source` is deliberately NOT here. It is PROVENANCE, not a name, and it won over the fields
+#: that identify a row: an obligation rendered as "baseline" instead of "G01 · prompt and registry
+#: integrity". A field earns a place here only if it NAMES the thing.
+_LABELS = ("capability_label", "label", "name", "title", "what", "capability_id", "id", "function")
 
 
 def outline(out) -> dict:
@@ -173,11 +175,33 @@ def _label(item) -> str:
     twelve siblings: an id is how a record is joined, not what was decided. The id is still the
     fallback, because naming something badly beats naming it not at all.
     """
+    if isinstance(item, (list, tuple, set)):
+        # A LIST as a value — `by_step` is `{step: [obligation, ...]}` — rendered as a raw Python
+        # repr, which is not a rendering. The count and the first entry are what the line is for;
+        # the record holds the rest.
+        items = list(item)
+        if not items:
+            return "none"
+        return _clip(f"{len(items)} × {_label(items[0])}" if len(items) > 1
+                     else _label(items[0]))
     if isinstance(item, dict):
         for field in _LABELS:
             if item.get(field):
                 return _clip(str(item[field]))
-        return _clip(", ".join(str(k) for k in list(item)[:4]))
+        # No field NAMES the row, so show what it SAYS. This used to join the dict's keys, which
+        # rendered fifteen selected components as "capability, component_id, component,
+        # rejected_alternatives" fifteen times — the column headings, once per row. Nine
+        # array-of-object fields across seven steps land here, so the fallback is what was fixed.
+        #
+        # Scalars only: a nested list is the row's own detail, and splicing it into a one-line
+        # label is how a row stops being readable. A row of nothing but containers says what it
+        # holds rather than coming back empty.
+        scalars = [str(v).strip() for v in item.values()
+                   if v not in (None, "", [], {}) and not isinstance(v, (list, dict, tuple, set))]
+        if scalars:
+            return _clip(" · ".join(scalars[:3]))
+        return _clip(", ".join(f"{k}({len(v)})" if isinstance(v, (list, tuple, set)) else str(k)
+                               for k, v in list(item.items())[:3]))
     return _clip(str(item))
 
 

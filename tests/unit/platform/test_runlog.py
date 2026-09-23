@@ -152,3 +152,14 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print(f"  [PASS] {name}")
     print("test_runlog: ALL PASSED")
+
+
+def test_active_runs_are_newest_first_like_recent_ones(fake_redis):
+    """`recent` is newest first and `active` was oldest first, and the board concatenates them —
+    so the run at the top of the list was the OLDEST thing still running, and the default
+    selection landed there. Two sibling readers with opposite orders is a trap whichever way the
+    caller reads it."""
+    for rid, when in (("old", "2026-09-01T00:00:00"), ("new", "2026-09-23T00:00:00")):
+        runlog.start(rid, process="p", input="x", client=fake_redis)
+        runlog.update(rid, started_at=when, client=fake_redis)
+    assert [h["run_id"] for h in runlog.active(client=fake_redis)] == ["new", "old"]

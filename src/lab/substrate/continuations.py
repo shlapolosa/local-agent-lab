@@ -31,7 +31,7 @@ import sys
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from lab.platform import config, streams, workflows
+from lab.platform import config, runlog, streams, workflows
 from lab.platform.contracts import PROCESSES, Decision, continuation_of
 from lab.substrate import answer_appliers, approvals
 from lab.substrate import fabric_curator  # noqa: F401 — registers the fabric's appliers on import
@@ -91,6 +91,10 @@ def _continue(fields: dict, *, client) -> str | None:
         # decision into the design run without a listing nothing exposes.
         client.hset(f"approvals:req:{rid}", mapping={"released_request_id": started,
                                                      "released_process": cont.process})
+        # And the PARENT RUN learns where its work went, so one page can follow the handover.
+        # Without this a released run is invisible from the only surface a person has: the page
+        # they are watching stops, and an approval they just gave looks like it did nothing.
+        link_runs(state.get("trace_id", ""), started, cont.process, client=client)
         client.hdel(f"approvals:req:{rid}", "continuation_error")
         client.srem(FAILED_KEY, rid)
         print(f"{rid} approved -> {cont.process} {started}"
@@ -99,6 +103,26 @@ def _continue(fields: dict, *, client) -> str | None:
     except Exception as e:                               # noqa: BLE001 — the stream must not wedge
         _record_failure(rid, e, client=client)
         return None
+
+
+def link_runs(parent_trace: str, child: str, process: str, *, client=None) -> None:
+    """Record on the PARENT run which run continued it — the link one page follows.
+
+    Written here because this is where both ends are known: the parent's trace from the approval
+    that paused it, the child's id from the submit that just returned.
+
+    BEST EFFORT, and the order matters. The continuation has already been released by the time
+    this runs, so a run log that cannot be written must not undo it: losing the run would be far
+    worse than losing the link to it. An approval with no trace links nothing rather than writing
+    to an empty key, which would create a run-log row for a run that does not exist.
+    """
+    if not parent_trace or not child:
+        return
+    try:
+        runlog.update(parent_trace, continued_as=child, continued_process=process, client=client)
+    except Exception as e:                               # noqa: BLE001 — see the docstring
+        print(f"continuation link not written for {parent_trace}: {type(e).__name__}: {e}",
+              flush=True)
 
 
 def _record_failure(request_id: str, error: Exception, *, client) -> None:

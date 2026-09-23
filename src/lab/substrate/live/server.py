@@ -31,7 +31,12 @@ from starlette.routing import Route
 
 from lab.platform import config, runlog
 
-__all__ = ["build", "frame", "main", "page", "settled", "token", "POLL_S", "MAX_TICKS"]
+__all__ = ["build", "chain", "frame", "main", "page", "settled", "token", "MAX_CHAIN", "POLL_S",
+           "MAX_TICKS"]
+
+#: How far a handover chain is followed. A ceiling rather than a trust: two runs naming each other
+#: would otherwise spin, and a watcher page that never returns is worse than one that stops early.
+MAX_CHAIN = 8
 
 #: How often the stream re-reads the run, and how long it will hold one connection. The ceiling
 #: stops a forgotten tab pinning a connection for ever; an `EventSource` reconnects by itself, so a
@@ -80,7 +85,39 @@ def frame(h) -> dict:
         "elapsed": h.get("elapsed"),
         "error": str(h.get("error") or ""),
         "steps": _with_links(_steps(h.get("nodes") or ()), config.REVIEW_APP_URL or ""),
+        # Where the work went next, if it went anywhere. Data, so the page follows it without
+        # knowing what any process is.
+        **({"continued_as": str(h["continued_as"])} if h.get("continued_as") else {}),
+        **({"continued_process": str(h["continued_process"])} if h.get("continued_process") else {}),
+        # What this run is WAITING ON. A paused run is the commonest place a person is stuck, and
+        # the id was already on the record — it only had to be offered as somewhere to go.
+        **({"approval": _approval_link(str(h["approval_id"]))} if h.get("approval_id") else {}),
     }
+
+
+def _approval_link(approval_id: str) -> dict:
+    """The approval, and where a person decides it. The review app holds the decision surface and
+    authenticates whoever opens it; this page only points."""
+    base = config.REVIEW_APP_URL or ""
+    return {"id": approval_id,
+            "url": (f"{base.rstrip('/')}/?"
+                    + urllib.parse.urlencode({"mode": "Review", "approval": approval_id})
+                    if base else "")}
+
+
+def resolve(run_id: str, *, client=None) -> str:
+    """A trace id, given either a trace or a workflow REQUEST id.
+
+    A just-released run has a request id and no trace yet — which is exactly when somebody follows
+    the link out of an approval they have just given. Resolving here makes that link work now
+    rather than once the consumer happens to start; an id that resolves to nothing is returned
+    unchanged, so the page says "no such run" instead of this raising.
+    """
+    if runlog.get(run_id, client=client):
+        return run_id
+    from lab.platform import workflows
+    trace = str((workflows.status(run_id, client=client) or {}).get("trace_id") or "")
+    return trace or run_id
 
 
 def _with_links(steps: list, review_app: str) -> list:
@@ -94,6 +131,53 @@ def _with_links(steps: list, review_app: str) -> list:
         for art in step.get("artifacts") or ():
             art["url"] = download_url(review_app, art.get("ref", ""))
     return steps
+
+
+def chain(run_id: str, *, client=None) -> list:
+    """Every run in this handover chain, oldest first — what ONE page shows.
+
+    A run that ends by releasing another is the normal shape here: screening raises an approval,
+    the approval releases design. Watched one run at a time, an approval a person has just given
+    looks like it did nothing, because the work moved to a trace they were never given (measured
+    23 Sep 2026 — the question was "why is it not progressing?", and it was).
+
+    The links are DATA (`continued_as` / `continued_from`, written where the handover happens), so
+    this follows them and renders `process` as it finds it. Nothing here knows what a screening or
+    a design IS, which is what keeps a new process from being a change to this file.
+
+    A continuation that has not STARTED yet still appears, as `queued`: the gap between an approval
+    releasing a run and a consumer picking it up is exactly when somebody is staring at the page.
+    """
+    seen, back = [], run_id
+    for _ in range(MAX_CHAIN):                  # walk back to the head of the chain first
+        h = runlog.get(back, client=client) or {}
+        nxt = str(h.get("continued_from") or "")
+        if not nxt or nxt in seen:
+            break
+        seen.append(back)
+        back = nxt
+
+    out, current = [], back
+    while current and len(out) < MAX_CHAIN:
+        h = runlog.get(current, client=client) or {}
+        if h:
+            out.append(frame(h))
+        else:
+            # Released but not yet picked up: the run log has nothing, so the link itself is all
+            # there is to say — and saying it is the point.
+            out.append({"run": current, "process": _released_process(out), "status": "queued",
+                        "subject": "", "elapsed": None, "error": "", "steps": []})
+            break
+        nxt = str(h.get("continued_as") or "")
+        if not nxt or any(c["run"] == nxt for c in out):
+            break
+        current = nxt
+    return out
+
+
+def _released_process(so_far: list) -> str:
+    """What the run that released this one said it was releasing."""
+    return str(so_far[-1].get("continued_process") or "") if so_far else ""
 
 
 #: A step's own transitions, collapsed. `fail` is terminal: a later `start` must not overwrite the
@@ -181,6 +265,15 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>run %(run)s</title>
  ol{list-style:none;margin:0;padding:0}
  li{border-bottom:1px solid var(--line)}
  .id{color:var(--dim);font-size:.75rem;font-family:ui-monospace,SFMono-Regular,monospace}
+ #chain{display:flex;flex-wrap:wrap;gap:.6rem;margin:.4rem 0 .6rem;font-size:.8rem}
+ a.cta{display:inline-block;margin:.2rem 0 1rem;padding:.5rem .8rem;border:1px solid var(--run);
+       border-radius:6px;color:var(--run);text-decoration:none;font-size:.85rem}
+ a.cta:hover{background:var(--run);color:var(--bg)}
+ .hop{color:var(--dim);text-decoration:none}
+ .hop.here{color:var(--fg);font-weight:600}
+ .hop.running{color:var(--run)} .hop.failed{color:var(--bad)}
+ .runhead{list-style:none;margin:1.2rem 0 .2rem;font-size:.78rem;letter-spacing:.06em;
+          text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line)}
  .items a{color:inherit;text-decoration:underline;text-underline-offset:2px}
  .items a:hover{text-decoration-thickness:2px}
  summary{display:flex;gap:.75rem;align-items:baseline;padding:.55rem 0;cursor:pointer;
@@ -205,6 +298,8 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>run %(run)s</title>
  <h1 id="subject">…</h1>
  <div class="meta"><span id="status" class="pill">…</span> <span id="elapsed"></span>
    · <code>%(run)s</code></div>
+ <div id="chain"></div>
+ <div id="cta"></div>
  <ol id="steps"></ol>
  <p id="note" class="idle">waiting for the first event…</p>
 </main>
@@ -263,20 +358,60 @@ function detail(s) {
   return dl;
 }
 
-function render(d) {
-  $("subject").textContent = d.subject || RUN;
+function render(payload) {
+  // The whole handover chain: this run, and whatever its approval released after it. One page,
+  // because a run that hands over is the normal shape and watching one at a time hides it.
+  const runs = payload.runs || [payload];
+  const d = runs.find(r => r.run === RUN) || runs[runs.length - 1];
+  $("subject").textContent = d.subject || runs[0].subject || RUN;
   const st = $("status");
   st.textContent = d.status || "";
   st.className = "pill " + (d.status || "");
   $("elapsed").textContent = secs(d.elapsed);
   $("note").textContent = d.error || "";
   $("note").className = d.error ? "err" : "idle";
+
+  // What to do next: the approval this run is waiting on. Shown only while nothing has followed
+  // it — once a continuation exists the chain strip is the better answer.
+  const last = runs[runs.length - 1];
+  const cta = $("cta");
+  if (last.approval && last.approval.url && !last.continued_as) {
+    cta.innerHTML = "";
+    const a = document.createElement("a");
+    a.href = last.approval.url; a.target = "_blank"; a.rel = "noopener"; a.className = "cta";
+    a.textContent = "This run is waiting on a decision — open the approval →";
+    cta.append(a);
+  } else { cta.replaceChildren(); }
+
+  // The strip: every run in the chain, the one being viewed marked, the others a link.
+  const strip = $("chain");
+  strip.replaceChildren(...(runs.length > 1 ? runs.map((r, i) => {
+    const span = document.createElement(r.run === RUN ? "span" : "a");
+    if (r.run !== RUN) span.href = "/run/" + encodeURIComponent(r.run) + location.search;
+    span.className = "hop " + (r.run === RUN ? "here " : "") + (r.status || "");
+    span.textContent = (i ? "→ " : "") + (r.process || r.run) + " · " + (r.status || "");
+    return span;
+  }) : []));
   // Rebuilt from the frame rather than patched step by step: the list is short, and a diff is a
   // second description of the same state that can disagree with the first.
   // Which rows the reader had OPEN, kept across re-renders: a frame arrives every time the run
   // moves, and a details element that closed itself on each one would be unusable.
   const open = new Set([...document.querySelectorAll("li details[open]")].map(d => d.dataset.step));
-  $("steps").replaceChildren(...(d.steps || []).map(s => {
+  const items = [];
+  for (const r of runs) {
+    if (runs.length > 1) {
+      const head = document.createElement("li");
+      head.className = "runhead";
+      head.textContent = (r.process || r.run) + " · " + (r.status || "");
+      items.push(head);
+    }
+    items.push(...(r.steps || []).map(s => step_li(s, r, open)));
+  }
+  $("steps").replaceChildren(...items);
+}
+
+function step_li(s, r, open) {
+  return ((s) => {
     const li = document.createElement("li");
     const mark = s.status === "done" ? "\u2713" : s.status === "fail" ? "\u2717" : "\u2022";
     li.innerHTML =
@@ -284,8 +419,8 @@ function render(d) {
       '<span class="id"></span><span class="s"></span></summary>' +
       '<div class="detail"></div></details>';
     const det = li.querySelector("details");
-    det.dataset.step = s.name;
-    if (open.has(s.name)) det.open = true;
+    det.dataset.step = r.run + "/" + s.name;   // unique per RUN: two runs share step names
+    if (open.has(det.dataset.step)) det.open = true;
     li.querySelector(".mark").textContent = mark;
     // The declaration's label leads; the node id stays beside it, smaller, because it is what a
     // log line and a trace span are keyed by. Neither is composed here — a step with no declared
@@ -296,7 +431,7 @@ function render(d) {
     li.querySelector(".s").textContent = secs(s.elapsed);
     li.querySelector(".detail").replaceChildren(detail(s));
     return li;
-  }));
+  })(s);
 }
 
 // The browser reconnects on its own when the server closes the stream, which is how a watch
@@ -352,8 +487,10 @@ def _events(container):
     async def events(request: Request) -> Response:
         if (denied := _gate(request)) is not None:
             return denied
-        run_id = request.path_params["run_id"]
         redis = container.redis()
+        # Either a trace or a workflow request id: a link out of a just-given approval carries the
+        # latter, and refusing it there would be refusing the one link somebody actually follows.
+        run_id = resolve(request.path_params["run_id"], client=redis)
 
         async def stream():
             last = None
@@ -362,8 +499,12 @@ def _events(container):
                 now = token(h)
                 if now != last:
                     last = now
-                    yield f"data: {json.dumps(frame(h))}\n\n"
-                if settled(h):
+                    yield (f"data: {json.dumps({'runs': chain(run_id, client=redis)})}"
+                           "\n\n")
+                # Settled means the CHAIN is settled. A parent that finished by handing over is
+                # not the end of the work, and closing the stream there is what made the page look
+                # dead at the exact moment the next run started.
+                if settled(h) and not h.get("continued_as"):
                     return
                 if await request.is_disconnected():
                     return

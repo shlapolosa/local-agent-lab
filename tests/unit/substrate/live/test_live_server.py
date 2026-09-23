@@ -117,8 +117,10 @@ def test_the_stream_sends_a_frame_and_closes_when_the_run_settles(redis, monkeyp
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/event-stream")
     frames = [json.loads(l[6:]) for l in r.text.splitlines() if l.startswith("data: ")]
-    assert frames and frames[-1]["status"] == "done"
-    assert frames[-1]["steps"][0]["name"] == "step_3"
+    # A frame is the CHAIN now — a run that hands over is the normal shape here, and watching one
+    # run at a time is what made an approval look like it had done nothing.
+    assert frames and frames[-1]["runs"][-1]["status"] == "done"
+    assert frames[-1]["runs"][-1]["steps"][0]["name"] == "step_3"
 
 
 def test_nothing_may_buffer_the_stream(redis, monkeypatch):

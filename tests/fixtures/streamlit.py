@@ -152,6 +152,13 @@ class FakeApprovals:
     def ack(self, channel, eid):
         self.acked.append((channel, eid))
 
+    #: approval id -> (released request id, process), as `continuations` records after a release.
+    released: dict = {}
+
+    def status(self, request_id, **_):
+        rid, process = self.released.get(request_id, ("", ""))
+        return {"released_request_id": rid, "released_process": process} if rid else {}
+
     def pending(self):
         return list(self.items)
 
