@@ -58,7 +58,28 @@ ANNOTATION: dict[InputKind, Any] = {InputKind.REF: str, InputKind.REF_LIST: list
                                     InputKind.CHOICE: str,
                                     # the fabric's kinds: a pointer is a small object, the rest are opaque ids
                                     InputKind.POINTER: dict[str, str], InputKind.EVENT: str,
-                                    InputKind.CONTEXT: str, InputKind.ARTIFACT: str, InputKind.APPROVAL: str}
+                                    InputKind.CONTEXT: str, InputKind.ARTIFACT: str, InputKind.APPROVAL: str,
+                                    # NUMBER is a figure, not prose for a formula to parse. TABLE's
+                                    # annotation is BUILT per field from its declared columns —
+                                    # `list[dict]` would teach an agent no more than the opaque bag
+                                    # it replaces — so the entry here is only the fallback shape.
+                                    InputKind.NUMBER: float, InputKind.TABLE: list[dict]}
+
+
+def _row_model(field) -> Any:
+    """A pydantic model for ONE row of a TABLE, built from the field's declared columns.
+
+    So the generated JSON schema carries named, typed columns with the required ones marked, and an
+    agent can fill the table instead of guessing its shape — the same reason a CHOICE becomes a
+    `Literal` rather than a bare string.
+    """
+    import pydantic
+    fields: dict[str, Any] = {}
+    for column in field.columns:
+        ann = (Literal[tuple(column.choices)] if column.kind is InputKind.CHOICE
+               else ANNOTATION[column.kind])
+        fields[column.name] = ((ann, ...) if column.required else (ann | None, None))
+    return pydantic.create_model(f"{field.name}_row", **fields)
 
 
 def annotation_of(field) -> Any:
@@ -69,7 +90,12 @@ def annotation_of(field) -> Any:
     can SEE what it may pass. Declaring it as a bare string would leave the closed set discoverable
     only by guessing wrong and reading the error — which is how a lane gets picked at random.
     """
-    ann = Literal[tuple(field.choices)] if field.kind is InputKind.CHOICE else ANNOTATION[field.kind]
+    if field.kind is InputKind.TABLE:
+        ann: Any = list[_row_model(field)]          # type: ignore[valid-type]
+    elif field.kind is InputKind.CHOICE:
+        ann = Literal[tuple(field.choices)]
+    else:
+        ann = ANNOTATION[field.kind]
     return ann if field.required or field.kind is InputKind.REF_LIST else ann | None
 
 

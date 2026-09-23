@@ -365,6 +365,9 @@ def build_workflow(cfg):
                 "submitter": state.get("submitter", ""),
                 "attachments": list(state.get("attachments") or ()),
                 "intake": dict(state.get("intake") or {}),
+                # The typed effort table travels with the record, because the design half reads
+                # this record and never the original submit — and driver 1 is computed there.
+                "effort": list(state.get("effort") or ()),
                 "conversation": state.get("conversation", ""),
                 "prose": prose,
             }

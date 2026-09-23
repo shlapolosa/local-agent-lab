@@ -396,6 +396,21 @@ async def _bind_obligations(d: Derivation) -> None:
                              "complete": binding.complete})
 
 
+def effort_rows(state: Mapping[str, Any], evidence: Mapping[str, Any]) -> list:
+    """The effort table driver 1 is computed from: what a person CAPTURED, else what step 24 inferred.
+
+    Not because the agent is bad at reading an effort table, but because one of these is evidence
+    and the other is a reconstruction — and step 24 is not even shown the intake, so its prompt
+    tells it to cite "the intake field it came from", a source it structurally cannot see.
+
+    A captured table is typed at the door (`InputKind.TABLE`), so the rows arrive as numbers rather
+    than as prose for the formula to parse. An empty capture is not a capture: the agent's answer
+    stands, and a run with neither still reports `requires_input` by name.
+    """
+    captured = list(state.get("effort") or ())
+    return captured or list((evidence or {}).get("effort") or ())
+
+
 def design_version(derived: Mapping[str, Any]) -> str:
     """What was costed, as an identity a later reader can compare.
 
@@ -450,7 +465,8 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
                       "cost it has to repay from step 23")
         return
     d.record("benefit", await gateway.call(cfg, ValuationTools.benefit, {
-        "effort": list(evidence.get("effort") or ()),
+        # What a person captured at intake beats what step 24 reconstructed from prose.
+        "effort": effort_rows(state, evidence),
         "quality_baseline": dict(evidence.get("quality_baseline") or {}),
         "sensitivity_flags": list(evidence.get("sensitivity_flags") or ()),
         "cited_avoided_cost": evidence.get("cited_avoided_cost"),
@@ -571,6 +587,7 @@ def build_workflow(cfg):
                 "criticality": _criticality(state)})
             state = state | {"screening": screening, "readiness": verdict["verdict"],
                              "intake": dict(record.get("intake") or {}),
+                             "effort": list(record.get("effort") or ()),
                              "pin_id": pinned["pin_id"],
                              "pinned_versions": pinned["versions"],
                              "version_drift": pinned["drift"],

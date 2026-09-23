@@ -79,3 +79,33 @@ def test_a_field_with_no_questionnaire_says_nothing_about_one():
     spec = next(p for p in json.loads(body)["processes"] if p["name"] == "use_case_screening")
     submitter = next(f for f in spec["inputs"] if f["name"] == "submitter")
     assert "questions" not in submitter
+
+
+# ------------------------------------------------- the generated schema teaches the new kinds
+
+def test_a_table_input_reaches_an_agent_as_a_real_row_schema():
+    """`dict[str, dict[str, str]]` taught an agent nothing. A TABLE must arrive as an array of
+    objects with NAMED, TYPED columns and its required ones marked, or the agent is back to
+    guessing — which is the whole reason the kind exists."""
+    from lab.platform.contracts import Column, InputField, InputKind
+    from lab.substrate.mcp.workflow.server import annotation_of
+    field = InputField("effort", InputKind.TABLE, "who does this today", required=False,
+                       columns=(Column("role", InputKind.CHOICE, required=True,
+                                       choices=("mid", "senior")),
+                                Column("headcount", InputKind.NUMBER, required=True),
+                                Column("notes", InputKind.CHOICE, choices=("a", "b"))))
+    import pydantic
+    model = pydantic.create_model("T", effort=(annotation_of(field), None))
+    schema = model.model_json_schema()
+    rows = schema["$defs"]["effort_row"] if "$defs" in schema else None
+    assert rows, schema
+    assert set(rows["properties"]) == {"role", "headcount", "notes"}
+    assert rows["required"] == ["role", "headcount"]
+    assert rows["properties"]["headcount"]["type"] == "number"
+    assert rows["properties"]["role"]["enum"] == ["mid", "senior"]
+
+
+def test_a_number_input_is_a_number_not_a_string():
+    from lab.platform.contracts import InputField, InputKind
+    from lab.substrate.mcp.workflow.server import ANNOTATION
+    assert ANNOTATION[InputKind.NUMBER] is float
