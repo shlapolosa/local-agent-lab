@@ -140,6 +140,16 @@ def test_the_live_view_holds_the_gate_and_redis_and_nothing_else():
         assert forbidden not in env, forbidden
 
 
+def test_the_live_view_knows_where_a_person_DECIDES():
+    """The live view's whole point is the handover: "this run is waiting on a decision — open the
+    approval", and a download link per artifact. Both are built from `config.REVIEW_APP_URL`
+    (`live/server.py` `_approval_link` / `_with_links`), which falls back to localhost when unset —
+    so without this key the cloud rendered `http://127.0.0.1:8501` and the one button the experience
+    exists for went nowhere. Measured live on run 8b8e4a21 (23 Sep 2026). It is a URL a person
+    clicks, not a credential: the channels role already receives it for exactly this reason."""
+    assert "REVIEW_APP_URL" in set(R.ROLE_ENV["live"])
+
+
 def test_the_live_view_is_public_because_a_person_opens_it():
     assert R.SUBSTRATE["live"]["port"] == 10000
 

@@ -436,7 +436,13 @@ ROLE_ENV = {
     # Watching is not reviewing: this holds the gate and Redis, and no store, model or EA
     # credential whatsoever — the narrowest slice any public service here gets.
     "live": ["REVIEW_APP_PASSWORD", "REDIS_URL", "BIND_HOST", "LIVE_PORT",
-             "OTEL_EXPORTER_OTLP_ENDPOINT"],
+             "OTEL_EXPORTER_OTLP_ENDPOINT",
+             # Where a person DECIDES. The live view builds the "open the approval" CTA and every
+             # artifact download link from it (live/server.py `_approval_link` / `_with_links`);
+             # unset, config falls back to localhost and the cloud served `http://127.0.0.1:8501`
+             # — the one button the handover exists for, pointing at the reader's own machine.
+             # A URL a person clicks, not a credential: the channel roles hold it for this reason.
+             "REVIEW_APP_URL"],
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the FALLBACK
         "LIVE_APP_URL",                            # where to send a reader who wants to WATCH a run
