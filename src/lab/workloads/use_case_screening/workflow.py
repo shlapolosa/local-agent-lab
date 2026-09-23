@@ -34,7 +34,7 @@ from lab.workloads.usecase import coverage
 from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
 from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
-from lab.workloads.usecase import modeltrace, modelling
+from lab.workloads.usecase import intake, modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
@@ -112,7 +112,35 @@ MAX_CORPUS_BYTES = 200_000
 #: What this run pins: the technology capability map its coverage match reads, and the domains that
 #: give it its top level. Both are corpus artifacts, so which map a run matched against is part of
 #: the record and a new version is a publish, never a deploy.
-REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, DOMAIN_ARTIFACT)
+#: The published intake questions. Pinned because this run READS them — to say which answered
+#: labels reach no step — and a pin carries exactly what its run reads and nothing else.
+INTAKE_ARTIFACT = "intake-field-specs"
+
+REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, DOMAIN_ARTIFACT, INTAKE_ARTIFACT)
+
+
+async def intake_problems(cfg, pin_id: str, answered) -> list[dict]:
+    """Gap flags for intake labels no published field matches — reported, never refused.
+
+    `_mapping` validates the SHAPE of an intake and cannot validate its LABELS: the published list
+    lives in the corpus and the contract does no I/O. So a paraphrased question was accepted,
+    stored, carried into the business case and read by nothing, with nothing saying so — while the
+    CSV door named every unmatched field. Same mistake, loud in one door and silent in the other.
+
+    Best effort in both directions: a corpus that cannot be read reports NOTHING rather than
+    reporting every label as unmatched, which would bury the real ones and blame a submitter for
+    an artifact they cannot reach.
+    """
+    if not answered:
+        return []
+    try:
+        rows = await reference.records(cfg, pin_id, INTAKE_ARTIFACT, record_type="intake-field",
+                                       field="intake")
+    except Exception as exc:                    # noqa: BLE001 — a check that cannot run says so
+        print(f"intake labels not checked: {type(exc).__name__}: {exc}", flush=True)
+        return []
+    published = [str(r.get("Field") or "").strip() for r in rows or ()]
+    return intake.gap_flags(intake.unmatched(answered, published), published)
 
 def required_stores() -> tuple[str, ...]:
     """The relevance stores this run must be granted — none, and it REFUSES rather than returning
@@ -387,6 +415,9 @@ def build_workflow(cfg):
         steps that needed it stay pending."""
         with _node(cfg, "corpora"):
             pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS)
+            # Which answered labels reach no step — the one check the contract cannot make.
+            state = state | {"intake_problems": await intake_problems(
+                cfg, pinned["pin_id"], state.get("intake") or {})}
             fetched: dict = {}
             missing: dict = dict(UNAVAILABLE)
             # The map, from the corpus under the pin. Not size-checked here: a matcher decides
@@ -498,6 +529,9 @@ def build_workflow(cfg):
                 "attachments": len(state.get("attachments") or ()),
                 "intake_groups": len(state.get("intake") or {}),
                 **summary_counts(state.get("screening") or {}),
+                # Named at the gate, because the architect is the first person who can act on a
+                # label that reached no step.
+                "intake_unmatched": len(state.get("intake_problems") or ()),
                 "criticality_band": band,
             }
             # What approving RELEASES. Carried on the approval rather than as a static edge, because
