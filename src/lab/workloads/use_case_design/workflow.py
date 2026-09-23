@@ -229,6 +229,37 @@ async def _agent_step(cfg, number: str, d: Derivation) -> None:
     await modelling.grow(cfg, d, step.key)
 
 
+def determines_from(graph: Mapping[str, Any]) -> dict:
+    """`{step id: the steps it determines}` — DERIVED from step 10's data-flow edges.
+
+    Influence walks forward to every effect a step determines, and until 23 Sep 2026 nothing ever
+    told the domain what a step determined: the facet schema had no such field, so `influence_of`
+    returned 0 for every step of every run and G13, G18 and G19 could not fire.
+
+    Derived rather than asked. Step 10 already produces the edges and `_workflow_graph` already
+    gates them — every endpoint is a declared node — so asking step 17 to restate them would add a
+    second opinion that can disagree with the first, which is the defect step 15 and step 17
+    already have over determinism. An edge to a node nobody declared is not a determination: it is
+    the gate's business, and silently honouring it here would put a phantom step in the chain.
+    """
+    # The screening record sometimes carries the graph as SHAPE — `nodes: 6` — rather than as a
+    # list. That is the evidence form, and raising on it would kill a design run over a summary.
+    # A count names no edges, so a count derives nothing.
+    raw_nodes = (graph or {}).get("nodes")
+    raw_edges = (graph or {}).get("edges")
+    if not isinstance(raw_nodes, (list, tuple)) or not isinstance(raw_edges, (list, tuple)):
+        return {}
+    nodes = {str(n.get("id", "")).strip() for n in raw_nodes if isinstance(n, Mapping)}
+    out: dict[str, list] = {}
+    for edge in raw_edges:
+        if not isinstance(edge, Mapping):
+            continue
+        src, dst = str(edge.get("from", "")).strip(), str(edge.get("to", "")).strip()
+        if src in nodes and dst in nodes and dst not in out.get(src, ()):
+            out.setdefault(src, []).append(dst)
+    return {k: tuple(v) for k, v in out.items()}
+
+
 def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
     """The facet vectors as `decision-mcp` takes them.
 
@@ -241,7 +272,8 @@ def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
     tool"), the domain refuses to read an unanswered one as false, and a workflow-wide default
     would answer for every step at once — which is the same as not answering at all.
     """
-    steps = [_domain_step(v) for v in (derived.get("facet_vectors") or {}).get("steps") or []
+    determines = determines_from((state.get("screening") or {}).get("workflow_graph") or {})
+    steps = [_domain_step(v, determines) for v in (derived.get("facet_vectors") or {}).get("steps") or []
              if str(v.get("id", "")).strip()]
     return {"steps": steps, "criticality": _criticality(state)}
 
@@ -255,14 +287,36 @@ _STEP_FIELDS = ("id", "activity", "determinism", "effect", "reversibility", "bla
                 "determines_externally", "gate_permits", "predicate_inputs", "conditions")
 
 
-def _domain_step(vector: Mapping[str, Any]) -> dict:
+#: Facets an override may not touch: `id` and `activity` are identity, `conditions` are answers
+#: rather than a facet, and `determines` is DERIVED from the gated graph — an override of it would
+#: be an agent editing the data-flow.
+_NOT_OVERRIDABLE = ("id", "activity", "conditions", "determines")
+
+
+def _domain_step(vector: Mapping[str, Any], determines: Mapping[str, tuple] = ()) -> dict:
     """One facet vector as the domain reads it: an override is APPLIED to its facet (that is what
-    an override is — the justified value replaces the default), and only the domain's fields go."""
+    an override is — the justified value replaces the default), and only the domain's fields go.
+
+    `determines` arrives from the GRAPH, not from the vector — see `determines_from`.
+
+    An override naming a facet the domain does not recognise is REFUSED, not dropped. It used to be
+    skipped in silence while its justification stayed in the recorded output, so a reader saw a
+    written argument for a value the derivation never used. The schema now closes the set, and this
+    raises if one gets past it, because the two ways to be wrong here are not equal: refusing is
+    visible and a silent drop is not.
+    """
     step = {k: vector[k] for k in _STEP_FIELDS if k in vector}
+    if determines and (mine := dict(determines).get(str(vector.get("id", "")).strip())):
+        step["determines"] = mine
     for override in vector.get("overrides") or []:
         facet, to = str(override.get("facet", "")).strip(), override.get("to")
-        if facet in _STEP_FIELDS and facet not in ("id", "activity", "conditions") and to not in (None, ""):
-            step[facet] = to
+        if to in (None, "") or facet in _NOT_OVERRIDABLE:
+            continue
+        if facet not in _STEP_FIELDS:
+            raise ValueError(
+                f"facet vector {vector.get('id')!r}: override names {facet!r}, which is not a "
+                f"facet — the justified value would be discarded and its justification kept")
+        step[facet] = to
     return step
 
 
@@ -402,7 +456,11 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
         "cited_avoided_cost": evidence.get("cited_avoided_cost"),
         "citation": evidence.get("citation") or "",
         "data_fully_digital": bool(evidence.get("data_fully_digital", True)),
-        "build_cost": float((cost_model.get("build") or {}).get("amount") or 0.0),
+        # None, not 0.0: an uncaptured build cost must stay UNKNOWN so `authority.route`
+        # escalates to the top band instead of routing a real spend under a small one.
+        "build_cost": (None if (cost_model.get("build") or {}).get("amount") is None
+                       else float((cost_model["build"] or {})["amount"])),
+        "capex": float(cost_model.get("capex") or 0.0),
         "monthly_run_cost": float((cost_model.get("monthly") or {}).get("expected") or 0.0),
         # Everything still open on either side reaches the verdict as a gate condition. A
         # recommendation that did not carry them would read as settled.

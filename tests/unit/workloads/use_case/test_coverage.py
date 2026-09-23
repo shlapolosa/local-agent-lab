@@ -154,7 +154,14 @@ def test_the_vector_matcher_unions_the_hits_and_runs_one_pass_over_them():
     search = _search_of({"Triage referral": [hit("a", "X > A"), hit("b", "X > B")],
                          "Book slot": [hit("b", "X > B"), hit("c", "Y > C")]})
     d = _Working(elements={"behavioural": [{"name": "Triage referral"}, {"name": "Book slot"}]},
-                 answer={"matched": [{"function": "Triage referral", "capability_id": "a"}]})
+                 # A REAL step-5 answer: the voted object is gated like a single pass, so a
+                 # double that could never pass the gate cannot exercise the path.
+                 answer={"matched": [{"function": "Triage referral", "capability_id": "a",
+                                      "confidence": "lookup"}],
+                         "functions_without_capability": [],
+                         "capabilities_without_function": [],
+                         "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                                      "source": "the published map carries no heat-map position"}})
     out = asyncio.run(coverage.vector({}, d, [], search=search))
     assert [q for q, _ in search.calls] == ["Triage referral", "Book slot"]
     assert all(k == coverage.VECTOR_HITS for _, k in search.calls)

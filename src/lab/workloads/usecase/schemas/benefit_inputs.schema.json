@@ -6,46 +6,110 @@
       "items": {
         "type": "object",
         "properties": {
-          "role": {"type": "string", "minLength": 2},
-          "headcount": {"type": "number", "minimum": 0},
-          "frequency_per_week": {"type": "number", "minimum": 0},
-          "current_minutes": {"type": "number", "minimum": 0},
-          "expected_minutes": {"type": "number", "minimum": 0},
-          "source": {"type": "string", "minLength": 3}
+          "role": {
+            "type": "string",
+            "minLength": 2
+          },
+          "headcount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "frequency_per_week": {
+            "type": "number",
+            "minimum": 0
+          },
+          "current_minutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "expected_minutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "minLength": 3
+          }
         },
-        "required": ["role", "headcount", "frequency_per_week", "current_minutes",
-                     "expected_minutes", "source"],
+        "required": [
+          "role",
+          "headcount",
+          "frequency_per_week",
+          "current_minutes",
+          "expected_minutes",
+          "source"
+        ],
         "additionalProperties": false
       }
     },
     "quality_baseline": {
       "type": "object",
       "properties": {
-        "volume": {"type": "number", "minimum": 0},
-        "error_rate": {"type": "number", "minimum": 0, "maximum": 1},
-        "expected_reduction": {"type": "number", "minimum": 0, "maximum": 1},
-        "error_class": {"type": "string"},
-        "source": {"type": "string"}
+        "current_volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The CURRENT annual volume the error rate applies to. Named `current_volume` because it pairs with `expected_reduction` and says which volume is meant \u2014 and because it was `volume` here while the formula read `current_volume`, so driver 2 was unaskable and every case was pinned at proceed-with-conditions."
+        },
+        "error_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "expected_reduction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "error_class": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
-    "sensitivity_flags": {"type": "array", "items": {"type": "string"}},
-    "cited_avoided_cost": {"type": ["number", "null"], "minimum": 0},
-    "citation": {"type": "string"},
-    "data_fully_digital": {"type": "boolean"},
+    "sensitivity_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cited_avoided_cost": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "citation": {
+      "type": "string"
+    },
+    "data_fully_digital": {
+      "type": "boolean"
+    },
     "excluded_value": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Value that is real but is NOT one of the three admitted drivers."
     },
     "unsupplied": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "What a driver needs and nobody gave. Not the same as worth nothing."
     }
   },
-  "required": ["effort", "sensitivity_flags", "data_fully_digital", "excluded_value",
-               "unsupplied"],
+  "required": [
+    "effort",
+    "sensitivity_flags",
+    "data_fully_digital",
+    "excluded_value",
+    "unsupplied"
+  ],
   "additionalProperties": false,
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "benefit_inputs"

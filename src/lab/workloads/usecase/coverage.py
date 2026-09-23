@@ -320,18 +320,38 @@ def vote(samples: list[Mapping[str, Any]], *, threshold: int) -> tuple[dict, lis
         row = first[key] | {"votes": seen, "of": n}
         (agreed if seen >= threshold else excluded).append(row)
     out: dict = dict(samples[0]) | {"matched": agreed}
+    # A function whose matches ALL lost the vote is an UNCOVERED function, not an absence. Three
+    # samples matching it to three different capabilities give three pairs at one vote each, all
+    # excluded — and no sample ever called it uncovered, so it appeared in neither list: not a
+    # match, not a gap, the coverage check silently not done for it. Downstream that reads as
+    # `capability_matched: False` rather than None, and step 16 rejects a use case nobody assessed.
+    kept = {str(row.get("function") or "") for row in agreed}
+    lost = [f for f in dict.fromkeys(str(row.get("function") or "") for row in excluded)
+            if f and f not in kept]
     for field_name in _VOTED_LISTS:
         counted: dict[str, int] = {}
         for s in samples:
             for value in (s or {}).get(field_name) or []:
                 counted[str(value)] = counted.get(str(value), 0) + 1
         out[field_name] = [v for v, seen in counted.items() if seen >= threshold]
+    out["functions_without_capability"] = list(
+        dict.fromkeys(list(out.get("functions_without_capability") or []) + lost))
     return out, excluded
+
+
+def _gate_coverage(out: dict, candidates: list[dict]) -> list:
+    """Step 5's completeness rule, run over an answer — the default `_gate` of `_one_pass`.
+
+    Given the SAME context the rule sees on a single pass (`capabilities`), because it checks the
+    matched ids against exactly the rows the step was shown.
+    """
+    return list(step_for("5").complete(out, {"capabilities": candidates}) or [])
 
 
 async def _one_pass(cfg, d, candidates: list[dict], *, label: str,
                     deepest: int = DEEPEST_LEVEL, samples: int | None = None,
-                    threshold: int | None = None, _stamp=derivation.stamp_shape) -> dict:
+                    threshold: int | None = None, _stamp=derivation.stamp_shape,
+                    _gate=None) -> dict:
     """Step 5 over a candidate set that already carries its paths — what `leaves`, `vector` and
     `translate` share. A gate failure defers the step by name rather than losing the run.
 
@@ -372,6 +392,19 @@ async def _one_pass(cfg, d, candidates: list[dict], *, label: str,
     # The VOTE is the step's answer — the last sample is an arbitrary one of n, and recording it
     # would spend n times the tokens to keep exactly the variance this was bought to remove.
     agreed["matched"] = named(agreed.get("matched") or [], candidates)
+    # The vote is a NEW answer, so it is gated like one. The rule ran per SAMPLE and never on what
+    # was recorded, so the invariants it exists to enforce — a function is matched or named as a
+    # gap; at least one `lookup` or a gap flag — did not hold of the object the run carried.
+    problems = (_gate(agreed) if _gate else _gate_coverage(agreed, candidates))
+    if problems:
+        # Every SAMPLE recorded its own answer on the way through, so deferring without clearing
+        # would leave the LAST sample's answer sitting in the record under a step the run says did
+        # not complete — a defer that is not true is worse than no defer at all.
+        for store in (getattr(d, "derived", None), getattr(d, "available", None)):
+            if isinstance(store, dict):
+                store.pop("coverage_map", None)
+        d.defer("5", f"match capabilities: the agreed answer is incomplete — {problems[:3]}")
+        return {}
     d.record("coverage_map", agreed, "5")
     # Each SAMPLE stamped `step_5` as it ran, so the board holds an arbitrary one of n. Re-stamp
     # with what was agreed, or a person watching the run reads a different answer from the record.

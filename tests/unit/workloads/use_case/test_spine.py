@@ -953,7 +953,11 @@ def test_the_benefit_is_computed_against_the_cost_it_has_to_repay():
         run_spine(W, h, _design_inputs())
     sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.benefit][0]
     assert sent["monthly_run_cost"] == 250
-    assert sent["build_cost"] == 0.0
+    # None, not 0.0 — this fixture captures no build amount, and an uncaptured build cost must
+    # stay UNKNOWN. `authority.route` escalates on an unknown figure and ROUTES on a known one, so
+    # 0.0 here is what sent a real spend to a lower authority than the evidence supported.
+    assert sent["build_cost"] is None
+    assert sent["capex"] == 0.0
 
 
 def test_the_recommendation_is_step_24s_verdict_and_never_a_default():

@@ -14,9 +14,16 @@ def m(function, ident, label="L", confidence="lookup"):
             "confidence": confidence}
 
 
+#: A REAL step-5 answer — one that passes the completeness rule. The fixtures here used to be the
+#: three fields these tests happened to read, which is how the voted object went ungated for a
+#: session: a double that cannot pass the gate cannot show that the gate was never run.
 def sample(*matches, **rest):
-    return {"matched": list(matches), "functions_without_capability": [],
-            "capabilities_without_function": [], **rest}
+    out = {"matched": list(matches), "functions_without_capability": [],
+           "capabilities_without_function": [],
+           "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                        "source": "the published map carries no heat-map position"},
+           **rest}
+    return out
 
 
 def test_a_match_every_sample_made_is_kept_and_carries_its_full_vote():
@@ -112,8 +119,7 @@ class _Sampling:
     def record(self, key, out, number=""): self.derived[key] = out
 
 
-CANDS = [{"id": "c1", "label": "One", "path": "Z > One"},
-         {"id": "c2", "label": "Two", "path": "Z > Two"}]
+CANDS = [{"id": f"c{n}", "label": f"Cap {n}", "path": f"Z > Cap {n}"} for n in (1, 2, 3, 9)]
 
 
 def _run(d, **kw):
@@ -224,7 +230,7 @@ def test_a_match_is_given_the_label_of_the_candidate_its_id_was_copied_from():
     workload can do itself rather than a thing to ask a model for or to render around."""
     matched = [{"function": "f", "capability_id": "c1", "confidence": "lookup"}]
     named = coverage.named(matched, CANDS)
-    assert named[0]["capability_label"] == "One"
+    assert named[0]["capability_label"] == "Cap 1"
     assert named[0]["capability_id"] == "c1", "the id is untouched — it is what joins"
 
 
@@ -246,4 +252,51 @@ def test_an_id_no_candidate_carries_is_left_exactly_as_it_is():
 def test_the_vote_hands_back_matches_that_are_already_named():
     d = _Sampling([sample(m("f", "c1", label=""))])
     _run(d, samples=1)
-    assert d.derived["coverage_map"]["matched"][0]["capability_label"] == "One"
+    assert d.derived["coverage_map"]["matched"][0]["capability_label"] == "Cap 1"
+
+
+# ------------------------------------- the vote must not produce what a single pass could not
+
+def test_a_function_whose_matches_all_lose_becomes_an_uncovered_function():
+    """The defect this closes, and it was mine. Three samples that each match function F to a
+    DIFFERENT capability give three pairs at one vote, all below majority, all excluded — and no
+    sample ever listed F as uncovered. F then appeared in neither list: not a match, not a gap, and
+    the coverage check silently did not happen for it.
+
+    Downstream that is worse than it sounds: `capability_matched` reads False rather than None
+    (the step was not DEFAULTED), so step 16's reject rule fires on a use case nobody assessed."""
+    samples = [sample(m("f", "c1"), m("g", "c9")),
+               sample(m("f", "c2"), m("g", "c9")),
+               sample(m("f", "c3"), m("g", "c9"))]
+    agreed, excluded = coverage.vote(samples, threshold=2)
+    assert [x["capability_id"] for x in agreed["matched"]] == ["c9"]
+    assert "f" in agreed["functions_without_capability"], "f lost every match and must be a gap"
+    assert "g" not in agreed["functions_without_capability"]
+    assert {x["capability_id"] for x in excluded} == {"c1", "c2", "c3"}, "still adjudicable"
+
+
+def test_a_function_that_kept_a_match_is_not_also_reported_as_uncovered():
+    agreed, _ = coverage.vote([sample(m("f", "c1"), m("f", "c2")), sample(m("f", "c1")),
+                               sample(m("f", "c1"))], threshold=2)
+    assert agreed["functions_without_capability"] == []
+
+
+def test_the_voted_answer_is_gated_before_it_is_recorded():
+    """The gate ran per SAMPLE and never on the vote, so the invariants it exists to enforce did
+    not hold of what was recorded. A vote is a new answer and is gated like one."""
+    import asyncio
+    gated = []
+    d = _Sampling([sample(m("f", "c1")), sample(m("f", "c1")), sample(m("f", "c1"))])
+    asyncio.run(coverage._one_pass({}, d, CANDS, label="x", samples=3,
+                                   _gate=lambda out: gated.append(out) or []))
+    assert gated, "the voted object was never gated"
+    assert gated[-1]["matched"][0]["votes"] == 3
+
+
+def test_a_vote_that_fails_the_gate_defers_rather_than_recording_it():
+    import asyncio
+    d = _Sampling([sample(m("f", "c1"))])
+    out = asyncio.run(coverage._one_pass({}, d, CANDS, label="x", samples=1,
+                                         _gate=lambda out: ["coverage was not checked"]))
+    assert out == {} and "5" in d.pending
+    assert "coverage_map" not in d.derived, "an answer that failed its gate must not be recorded"
