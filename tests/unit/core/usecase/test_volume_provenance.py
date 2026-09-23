@@ -112,7 +112,7 @@ def test_the_shipped_sample_csv_yields_a_volume():
     import io
     from pathlib import Path
     sample = Path(__file__).resolve().parents[4] / \
-        "src/lab/substrate/review/samples/intake-agent.csv"
+        "src/lab/substrate/review/samples/1-full-journey.csv"
     rows = list(csv.DictReader(io.StringIO(sample.read_text())))
     intake = {f'{r["Group"]} · {r["Field"]}': {"value": r["Value"]}
               for r in rows if r.get("Value", "").strip()}

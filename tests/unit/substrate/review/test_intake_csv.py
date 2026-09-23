@@ -122,10 +122,15 @@ def test_the_filled_example_answers_every_published_field():
     from lab.substrate.review import app
 
     spec = seed.artifact("intake_field_specs")["fields"]
-    body = Path(app.SAMPLE_CSV).read_bytes()
-    answer, problems = intake_csv.parse(body, spec["rows"], spec["headers"])
-    assert problems == []
     col = {h: i for i, h in enumerate(spec["headers"])}
+    samples = dict(app.sample_csvs())
+    # EVERY example must parse cleanly — an example carrying a field the corpus no longer
+    # publishes is a second source of truth, and the person meets it as a warning.
+    for name, body in samples.items():
+        _, problems = intake_csv.parse(body, spec["rows"], spec["headers"])
+        assert problems == [], f"{name}: {problems}"
+    # and the FULL one answers every published field, which is what makes it the full journey.
+    answer, _ = intake_csv.parse(samples["1-full-journey"], spec["rows"], spec["headers"])
     assert set(answer) == {str(r[col["Field"]]) for r in spec["rows"]}
 
 
@@ -139,7 +144,11 @@ def test_every_yesno_answer_in_the_example_is_one_the_widget_can_hold():
 
     spec = seed.artifact("intake_field_specs")["fields"]
     col = {h: i for i, h in enumerate(spec["headers"])}
-    answer, _ = intake_csv.parse(Path(app.SAMPLE_CSV).read_bytes(), spec["rows"], spec["headers"])
-    for row in spec["rows"]:
-        if str(row[col["Type"]]) == "yesno":
-            assert answer[str(row[col["Field"]])]["value"] in ("yes", "no")
+    for name, body in app.sample_csvs():
+        answer, _ = intake_csv.parse(body, spec["rows"], spec["headers"])
+        for row in spec["rows"]:
+            if str(row[col["Type"]]) != "yesno":
+                continue
+            got = answer.get(str(row[col["Field"]]))
+            # Answered or not answered; never a third spelling the widget cannot hold.
+            assert got is None or got["value"] in ("yes", "no"), (name, row[col["Field"]], got)

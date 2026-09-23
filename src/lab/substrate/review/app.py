@@ -227,7 +227,30 @@ def _record_of(h) -> dict:
 #: Ships in the image (`pyproject.toml` package-data) so the page can hand it over without a network
 #: read. It is an EXAMPLE, not a schema — the schema is the published artifact, and a row of this
 #: file that no longer matches one is reported by the parser like any other unknown field.
-SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "samples", "intake-agent.csv")
+SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "samples")
+
+
+def sample_csvs() -> list[tuple[str, bytes]]:
+    """The filled examples that ship, `(name, bytes)`, in a stable order.
+
+    DISCOVERED from the directory rather than listed here, so adding one is a file and removing one
+    cannot leave a dead button — the same property the blank template has by being generated from
+    the published rows. One example taught one shape: a person could not see what a minimal honest
+    submission looks like, nor one the framework will deterministically reject, nor how much a
+    genuinely complicated case carries.
+    """
+    try:
+        names = sorted(n for n in os.listdir(SAMPLES_DIR) if n.endswith(".csv"))
+    except OSError:                        # no examples is not a submission refused
+        return []
+    out = []
+    for name in names:
+        try:
+            with open(os.path.join(SAMPLES_DIR, name), "rb") as handle:
+                out.append((name[:-4], handle.read()))
+        except OSError:
+            continue
+    return out
 
 
 def _intake_from_csv(rows, headers, key: str) -> None:
@@ -244,12 +267,16 @@ def _intake_from_csv(rows, headers, key: str) -> None:
         left.download_button("⬇️ Blank template (.csv)", intake_csv.template(rows, headers),
                              file_name="intake-template.csv", mime="text/csv",
                              key=f"{key}_tmpl", use_container_width=True)
-        try:
-            with open(SAMPLE_CSV, "rb") as handle:
-                right.download_button("⬇️ Filled example (.csv)", handle.read(),
-                                      file_name="intake-example.csv", mime="text/csv",
-                                      key=f"{key}_sample", use_container_width=True)
-        except OSError:                    # an example missing is not a submission refused
+        samples = sample_csvs()
+        if samples:
+            names = [name for name, _ in samples]
+            picked = right.selectbox("Filled example", names, key=f"{key}_pick",
+                                     format_func=lambda n: n.replace("-", " "))
+            body = dict(samples)[picked]
+            right.download_button(f"⬇️ {picked}.csv", body, file_name=f"{picked}.csv",
+                                  mime="text/csv", key=f"{key}_sample",
+                                  use_container_width=True)
+        else:                              # examples missing is not a submission refused
             right.caption("no filled example ships with this build")
         st.caption("Fill the **Value** column and upload it back here. A blank cell means *not answered*; "
                    "every field is still editable below before you run.")

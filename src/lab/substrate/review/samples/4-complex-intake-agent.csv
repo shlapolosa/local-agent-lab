@@ -1,0 +1,22 @@
+Group,Field,Type,Required,Used by,Value
+Effort table,Role,text,no,Driver 1,Solution architect
+Effort table,headcount,number,no,Driver 1,6
+Effort table,frequency per week,number,no,Driver 1,4
+Effort table,current minutes per instance,number,no,Driver 1,300
+Effort table,expected minutes per instance,number,no,Driver 1,35
+Quality baseline,Current volume,number,no,Driver 2,480
+Quality baseline,error rate,number,no,Driver 2,0.22
+Quality baseline,expected reduction,number,no,Driver 2,0.7
+Quality baseline,error class,text,no,Driver 2,a required guardrail absent from an approved design pack
+Sensitivity flags,Personal data,yesno,yes,Driver 3 and the criticality band,yes
+Sensitivity flags,health data,yesno,yes,Driver 3 and the criticality band,yes
+Sensitivity flags,financial,yesno,yes,Driver 3 and the criticality band,yes
+Sensitivity flags,regulated,yesno,yes,Driver 3 and the criticality band,yes
+Avoided cost citation,Specific avoided fine or audit-hour reduction,number,no,"Driver 3, where quantified",420000
+Avoided cost citation,with its source,text,no,"Driver 3, where quantified","DoH conformance finding 2026-114: 310 remediation hours at AED 450/hr plus the AED 180,000 fine already levied for the same control"
+Data maturity,Whether the underlying data is fully digital,yesno,no,Driver 1 Year-1 discount,no
+Investment,Budget bucket or vendor quote,text,no,Build cost,"AED 1,200,000 FY27 platform programme; vendor quote pending for the conversational front door only"
+Urgency,Required-by date or urgency band,date,yes,Roadmap section,2027-01-31
+Volume assumptions,Runs per month,number,no,"Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess",900
+Volume assumptions,users,number,no,"Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess",260
+Volume assumptions,records (Finance-owned),number,no,"Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess",48000
