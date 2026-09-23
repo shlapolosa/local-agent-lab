@@ -231,19 +231,14 @@ def _per_month(text_after: str) -> float:
     return 1.0
 
 
-def volume_from_intake(intake: Mapping[str, Any] | None) -> dict[str, float]:
-    """The volume assumptions a person captured at intake, as numbers per driver.
+#: How an intake group that CAPTURES volumes names itself. Matched loosely, because a Finance
+#: rename must not silently disable cost — the rest of the intake stays a fallback, not the
+#: primary source.
+_VOLUME_GROUP = ("volume", "throughput", "demand", "scale")
 
-    An intake mapping is `label -> {field: text}` written by a human. Every group's text is
-    scanned (a Finance rename of the group must not silently disable cost), and a driver is
-    read from a quantity beside its word within one clause — "5k users", "12,000 runs a month",
-    "records: 120000" — never across a `;`, `,` or `.`. `k`/`m` multiply; a period beside a
-    RUN count is normalised to a month (per day ×30, per week ×4.33, per year ÷12); a count
-    with no period is monthly, the driver's own unit. A driver not found is simply absent — the
-    cost model then names the line it could not place rather than positioning it by guess."""
-    text = " ".join(
-        str(v) for fields in (intake or {}).values() if isinstance(fields, Mapping)
-        for v in fields.values())
+
+def _scan(text: str) -> dict[str, float]:
+    """The drivers a single block of prose yields."""
     found: dict[str, float] = {}
     for driver, words in DRIVERS.items():
         for word in words:
@@ -252,14 +247,68 @@ def volume_from_intake(intake: Mapping[str, Any] | None) -> dict[str, float]:
             hit = before or after
             if not hit:
                 continue
-            raw, suffix = (hit.group(1), hit.group(2)) if hit is before else (hit.group(1), hit.group(2))
-            value = _scale(raw, suffix)
+            value = _scale(hit.group(1), hit.group(2))
             if driver == "runs_per_month":
-                tail = text[hit.end():hit.end() + 30]
-                value *= _per_month(tail)
+                value *= _per_month(text[hit.end():hit.end() + 30])
             found[driver] = value
             break
     return found
+
+
+def _by_group(intake: Mapping[str, Any] | None):
+    """`(group label, drivers found there)` — the volume group first, everything else after.
+
+    Every group used to be concatenated and scanned as one string, so the FIRST quantity beside a
+    driver word won wherever it came from. Measured: "Response within 5 seconds per user request"
+    in a Quality group became `runs_per_month: 5.0` while "about 40k design packs a month" in the
+    volume group was never read — three orders of magnitude, silently, at the bottom of every
+    band, and which one won depended on the ordering of a dict.
+    """
+    groups = [(str(label), fields) for label, fields in (intake or {}).items()
+              if isinstance(fields, Mapping)]
+    preferred = [g for g in groups if any(w in g[0].lower() for w in _VOLUME_GROUP)]
+    # A volume group that EXISTS is the answer, including where it is silent about a driver.
+    # Falling back to the rest of the intake for a driver it did not mention is how a latency SLA
+    # became a run volume: the person captured volumes in one place, and a figure they did not put
+    # there is not a volume they gave. With no such group at all, every group is fair game — that
+    # is the rename case, and the provenance then says where the number came from.
+    for label, fields in (preferred or groups):
+        yield_from = _scan(" ".join(str(v) for v in fields.values()))
+        yield label, yield_from
+
+
+def volume_from_intake(intake: Mapping[str, Any] | None) -> dict[str, float]:
+    """The volume assumptions a person captured at intake, as numbers per driver.
+
+    An intake mapping is `label -> {field: text}` written by a human. The group that names itself
+    a volume group is read FIRST and the rest of the intake is a fallback, so a Finance rename
+    still works while a latency SLA in a Quality group can no longer position a price line.
+
+    Within a block: a driver is read from a quantity beside its word within one clause — "5k
+    users", "12,000 runs a month", "records: 120000" — never across a `;`, `,` or `.`. `k`/`m`
+    multiply; a period beside a RUN count is normalised to a month (per day x30, per week x4.33,
+    per year /12); a count with no period is monthly. A driver not found is simply absent, and the
+    cost model then names the line it could not place rather than positioning it by guess.
+    """
+    found: dict[str, float] = {}
+    for _, drivers in _by_group(intake):
+        for driver, value in drivers.items():
+            found.setdefault(driver, value)
+    return found
+
+
+def volume_provenance(intake: Mapping[str, Any] | None) -> dict[str, str]:
+    """Which intake group each volume came from.
+
+    Attributable because this figure positions every driven price line: a number read out of a
+    Notes field is not the same evidence as one a person entered under "Volume assumptions", and
+    a reader has no way to tell them apart from the number alone.
+    """
+    out: dict[str, str] = {}
+    for label, drivers in _by_group(intake):
+        for driver in drivers:
+            out.setdefault(driver, label)
+    return out
 
 
 def position(line: PriceLine, volume: Mapping[str, float]) -> ThreePoint | None:

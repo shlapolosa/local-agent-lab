@@ -437,9 +437,12 @@ def _determinism(out: dict, context: Mapping[str, Any] | None = None) -> list[st
     criteria 6-7 is re-tiered to D0 — the observed failure is over-classifying as
     non-deterministic, which buys an agent where a lookup table would do."""
     bad = []
-    if not out.get("graph_is_explicit", True):
-        bad.append("the graph is not explicit — that is D3 at orchestration level and a Board "
-                   "escalation, which must be said rather than scored around")
+    # `graph_is_explicit: false` is an ANSWER, not an incompleteness. It used to be appended here,
+    # which gave the model one retry and left exactly two outcomes: it flips to `true` (likely —
+    # the retry names the problem) and the Board escalation vanishes, or it holds and `GateFailed`
+    # kills the run so there is no escalation record either. The comment said the escalation "must
+    # be said rather than scored around"; the gate was what made saying it impossible. It travels
+    # on the answer, and `owed()` carries it to the reviewer.
     tiers = [s.get("tier") for s in out.get("steps") or []]
     if not tiers:
         bad.append("no step was classified")

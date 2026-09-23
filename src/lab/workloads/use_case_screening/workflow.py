@@ -33,10 +33,9 @@ from lab.workloads import gateway
 from lab.workloads.usecase import coverage
 from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
-from lab.workloads.usecase.steps import STEPS, step_for
+from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
 from lab.workloads.usecase import modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.steps import SCREENING_STEPS
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
@@ -166,7 +165,19 @@ UNAVAILABLE = {
 #: What a deferred step is CALLED in the record, derived from the steps themselves rather than
 #: typed out a second time: these were nine hand-maintained labels that had to be kept in step with
 #: `Step.title`, and a renamed step would have quietly kept its old name here.
-PENDING_STEPS = {s.number: s.title for s in STEPS}
+PENDING_STEPS = {s.number: s.title for s in SCREENING_STEPS}
+
+
+def summary_counts(screening: Mapping[str, Any]) -> dict:
+    """What a reviewer is told about how much of the screening actually happened.
+
+    Counted from THIS run's record, never from the table's size. The summary carried
+    `len(PENDING_STEPS)` — a module constant — so it read 17 on a run that accounted for every one
+    of its nine steps, and would read 17 on a run where no agent was wired at all. A number that is
+    the same in the best and the worst case is not a measurement of anything.
+    """
+    return {"pending_steps": len((screening or {}).get("pending_steps") or {}),
+            "defaulted_steps": sorted((screening or {}).get("defaulted_steps") or {})}
 
 PROMPT = ("Confirm the criticality class derived for this use case. It sets the rigour of the "
           "system that gets built — the evaluation depth, the approval shape and the corroboration "
@@ -483,8 +494,7 @@ def build_workflow(cfg):
             summary = {
                 "attachments": len(state.get("attachments") or ()),
                 "intake_groups": len(state.get("intake") or {}),
-                "pending_steps": len(PENDING_STEPS),
-                "defaulted_steps": sorted((state.get("screening") or {}).get("defaulted_steps") or {}),
+                **summary_counts(state.get("screening") or {}),
                 "criticality_band": band,
             }
             # What approving RELEASES. Carried on the approval rather than as a static edge, because
@@ -506,8 +516,13 @@ def build_workflow(cfg):
                 "fields": ["value"],                   # one thing to say per label, not a voice
                 "summary": summary,                    # what this screening found, before the refs
                 "continuation": cont.to_dict(),
-                "artifacts": {"submission": state["submission_record_ref"],
-                              "screening": state["screening_ref"],
+                # `_ref`-SUFFIXED, because that is what the review app renders as a download.
+                # Named `submission`/`screening`, they matched neither the explicit
+                # `import_artifacts` list nor the legacy `*_ref` rule, so the architect setting the
+                # criticality class was shown no screening evidence at all — on the one surface
+                # this lab actually decides in, while `approvals_get` carried both refs happily.
+                "artifacts": {"submission_ref": state["submission_record_ref"],
+                              "screening_ref": state["screening_ref"],
                               # The per-step model trace, while it is on: one tab per step.
                               **({"svg_refs": trace_tabs} if (trace_tabs := modeltrace.tabs(
                                   state.get("screening") or {})) else {})},

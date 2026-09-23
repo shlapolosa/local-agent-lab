@@ -67,7 +67,13 @@ def test_the_governance_tier_must_be_the_maximum_of_the_step_tiers():
 
 
 def test_an_inexplicit_graph_must_be_said_rather_than_scored_around():
-    rejects("15", dict(DETERMINISM, graph_is_explicit=False), "escalation")
+    """The name was right and the assertion was the opposite of it. REJECTING the answer is how it
+    gets scored around: the model is told it was wrong and given one retry, so it either flips to
+    `true` (and the Board escalation disappears) or holds and the run dies with no record at all.
+
+    An unexplicit graph is a finding the framework has a route for — D3 at orchestration level —
+    not a defect in the answer. It is accepted here and carried to the reviewer by `owed()`."""
+    assert gated("15", dict(DETERMINISM, graph_is_explicit=False)) == []
 
 
 # ---------------------------------------------------------------- 17 · facet vectors

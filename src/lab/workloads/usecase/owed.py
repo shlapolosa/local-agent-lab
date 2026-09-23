@@ -41,6 +41,22 @@ def owed(package: Mapping[str, Any]) -> list[str]:
         out.append(f"{', '.join(_list(binding['unenforceable']))}: the pinned corpus binds these to "
                    f"no component at all — a gap in the framework, not in this design, and no "
                    f"selection here can close it")
+    # An orchestration whose plan cannot be stated: D3 at orchestration level and a Board
+    # escalation. It is reported rather than gated, because a gate could only reject the honest
+    # answer or kill the run — neither of which tells anybody.
+    if (package.get("determinism") or {}).get("graph_is_explicit") is False:
+        out.append("the workflow graph is NOT explicit — D3 at orchestration level and a Board "
+                   "escalation; the plan cannot be stated in advance, so nothing downstream can "
+                   "be derived from a graph that is not the one that will run")
+    # The SURFACE cannot carry it — a different failure from "no component enforces it", and a
+    # more fundamental one: the choice of surface is what has to change, not the selection. Step 20
+    # is required to report these and nothing read the field, so an agent's honest "my surface
+    # cannot enforce G19" reached no reviewer while the design proceeded through five more steps.
+    surface = package.get("build_surface") or {}
+    for obligation in _list(surface.get("unenforceable_obligations")):
+        out.append(f"{obligation}: the chosen surface "
+                   f"({surface.get('surface') or 'unnamed'}) cannot enforce it — FR-26 returns "
+                   f"this to step 17 to re-scope; no component selection can close it")
     # Move 3, and it says so. A family is a SHAPE; an obligation covered by a present family may
     # still have nothing enforcing it, so calling this "no enforcement point" told a reviewer a
     # stronger thing than the data supported while the real answer above sat unread in the package.
