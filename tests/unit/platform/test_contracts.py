@@ -248,19 +248,24 @@ def test_a_process_can_declare_that_exactly_one_of_two_inputs_is_required():
     assert ("submission", "submission_handle") in spec.one_of
 
 
-def test_neither_is_refused_by_the_contract_not_by_the_workload():
+def test_a_submission_with_neither_a_document_NOR_an_intake_is_refused():
+    """Every field is optional on its own — what the process cannot do is start with nothing to
+    assess. Captured answers and an uploaded document are both a submission, so the rule is at
+    least one of the three rather than exactly one of the two documents."""
     spec = C.PROCESSES["use_case_screening"]
     with pytest.raises(ValueError) as e:
         spec.validate({"submitter": "a@b.com"})
-    assert "submission" in str(e.value) and "submission_handle" in str(e.value)
+    assert "submission" in str(e.value) and "intake" in str(e.value)
 
 
-def test_both_is_refused_too_because_the_rule_is_exactly_one():
+def test_both_DOCUMENTS_is_refused_because_those_two_are_alternatives():
+    """Two documents describing one submission is an ambiguity nobody can resolve. Supplying
+    neither is a different question and no longer the same refusal."""
     spec = C.PROCESSES["use_case_screening"]
     with pytest.raises(ValueError) as e:
         spec.validate({"submitter": "a@b.com", "submission": "art://a/b.md",
                        "submission_handle": "collab://item/drive1/item1"})
-    assert "exactly one" in str(e.value)
+    assert "at most one" in str(e.value)
 
 
 @pytest.mark.parametrize("given", [

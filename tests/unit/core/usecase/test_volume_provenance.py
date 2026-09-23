@@ -61,3 +61,60 @@ def test_a_figure_from_the_volume_group_is_attributed_to_it():
 
 def test_nothing_captured_is_nothing_claimed():
     assert cost.volume_from_intake({}) == {} and cost.volume_provenance({}) == {}
+
+
+def test_a_question_that_merely_says_the_word_volume_is_not_a_volume_group():
+    """Measured against the real M42 form: Q24 reads "Is this VOLUME consistent or does it peak?".
+    A substring match on the group label picks it as the volume group, and because a volume group
+    that exists suppresses the fallback, 0 of 62 real submissions then yielded any volume at all.
+
+    Safer than the garbage it replaced (`users: 24` scraped out of "biggest value" prose) but still
+    wrong. A group only counts as the volume group when it actually CARRIES a driver — the label
+    proposes, the content decides."""
+    peaky = {"Is this volume consistent or does it peak?": {"a": "Fairly consistent"},
+             "Notes": {"n": "roughly 40k review runs a month"}}
+    assert cost.volume_from_intake(peaky).get("runs_per_month") == 40_000.0
+
+
+def test_a_volume_group_that_carries_a_driver_still_wins_outright():
+    intake = {"Volume assumptions": {"vol": "about 40k review runs a month"},
+              "Quality": {"latency": "Response within 5 seconds per user request"}}
+    got = cost.volume_from_intake(intake)
+    assert got.get("runs_per_month") == 40_000.0 and "users" not in got
+
+
+# --------------------------------------- the shape the REAL producers emit, not the prose one
+
+def test_the_typed_intake_form_shape_yields_a_volume():
+    """The defect this closes, and every test here shared it. The review app's typed form, the CSV
+    parser and the shipped `samples/intake-agent.csv` all emit `label -> {"value": "120"}`, with
+    the driver words in the LABEL. `_by_group` joined only the values, so the number arrived with
+    no word beside it and every structured submission yielded nothing at all.
+
+    The prose shape these tests used — `{"Volume assumptions": {"value": "120 runs per month"}}` —
+    is what the FALLBACK free grid emits. It was the only shape the code could read and the only
+    shape the tests tried."""
+    typed = {"Volume assumptions · Runs per month": {"value": "120"},
+             "Volume assumptions · Users": {"value": "40"}}
+    got = cost.volume_from_intake(typed)
+    assert got.get("runs_per_month") == 120.0 and got.get("users") == 40.0
+
+
+def test_the_nested_grid_shape_yields_a_volume_too():
+    nested = {"Volume assumptions": {"runs per month": "120", "users": "40"}}
+    got = cost.volume_from_intake(nested)
+    assert got.get("runs_per_month") == 120.0 and got.get("users") == 40.0
+
+
+def test_the_shipped_sample_csv_yields_a_volume():
+    """The lab's own example submission. If it yields nothing, nothing does."""
+    import csv
+    import io
+    from pathlib import Path
+    sample = Path(__file__).resolve().parents[4] / \
+        "src/lab/substrate/review/samples/intake-agent.csv"
+    rows = list(csv.DictReader(io.StringIO(sample.read_text())))
+    intake = {f'{r["Group"]} · {r["Field"]}': {"value": r["Value"]}
+              for r in rows if r.get("Value", "").strip()}
+    assert any(k.lower().startswith("volume") for k in intake), "the sample captures volumes"
+    assert cost.volume_from_intake(intake), "and they must be readable"

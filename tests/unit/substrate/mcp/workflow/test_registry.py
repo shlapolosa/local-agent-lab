@@ -27,14 +27,24 @@ def test_workflow_catalogue_is_generated_from_the_registered_processes():
     assert WorkflowTools.SERVER == "workflow_mcp"
     # `submit` is the only verb a continuation withholds; the rest are ways to OBSERVE, and finding
     # a run you did not start is not starting one.
-    assert WorkflowTools.VERBS == ("submit", "status", "result", "runs")
+    # MEMBERSHIP and the invariant, not the exact tuple: this broke on an additive change that was
+    # not a defect. What must hold is that every verb is generated and that the two conditional
+    # ones are conditional.
+    assert {"submit", "status", "result", "runs", "fields"} <= set(WorkflowTools.VERBS)
     # The FIXED tools ride along with the generated ones: the approval gate, and `workflow_replay`
     # (one tool for any failed REQUEST, not one per process). Subtracted, never re-typed here.
     generated = WorkflowTools.names() - ApprovalTools.names() - {WorkflowTools.replay}
     assert generated == {spec.tool(v) for spec in PROCESSES.values()
                          for v in WorkflowTools.verbs_for(spec)}
-    assert len(generated) == sum(len(WorkflowTools.VERBS) - (0 if s.external else 1)
-                                for s in PROCESSES.values())
+    # The INVARIANTS, rather than re-deriving the arithmetic: the count line assumed `external`
+    # was the only thing that could withhold a verb, and broke additively when `fields` became the
+    # second. Line 37 already pins the exact set; what is worth stating is WHY it has that shape.
+    for spec in PROCESSES.values():
+        verbs = set(WorkflowTools.verbs_for(spec))
+        assert {"status", "result", "runs"} <= verbs, f"{spec.name} cannot be observed"
+        assert ("submit" in verbs) is spec.external, f"{spec.name}: submit must follow `external`"
+        assert ("fields" in verbs) is bool(spec.questionnaire), \
+            f"{spec.name}: a questionnaire is offered only where one is declared"
     assert "visio_to_archimate_submit" in WorkflowTools.names()
     assert "workflow_mcp" not in WorkflowTools.names()          # SERVER is the alias, not a tool
 

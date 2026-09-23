@@ -237,6 +237,28 @@ def _per_month(text_after: str) -> float:
 _VOLUME_GROUP = ("volume", "throughput", "demand", "scale")
 
 
+def _scan_fields(label: str, fields: Mapping[str, Any]) -> dict[str, float]:
+    """The drivers one intake GROUP yields, reading each field as "<name> <value>".
+
+    The name matters as much as the number: the typed intake form, the CSV parser and the shipped
+    sample all emit `"Volume assumptions · Runs per month" -> {"value": "120"}`, so the driver word
+    is in the LABEL and the number is the value. Joining values alone found a bare "120" with no
+    word beside it, and every structured submission yielded nothing at all — while these tests used
+    the prose shape that only the fallback free grid emits, so the code and its tests agreed with
+    each other and neither agreed with the producer.
+
+    Field by field rather than one concatenated string, so a number in one field can never be read
+    as the answer to a driver named in the next.
+    """
+    found: dict[str, float] = {}
+    for key, value in fields.items():
+        name = str(key).strip()
+        text = str(value) if name.lower() in ("value", "") else f"{name} {value}"
+        for driver, got in _scan(f"{label} {text}").items():
+            found.setdefault(driver, got)
+    return found
+
+
 def _scan(text: str) -> dict[str, float]:
     """The drivers a single block of prose yields."""
     found: dict[str, float] = {}
@@ -266,15 +288,20 @@ def _by_group(intake: Mapping[str, Any] | None):
     """
     groups = [(str(label), fields) for label, fields in (intake or {}).items()
               if isinstance(fields, Mapping)]
-    preferred = [g for g in groups if any(w in g[0].lower() for w in _VOLUME_GROUP)]
+    # The label PROPOSES and the content DECIDES. A group is the volume group only if it names one
+    # AND actually carries a driver: the real intake form asks "Is this VOLUME consistent or does
+    # it peak?", which a label-only match claims as the volume group — and because a volume group
+    # that exists suppresses the fallback, no submission yielded any volume at all.
+    preferred = [g for g in groups
+                 if any(w in g[0].lower() for w in _VOLUME_GROUP)
+                 and _scan(" ".join(str(v) for v in g[1].values()))]
     # A volume group that EXISTS is the answer, including where it is silent about a driver.
     # Falling back to the rest of the intake for a driver it did not mention is how a latency SLA
     # became a run volume: the person captured volumes in one place, and a figure they did not put
     # there is not a volume they gave. With no such group at all, every group is fair game — that
     # is the rename case, and the provenance then says where the number came from.
     for label, fields in (preferred or groups):
-        yield_from = _scan(" ".join(str(v) for v in fields.values()))
-        yield label, yield_from
+        yield label, _scan_fields(label, fields)
 
 
 def volume_from_intake(intake: Mapping[str, Any] | None) -> dict[str, float]:

@@ -292,7 +292,12 @@ class WorkflowTools(ToolCatalogue):
     name here that no server exposes is exactly the drift that test exists to catch.
     """
     SERVER = "workflow_mcp"
-    VERBS = ("submit", "status", "result", "runs")     # a tuple, so `names()`'s string filter ignores it
+    #: `fields` PUBLISHES the questionnaire: the labels, types, choices and required-ness a caller
+    #: must fill in. Generated like the rest, and offered only by a process that HAS a
+    #: questionnaire — an agent asked to "gather the intake fields" otherwise invents its own
+    #: labels, and the mapping it sends matches nothing the corpus published, with nothing
+    #: anywhere reporting the mismatch.
+    VERBS = ("submit", "status", "result", "runs", "fields")
     replay = "workflow_replay"                         # run a FAILED request again, from its own inputs
 
     # ONE grant, and it is a write: a replay starts a run. It is safe to offer even for a process
@@ -305,7 +310,10 @@ class WorkflowTools(ToolCatalogue):
     def verbs_for(cls, spec: "ProcessSpec") -> tuple[str, ...]:
         """The tools this process actually gets. One place, read by the catalogue and by the server's
         registration, so the two cannot disagree about what exists."""
-        return cls.VERBS if spec.external else tuple(v for v in cls.VERBS if v != "submit")
+        verbs = cls.VERBS if spec.external else tuple(v for v in cls.VERBS if v != "submit")
+        # A process with no questionnaire does not advertise one: a tool answering "this process
+        # has no questions" is worse than no tool, because a grant can name it.
+        return verbs if spec.questionnaire else tuple(v for v in verbs if v != "fields")
 
     @classmethod
     def names(cls) -> frozenset[str]:
@@ -1076,6 +1084,17 @@ class InputField:
     kind: InputKind
     description: str
     required: bool = True
+    #: The corpus ARTIFACT that publishes this field's questions — their labels, types, choices and
+    #: which are required. Empty means the field carries no questionnaire.
+    #:
+    #: The artifact id rather than a flag, and declared HERE rather than in each surface, because
+    #: the questions must be discoverable and the discovery must be derived: `<process>_fields`
+    #: serves them to an agent, the review app renders them as a form, the CSV template is the same
+    #: list, and adding or removing a question is a corpus publish that changes all three at once.
+    #: NOT inferred from `MAPPING`: a mapping can equally be an answer a human already gave — a
+    #: speaker map is not a set of questions, and offering to "read its questions" would invite
+    #: somebody to fill in another person's attribution.
+    questions: str = ""
     choices: tuple[str, ...] = ()          # CHOICE only: the closed set of accepted values
 
     def __post_init__(self) -> None:
@@ -1254,7 +1273,31 @@ class ProcessSpec:
     # measured 18 Sep 2026, where a person received a trace id instead of a form error. Declared
     # here, it is refused by EVERY surface at once (MCP tool, REST front door, the review app), for
     # the same reason `external` is: a rule about the process belongs to the process.
+    @property
+    def questionnaire(self) -> str | None:
+        """The input that carries a QUESTIONNAIRE — a set of published questions a caller answers.
+
+        Declared on the field, not inferred from its KIND: `transcript_to_minutes` takes a
+        `speaker_map` mapping that is an ANSWER a human already gave, not a set of questions to
+        ask — and offering to "read its questions" would be an invitation to fill in somebody's
+        attribution. One flag, read here, so renaming the field is one edit and a new process that
+        declares one gets its `fields` tool for free.
+        """
+        for field in self.inputs:
+            if field.questions:
+                return field.name
+        return None
+
+    #: Fields that are ALTERNATIVES: at most one of them. Two documents describing one submission
+    #: is an ambiguity nobody can resolve, so it is refused — but supplying NEITHER is a separate
+    #: question, and conflating the two is what made a conversational intake unsubmittable.
     one_of: tuple[tuple[str, ...], ...] = ()
+
+    #: Fields of which at least one must arrive — what the process cannot proceed without, stated
+    #: as the SET that satisfies it rather than as a single required field. A completed
+    #: questionnaire and an uploaded document are both a submission; demanding the document meant
+    #: an agent could walk a user through every question and then not be allowed to submit them.
+    at_least_one: tuple[tuple[str, ...], ...] = ()
 
     def tool(self, verb: str) -> str:
         """The name of one of this process's generated tools (`<process>_<verb>`)."""
@@ -1284,11 +1327,16 @@ class ProcessSpec:
         # every other rule here takes, and the one a person filling a form expects.
         for group in self.one_of:
             given = [n for n in group if out.get(n)]
-            if len(given) != 1:
+            if len(given) > 1:
                 raise ValueError(
-                    f"{self.name}: supply exactly one of "
+                    f"{self.name}: supply at most one of "
                     + " or ".join(f"`{n}`" for n in group)
-                    + f"; got {'both' if len(given) > 1 else 'neither'}")
+                    + "; got both")
+        for group in self.at_least_one:
+            if not any(out.get(n) for n in group):
+                raise ValueError(
+                    f"{self.name}: supply at least one of "
+                    + " or ".join(f"`{n}`" for n in group) + "; got none")
         return out
 
 
@@ -1477,14 +1525,20 @@ USE_CASE_SCREENING = ProcessSpec(
                    "reduction, error class), the sensitivity flags, the budget bucket or vendor "
                    "quote, and the urgency. Missing entries do not block the run — they become "
                    "requires-input markers that the business case carries to the approver as gate "
-                   "conditions rather than estimating around.", required=False),
+                   "conditions rather than estimating around. Call `use_case_screening_fields` "
+                   "for the published questions — their labels, types, choices and which are "
+                   "required — rather than inventing labels: a label nothing published matches is "
+                   "carried into the record and reported by nothing.",
+                   required=False, questions="intake-field-specs"),
         InputField("conversation", InputKind.CONVERSATION,
                    "Optional id of the conversation the submission came from, so the outcome can "
                    "be announced where it was asked for.", required=False),
     ),
     # The submission arrives EITHER as an uploaded ref OR as a handle to fetch. Neither field can
     # carry that rule alone, and leaving it to the workload cost a run per mistake.
+    # Two documents is an ambiguity; NO document is not, when the intake itself carries the case.
     one_of=(("submission", "submission_handle"),),
+    at_least_one=(("submission", "submission_handle", "intake"),),
     outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
              # What a person looking for a past use case actually searches by. Without it a listing
              # of runs is a column of `art://` refs and nobody can find "the referral triage one".

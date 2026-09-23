@@ -224,6 +224,44 @@ def runs_tool(server: LabServer, spec: ProcessSpec):
                                                      client=server.container.redis()))
 
 
+#: What a published question record calls its own columns. Read as DATA rather than re-typed, so a
+#: column the corpus adds travels to the agent without a change here.
+_QUESTION_KEYS = ("Field", "Group", "Label", "Type", "Required", "Order", "Used by", "Choices")
+
+
+def fields_tool(server: LabServer, spec: ProcessSpec):
+    """`<process>_fields` — the published questions this process's questionnaire asks.
+
+    An agent told only that a process takes "structured intake fields" invents its own labels, and
+    a label nothing published matches is carried into the record and reported by nothing. So the
+    questions are served, from the corpus artifact the FIELD declares, at the released version —
+    which means adding or removing a question is a publish, and the agent's interview, the review
+    app's form and the CSV template all change together and none of them is edited.
+    """
+    name = spec.questionnaire
+    artifact = spec.field(name).questions
+    doc = (f"The questions {spec.name} expects in `{name}` — label, group, type, whether it is "
+           f"required, and any closed set of allowed values. Read them BEFORE submitting and use "
+           f"the published labels verbatim: a label nothing published matches is accepted, stored "
+           f"and read by nothing. Answers go back as "
+           f"{{\"<label>\": {{\"value\": \"<answer>\"}}}}. Reading only; starts nothing.")
+
+    def body() -> dict:
+        from lab.core.reference.model import RunRef
+        library = server.container.reference()
+        pin = library.pin([artifact])
+        rows = library.lookup(pin, record_type="intake-field", key={},
+                              run=RunRef(run_id="fields", process=spec.name, field=name),
+                              artifact_id=artifact).records
+        questions = [{k: str(r.body.get(k) or "") for k in _QUESTION_KEYS if r.body.get(k)}
+                     for r in rows]
+        return {"process": spec.name, "field": name, "artifact": artifact,
+                "version": pin.versions.get(artifact, "") if hasattr(pin, "versions") else "",
+                "questions": questions, "count": len(questions)}
+
+    return _fn(spec.tool("fields"), doc, [], body)
+
+
 def register(server: LabServer, spec: ProcessSpec) -> None:
     """The governed tools of one business process, on `server`.
 
@@ -235,7 +273,7 @@ def register(server: LabServer, spec: ProcessSpec) -> None:
     approval started.
     """
     makers = {"submit": submit_tool, "status": status_tool, "result": result_tool,
-              "runs": runs_tool}
+              "runs": runs_tool, "fields": fields_tool}
     for verb in WorkflowTools.verbs_for(spec):          # the catalogue decides; this only obeys
         server.tool()(makers[verb](server, spec))
 

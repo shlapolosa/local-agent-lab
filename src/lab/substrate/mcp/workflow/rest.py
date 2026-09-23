@@ -338,6 +338,12 @@ async def _index(request: Request) -> JSONResponse:
         # cannot see is discoverable only by submitting a wrong value and reading the refusal.
         "inputs": [{"name": f.name, "kind": f.kind.value, "required": f.required,
                     "description": f.description,
-                    **({"choices": list(f.choices)} if f.choices else {})} for f in spec.inputs],
+                    **({"choices": list(f.choices)} if f.choices else {}),
+                    # A questionnaire says WHERE its questions are published, so a flow author (or
+                    # an agent) can read the labels rather than invent them — and so a question
+                    # added to the corpus reaches them without this door being edited.
+                    **({"questions": f.questions,
+                        "questions_tool": spec.tool("fields")} if f.questions else {})}
+                   for f in spec.inputs],
         "outputs": list(spec.outputs),
     } for spec in PROCESSES.values()]})

@@ -94,7 +94,9 @@ def test_adding_a_process_to_the_registry_adds_its_own_tools_and_nothing_else():
     built = srv.build({**PROCESSES, FAKE.name: FAKE})
     # FAKE is startable, so it brings every verb; the registry's own processes bring whatever
     # `verbs_for` says they bring, which is the point — this test is about ADDITIVITY, not the count.
-    fake = {FAKE.tool(v) for v in WorkflowTools.VERBS}
+    # `verbs_for`, not VERBS: the catalogue decides which verbs a process actually gets — a
+    # continuation withholds `submit`, and a process with no questionnaire withholds `fields`.
+    fake = {FAKE.tool(v) for v in WorkflowTools.verbs_for(FAKE)}
     assert set(tools(built)) == WorkflowTools.names() | fake
     only = srv.build({FAKE.name: FAKE})                       # a registry of ONE process -> its verbs
     assert set(tools(only)) - ApprovalTools.names() - {WorkflowTools.replay} == fake
