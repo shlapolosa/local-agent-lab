@@ -114,9 +114,11 @@ def test_review_page_selects_the_chosen_request_and_new_model_branch():
     b = _request(request_id="apr-b", subject="B", trace_id="")
     b["payload"]["summary"] = {"decision": "NEW", "domain": "Finance", "elements": 4}
     ap = FakeApprovals(items=[a, b])
-    st = install(FakeSt(Requests="B · apr-b"), approvals=ap, store=_store_for(b))
+    st = install(FakeSt(Requests="B · 2026-09-03 · apr-b"), approvals=ap, store=_store_for(b))
     APP._review_page("ann")
-    assert st.said("radio", "Requests ['A · apr-a', 'B · apr-b']")
+    # newest first, and each row carries its own date — see
+    # test_the_newest_request_is_at_the_top_of_the_review_list
+    assert st.said("radio", "Requests ['B · 2026-09-03 · apr-b', 'A · 2026-09-03 · apr-a']")
     assert st.said("success", "**NEW** model in domain **Finance** — 4 new element(s).")
     assert st.said("write", "`apr-b`") and not st.said("write", "**Trace**")
     assert not st.said("warning", "Last comment")
@@ -683,11 +685,17 @@ def test_two_open_approvals_do_not_share_speaker_widget_state():
     them doing it on purpose. Disjoint keys per approval is what stops that."""
     other = dict(QUESTION_REQ, request_id="apr-OTHER", subject="Tuesday standup — who is speaking?")
     ap = FakeApprovals(items=[QUESTION_REQ, other])
-    st = install(FakeSt(**ANSWERED), approvals=ap, store=_store_for(QUESTION_REQ))
+    # Each is SELECTED by name: which one the list offers first is the ordering test's business
+    # (newest first), and this test must not depend on it.
+    st = install(FakeSt(**ANSWERED,
+                        Requests=f'{QUESTION_REQ["subject"]} · '
+                                 f'{str(QUESTION_REQ["created_at"])[:10]} · apr-9'),
+                 approvals=ap, store=_store_for(QUESTION_REQ))
     APP._review_page("ann")
     first = [k for k in _widget_keys(st) if k.startswith(("id_", "tag_"))]
 
-    st2 = install(FakeSt(**ANSWERED, Requests=f'{other["subject"]} · apr-OTHER'),
+    st2 = install(FakeSt(**ANSWERED,
+                         Requests=f'{other["subject"]} · {str(other["created_at"])[:10]} · apr-OTHER'),
                   approvals=FakeApprovals(items=[QUESTION_REQ, other]), store=_store_for(other))
     APP._review_page("ann")
     second = [k for k in _widget_keys(st2) if k.startswith(("id_", "tag_"))]
@@ -874,3 +882,46 @@ def test_without_a_subject_the_input_filename_stands_rather_than_a_blank():
     assert APP._about({"input": "art://7d0/use-case-submission.md"}) == "use-case-submission.md"
     assert APP._about({"subject": "   ", "input": "art://7d0/x.vsdx"}) == "x.vsdx"
     assert APP._about({}) == ""
+
+
+# ============================================================================ Review mode — ordering
+def _radio_options(st):
+    """The options `sidebar.radio` was handed, in the order a person sees them."""
+    return next(a[1] for name, a, _ in st.calls if name == "sidebar.radio" and a[0] == "Requests")
+
+
+def test_the_newest_request_is_at_the_top_of_the_review_list():
+    """`approvals.pending()` is INSERTION order and stays that way — it is a pinned contract
+    (tests/unit/platform/test_pending_order.py) and the CLI counts on it. The REVIEW LIST is a
+    different question: with 64 open requests the reviewer wants the one that just arrived, and
+    oldest-first buried a run raised minutes ago under approvals from twelve days earlier.
+    Measured 23 Sep 2026 — a stale one was decided by mistake, and the design run it released
+    died in 3 s on a screening record the store no longer holds."""
+    old = _request(request_id="apr-old", subject="Old one", created_at="2026-09-12T08:00:00+00:00")
+    new = _request(request_id="apr-new", subject="New one", created_at="2026-09-23T07:00:00+00:00")
+    ap = FakeApprovals(items=[old, new])                 # pending(): oldest first
+    st = install(FakeSt(), approvals=ap, store=_store_for(new))
+    APP._review_page("ann")
+    assert [o.split(" · ")[0] for o in _radio_options(st)] == ["New one", "Old one"]
+
+
+def test_a_request_is_labelled_with_ITS_DATE_so_a_stale_one_is_visible_as_stale():
+    """The label was `subject · request_id`, and every criticality request shares one subject —
+    "Confirm the criticality class of a submitted use case". So a list of them is indistinguishable
+    rows differing only by an opaque id, and picking the right one is guesswork."""
+    old = _request(request_id="apr-old", subject="Old one", created_at="2026-09-12T08:00:00+00:00")
+    ap = FakeApprovals(items=[old])
+    st = install(FakeSt(), approvals=ap, store=_store_for(old))
+    APP._review_page("ann")
+    assert "2026-09-12" in _radio_options(st)[0]
+
+
+def test_a_deep_link_still_opens_ITS_request_whatever_the_order():
+    """?approval=<id> is how a channel card and the live view hand a person the one they want."""
+    old = _request(request_id="apr-old", subject="Old one", created_at="2026-09-12T08:00:00+00:00")
+    new = _request(request_id="apr-new", subject="New one", created_at="2026-09-23T07:00:00+00:00")
+    ap = FakeApprovals(items=[old, new])
+    st = install(FakeSt(), approvals=ap, store=_store_for(old))
+    st.query_params = {"approval": "apr-old"}
+    APP._review_page("ann")
+    assert st.said("write", "`apr-old`")

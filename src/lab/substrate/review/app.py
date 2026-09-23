@@ -1119,7 +1119,16 @@ def _review_page(reviewer):
             st.write(f'`{h["request_id"]}` **{h["decision"]}** by {h["actor"]} via {h["channel"]} — {h["comment"]} ({h["decided_at"]})')
         return
 
-    labels = [f'{i["subject"]} · {i["request_id"]}' for i in items]
+    # NEWEST FIRST — the reviewer's question is "what just arrived", and `pending()` answers a
+    # different one: it is INSERTION order, a pinned contract the CLI and the channels rely on, so
+    # the reversal belongs here in the view. With 64 open requests, oldest-first buried a run
+    # raised minutes ago under approvals from twelve days before, and the stale one got decided.
+    items = list(reversed(items))
+    # The DATE is part of the label because the subject is not distinguishing: every criticality
+    # request reads "Confirm the criticality class of a submitted use case", so without it the
+    # list is rows that differ only by an opaque id.
+    labels = [f'{i["subject"]} · {str(i.get("created_at", ""))[:10]} · {i["request_id"]}'
+              for i in items]
     # A card links here with ?approval=<id>: a reviewer with three open should land on theirs.
     wanted = st.query_params.get("approval")
     index = next((n for n, i in enumerate(items) if i["request_id"] == wanted), 0)
