@@ -46,6 +46,13 @@ TRACES = traces.JaegerTraceReader(JAEGER_UI)               # trace-store port; t
 NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
 DIAGRAM_TYPES = ["vsdx", "png", "jpg", "jpeg", "gif", "webp"]
 REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
+#: PROSE only. `submission` is a narrative — `ProcessSpec` says "a .md, .docx or .pdf saying what
+#: the problem is, who has it, and what changes" — and a tabular file there is read as that
+#: narrative. Measured twice on 23 Sep 2026: an INTAKE FIELD csv uploaded here (it belongs in the
+#: intake editor) became a table of blank driver rows standing in for the use case, and the run
+#: spent ten minutes framing the absence of input as the problem. Evidence stays welcome on
+#: `attachments`, where a spreadsheet means what it says.
+PROSE_TYPES = ["docx", "pdf", "md", "txt"]
 
 #: Which file types each REF field accepts, by (process, field). A hint only — the CONTRACT is
 #: `ProcessSpec.validate`, and a field with no entry accepts anything the store will hold. It lives
@@ -54,7 +61,7 @@ REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
 UPLOAD_TYPES = {
     ("visio_to_archimate", "diagram"): DIAGRAM_TYPES,
     ("visio_to_archimate", "requirements"): REQUIREMENT_TYPES,
-    ("use_case_screening", "submission"): REQUIREMENT_TYPES,
+    ("use_case_screening", "submission"): PROSE_TYPES,
     ("use_case_screening", "attachments"): REQUIREMENT_TYPES + DIAGRAM_TYPES,
 }
 
@@ -253,6 +260,29 @@ def sample_csvs() -> list[tuple[str, bytes]]:
     return out
 
 
+def sample_submissions() -> list[tuple[str, bytes]]:
+    """The worked EXAMPLE submissions that ship, `(name, bytes)` — the prose each intake CSV
+    describes the drivers for.
+
+    Discovered from the same directory and on the same terms as `sample_csvs`. They exist because
+    for a while only the drivers shipped: the one concrete artifact on this page was a field table,
+    so "attach the use case" had no example to follow and the field table got attached instead —
+    twice on 23 Sep 2026, each time producing a ten-minute run that assessed a blank form.
+    """
+    try:
+        names = sorted(n for n in os.listdir(SAMPLES_DIR) if n.endswith(".md"))
+    except OSError:                        # no examples is not a submission refused
+        return []
+    out = []
+    for name in names:
+        try:
+            with open(os.path.join(SAMPLES_DIR, name), "rb") as handle:
+                out.append((name[:-3], handle.read()))
+        except OSError:
+            continue
+    return out
+
+
 def _intake_from_csv(rows, headers, key: str) -> None:
     """Fill the intake from a CSV file instead of twenty-one boxes.
 
@@ -428,6 +458,18 @@ def _submit_page(reviewer):
     st.caption(spec.description)
 
     refs = st.session_state.setdefault(f"submit_refs_{spec.name}", {})
+    # What a submission LOOKS like, before the empty file picker. The drivers had examples and the
+    # narrative did not, so the driver file was what got uploaded as the narrative.
+    if (examples := sample_submissions()) and any(
+            f.kind is contracts.InputKind.REF and f.name == "submission" for f in spec.inputs):
+        with st.expander("📄 What does a submission look like?", expanded=False):
+            st.caption("Prose — what the problem is, who has it, what changes if it works, and ONE "
+                       "accountable person. Download one, edit it, upload it as **submission**. "
+                       "The intake CSVs are a different thing: they carry the DRIVERS, and go in "
+                       "the intake section below.")
+            for column, (name, body) in zip(st.columns(max(len(examples), 1)), examples):
+                column.download_button(f"⬇️ {name}", body, file_name=f"{name}.md",
+                                       mime="text/markdown", key=f"ex_{spec.name}_{name}")
     widgets = {f.name: _field_widget(spec, f) for f in spec.inputs}
 
     file_fields = [f for f in spec.inputs
@@ -1115,6 +1157,16 @@ def _review_page(reviewer):
         approvals.ack("review-app", eid)
 
     st.title("Architecture Review")
+    # The handover from the decision just taken. It is rendered AFTER the rerun — `_decide` cannot
+    # show anything itself, because it ends by rerunning the script — and it is a LINK rather than
+    # a redirect: the live view is a different origin, and Streamlit has no honest way to navigate
+    # the top window there.
+    released, released_process = st.session_state.pop("just_released", ("", ""))
+    if released and config.LIVE_APP_URL:
+        st.success(f"{released_process or 'The next run'} started — `{released}`")
+        st.link_button(f"👁️ Watch {released_process or 'it'} run live →",
+                       f"{config.LIVE_APP_URL.rstrip('/')}/run/{released}", type="primary")
+
     items = approvals.pending()
     st.sidebar.metric("Pending", len(items))
     if not items:
@@ -1203,10 +1255,18 @@ def _review_page(reviewer):
         # time the work had moved somewhere nobody was told about.
         released, process = released_run(req["request_id"])
         if released:
-            st.success(f"Recorded: {d} — {process or 'the next run'} started ({released}). "
-                       f"Opening it…")
-            st.session_state["runs_selected"] = released
-            st.query_params.update({"mode": "Runs", "run": released})
+            # WHERE the handover goes: a run that has just started is WATCHED, not reviewed, and
+            # only the live service updates in place — this app is server-rendered and can refresh
+            # only by reloading. Routing in-app to `?mode=Runs` landed the reviewer on the surface
+            # for reading what a run PRODUCED, of a run that had produced nothing yet.
+            # `LIVE_APP_URL` unset is a supported deployment, so that in-app view stays the
+            # fallback: a handover must not vanish because an optional service is not there.
+            st.success(f"Recorded: {d} — {process or 'the next run'} started ({released}).")
+            if config.LIVE_APP_URL:
+                st.session_state["just_released"] = (released, process or "")
+            else:
+                st.session_state["runs_selected"] = released
+                st.query_params.update({"mode": "Runs", "run": released})
         else:
             st.success(f"Recorded: {d}")
         st.rerun()
