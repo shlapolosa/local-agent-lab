@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grants  # noqa: E402
 import topology  # noqa: E402
 from lab.substrate import apipolicy  # noqa: E402
+from lab.substrate.gateway import pii_guardrail  # noqa: E402
 
 BASE_CONFIG = ROOT / "config" / "litellm-config.yaml"
 OVERLAY = ROOT / "config" / "litellm-models.azure.yaml"
@@ -100,6 +101,68 @@ def _validate_jwt(tenant: str, audience: str, role: str, variable: str = "") -> 
 
 def _expr(code: str) -> str:
     return escape("@{" + code + "}")
+
+
+# ------------------------------------------------------------------ PII (the regex tier, as policy)
+def _cs_str(text: str) -> str:
+    """A C# string literal of `text`."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def pii_mask_expression() -> str:
+    """C# that pseudonymises every prompt text of the (already alias-rewritten) body — the same slots
+    `pii_guardrail.walk_request_texts` walks, the same patterns in the same order, the same `[TYPE#n]`
+    placeholders, a value seen before reusing its placeholder. Returns {body, map, stream} as JSON.
+    Written without delegates: an APIM expression may use only the types the gateway allows."""
+    patterns = ", ".join(f"new string[] {{ {_cs_str(n.upper())}, {_cs_str(rx.pattern)} }}"
+                         for n, rx in pii_guardrail.load_patterns(pii_guardrail.DEFAULT_PATTERNS))
+    return (
+        f'var patterns = new string[][] {{ {patterns} }}; '
+        'var body = JObject.Parse(context.Request.Body.As<string>(preserveContent: true)); '
+        'var slots = new List<JValue>(); '
+        # messages[*].content — a string, or parts carrying text
+        'var msgs = body["messages"] as JArray; '
+        'if (msgs != null) { foreach (var m in msgs) { if (!(m is JObject)) { continue; } var c = m["content"]; '
+        '  if (c != null && c.Type == JTokenType.String) { slots.Add((JValue)c); } '
+        '  else if (c is JArray) { foreach (var part in c) { if (part is JObject && part["text"] != null '
+        '    && part["text"].Type == JTokenType.String) { slots.Add((JValue)part["text"]); } } } } } '
+        'if (body["instructions"] != null && body["instructions"].Type == JTokenType.String) { slots.Add((JValue)body["instructions"]); } '
+        # input: a string, strings (an embeddings batch), or items with content / a tool output
+        'var input = body["input"]; '
+        'if (input != null && input.Type == JTokenType.String) { slots.Add((JValue)input); } '
+        'else if (input is JArray) { foreach (var item in input) { '
+        '  if (item.Type == JTokenType.String) { slots.Add((JValue)item); continue; } '
+        '  if (!(item is JObject)) { continue; } var c = item["content"]; '
+        '  if (c != null && c.Type == JTokenType.String) { slots.Add((JValue)c); } '
+        '  else if (c is JArray) { foreach (var part in c) { if (part is JObject && part["text"] != null '
+        '    && part["text"].Type == JTokenType.String) { slots.Add((JValue)part["text"]); } } } '
+        '  if (item["output"] != null && item["output"].Type == JTokenType.String) { slots.Add((JValue)item["output"]); } } } '
+        'var map = new JObject(); '
+        'foreach (var v in slots) { var t = (string)v.Value; '
+        '  foreach (var p in patterns) { var sb = new StringBuilder(); var last = 0; '
+        '    foreach (Match m in Regex.Matches(t, p[1])) { sb.Append(t, last, m.Index - last); string ph = null; '
+        '      foreach (var kv in map) { if ((string)kv.Value == m.Value) { ph = kv.Key; break; } } '
+        '      if (ph == null) { ph = "[" + p[0] + "#" + (map.Count + 1) + "]"; map[ph] = m.Value; } '
+        '      sb.Append(ph); last = m.Index + m.Length; } '
+        '    sb.Append(t, last, t.Length - last); t = sb.ToString(); } '
+        '  v.Value = t; } '
+        'var stream = body["stream"] != null && body["stream"].Type == JTokenType.Boolean && (bool)body["stream"]; '
+        'return new JObject(new JProperty("body", body.ToString()), new JProperty("map", map), '
+        '  new JProperty("stream", stream)).ToString();')
+
+
+def pii_restore_expression() -> str:
+    """C# that swaps each placeholder back into the response. The original is JSON-ESCAPED: it lands
+    inside a JSON string, and a value with a quote in it (a generic API key may carry one) would
+    otherwise break the response the caller parses."""
+    return ('var map = (JObject)JObject.Parse((string)context.Variables["pii-mask"])["map"]; '
+            'var r = context.Response.Body.As<string>(); '
+            # JSON-escaped by hand: JsonConvert.ToString is not an allowed member (measured on apply).
+            # The patterns can match only printable text plus \\s, so these five cover every original.
+            'foreach (var kv in map) { var esc = ((string)kv.Value).Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"")'
+            '.Replace("\\n", "\\\\n").Replace("\\r", "\\\\r").Replace("\\t", "\\\\t"); '
+            '  r = r.Replace(kv.Key, esc); } '
+            'return r;')
 
 
 def key_models(embed_model: str) -> dict[str, list[str]]:
@@ -167,8 +230,18 @@ def models_policy(tenant: str, audience: str, keyed: dict[str, list[str]] | None
         '<set-body>{"error":{"message":"this gateway does not serve that model"}}</set-body></return-response>'
         '</when></choose>'
         '<set-body>' + _expr(rewrite) + '</set-body>'
+        # the regex PII tier: nothing matching a pattern leaves for Foundry; restored on the way back
+        f'<set-variable name="pii-mask" value="{_expr(pii_mask_expression())}" />'
+        '<set-body>' + escape('@((string)JObject.Parse((string)context.Variables["pii-mask"])["body"])') + '</set-body>'
         '</when></choose>'
-        '</inbound><backend><base /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>')
+        '</inbound><backend><base /></backend><outbound><base />'
+        '<choose><when condition="' + _expr(
+            'if (!context.Variables.ContainsKey("pii-mask")) { return false; } '
+            'var pii = JObject.Parse((string)context.Variables["pii-mask"]); '
+            'return !(bool)pii["stream"] && ((JObject)pii["map"]).Count > 0;') + '">'
+        '<set-body>' + _expr(pii_restore_expression()) + '</set-body>'
+        '</when></choose>'
+        '</outbound><on-error><base /></on-error></policies>')
 
 
 def models_list_policy() -> str:

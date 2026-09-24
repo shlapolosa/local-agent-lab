@@ -42,6 +42,31 @@ def test_the_model_policy_maps_names_in_the_request_body_and_calls_foundry_as_it
     assert "llm-token-limit" in xml and "llm-emit-token-metric" in xml
 
 
+def _code(xml):
+    """Every policy expression, decoded as APIM compiles it: attribute values and element text."""
+    root = ET.fromstring(xml)
+    return " ".join([v for e in root.iter() for v in e.attrib.values()] + list(root.itertext()))
+
+
+def test_pii_uses_the_guardrails_own_patterns_and_masks_before_the_model_sees_anything():
+    """The same library pii_guardrail reads, not a copy: a pattern added there is masked here."""
+    from lab.substrate.gateway import pii_guardrail
+    code = _code(apim.models_policy(TENANT, AUD))
+    for name, rx in pii_guardrail.load_patterns(pii_guardrail.DEFAULT_PATTERNS):
+        assert f'"{name.upper()}"' in code and apim._cs_str(rx.pattern) in code, name
+    for slot in ('"messages"', '"instructions"', '"input"', '"output"', '"text"'):
+        assert slot in code, f"{slot}: every text slot walk_request_texts walks"
+    xml = apim.models_policy(TENANT, AUD)
+    assert xml.index("pii-mask") > xml.index("gateway does not serve"), "masking follows the alias rewrite"
+
+
+def test_restoring_json_escapes_the_original_and_leaves_a_stream_alone():
+    code = _code(apim.models_policy(TENANT, AUD))
+    assert 'Replace("\\"", "\\\\\\"")' in code, "an original with a quote must not break the response JSON"
+    assert "JsonConvert" not in code, "not an allowed member in an APIM expression (measured on apply)"
+    assert '"stream"' in code
+
+
 def test_a_caller_is_admitted_by_a_prod_token_or_a_subscription_never_unchecked():
     xml = apim.models_policy(TENANT, AUD)
     assert AUD in xml and TENANT in xml

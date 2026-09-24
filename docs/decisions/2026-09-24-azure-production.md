@@ -203,6 +203,14 @@ cutover (workloads' GATEWAY_URL to APIM, the LiteLLM app removed from prod, CI's
   admitted (the curator chatted), and a product policy did not refuse. Verified after: curator, submitter
   and embedder refused chat (403), the embedder embeds, evals call exactly their four models, a bogus key
   401, Entra agents unchanged.
+- **PII, regex tier, as policy** (in the models API): the SAME patterns `pii_guardrail` reads (LiteLLM's
+  `patterns.json`, loaded at render time — no copy), the same slots `walk_request_texts` walks, the same
+  `[TYPE#n]` placeholders; masked after the alias rewrite, restored across the whole response with the
+  original JSON-escaped; a stream keeps its placeholders, as before. All 16 patterns compile unchanged in
+  .NET. Written without delegates (manual match loop), and `JsonConvert.ToString` is NOT an allowed
+  member — APIM refused it on apply. Verified live: asked to reverse an email, the model returned
+  `]1#LIAME[` (it saw only the placeholder); chat and Responses returned the email and a UAE phone
+  restored; a masked embeddings batch still embeds.
 - **Cutover owes the key header**: APIM reads a key from `api-key`; dev LiteLLM reads `Authorization:
   Bearer` and accepts `api-key` on `/v1` but NOT on `/mcp` (measured). So the Python key callers
   (`fabric_gateway`, the embedder, the eval scripts) send BOTH — one client for both gateways — and the
