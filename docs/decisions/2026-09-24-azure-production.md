@@ -189,7 +189,17 @@ and each is its own work item — the copy of dev's registry made them shared, i
    (`<agent>-prod`), minted prod virtual keys, a prod master key, and the dev keys revoked in the prod
    registry. The `lab-gateway` audience/app roles may stay shared (roles are vocabulary, not grants) or be
    split into `lab-gateway-prod` — decide before minting.
-2. **The Copilot Studio environment.** The tenant has ONE Power Platform environment (Default), holding both
+2. **The Copilot Studio environment — DECIDED 24 Sep 2026: production agents live in the DEFAULT environment
+   (UAE), as separate "(Prod)" agents with production connections.** A new environment was tried via the BAP
+   API and refused `MacroRegionRequired`: since Sep 2026 Power Platform places a NEW environment only by MACRO
+   region unless every Microsoft 365 seat has Advanced Data Residency (ADR), and the UAE's macro region is
+   "Europe, UK, Middle East, Africa" — the datacenter could be any of eleven countries, and the first choice
+   becomes the tenant's affinity. Default predates that and is UAE-resident. Residency outranked environment
+   separation; ADR (paid, per seat, all seats) is the way back to a separate UAE environment.
+   Superseded plan: a separate `prod` environment linked to the `laboratory` billing plan, the agents promoted
+   into it as a SOLUTION (export dev, import prod), with their connectors pointed at the prod gateway and a prod
+   connection identity. Default stays dev.
+   Original text: **The Copilot Studio environment.** The tenant has ONE Power Platform environment (Default), holding both
    agents and the PAYG plan. Target: a separate `prod` environment linked to the `laboratory` billing plan,
    the agents promoted into it as a SOLUTION (export dev, import prod), with their connectors pointed at the
    prod gateway and a prod connection identity. Default stays dev.
