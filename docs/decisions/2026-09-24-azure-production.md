@@ -1,0 +1,144 @@
+# Azure as production, Railway as development (24 Sep 2026)
+
+Status: ACCEPTED 24 Sep 2026 — Phase 0 in progress.
+
+## Decisions taken (user, 24 Sep 2026)
+
+| Question | Decision |
+|---|---|
+| Environments | **Railway = development, Azure = production.** Both deployed by GitHub CI/CD from the SAME image tag. |
+| Gateway | **Two phases.** Phase 1: LiteLLM stays the gateway, on Container Apps, Foundry added as a model provider. Phase 2: APIM in front; `custom_auth.py`'s role table becomes inbound policy. |
+| Region | **UAE North only** (compute, data, models). No Claude in production. |
+| State | Dev's Postgres is a Railway **container** (pgvector pg16), not Neon. Prod: **Azure Database for PostgreSQL Flexible (B1ms, pg16, pgvector)** — a container on Container Apps would sit on SMB Azure Files, which Postgres cannot use. Redis stays a container. Same Postgres, so it is a `DATABASE_URL` change, not code. |
+| Budget | **~$150/month** for production. Budget alert `lab-monthly` (currently $50) to be raised to match. |
+
+Billing substrate already in place: subscription `lab-foundry` (`7ee78ad6-d5bb-484c-8ec9-1673b6553b2a`) in the
+socratesbusiness tenant, providers registered, Power Platform PAYG plan `laboratory` linked.
+
+## OPEN — residency means less than "UAE North" suggests (measured 24 Sep 2026)
+
+`az cognitiveservices model list -l uaenorth` on this subscription:
+
+| Deployment type in UAE North | Models | Where inference runs |
+|---|---|---|
+| **Standard** (PAYG, regional) | text-embedding-3-large/-small, ada-002, whisper | **in UAE North** |
+| **GlobalStandard** (PAYG) | every chat model: gpt-5.x, gpt-5.4-mini, Kimi-K2.6, Kimi-K2.7-Code, DeepSeek-V4, Mistral-Large-3 | **any Azure region** — data at rest in UAE, processing global |
+| **ProvisionedManaged** (PTU, reserved) | gpt-4.1, gpt-5-mini, gpt-5.1, o4-mini … | in UAE North — **thousands $/month minimum**, incompatible with the budget |
+| DeveloperTier | gpt-4.1-mini, gpt-oss-120b … | evaluation tier, no SLA — not production |
+
+So on a $150 budget "UAE North only" delivers: **compute, storage, identity, embeddings and speech in-region;
+chat inference GlobalStandard from a UAE North resource**, stated as an exception exactly like the three
+egress exceptions in CLAUDE.md. This is the same finding CLAUDE.md records for Azure OpenAI in UAE North,
+now measured per SKU. The alternative is PTU for one chat model when a real workload justifies it.
+**DECIDED (user, 24 Sep 2026): GlobalStandard, stated as a named exception**; PTU only when a real workload requires strict in-region inference.
+
+## Model mapping (production)
+
+Workload code names gateway MODEL GROUPS, not vendors, so the mapping lives in the gateway config and
+aliases, never in workload code (same mechanism as `claude/kimi-k3` → `kimi-k3` today).
+
+**Production is GPT-5.x only** (user, 24 Sep 2026: no Kimi — any coding model will do). Quota on the new
+subscription, measured the same day: **only `gpt-5-mini` has GlobalStandard quota (500k TPM)**; every other
+GPT-5.x is 0/0. So production STARTS with one chat deployment behind every chat name, and each name moves
+to its target when the quota request is granted — a gateway-config change, no workload change.
+
+| Gateway name (unchanged) | Dev (Railway) upstream | Prod now | Prod target (after quota) | Note |
+|---|---|---|---|---|
+| `kimi-k3` (5 call sites) | Ollama Cloud kimi-k3 | gpt-5-mini | **gpt-5.5** | model change — evals must be re-run |
+| `kimi-k2.7-code` | Ollama Cloud | gpt-5-mini | **gpt-5.3-codex** | |
+| `gpt-5.4-mini`, `gpt-5.4-mini-think` | OpenAI | gpt-5-mini | **gpt-5.4-mini** | same model once granted |
+| `gpt-4.1` | OpenAI | gpt-5-mini | gpt-5-mini | gpt-4.1 is Legacy; not requested |
+| `glm-flash`, `auto` classifier | Ollama Cloud | gpt-5-mini | **gpt-5.4-nano** | auto-router classifier target changes |
+| `gpt-oss-120b` | Ollama Cloud | gpt-5-mini | gpt-5-mini | |
+| `claude-sonnet-5`, `claude-haiku-4-5` | Anthropic | gpt-5-mini | **gpt-5.5** | Claude is not in UAE North; evals' adjudicator stays on dev |
+| `text-embedding-3-large` | OpenAI | **text-embedding-3-large Standard — in-region** | same model and space: the corpus index carries over |
+| `nomic-embed-text` | embedder container | not deployed in prod | no `embedder` service in prod |
+
+## Phase 0 — production foundations (no workload traffic yet)
+
+1. **Resource group** `rg-lab-prod` (uaenorth). Everything prod lives in it; `down` = scale to zero, not delete.
+2. **Observability**: Log Analytics workspace + Application Insights. OTLP from every role goes to App
+   Insights (the Foundry-observability analogue CLAUDE.md names); Jaeger stays dev-only.
+3. **Key Vault** `kv-lab-prod`: the production secrets. **GitHub holds NO production secret** — unlike dev's
+   `LAB_ENV`. A human writes secrets (`deploy/azure.py secrets sync` from a local `.env.prod`); Container
+   Apps read them as Key Vault references through a user-assigned managed identity, scoped per role by the
+   existing `ROLE_ENV` table (README already calls it "the Key-Vault-reference scope per Container App").
+4. **Foundry**: one AIServices resource + project in UAE North; the deployments in the table above.
+5. **Container Apps environment** (Consumption profile, uaenorth), internal VNet not required in Phase 1.
+6. **CI identity**: Entra app `lab-deployer` with a **federated credential** for
+   `repo:shlapolosa/local-agent-lab:environment:production` (OIDC — no client secret anywhere), Contributor
+   on `rg-lab-prod` only.
+7. **Prod state = a one-time COPY of dev (user, 24 Sep 2026)** — DONE. `psql-lab-prod-i4ov2m` holds `litellm`
+   (registry, keys, grants, skills, artifacts, fabric embeddings; spend logs and health checks excluded) and
+   `reference` (the signed corpus). Roles `lab_reference_{svc,pub,reader,publisher}` were recreated with their
+   password HASHES, so every existing DSN keeps working with only the host changed. Verified: every table's row
+   count equals dev's (75 + 10 tables); `lab_reference_svc` logs in, reads 3,954 records, may INSERT consumption
+   and may NOT update records. Consequence, accepted: dev and prod share virtual keys and role passwords until a
+   later rotation. Firewall: `AllowAzureServices` + a temporary `operator-0` rule (remove after bootstrap).
+
+## Phase 1 — lift to Container Apps (LiteLLM remains the gateway)
+
+- **One topology, two deploy targets** (DRY/Open-Closed, per CLAUDE.md): `SUBSTRATE`, `WORKLOADS`,
+  `CHANNELS` and `ROLE_ENV` move out of `deploy/railway.py` into a platform-neutral `deploy/topology.py`;
+  `railway.py` and a new `deploy/azure.py` are adapters that render it. Same commands on both:
+  `substrate up|status|images|versions`, `workload <n> up`, `release`. Tests pin the topology once.
+- **Ingress**: external — `gateway`, `review` (Container Apps Entra auth replaces `REVIEW_APP_PASSWORD`),
+  `graph-mcp` (Graph change notifications). Everything else internal.
+- **Fitting $150** — the lever is scale-to-zero, not fewer roles:
+  - every **workload consumer** gets a KEDA **redis-streams** scale rule on `workflow:requests` for its
+    consumer group, `minReplicas: 0` — a 600-1000 s run wakes its host; idle costs nothing. This is the
+    Container-Apps-native form of "replicas of a stateless host".
+  - the **stream-driven substrate roles** (notifiers, projector, reconciler, continuations, channels) get
+    the same rule on their own streams.
+  - **MCP servers and the gateway** stay `minReplicas: 1` at 0.25 vCPU / 0.5 GiB (a cold start is longer
+    than the gateway's tool timeout).
+  - Redis: one container, min 1, Azure Files volume for `/data`.
+- **Rough cost** (to verify against the pricing calculator in Phase 0): ~12 always-on small replicas ≈
+  $60-80; scale-to-zero consumers ≈ usage; App Insights within free ingestion; Foundry tokens at demo
+  volume ≈ $10-30; Key Vault/Log Analytics ≈ $5. APIM (Phase 2) must fit the remainder.
+- **External callers re-pointed to prod**: Copilot Studio connectors (a prod connection per agent),
+  Graph subscriptions' notification URL, Power Automate webhooks, `PUBLIC_GATEWAY_URL`.
+- **Exit test**: `scripts/e2e_smoke.py` against the prod gateway (every contract tool exposed),
+  `azure.py substrate versions` (asked tag == running `LAB_BUILD_SHA`), one use-case chain end to end.
+
+## Phase 2 — APIM as the governance plane
+
+- Tier chosen to fit the budget (Consumption or Developer; Basic v2 does not fit $150 alongside Phase 1)
+  — verify at the time which AI-gateway policies each tier supports.
+- **Generated, not hand-written, policy**: `lab.substrate.apipolicy`'s `(method, path) → role` table
+  renders the inbound `validate-jwt` + `<required-claims>` policy; a parity test keeps them equal (the
+  table stays the single source of truth).
+- Token limits / token metrics policies on the model APIs; MCP servers exposed through APIM.
+- `custom_auth.py` retired on the prod path once APIM carries every rule it enforced.
+
+## Where things run: Container Apps vs Foundry hosted agents
+
+Foundry **hosted agents** (GA Jul/Aug 2026, available in UAE North) run agent code as a container in a
+per-SESSION, VM-isolated sandbox. They are request-driven (Responses / Invocations / A2A endpoints), scale to
+zero after an idle timeout of 2-60 min, get an Entra agent identity automatically, and bridge to Teams.
+They host AGENTS. Most of this lab is not agents:
+
+| Component | Runs on | Why |
+|---|---|---|
+| gateway, the MCP servers, review app, Redis, notifiers/projector/reconciler/continuations, channels | **Container Apps** | Long-lived servers and stream consumers. A per-session agent sandbox has no place for them. |
+| workload hosts (a workflow that CONTAINS agents, consuming `workflow:requests`) | **Container Apps in Phase 1**; candidate for hosted agents later | They PULL from a stream. A hosted agent is PUSHED a request. Moving one means the front door invokes an Invocations endpoint (background mode) instead of an XADD. That is a contract change, and it is worth a spike on one workload first. |
+| models | **Foundry** (deployments above) | |
+| project: evals, traces, agent catalogue | **Foundry** | App Insights is shared with the project. |
+
+**Invariant to protect if hosted agents are adopted**: a hosted agent calls models through its PROJECT
+endpoint by default, which bypasses the gateway and so breaks "all traffic through the gateway". Its model
+and tool calls must be pointed at the gateway (LiteLLM in Phase 1, APIM in Phase 2) before any workload moves.
+
+## CI/CD (GitHub)
+
+```
+push main → test → build (ghcr sha-<short>) → deploy-dev (Railway, as today) → smoke dev
+          → deploy-prod  [environment: production, required reviewer]
+               azure/login (OIDC) → deploy/azure.py release  (SAME sha tag — promotion, never a rebuild)
+               → substrate images + versions → e2e_smoke against prod
+```
+
+- Promotion is by immutable tag: what reached prod is exactly what ran on dev.
+- The same deploy gate as dev: wait for a quiet run board (`/api/runs/open`) before rolling the gateway.
+- Prod config is NOT in GitHub: Key Vault, written by a human. CD ships code; prod configuration stays a
+  deliberate act.
