@@ -13,7 +13,8 @@ There is no third way in. APIM answers an unmatched path with 404 by constructio
 table's default DENY without a rule to write.
 
     python deploy/apim.py render            # print every policy (no Azure call)
-    python deploy/apim.py apply             # PUT the APIs, operations and policies (idempotent)
+    python deploy/apim.py apply models      # PUT the models API and its policies (idempotent)
+    python deploy/apim.py apply frontdoor   # PUT the /api operations (needs a backend APIM can reach)
 
 Policies are sent in APIM's `xml` format, so every expression is XML-escaped here and the tests can
 parse what is deployed; APIM decodes the entities before it compiles the expression.
@@ -186,52 +187,68 @@ def _params(template: str) -> list[dict]:
     return [{"name": p, "type": "string", "required": True} for p in re.findall(r"\{([^}]+)\}", template)]
 
 
-def apply(arm, service_url: str, *, tenant: str, audience: str, foundry: str, frontdoor: str) -> None:
-    """PUT everything. Idempotent: a re-run converges on what this module renders."""
-    def put(path, body):
-        arm.request("PUT", f"{service_url}/{path}?api-version={APIM_API}", body)
+class Service:
+    """PUTs against one APIM instance. Idempotent: a re-run converges on what this module renders."""
 
-    def policy(path, xml):
-        put(f"{path}/policies/policy", {"properties": {"format": "xml", "value": xml}})
+    def __init__(self, arm, url: str):
+        self.arm, self.url = arm, url
 
-    put("backends/foundry", {"properties": {"protocol": "http", "url": foundry.rstrip("/") + "/openai/v1"}})
-    put(f"apis/{MODELS_API}", {"properties": {
+    def put(self, path: str, body: dict) -> None:
+        self.arm.request("PUT", f"{self.url}/{path}?api-version={APIM_API}", body)
+
+    def policy(self, path: str, xml: str) -> None:
+        self.put(f"{path}/policies/policy", {"properties": {"format": "xml", "value": xml}})
+
+
+def apply_models(svc: Service, *, tenant: str, audience: str, foundry: str) -> None:
+    svc.put("backends/foundry", {"properties": {"protocol": "http", "url": foundry.rstrip("/") + "/openai/v1"}})
+    svc.put(f"apis/{MODELS_API}", {"properties": {
         "displayName": "Models", "path": "v1", "protocols": ["https"], "subscriptionRequired": False,
         "subscriptionKeyParameterNames": {"header": "api-key", "query": "subscription-key"}}})
     for name, method, url in MODEL_OPERATIONS:
-        put(f"apis/{MODELS_API}/operations/{name}",
-            {"properties": {"displayName": name, "method": method, "urlTemplate": url}})
-    policy(f"apis/{MODELS_API}", models_policy(tenant, audience))
-    policy(f"apis/{MODELS_API}/operations/models", models_list_policy())
+        svc.put(f"apis/{MODELS_API}/operations/{name}",
+                {"properties": {"displayName": name, "method": method, "urlTemplate": url}})
+    svc.policy(f"apis/{MODELS_API}", models_policy(tenant, audience))
+    svc.policy(f"apis/{MODELS_API}/operations/models", models_list_policy())
 
-    put(f"apis/{FRONTDOOR_API}", {"properties": {
+
+def apply_frontdoor(svc: Service, *, tenant: str, audience: str, frontdoor: str) -> None:
+    svc.put(f"apis/{FRONTDOOR_API}", {"properties": {
         "displayName": "Front door", "path": "api", "protocols": ["https"], "subscriptionRequired": False,
         "serviceUrl": frontdoor}})
     for o in frontdoor_operations():
-        put(f"apis/{FRONTDOOR_API}/operations/{o['name']}", {"properties": {
+        svc.put(f"apis/{FRONTDOOR_API}/operations/{o['name']}", {"properties": {
             "displayName": o["name"], "method": o["method"], "urlTemplate": o["urlTemplate"],
             "description": o["description"], "templateParameters": _params(o["urlTemplate"])}})
-        policy(f"apis/{FRONTDOOR_API}/operations/{o['name']}",
-               frontdoor_operation_policy(o["role"], tenant, audience, stream=o["name"].endswith("-events")))
+        svc.policy(f"apis/{FRONTDOOR_API}/operations/{o['name']}",
+                   frontdoor_operation_policy(o["role"], tenant, audience, stream=o["name"].endswith("-events")))
 
 
 def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the profile, calls Azure
-    tenant, audience = os.environ.get("ENTRA_TENANT_ID", "<tenant>"), os.environ.get("ENTRA_GATEWAY_AUDIENCE", "<audience>")
     if argv[:1] == ["render"]:
+        tenant, audience = os.environ.get("ENTRA_TENANT_ID", "<tenant>"), os.environ.get("ENTRA_GATEWAY_AUDIENCE", "<audience>")
         print(models_policy(tenant, audience))
         for o in frontdoor_operations():
             print(o["method"], o["urlTemplate"], o["role"])
         return 0
-    if argv[:1] == ["apply"]:
+    if argv[:1] == ["apply"] and argv[1:2] in (["models"], ["frontdoor"]):
         sys.path.insert(0, str(Path(__file__).parent))
         import aca
-        profile = aca.profile()
-        arm = aca.Arm()
-        service = (f"{aca.ARM}/subscriptions/{profile['AZURE_SUBSCRIPTION_ID']}/resourceGroups/"
-                   f"{profile['AZURE_RESOURCE_GROUP']}/providers/Microsoft.ApiManagement/service/{profile['APIM_NAME']}")
-        apply(arm, service, tenant=profile["ENTRA_TENANT_ID"], audience=profile["ENTRA_GATEWAY_AUDIENCE"],
-              foundry=profile["AZURE_FOUNDRY_API_BASE"], frontdoor=profile["APIM_FRONTDOOR_URL"])
-        print("apim: models + front door applied")
+        sub = os.environ.get("AZURE_SUBSCRIPTION_ID", "")
+        if not sub:
+            print("set AZURE_SUBSCRIPTION_ID (and AZURE_RESOURCE_GROUP)", file=sys.stderr)
+            return 2
+        profile, arm = aca.profile(), aca.Arm()
+        rg = aca._rg(sub, os.environ.get("AZURE_RESOURCE_GROUP", "rg-lab-prod"))
+        outputs = arm.request("GET", f"{rg}/providers/Microsoft.Resources/deployments/apim"
+                                     "?api-version=2024-03-01")["properties"]["outputs"]
+        svc = Service(arm, f"{rg}/providers/Microsoft.ApiManagement/service/{outputs['apimName']['value']}")
+        who = dict(tenant=profile["ENTRA_TENANT_ID"], audience=profile["ENTRA_GATEWAY_AUDIENCE"])
+        if argv[1] == "models":
+            apply_models(svc, foundry=profile["AZURE_FOUNDRY_API_BASE"], **who)
+        else:
+            apply_frontdoor(svc, frontdoor=profile["WORKFLOW_API_URL"], **who)
+        print(f"apim: {argv[1]} applied to {outputs['gatewayUrl']['value']}")
         return 0
     print(__doc__)
     return 2
