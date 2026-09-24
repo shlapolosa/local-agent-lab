@@ -45,13 +45,24 @@ Premium seats, so the maker portal is available at https://copilotstudio.microso
 
    Then Settings → Security → Authentication → **Authenticate with Microsoft**, so the agent knows the
    signed-in person (`System.User.Email`) — the actor the gate records.
-2. **Add the MCP server as a tool** — Tools → Add a tool → Model Context Protocol:
+2. **Turn OFF every source of knowledge that is not the fabric** — Settings → Generative AI:
+   - **Web search: off**, **general knowledge: off**, and no public website under Knowledge.
+   - Measured 24 Sep 2026: with web search on, "what do we know about the claims portal" was answered from three
+     public `claimsportal.org.uk` pages, formatted like fabric records ("Document type: Web page · State:
+     Published/public · Source pointer: <url>"). No fabric tool had run — the Teams connection was not yet
+     established — so the agent filled the silence from the web. Two things were wrong at once: an answer that
+     looks like a record but is not one, and a question that egressed to a search engine instead of the gateway.
+     The fabric DID hold the answer (two claims-portal decision records, both indexed).
+   - The instruction block above already says never to invent a document; add the sharper line for this case:
+     `Never use web search or general knowledge. If a fabric tool is unavailable or returns nothing, say so and
+     stop — for a missing connection, say the connection needs to be set up in Teams.`
+3. **Add the MCP server as a tool** — Tools → Add a tool → Model Context Protocol:
    - Server URL: `https://gateway-production-120b.up.railway.app/mcp/`
    - Authentication: API key, header `Authorization`, value `Bearer <FABRIC_BOT_KEY>`
    The tool list arrives from the gateway's registry, filtered by the team's grant: `semantic_search`,
    `semantic_similar`, `semantic_impact`, `semantic_catalog_get`, `semantic_query`, `approvals_list`,
    `approvals_get`, `approvals_decide` and the rest of READ.
-3. **Three intents** — with generative orchestration and the MCP tools these need NO authored topics; the
+4. **Three intents** — with generative orchestration and the MCP tools these need NO authored topics; the
    instructions above name the tool for each. Author a topic only to pin a wording or add a card:
    - *What do we know about …* → `semantic_search(text, limit=5)`; answer with title, type, state and the
      source link (`pointer`), never content.
@@ -60,8 +71,11 @@ Premium seats, so the maker portal is available at https://copilotstudio.microso
    - *Approve / decline / send back* → `approvals_decide(request_id, decision, actor=<signed-in UPN>,
      channel="teams", comment, answer={label: {"value": …}})`. The actor is the person's UPN from the
      Teams conversation — the gate refuses a blank one, and the audit log names them.
-4. **Publish to Teams** (Channels → Microsoft Teams). The existing incoming-webhook cards keep arriving; the
-   bot is where a person answers them.
+5. **Publish to Teams** (Channels → Microsoft Teams). The existing incoming-webhook cards keep arriving; the
+   bot is where a person answers them. Publishing needs tenant Copilot Studio capacity — a pay-as-you-go billing
+   plan on the environment (Power Platform admin → Billing → Billing plans), since the tenant's one trial is
+   redeemed. **Each person completes the connection manager sign-in once** before any tool runs for them; until
+   they do the agent has no fabric at all, which is exactly when step 2 stops it inventing an answer.
 
 ## If "what do we know" answers nothing
 
