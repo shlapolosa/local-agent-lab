@@ -12,8 +12,8 @@ def test_the_credential_is_required_and_read_in_one_place(monkeypatch):
     with pytest.raises(RuntimeError, match="FABRIC_CURATOR_KEY"):
         G.headers()
     monkeypatch.setattr(config, "FABRIC_CURATOR_KEY", "sk-cur")
-    assert G.headers() == {"Authorization": "Bearer sk-cur"}
-    assert G.headers("sk-other") == {"Authorization": "Bearer sk-other"}
+    assert G.headers() == {"Authorization": "Bearer sk-cur", "api-key": "sk-cur"}
+    assert G.headers("sk-other") == {"Authorization": "Bearer sk-other", "api-key": "sk-other"}
 
 
 def test_call_goes_through_the_shared_resolver_with_that_credential(monkeypatch):
@@ -24,4 +24,4 @@ def test_call_goes_through_the_shared_resolver_with_that_credential(monkeypatch)
     monkeypatch.setattr(G.mcp_client, "call_tools", fake)
     monkeypatch.setattr(config, "FABRIC_CURATOR_KEY", "sk-cur")
     assert asyncio.run(G.call([("semantic_catalog_get", {"iri": "u"})])) == ["ok"]
-    assert seen["headers"] == {"Authorization": "Bearer sk-cur"} and seen["url"] == config.GATEWAY_MCP_URL
+    assert seen["headers"] == {"Authorization": "Bearer sk-cur", "api-key": "sk-cur"} and seen["url"] == config.GATEWAY_MCP_URL

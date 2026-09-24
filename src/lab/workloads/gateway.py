@@ -28,6 +28,7 @@ from typing import Any
 from fastmcp import Client
 
 from lab.platform import config, mcp_client
+from lab.platform import credential as gateway_credential
 from lab.platform.contracts import ApprovalTools, ArtifactRef, CollabTools, EATools
 from lab.platform.webhook import get_json, post_json
 
@@ -244,7 +245,7 @@ async def survive_restart(attempt, *, waits=RESTART_WAITS_S, sleep=asyncio.sleep
 def auth_headers(credential: str, traceparent: str = "") -> dict[str, str]:
     """The headers a workload calls the gateway with: its own credential, and the trace it belongs
     to. The traceparent is what joins the gateway's and every MCP server's spans to THIS run."""
-    headers = {"Authorization": f"Bearer {credential}"} if credential else {}
+    headers = gateway_credential.headers(credential)
     if traceparent:
         headers["traceparent"] = traceparent
     return headers

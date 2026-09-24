@@ -683,11 +683,12 @@ def make_cfg(*, ba_cred: str, ar_cred: str, traceparent: dict, schema: dict, tra
                              (`devui_entry.instrument_runs`) — the executors read it lazily, once per node,
                              so a DevUI run is a first-class row on the board like any other."""
     from lab.platform import config
+    from lab.platform import credential as gateway_credential
     return {
         "ba_cred": ba_cred, "ar_cred": ar_cred,
         "traceparent": dict(traceparent),
-        "ba_headers": {"Authorization": f"Bearer {ba_cred}", **traceparent},
-        "ar_headers": {"Authorization": f"Bearer {ar_cred}", **traceparent},
+        "ba_headers": {**gateway_credential.headers(ba_cred), **traceparent},
+        "ar_headers": {**gateway_credential.headers(ar_cred), **traceparent},
         "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
         "schema": schema,
         "tracer": tracer, "root_ctx": root_ctx,

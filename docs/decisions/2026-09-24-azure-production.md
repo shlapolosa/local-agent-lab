@@ -211,10 +211,16 @@ cutover (workloads' GATEWAY_URL to APIM, the LiteLLM app removed from prod, CI's
   member — APIM refused it on apply. Verified live: asked to reverse an email, the model returned
   `]1#LIAME[` (it saw only the placeholder); chat and Responses returned the email and a UAE phone
   restored; a masked embeddings batch still embeds.
-- **Cutover owes the key header**: APIM reads a key from `api-key`; dev LiteLLM reads `Authorization:
-  Bearer` and accepts `api-key` on `/v1` but NOT on `/mcp` (measured). So the Python key callers
-  (`fabric_gateway`, the embedder, the eval scripts) send BOTH — one client for both gateways — and the
-  production connector clones name their key parameter `api-key`.
+- **The key header — done in code**: APIM reads a key from `api-key`; dev LiteLLM reads `Authorization:
+  Bearer` and accepts `api-key` on `/v1` but NOT on `/mcp` (measured). `lab.platform.credential.headers`
+  is now the ONE place a credential becomes headers: a key travels in both (dev verified 200 on `/v1` and
+  `/mcp` with both), a token as a Bearer only (APIM would try a token in `api-key` as a subscription key).
+  Used by `fabric_gateway`, `embed`, `identity`, `workloads.gateway` and the visio host. Still owed at
+  cutover: the production connector clones name their key parameter `api-key`.
+- **Vector-store routes — NOT built** (YAGNI, decided 24 Sep 2026): nothing in production searches a
+  store. Screening reads the technology map whole and REFUSES a store-backed matcher at preflight, and
+  no team holds a store grant (every `vector_stores` is `[]`/`["-"]`). The façade stays a dev
+  exploration surface behind LiteLLM; a store-backed consumer in production would add the route then.
 
 ## Phase 2 as first planned (superseded above): APIM as the governance plane
 

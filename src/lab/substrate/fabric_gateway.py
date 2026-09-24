@@ -8,14 +8,14 @@ plainly rather than acting anonymously. The credential enters here and nowhere e
 managed identity or a vault is a one-module change."""
 from __future__ import annotations
 
-from lab.platform import config, mcp_client
+from lab.platform import config, credential, mcp_client
 
 
 def headers(key: str | None = None) -> dict[str, str]:
     key = config.FABRIC_CURATOR_KEY if key is None else key
     if not key:
         raise RuntimeError("FABRIC_CURATOR_KEY is not configured — the substrate cannot reach the fabric's tools")
-    return {"Authorization": f"Bearer {key}"}
+    return credential.headers(key)
 
 
 async def call(calls, *, key: str | None = None):

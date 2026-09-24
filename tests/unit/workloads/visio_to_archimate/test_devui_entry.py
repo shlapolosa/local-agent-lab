@@ -77,7 +77,7 @@ def test_build_cfg_uses_its_own_container_and_builds_host_cfg_under_one_session_
     assert cfg["mcp_url"] == "http://gw.test:4000/mcp/" and cfg["run_id"] is None
     assert cfg["schema"] == {"type": "object", "properties": {}, "faked": True}
     assert cfg["traceparent"]["traceparent"].split("-")[1] == trace_id   # the session span parents every run
-    assert cfg["ba_headers"] == {"Authorization": "Bearer cred-BA_AGENT", **cfg["traceparent"]}
+    assert cfg["ba_headers"] == {"Authorization": "Bearer cred-BA_AGENT", "api-key": "cred-BA_AGENT", **cfg["traceparent"]}
     assert cfg["ar_headers"]["Authorization"] == "Bearer cred-ARCHITECT_AGENT"
     assert cfg["root_ctx"] is not None and cfg["tracer"] is root.tracer()  # the tracer comes from the container
     # the session span was ENDED (exported) yet its context is still a valid parent

@@ -19,6 +19,7 @@ import time
 import urllib.error
 from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
+from lab.platform import credential as gateway_credential
 from lab.platform.webhook import post_json
 
 __all__ = ["DEFAULT_BATCH", "EmbedError", "Embedder", "GatewayEmbedder", "PURPOSES"]
@@ -97,8 +98,7 @@ class GatewayEmbedder:
                 body = self._http(
                     f"{self.base_url}/v1/embeddings",
                     {"model": self.model, "input": chunk, "input_type": input_type},
-                    {"Authorization": f"Bearer {self.credential}",
-                     "Content-Type": "application/json"},
+                    {**gateway_credential.headers(self.credential), "Content-Type": "application/json"},
                     self.timeout)
                 break
             except urllib.error.HTTPError as exc:

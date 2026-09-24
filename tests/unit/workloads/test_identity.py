@@ -20,7 +20,7 @@ class FakeApp:
 
     def __init__(self, client_id, client_credential=None, authority=None, **kw):
         self.client_id, self.secret, self.authority = client_id, client_credential, authority
-        self.calls, self.result = [], {"access_token": f"jwt-for-{client_id}"}
+        self.calls, self.result = [], {"access_token": f"hdr.jwt-for-{client_id}.sig"}
         FakeApp.instances.append(self)
 
     def acquire_token_for_client(self, scopes):
@@ -60,9 +60,9 @@ def test_fallback_to_durable_key_without_client_credentials():
                    BA_AGENT_CLIENT_ID="only-id-no-secret", BA_AGENT_CLIENT_SECRET=None, BA_AGENT_KEY="sk-ba")
     try:
         assert identity.agent_token() is None
-        assert identity.agent_headers() == {"Authorization": "Bearer sk-ea-durable"}
+        assert identity.agent_headers() == {"Authorization": "Bearer sk-ea-durable", "api-key": "sk-ea-durable"}
         assert identity.agent_token("BA_AGENT") is None                 # id without secret = no MSAL
-        assert identity.agent_headers("BA_AGENT") == {"Authorization": "Bearer sk-ba"}
+        assert identity.agent_headers("BA_AGENT") == {"Authorization": "Bearer sk-ba", "api-key": "sk-ba"}
         assert FakeApp.instances == []                                  # MSAL never touched
     finally:
         restore()
@@ -76,7 +76,7 @@ def test_msal_client_credentials_path_and_app_cache():
                    ARCHITECT_AGENT_KEY="sk-arch-durable")
     try:
         h = identity.agent_headers("ARCHITECT_AGENT")
-        assert h == {"Authorization": "Bearer jwt-for-arch-client"}     # the JWT, not the durable key
+        assert h == {"Authorization": "Bearer hdr.jwt-for-arch-client.sig"}     # the JWT alone, not the durable key
         app = FakeApp.instances[0]
         assert app.client_id == "arch-client" and app.secret == "arch-secret"
         assert app.authority == f"https://login.microsoftonline.com/{TENANT}"

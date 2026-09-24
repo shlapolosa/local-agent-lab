@@ -13,6 +13,8 @@ registration ↔ one virtual key ↔ one agent.
 """
 import os
 
+from lab.platform import credential as gateway_credential
+
 _apps: dict = {}
 
 
@@ -33,7 +35,4 @@ def agent_token(prefix: str = "EA_AGENT") -> str | None:
 
 
 def agent_headers(prefix: str = "EA_AGENT") -> dict:
-    tok = agent_token(prefix)
-    if tok:
-        return {"Authorization": f"Bearer {tok}"}
-    return {"Authorization": f"Bearer {os.environ[f'{prefix}_KEY']}"}
+    return gateway_credential.headers(agent_token(prefix) or os.environ[f"{prefix}_KEY"])
