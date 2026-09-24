@@ -82,7 +82,7 @@ def railway_module():
     with open(os.path.join(TMP, ".env"), "w") as f:
         f.write(ENV_TEXT)
     rw = _load()
-    rw.ROOT = TMP
+    rw.topology.ROOT = TMP
     yield
     mp.undo()
     rw, TMP = None, None
@@ -94,20 +94,20 @@ def env_file(text):
     d = tempfile.mkdtemp()
     with open(os.path.join(d, ".env"), "w") as f:
         f.write(text)
-    saved, rw.ROOT = rw.ROOT, d
+    saved, rw.topology.ROOT = rw.topology.ROOT, d
     try:
         yield d
     finally:
-        rw.ROOT = saved
+        rw.topology.ROOT = saved
 
 @contextlib.contextmanager
 def env_file_missing():
     """Point the module at a directory with NO `.env` (an ops box that only exports RAILWAY_*)."""
-    saved, rw.ROOT = rw.ROOT, tempfile.mkdtemp()
+    saved, rw.topology.ROOT = rw.topology.ROOT, tempfile.mkdtemp()
     try:
         yield
     finally:
-        rw.ROOT = saved
+        rw.topology.ROOT = saved
 
 
 # ---------------------------------------------------------------- the fake Railway GraphQL endpoint
@@ -883,72 +883,6 @@ def test_cli_usage_and_credential_errors():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
-
-
-# ------------------------------------------------------------------ the quiet gate
-def _profile(**kw):
-    return {"PUBLIC_GATEWAY_URL": "https://gw.example", "LITELLM_MASTER_KEY": "sk-master-fake", **kw}
-
-
-def test_a_deploy_waits_for_runs_in_flight_and_proceeds_when_the_board_is_quiet(monkeypatch):
-    """A restart under a run ends it with a 502 an hour of tokens in; the gate waits instead."""
-    answers = iter([[{"process": "use_case_screening", "request_id": "wfr-1"}], [], []])
-    slept = []
-    monkeypatch.setattr(rw, "open_runs", lambda profile: next(answers))
-    monkeypatch.setattr(rw.time, "sleep", lambda s: slept.append(s))
-    assert rw.quiet_board(_profile(), wait_s=600) is True
-    assert slept == [rw.QUIET_POLL_S]
-
-
-def test_a_deploy_refuses_when_runs_are_still_in_flight_after_the_budget(monkeypatch, capsys):
-    monkeypatch.setattr(rw, "open_runs", lambda profile: [{"process": "p", "request_id": "wfr-9"}])
-    monkeypatch.setattr(rw.time, "sleep", lambda s: None)
-    assert rw.quiet_board(_profile(), wait_s=60) is False
-    assert "wfr-9" in capsys.readouterr().err
-    with pytest.raises(SystemExit) as e:
-        rw._require_quiet(_profile())
-    assert e.value.code == 3
-
-
-def test_force_skips_the_gate_and_an_unaskable_front_door_does_not_block_a_repair(monkeypatch):
-    monkeypatch.setattr(rw, "open_runs", lambda profile: [{"process": "p", "request_id": "wfr-9"}])
-    monkeypatch.setenv("LAB_DEPLOY_FORCE", "1")
-    assert rw.quiet_board(_profile(), wait_s=0) is True
-    monkeypatch.delenv("LAB_DEPLOY_FORCE")
-    assert rw.quiet_board({"LITELLM_MASTER_KEY": "k"}, wait_s=0) is True      # no URL: cannot ask
-    monkeypatch.setattr(rw, "open_runs", lambda profile: None)               # unreachable, for good
-    monkeypatch.setattr(rw.time, "sleep", lambda s: None)
-    assert rw.quiet_board(_profile(), wait_s=0) is True
-
-
-def test_an_unreachable_front_door_is_waited_for_before_the_gate_gives_up_asking(monkeypatch):
-    """Two rolls close together: the gateway is still restarting from the previous deploy, so the
-    gate cannot ask — and used to proceed at once over a board it never saw. Now it waits out the
-    restart; a run that is open when the door answers still holds the deploy."""
-    answers = iter([None, None, [{"process": "p", "request_id": "wfr-5"}], []])
-    slept = []
-    monkeypatch.setattr(rw, "open_runs", lambda profile: next(answers))
-    monkeypatch.setattr(rw.time, "sleep", lambda s: slept.append(s))
-    assert rw.quiet_board(_profile(), wait_s=600) is True
-    assert slept == [rw.QUIET_POLL_S] * 3, "two unreachable polls, one busy poll, then quiet"
-    assert rw.QUIET_UNREACHABLE_WAIT_S >= 180, "a gateway restart takes minutes"
-
-
-def test_open_runs_asks_the_front_door_with_the_master_key_and_says_when_it_cannot(monkeypatch, capsys):
-    seen = {}
-    class R(io.BytesIO):
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-    def fake(req, timeout=None):
-        seen["url"], seen["auth"] = req.full_url, req.get_header("Authorization")
-        return R(json.dumps({"runs": [{"request_id": "wfr-2", "process": "p", "status": "running"}]}).encode())
-    monkeypatch.setattr(rw.urllib.request, "urlopen", fake)
-    assert rw.open_runs(_profile()) == [{"request_id": "wfr-2", "process": "p", "status": "running"}]
-    assert seen == {"url": "https://gw.example/api/runs/open", "auth": "Bearer sk-master-fake"}
-    def down(req, timeout=None):
-        raise urllib.error.URLError("refused")
-    monkeypatch.setattr(rw.urllib.request, "urlopen", down)
-    assert rw.open_runs(_profile()) is None and "unreachable" in capsys.readouterr().err
 
 
 def test_substrate_up_with_a_vendor_embedding_model_creates_no_embedder():

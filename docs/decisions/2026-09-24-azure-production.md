@@ -129,6 +129,28 @@ They host AGENTS. Most of this lab is not agents:
 endpoint by default, which bypasses the gateway and so breaks "all traffic through the gateway". Its model
 and tool calls must be pointed at the gateway (LiteLLM in Phase 1, APIM in Phase 2) before any workload moves.
 
+## Separating dev from prod beyond URLs and state
+
+URLs and state are separate (own gateway, own Postgres copy, own Redis). Three things are still SHARED
+and each is its own work item — the copy of dev's registry made them shared, it did not make them right:
+
+1. **Identities.** Prod's `litellm` database is a copy, so every virtual key, the master key and the
+   `ENTRA_CLIENT_TO_KEY` mapping are valid on BOTH gateways, and the Entra agent app registrations (one per
+   agent) and their client secrets are the same objects. Target: prod-only app registrations per agent
+   (`<agent>-prod`), minted prod virtual keys, a prod master key, and the dev keys revoked in the prod
+   registry. The `lab-gateway` audience/app roles may stay shared (roles are vocabulary, not grants) or be
+   split into `lab-gateway-prod` — decide before minting.
+2. **The Copilot Studio environment.** The tenant has ONE Power Platform environment (Default), holding both
+   agents and the PAYG plan. Target: a separate `prod` environment linked to the `laboratory` billing plan,
+   the agents promoted into it as a SOLUTION (export dev, import prod), with their connectors pointed at the
+   prod gateway and a prod connection identity. Default stays dev.
+3. **Tenant-side scopes.** Graph change-notification subscriptions (point at dev `graph-mcp`), the fabric's
+   SharePoint allow-list and wiki folders, the Teams/Power Automate webhooks (approvals channel, meeting
+   notifier, use-case notifier), and the Graph app permissions of `lab-collab-reader`. Target: prod gets its
+   own subscriptions to its own `graph-mcp`, its own folders/libraries (or an explicit decision to share the
+   pilot library read-only), its own webhooks, and its own collab app registration so dev can never write
+   into prod's scope.
+
 ## CI/CD (GitHub)
 
 ```
