@@ -84,6 +84,12 @@ class FakeWorkflows:
         self.clients.append(client)
         self.acks.append((group, eid))
 
+    def hold(self, group, eid, consumer="1", client=None):
+        """The run's heartbeat on its own entry (workflows.hold) — recorded, no thread."""
+        self.clients.append(client)
+        self.held = getattr(self, "held", []) + [(group, eid)]
+        return contextlib.nullcontext()
+
 
 consumer_mod = consumer
 
