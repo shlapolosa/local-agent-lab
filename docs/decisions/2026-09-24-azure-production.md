@@ -196,6 +196,17 @@ and each is its own work item — the copy of dev's registry made them shared, i
    "Europe, UK, Middle East, Africa" — the datacenter could be any of eleven countries, and the first choice
    becomes the tenant's affinity. Default predates that and is UAE-resident. Residency outranked environment
    separation; ADR (paid, per seat, all seats) is the way back to a separate UAE environment.
+   **DONE 24 Sep 2026, entirely through APIs** (Power Apps + Dataverse): "Documentation Fabric (Prod)" and
+   "Use Case Desk (Prod)" — each a cloned custom connector whose backend is the PROD gateway, a connection
+   holding the prod key (FABRIC_BOT_KEY / USECASE_SUBMITTER_KEY), a connection reference, and the bot with
+   its components. Both tested green in Copilot Studio. What a Dataverse-created clone needs that the portal
+   does silently — each one cost a failure: `PvaProvision` before `PvaPublish` (else 409); the bot's
+   CONFIGURATION names components by schema (`gPTSettings.defaultSchemaName` → the instructions) and must be
+   re-prefixed (else empty instructions); a tool resolves its connection through the
+   `botcomponent_connectionreference` RELATIONSHIP, not the YAML name (else "1 missing connection
+   reference"); and a reference name can EMBED the connector name, so the connector id is replaced only on
+   its own `connectorId:` line. Web search is OFF on both prod agents (`agentSettings.web.enableWebSearch`,
+   and the Conversational-boosting fallback deactivated) — they answer from their tools or say they cannot.
    Superseded plan: a separate `prod` environment linked to the `laboratory` billing plan, the agents promoted
    into it as a SOLUTION (export dev, import prod), with their connectors pointed at the prod gateway and a prod
    connection identity. Default stays dev.
@@ -203,7 +214,14 @@ and each is its own work item — the copy of dev's registry made them shared, i
    agents and the PAYG plan. Target: a separate `prod` environment linked to the `laboratory` billing plan,
    the agents promoted into it as a SOLUTION (export dev, import prod), with their connectors pointed at the
    prod gateway and a prod connection identity. Default stays dev.
-3. **Tenant-side scopes.** Graph change-notification subscriptions (point at dev `graph-mcp`), the fabric's
+3. **Tenant-side scopes — DONE 24 Sep 2026, through APIs.** Team `Lab Production` (created via Graph — a
+   team made in the Teams desktop client never reached the directory), channel `Approvals`, site
+   `sites/LabProduction_8b59e8` with a `Fabric Wiki` folder; prod FABRIC_ALLOWLIST / FABRIC_WIKI_FOLDER point
+   at that library; a prod Graph subscription watches it and delivers to prod graph-mcp (Graph validated the
+   endpoint on creation); the approvals and meeting-notifier flows cloned as "(Prod)" flows on the existing
+   Teams connection, their trigger URLs written straight to `.env.azure`; approvals verified end to end
+   (webhook 202, flow run Succeeded). Dev's pilot library, channel and flows are untouched.
+   Original text: **Tenant-side scopes.** Graph change-notification subscriptions (point at dev `graph-mcp`), the fabric's
    SharePoint allow-list and wiki folders, the Teams/Power Automate webhooks (approvals channel, meeting
    notifier, use-case notifier), and the Graph app permissions of `lab-collab-reader`. Target: prod gets its
    own subscriptions to its own `graph-mcp`, its own folders/libraries (or an explicit decision to share the
