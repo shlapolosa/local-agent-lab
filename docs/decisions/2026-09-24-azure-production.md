@@ -172,6 +172,30 @@ apipolicy table (generated, parity-tested) → MCP APIs + the client aggregation
 from the prod registry's team grants → subscriptions for key callers → PII fragment → vector-store routes →
 cutover (workloads' GATEWAY_URL to APIM, the LiteLLM app removed from prod, CI's registry steps dev-only).
 
+### Phase 2 as built so far (24 Sep 2026) — live on `apim-lab-prod-i4ov2m`, no traffic until cutover
+
+- **Models** (`deploy/apim.py apply models`): `/v1` rendered from the production model overlay. Foundry's
+  `/openai/v1` takes the DEPLOYMENT as `model` with no api-version — chat, Responses (store=false) and
+  embeddings all verified. `GET /models` answers with the gateway's names. Callers need `Models.Use`,
+  granted by `scripts/grant_models_role.py` to every client in `ENTRA_CLIENT_TO_KEY` except those whose
+  only roles are front-door ones (the connector, the deploy gate) — 20 agents.
+- **Front door** (`apply frontdoor`): one operation per `apipolicy.OPERATIONS` row, each requiring its
+  role; verified 200 for the connector, 401 naming the role for an agent, 404 off-table.
+- **MCP** (`apply mcp`): one API per gateway alias at `/mcp/<alias>`; grants are ONE registry,
+  `deploy/grants.py`, over the provisioning scripts' own tables. A caller's team is its `Grant.<team>`
+  role (`scripts/grant_team_roles.py`, walking client → mapped key → key's team, so each identity got
+  exactly the team LiteLLM gave it) or its subscription's product. No grant on a server → 403; an
+  ungranted `tools/call` → 403 (verified: the intake agents cannot call `approvals_decide`).
+  **Two measured differences from LiteLLM**: a server with no grant is a 403 at session open rather than
+  absent, so `mcp_client.gateway_session` leaves a 403'd server out and says so on stderr (a REQUIRED
+  tool behind it still fails preflight by name); and `tools/list` shows every tool on a granted server —
+  the per-tool grant is enforced on the CALL, not on the listing.
+- **Reachability**: `aca._ingress` makes each internal server behind an MCP alias external to APIM's IP
+  alone (read from the APIM resource), plain http kept for in-environment callers. Measured before the
+  rollout: the allow-list filters only outside traffic — prod LiteLLM still reached a restricted server,
+  and the laptop got 403. APIM presents `MCP_SHARED_SECRET` as a versionless Key Vault reference; its
+  identity may read that one secret (`apim.bicep`).
+
 ## Phase 2 as first planned (superseded above): APIM as the governance plane
 
 - Tier chosen to fit the budget (Consumption or Developer; Basic v2 does not fit $150 alongside Phase 1)

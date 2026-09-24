@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import sys
 from collections.abc import Iterable, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
+import httpx
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
@@ -62,9 +64,20 @@ async def gateway_session(mcp_url: str, headers: Mapping[str, str], *, client_cl
         return
     async with AsyncExitStack() as stack:
         base = mcp_url.rstrip("/")
-        sessions = {alias: await stack.enter_async_context(
-                        cls(StreamableHttpTransport(f"{base}/{alias}/mcp", headers=hdrs)))
-                    for alias in config.GATEWAY_MCP_SERVERS}
+        sessions, refused = {}, []
+        for alias in config.GATEWAY_MCP_SERVERS:
+            try:
+                sessions[alias] = await stack.enter_async_context(
+                    cls(StreamableHttpTransport(f"{base}/{alias}/mcp", headers=hdrs)))
+            except httpx.HTTPStatusError as exc:
+                # 403 = this caller holds no grant on that server. The single gateway did not list such a
+                # server at all, so leaving it out keeps the catalogue the same; a REQUIRED tool behind
+                # it still fails preflight by name. Anything else (401, 5xx) is a fault and raises.
+                if exc.response.status_code != 403:
+                    raise
+                refused.append(alias)
+        if refused:
+            print(f"mcp: no grant on {', '.join(refused)} — left out of the catalogue", file=sys.stderr)
         yield _Aggregate(sessions)
 
 

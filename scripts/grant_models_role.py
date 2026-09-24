@@ -66,7 +66,8 @@ def main():
             print(f"skipped a mapped client with no service principal in this tenant")
             continue
         pid, name = found[0]["id"], found[0]["displayName"]
-        others = held.get(pid, set()) - {ROLE}
+        # a team role (Grant.<team>, scripts/grant_team_roles.py) says which TOOLS, not whether it calls models
+        others = {r for r in held.get(pid, set()) - {ROLE} if not r.startswith("Grant.")}
         if others and others <= FRONT_DOOR:
             continue
         callers[pid] = name

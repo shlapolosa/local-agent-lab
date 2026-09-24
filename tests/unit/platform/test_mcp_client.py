@@ -70,6 +70,44 @@ def test_the_aggregate_catalogue_lists_every_server_prefixed(monkeypatch):
                                             "semantic_mcp-semantic_search"]
 
 
+def test_a_server_the_caller_holds_no_grant_on_is_left_out_as_the_single_gateway_hides_it(monkeypatch, capsys):
+    """APIM answers 403 on a server a team has no grant on, where LiteLLM simply did not list it. Leaving
+    it out keeps the two catalogues the same; a REQUIRED tool behind it still fails preflight by name."""
+    import httpx
+
+    class Refusing(PerServer):
+        async def __aenter__(self):
+            if self.alias == "collab_mcp":
+                req = httpx.Request("POST", self.url)
+                raise httpx.HTTPStatusError("403", request=req, response=httpx.Response(403, request=req))
+            return self
+
+    monkeypatch.setattr(mcp_client.config, "GATEWAY_MCP_SERVERS", ("semantic_mcp", "collab_mcp"))
+
+    async def names():
+        async with mcp_client.gateway_session("https://apim/mcp/", {}, client_class=Refusing) as s:
+            return [t.name for t in await s.list_tools()]
+    assert sorted(asyncio.run(names())) == ["semantic_mcp-semantic_catalog_get", "semantic_mcp-semantic_search"]
+    assert "collab_mcp" in capsys.readouterr().err, "what was left out is said, not silent"
+
+
+def test_any_other_refusal_at_open_still_fails(monkeypatch):
+    import httpx
+
+    class Broken(PerServer):
+        async def __aenter__(self):
+            req = httpx.Request("POST", self.url)
+            raise httpx.HTTPStatusError("401", request=req, response=httpx.Response(401, request=req))
+
+    monkeypatch.setattr(mcp_client.config, "GATEWAY_MCP_SERVERS", ("semantic_mcp",))
+
+    async def open_():
+        async with mcp_client.gateway_session("https://apim/mcp/", {}, client_class=Broken):
+            pass
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(open_())
+
+
 def test_no_server_list_is_the_single_gateway_as_before(monkeypatch):
     monkeypatch.setattr(mcp_client.config, "GATEWAY_MCP_SERVERS", ())
     FakeClient.made.clear()
