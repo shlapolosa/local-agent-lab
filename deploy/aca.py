@@ -501,10 +501,14 @@ def release(arm, target: Target, wait_s: int = 600, bearer: str = "") -> bool:
     else. Done means each app's newest revision is the READY one. Returns True on any problem,
     including having nothing to roll (a wrong resource group must not go green)."""
     _require_quiet({"PUBLIC_GATEWAY_URL": target.gateway_public, "GATE_BEARER": bearer})
-    rolled = []
+    rolled, before = [], {}
     for app in _list(arm, target):
         if not topology.is_ours(_image(app)):
             continue
+        # The revision serving BEFORE the update. Read straight after it, an app still names this one as
+        # both latest and ready — measured on production CD — so "latest == ready" alone passes the OLD
+        # revision. Done means a DIFFERENT revision is latest, and ready.
+        before[app["name"]] = app["properties"].get("latestRevisionName")
         template = app["properties"]["template"]
         template["containers"][0]["image"] = target.image
         arm.request("PATCH", _apps_url(target, app["name"]), {"properties": {"template": template}})
@@ -521,7 +525,8 @@ def release(arm, target: Target, wait_s: int = 600, bearer: str = "") -> bool:
                 pending.remove(name)
                 bad = True
                 print(f"  {name:24} FAILED on this image")
-            elif p.get("latestRevisionName") and p.get("latestReadyRevisionName") == p.get("latestRevisionName"):
+            elif (p.get("latestRevisionName") and p["latestRevisionName"] != before[name]
+                  and p.get("latestReadyRevisionName") == p["latestRevisionName"]):
                 pending.remove(name)
                 print(f"  {name:24} serving {p['latestRevisionName']}")
         if not pending or time.time() >= deadline:

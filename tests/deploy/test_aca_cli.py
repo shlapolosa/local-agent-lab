@@ -158,6 +158,34 @@ def test_release_fails_when_a_new_revision_never_becomes_ready(monkeypatch):
     assert az.release(fake, _target(fake), wait_s=0) is True
 
 
+def test_release_waits_for_the_revision_its_update_created_not_the_one_before_it(monkeypatch):
+    """Measured on production CD, 24 Sep 2026: read straight after the update, an app still names its
+    OLD revision as both latest and ready, so `release` reported `serving <old revision>` — success
+    before the new revision existed. Released means a revision NEWER than the pre-update one is ready."""
+    monkeypatch.setattr(az, "_require_quiet", lambda profile: None)
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-old0000")})
+    lagging = {"n": 0}
+    orig_revise = fake._revise
+
+    def slow_revise(name):                      # the new revision appears only on a LATER read
+        lagging["pending"] = name
+    fake._revise = slow_revise
+    orig_request = fake.request
+
+    def request(method, url, body=None, missing_ok=False):
+        out = orig_request(method, url, body, missing_ok)
+        if method == "GET" and "/containerApps/gateway?" in url and lagging.get("pending"):
+            lagging["n"] += 1
+            if lagging["n"] == 2:
+                orig_revise(lagging.pop("pending"))
+                out = orig_request(method, url, body, missing_ok)
+        return out
+    fake.request = request
+    monkeypatch.setattr(az.time, "sleep", lambda s: None)
+    assert az.release(fake, _target(fake), wait_s=60) is False
+    assert lagging["n"] >= 2, "it read again instead of accepting the pre-update revision"
+
+
 def test_release_with_nothing_to_roll_is_a_failure(monkeypatch):
     """A wrong resource group or a renamed image ships nothing — that must not go green."""
     monkeypatch.setattr(az, "_require_quiet", lambda profile: None)
