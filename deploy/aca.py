@@ -98,6 +98,7 @@ class Target:
     image: str
     telemetry: str = ""          # App Insights connection string (an ingestion address, held as an app secret)
     logs_workspace: str = ""     # Log Analytics workspace (customer) id — where `versions` reads start lines
+    gateway_ips: tuple = ()      # production's API gateway (APIM) egress addresses; () = no gateway yet
 
     def public(self, svc: str) -> str:
         return f"https://{svc}.{self.env_domain}"
@@ -163,14 +164,28 @@ def _env_and_secrets(env: dict, profile: dict, target: Target) -> tuple[list, li
     return entries, list(secrets.values())
 
 
-def _ingress(name: str) -> dict | None:
+#: What production's API gateway fronts: every service behind a gateway MCP alias (the front door's /api
+#: included — it is workflow-frontdoor). APIM runs OUTSIDE the environment, so these need external
+#: ingress, allowed to its address alone; the substrate bearer is still required on every call.
+GATEWAY_FRONTED = frozenset(topology.MCP_URL_ENV.values())
+
+
+def _ingress(name: str, target: Target) -> dict | None:
     """A server gets ingress on its port — external when the topology marks it public, internal
-    otherwise. Internal callers use plain http://<app>; a public server is only ever reached at https."""
+    otherwise. Internal callers use plain http://<app>; a public server is only ever reached at https.
+    An internal server the gateway fronts is external to the gateway's addresses alone, and keeps
+    plain http for callers inside the environment (measured 24 Sep 2026: the allow-list filters only
+    traffic from outside — the in-environment gateway still reached a restricted server)."""
     if name not in topology.SERVICE_PORTS:
         return None
     external = name in PUBLIC
-    return {"external": external, "targetPort": topology.SERVICE_PORTS[name], "transport": "auto",
-            "allowInsecure": not external}
+    ingress = {"external": external, "targetPort": topology.SERVICE_PORTS[name], "transport": "auto",
+               "allowInsecure": not external}
+    if target.gateway_ips and name in GATEWAY_FRONTED and not external:
+        ingress["external"] = True
+        ingress["ipSecurityRestrictions"] = [{"name": f"gateway-{i}", "action": "Allow", "ipAddressRange": f"{ip}/32"}
+                                             for i, ip in enumerate(target.gateway_ips, 1)]
+    return ingress
 
 
 # How long a server may take to START listening before it is killed. With no probes declared,
@@ -219,7 +234,7 @@ def substrate_app(name: str, spec: dict, profile: dict, target: Target) -> dict:
     entries, secrets = _env_and_secrets(env, profile, target)
     scale = stream_scale(spec["wakes_on"], 1, CONSUMER_COOLDOWN_S) if spec.get("wakes_on") else dict(ONE)
     return _app(target, name=name, command=AZURE_CMD.get(name, spec["cmd"]), env_entries=entries,
-                secrets=secrets, ingress=_ingress(name), scale=scale,
+                secrets=secrets, ingress=_ingress(name, target), scale=scale,
                 resources=RESOURCES.get(name, DEFAULT_RESOURCES))
 
 
@@ -406,8 +421,11 @@ def target(arm, subscription: str, resource_group: str, image: str) -> Target:
         raise SystemExit(f"the foundation deployment has no {', '.join(missing)} — redeploy deploy/bicep/foundation.bicep")
     loc = arm.request("GET", f"{_rg(subscription, resource_group)}?api-version=2024-03-01")["location"]
     val = lambda k: out.get(k, {}).get("value", "")  # noqa: E731
+    gateways = arm.request("GET", f"{_rg(subscription, resource_group)}/providers/Microsoft.ApiManagement/service"
+                                  f"?api-version=2024-05-01").get("value", [])
+    ips = tuple(ip for g in gateways for ip in g["properties"].get("publicIPAddresses") or [])
     return Target(subscription, resource_group, loc, val("environmentId"), val("appsIdentityId"), val("vaultUri"),
-                  val("environmentDomain"), image, val("appInsightsConnectionString"), val("logsWorkspaceId"))
+                  val("environmentDomain"), image, val("appInsightsConnectionString"), val("logsWorkspaceId"), ips)
 
 
 def secrets_sync(arm, profile: dict, target: Target) -> None:

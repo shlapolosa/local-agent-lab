@@ -105,3 +105,32 @@ def test_the_mcp_policy_checks_the_tool_and_hands_the_backend_only_the_substrate
     assert "context.Product" in code, "a subscription's team is its product"
     assert "{{mcp-shared-secret}}" in xml and 'buffer-response="false"' in xml
     assert AUD in xml
+
+
+class Recorder:
+    def __init__(self):
+        self.puts = {}
+
+    def put(self, path, body):
+        self.puts[path] = body
+
+    def policy(self, path, xml):
+        self.puts[f"{path}/policies/policy"] = xml
+
+
+def test_the_bearer_is_a_key_vault_reference_that_follows_rotation():
+    svc = Recorder()
+    apim.apply_bearer(svc, vault_uri="https://kv.vault.azure.net/")
+    nv = svc.puts["namedValues/mcp-shared-secret"]["properties"]
+    assert nv["secret"] is True and nv["keyVault"]["secretIdentifier"] == "https://kv.vault.azure.net/secrets/mcp-shared-secret"
+    assert "value" not in nv, "the gateway holds a reference, never the secret itself"
+
+
+def test_each_mcp_server_is_its_own_api_at_the_path_the_client_aggregates():
+    svc = Recorder()
+    apim.apply_mcp(svc, tenant=TENANT, audience=AUD, public=lambda s: f"https://{s}.env.example")
+    api = svc.puts["apis/mcp-semantic-mcp"]["properties"]
+    assert api["path"] == "mcp/semantic_mcp" and api["serviceUrl"] == "https://semantic-mcp.env.example"
+    assert {svc.puts[f"apis/mcp-semantic-mcp/operations/{m.lower()}"]["properties"]["method"]
+            for m in ("POST", "GET", "DELETE")} == {"POST", "GET", "DELETE"}
+    assert all(f"apis/mcp-{a.replace('_', '-')}" in svc.puts for a in apim.mcp_servers())

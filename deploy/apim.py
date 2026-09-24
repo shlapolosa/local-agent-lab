@@ -14,7 +14,8 @@ table's default DENY without a rule to write.
 
     python deploy/apim.py render            # print every policy (no Azure call)
     python deploy/apim.py apply models      # PUT the models API and its policies (idempotent)
-    python deploy/apim.py apply frontdoor   # PUT the /api operations (needs a backend APIM can reach)
+    python deploy/apim.py apply frontdoor   # PUT the /api operations
+    python deploy/apim.py apply mcp         # PUT one API per MCP server (and the bearer both use)
 
 Policies are sent in APIM's `xml` format, so every expression is XML-escaped here and the tests can
 parse what is deployed; APIM decodes the entities before it compiles the expression.
@@ -307,6 +308,31 @@ def apply_frontdoor(svc: Service, *, tenant: str, audience: str, frontdoor: str)
                    frontdoor_operation_policy(o["role"], tenant, audience, stream=o["name"].endswith("-events")))
 
 
+BEARER = "mcp-shared-secret"
+
+
+def apply_bearer(svc: Service, *, vault_uri: str) -> None:
+    """The substrate bearer APIM presents to the MCP servers and the front door: a VERSIONLESS Key Vault
+    reference, so a rotated secret reaches the gateway without a redeploy, and no copy lives in APIM."""
+    svc.put(f"namedValues/{BEARER}", {"properties": {
+        "displayName": BEARER, "secret": True,
+        "keyVault": {"secretIdentifier": f"{vault_uri.rstrip('/')}/secrets/{BEARER}"}}})
+
+
+def apply_mcp(svc: Service, *, tenant: str, audience: str, public) -> None:
+    """One API per MCP server at `/mcp/<alias>`, so `<alias>/mcp` is where the aggregating client connects
+    (lab.platform.mcp_client.gateway_session). Streamable HTTP uses POST, GET (the stream) and DELETE."""
+    for alias, service in mcp_servers().items():
+        name = "mcp-" + alias.replace("_", "-")
+        svc.put(f"apis/{name}", {"properties": {
+            "displayName": f"MCP {alias}", "path": f"mcp/{alias}", "protocols": ["https"],
+            "subscriptionRequired": False, "serviceUrl": public(service)}})
+        for method in ("POST", "GET", "DELETE"):
+            svc.put(f"apis/{name}/operations/{method.lower()}",
+                    {"properties": {"displayName": method, "method": method, "urlTemplate": "/mcp"}})
+        svc.policy(f"apis/{name}", mcp_policy(alias, tenant, audience))
+
+
 def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the profile, calls Azure
     if argv[:1] == ["render"]:
         tenant, audience = os.environ.get("ENTRA_TENANT_ID", "<tenant>"), os.environ.get("ENTRA_GATEWAY_AUDIENCE", "<audience>")
@@ -314,15 +340,15 @@ def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the
         for o in frontdoor_operations():
             print(o["method"], o["urlTemplate"], o["role"])
         return 0
-    if argv[:1] == ["apply"] and argv[1:2] in (["models"], ["frontdoor"]):
-        sys.path.insert(0, str(Path(__file__).parent))
+    if argv[:1] == ["apply"] and argv[1:2] in (["models"], ["frontdoor"], ["mcp"]):
         import aca
         sub = os.environ.get("AZURE_SUBSCRIPTION_ID", "")
         if not sub:
             print("set AZURE_SUBSCRIPTION_ID (and AZURE_RESOURCE_GROUP)", file=sys.stderr)
             return 2
         profile, arm = aca.profile(), aca.Arm()
-        rg = aca._rg(sub, os.environ.get("AZURE_RESOURCE_GROUP", "rg-lab-prod"))
+        group = os.environ.get("AZURE_RESOURCE_GROUP", "rg-lab-prod")
+        rg = aca._rg(sub, group)
         outputs = arm.request("GET", f"{rg}/providers/Microsoft.Resources/deployments/apim"
                                      "?api-version=2024-03-01")["properties"]["outputs"]
         svc = Service(arm, f"{rg}/providers/Microsoft.ApiManagement/service/{outputs['apimName']['value']}")
@@ -330,7 +356,12 @@ def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the
         if argv[1] == "models":
             apply_models(svc, foundry=profile["AZURE_FOUNDRY_API_BASE"], **who)
         else:
-            apply_frontdoor(svc, frontdoor=profile["WORKFLOW_API_URL"], **who)
+            tgt = aca.target(arm, sub, group, topology.IMAGE)
+            apply_bearer(svc, vault_uri=tgt.vault_uri)
+            if argv[1] == "mcp":
+                apply_mcp(svc, public=tgt.public, **who)
+            else:
+                apply_frontdoor(svc, frontdoor=tgt.public("workflow-frontdoor") + "/api", **who)
         print(f"apim: {argv[1]} applied to {outputs['gatewayUrl']['value']}")
         return 0
     print(__doc__)

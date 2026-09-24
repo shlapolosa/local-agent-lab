@@ -39,6 +39,7 @@ class FakeArm:
     def __init__(self, apps=None):
         self.calls, self.apps, self.vault = [], {}, {}
         self.revisions, self.unready = {}, set()
+        self.gateways = []                   # APIM instances in the resource group
         for n, a in (apps or {}).items():
             self.apps[n] = copy.deepcopy(a)
             self._revise(n)
@@ -66,6 +67,8 @@ class FakeArm:
             return {"properties": {"outputs": OUTPUTS}}
         if url.startswith(f"{BASE}?"):
             return {"location": "uaenorth"}
+        if url.startswith(f"{BASE}/providers/Microsoft.ApiManagement/service?"):
+            return {"value": [{"properties": {"publicIPAddresses": ips}} for ips in self.gateways]}
         if "/secrets/" in url:
             name = url.split("/secrets/")[1].split("?")[0]
             if method == "GET":
@@ -104,6 +107,13 @@ def test_the_target_is_read_from_the_foundation_deployment():
     assert (t.environment_id, t.identity_id, t.vault_uri, t.location) == ("/env/cae", "/id/apps",
                                                                        "https://kv.vault.azure.net/", "uaenorth")
     assert t.gateway_public == "https://gateway.icybay.uaenorth.azurecontainerapps.io"
+
+
+def test_the_gateway_addresses_are_read_from_the_api_gateway_itself():
+    fake = FakeArm()
+    assert _target(fake).gateway_ips == (), "no gateway yet: nothing is opened"
+    fake.gateways = [["20.233.102.119"]]
+    assert _target(fake).gateway_ips == ("20.233.102.119",)
 
 
 def test_secrets_sync_publishes_the_referenced_keys_and_prints_no_value(capsys):

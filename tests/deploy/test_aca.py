@@ -81,6 +81,30 @@ def test_servers_get_ingress_on_their_port_and_only_the_public_ones_are_external
     assert ing["allowInsecure"] is (not external), "internal callers use http://<app>; public edge is https only"
 
 
+APIM_TARGET = az.Target(**{**TARGET.__dict__, "gateway_ips": ("20.233.102.119",)})
+
+
+@pytest.mark.parametrize("name", ["semantic-mcp", "workflow-frontdoor", "reference-mcp"])
+def test_with_a_gateway_an_internal_mcp_server_is_reachable_by_the_gateway_alone(name):
+    """APIM sits outside the environment, so what it fronts is external — to its address only, and the
+    substrate bearer is still required. Callers inside the environment keep plain http://<app>."""
+    ing = az.substrate_app(name, topology.SUBSTRATE[name], PROFILE, APIM_TARGET)["properties"]["configuration"]["ingress"]
+    assert ing["external"] is True and ing["allowInsecure"] is True
+    assert ing["ipSecurityRestrictions"] == [{"name": "gateway-1", "action": "Allow", "ipAddressRange": "20.233.102.119/32"}]
+
+
+def test_a_gateway_changes_nothing_about_servers_it_does_not_front():
+    for name in ("gateway", "review", "graph-mcp"):      # graph-mcp takes the provider's notifications: open
+        spec = topology.SUBSTRATE[name]
+        assert (az.substrate_app(name, spec, PROFILE, APIM_TARGET)["properties"]["configuration"]["ingress"]
+                == az.substrate_app(name, spec, PROFILE, TARGET)["properties"]["configuration"]["ingress"])
+
+
+def test_without_a_gateway_nothing_is_opened():
+    ing = az.substrate_app("semantic-mcp", topology.SUBSTRATE["semantic-mcp"], PROFILE, TARGET)["properties"]["configuration"]["ingress"]
+    assert ing["external"] is False and "ipSecurityRestrictions" not in ing
+
+
 def test_a_stream_consumer_has_no_ingress_at_all():
     body = az.substrate_app("continuations", topology.SUBSTRATE["continuations"], PROFILE, TARGET)
     assert "ingress" not in body["properties"]["configuration"]

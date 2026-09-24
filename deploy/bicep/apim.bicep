@@ -49,6 +49,31 @@ resource apimCallsModels 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+@description('The production Key Vault. APIM reads ONE secret from it: the substrate bearer it presents to the MCP servers.')
+param vaultName string
+
+var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
+
+resource vault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: vaultName
+}
+
+resource mcpSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: 'mcp-shared-secret'
+}
+
+// Scoped to the one secret, not the vault: the gateway holds no other credential of the substrate's.
+resource apimReadsBearer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: mcpSecret
+  name: guid(mcpSecret.id, apim.id, keyVaultSecretsUser)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUser)
+    principalId: apim.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 output apimName string = apim.name
 output gatewayUrl string = apim.properties.gatewayUrl
 output principalId string = apim.identity.principalId
