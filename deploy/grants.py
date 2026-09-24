@@ -46,6 +46,24 @@ TEAMS: dict[str, dict[str, list[str] | None]] = {
 }
 
 
+#: The callers that hold a KEY rather than an Entra identity — the variable that carries it, and its team.
+#: In dev each is a LiteLLM virtual key; in production an APIM subscription on the team's product.
+KEY_CALLERS: dict[str, str] = {
+    "FABRIC_CURATOR_KEY": "fabric-curator",       # the fabric's substrate services (projector, reconciler)
+    "FABRIC_BOT_KEY": "fabric-bot",               # the fabric's Copilot Studio agent
+    "POWER_AUTOMATE_KEY": "power-automate",       # the meeting flows' connector
+    "USECASE_SUBMITTER_KEY": "usecase-submitter",  # the use-case Copilot Studio agent
+    "EVAL_AGENT_KEY": "usecase-evals",            # the coverage evals and adjudication (an operator harness)
+    "REFERENCE_EMBED_KEY": "reference-corpus",    # the corpus publisher's embeddings
+}
+
+#: The models a key-holding team may call; a team absent here calls none. The embedder's is the
+#: profile's REFERENCE_EMBED_MODEL, so it is supplied where the profile is read (deploy/apim.py).
+KEY_MODELS: dict[str, tuple[str, ...]] = {
+    "usecase-evals": tuple(usecase.EVALS_MODELS),
+}
+
+
 def role(team: str) -> str:
     """The Entra app role on the production gateway that carries `team`'s grant."""
     return f"Grant.{team}"

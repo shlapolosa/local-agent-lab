@@ -134,3 +134,38 @@ def test_each_mcp_server_is_its_own_api_at_the_path_the_client_aggregates():
     assert {svc.puts[f"apis/mcp-semantic-mcp/operations/{m.lower()}"]["properties"]["method"]
             for m in ("POST", "GET", "DELETE")} == {"POST", "GET", "DELETE"}
     assert all(f"apis/mcp-{a.replace('_', '-')}" in svc.puts for a in apim.mcp_servers())
+    assert api["subscriptionKeyParameterNames"]["header"] == "api-key", "one key header on every API"
+
+
+# ------------------------------------------------------------------ key callers: products + subscriptions
+def test_a_key_team_product_holds_exactly_its_granted_servers_and_models_only_if_it_calls_them():
+    assert set(apim.product_apis("fabric-curator", ())) == {"mcp-collab-mcp", "mcp-semantic-mcp"}
+    assert "models" not in apim.product_apis("usecase-submitter", ()), "a submit-only identity calls no model"
+    assert apim.product_apis("reference-corpus", ("text-embedding-3-large",)) == ["models"], "zero tools"
+
+
+def test_every_key_caller_has_a_team_the_gateway_can_serve():
+    for var, team in apim.grants.KEY_CALLERS.items():
+        assert team in apim.grants.TEAMS or team in apim.grants.KEY_MODELS or team == "reference-corpus", var
+
+
+def test_a_key_team_may_call_only_its_models():
+    xml = apim.product_policy(("text-embedding-3-large",))
+    code = " ".join(v for e in ET.fromstring(xml).iter() for v in e.attrib.values())
+    assert '\\"text-embedding-3-large\\"' in code and "403" in xml
+
+
+def test_subscriptions_are_one_per_key_caller_scoped_to_its_team_product():
+    svc = Recorder()
+    apim.apply_products(svc, embed_model="text-embedding-3-large")
+    sub = svc.puts["subscriptions/fabric-curator-key"]["properties"]
+    assert sub["scope"] == "/products/fabric-curator" and sub["state"] == "active"
+    assert svc.puts["products/reference-corpus"]["properties"]["subscriptionRequired"] is True
+    assert "products/fabric-curator/apis/mcp-collab-mcp" in svc.puts
+
+
+def test_keys_land_in_the_profile_replacing_a_line_or_appending_one(tmp_path):
+    p = tmp_path / ".env.azure"
+    p.write_text("A=1\nAPIM_X=old\n# keep\n")
+    apim.write_profile_keys(p, {"APIM_X": "new", "APIM_Y": "y"})
+    assert p.read_text() == "A=1\nAPIM_X=new\n# keep\nAPIM_Y=y\n"

@@ -16,6 +16,7 @@ table's default DENY without a rule to write.
     python deploy/apim.py apply models      # PUT the models API and its policies (idempotent)
     python deploy/apim.py apply frontdoor   # PUT the /api operations
     python deploy/apim.py apply mcp         # PUT one API per MCP server (and the bearer both use)
+    python deploy/apim.py apply products    # PUT a product per key team + a subscription per key caller
 
 Policies are sent in APIM's `xml` format, so every expression is XML-escaped here and the tests can
 parse what is deployed; APIM decodes the entities before it compiles the expression.
@@ -260,7 +261,7 @@ def mcp_policy(server: str, tenant: str, audience: str) -> str:
         '</choose>'
         '<set-header name="Authorization" exists-action="override">'
         '<value>Bearer {{mcp-shared-secret}}</value></set-header>'
-        '<set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />'
+        '<set-header name="api-key" exists-action="delete" />'
         '</inbound>'
         f'<backend><forward-request timeout="{MCP_TIMEOUT_S}" buffer-response="false" /></backend>'
         '<outbound><base /></outbound><on-error><base /></on-error></policies>')
@@ -280,6 +281,9 @@ class Service:
     def put(self, path: str, body: dict) -> None:
         self.arm.request("PUT", f"{self.url}/{path}?api-version={APIM_API}", body)
 
+    def post(self, path: str) -> dict:
+        return self.arm.request("POST", f"{self.url}/{path}?api-version={APIM_API}", {})
+
     def policy(self, path: str, xml: str) -> None:
         self.put(f"{path}/policies/policy", {"properties": {"format": "xml", "value": xml}})
 
@@ -288,7 +292,7 @@ def apply_models(svc: Service, *, tenant: str, audience: str, foundry: str) -> N
     svc.put("backends/foundry", {"properties": {"protocol": "http", "url": foundry.rstrip("/") + "/openai/v1"}})
     svc.put(f"apis/{MODELS_API}", {"properties": {
         "displayName": "Models", "path": "v1", "protocols": ["https"], "subscriptionRequired": False,
-        "subscriptionKeyParameterNames": {"header": "api-key", "query": "subscription-key"}}})
+        "subscriptionKeyParameterNames": KEY_HEADER}})
     for name, method, url in MODEL_OPERATIONS:
         svc.put(f"apis/{MODELS_API}/operations/{name}",
                 {"properties": {"displayName": name, "method": method, "urlTemplate": url}})
@@ -323,14 +327,85 @@ def apply_mcp(svc: Service, *, tenant: str, audience: str, public) -> None:
     """One API per MCP server at `/mcp/<alias>`, so `<alias>/mcp` is where the aggregating client connects
     (lab.platform.mcp_client.gateway_session). Streamable HTTP uses POST, GET (the stream) and DELETE."""
     for alias, service in mcp_servers().items():
-        name = "mcp-" + alias.replace("_", "-")
+        name = _api_id(alias)
         svc.put(f"apis/{name}", {"properties": {
             "displayName": f"MCP {alias}", "path": f"mcp/{alias}", "protocols": ["https"],
-            "subscriptionRequired": False, "serviceUrl": public(service)}})
+            "subscriptionRequired": False, "subscriptionKeyParameterNames": KEY_HEADER,
+            "serviceUrl": public(service)}})
         for method in ("POST", "GET", "DELETE"):
             svc.put(f"apis/{name}/operations/{method.lower()}",
                     {"properties": {"displayName": method, "method": method, "urlTemplate": "/mcp"}})
         svc.policy(f"apis/{name}", mcp_policy(alias, tenant, audience))
+
+
+#: The header a subscription key travels in, on every API. A key caller sends it ALONGSIDE the
+#: `Authorization: Bearer` the dev gateway reads (LiteLLM accepts `api-key` on /v1 but not on /mcp —
+#: measured 24 Sep 2026), so one client works against both gateways.
+KEY_HEADER = {"header": "api-key", "query": "subscription-key"}
+
+
+def _api_id(alias: str) -> str:
+    return "mcp-" + alias.replace("_", "-")
+
+
+def product_apis(team: str, models: tuple[str, ...]) -> list[str]:
+    """What a key-holding team's product contains: the MCP servers its grant names, and the models API
+    only when it calls a model."""
+    return ([MODELS_API] if models else []) + sorted(_api_id(s) for s in grants.TEAMS.get(team, {}))
+
+
+def product_policy(models: tuple[str, ...]) -> str:
+    """A key team calls only its declared models (the per-key allowlist LiteLLM enforced)."""
+    refused = (f'var allowed = JArray.Parse({_cs(list(models))}); '
+               'if (context.Api.Path != "v1" || context.Request.Method != "POST") { return false; } '
+               'var model = (string)context.Request.Body.As<JObject>(preserveContent: true)["model"]; '
+               'return !allowed.Any(m => (string)m == model);')
+    return ('<policies><inbound><base />'
+            f'<choose><when condition="{_expr(refused)}">'
+            '<return-response><set-status code="403" reason="Forbidden" />'
+            '<set-body>{"error":{"message":"this key may not call that model"}}</set-body></return-response>'
+            '</when></choose></inbound><backend><base /></backend><outbound><base /></outbound>'
+            '<on-error><base /></on-error></policies>')
+
+
+def _subscription_id(var: str) -> str:
+    return var.lower().replace("_", "-")
+
+
+def apply_products(svc: Service, *, embed_model: str) -> None:
+    """One product per key-holding team (product id = team: the MCP policy reads it) and one subscription
+    per key caller, scoped to it. Keys are read back separately (`subscription_keys`)."""
+    for team in sorted(set(grants.KEY_CALLERS.values())):
+        models = grants.KEY_MODELS.get(team) or ((embed_model,) if team == "reference-corpus" else ())
+        svc.put(f"products/{team}", {"properties": {
+            "displayName": team, "subscriptionRequired": True, "approvalRequired": False, "state": "published",
+            "description": f"The {team} team's key callers (deploy/grants.py KEY_CALLERS)"}})
+        for api in product_apis(team, models):
+            svc.put(f"products/{team}/apis/{api}", {})
+        if models:
+            svc.policy(f"products/{team}", product_policy(models))
+    for var, team in grants.KEY_CALLERS.items():
+        svc.put(f"subscriptions/{_subscription_id(var)}", {"properties": {
+            "displayName": var, "scope": f"/products/{team}", "state": "active"}})
+
+
+def subscription_keys(svc: Service) -> dict[str, str]:
+    """KEY_CALLERS variable -> its subscription's primary key."""
+    return {var: svc.post(f"subscriptions/{_subscription_id(var)}/listSecrets")["primaryKey"]
+            for var in grants.KEY_CALLERS}
+
+
+def write_profile_keys(path: Path, values: dict[str, str]) -> None:
+    """Set each KEY=value in a profile file: an existing line is replaced in place, a new one appended.
+    Values are credentials: this never prints them."""
+    lines = path.read_text().splitlines() if path.exists() else []
+    pending = dict(values)
+    for i, line in enumerate(lines):
+        key = line.split("=", 1)[0]
+        if key in pending:
+            lines[i] = f"{key}={pending.pop(key)}"
+    lines += [f"{k}={v}" for k, v in pending.items()]
+    path.write_text("\n".join(lines) + "\n")
 
 
 def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the profile, calls Azure
@@ -340,7 +415,7 @@ def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the
         for o in frontdoor_operations():
             print(o["method"], o["urlTemplate"], o["role"])
         return 0
-    if argv[:1] == ["apply"] and argv[1:2] in (["models"], ["frontdoor"], ["mcp"]):
+    if argv[:1] == ["apply"] and argv[1:2] in (["models"], ["frontdoor"], ["mcp"], ["products"]):
         import aca
         sub = os.environ.get("AZURE_SUBSCRIPTION_ID", "")
         if not sub:
@@ -355,6 +430,11 @@ def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the
         who = dict(tenant=profile["ENTRA_TENANT_ID"], audience=profile["ENTRA_GATEWAY_AUDIENCE"])
         if argv[1] == "models":
             apply_models(svc, foundry=profile["AZURE_FOUNDRY_API_BASE"], **who)
+        elif argv[1] == "products":
+            apply_products(svc, embed_model=profile["REFERENCE_EMBED_MODEL"])
+            keys = subscription_keys(svc)
+            write_profile_keys(Path(topology.ROOT) / aca.PROFILE_OVERLAY, {f"APIM_{v}": k for v, k in keys.items()})
+            print(f"subscription keys written to {aca.PROFILE_OVERLAY}: {', '.join(f'APIM_{v}' for v in keys)}")
         else:
             tgt = aca.target(arm, sub, group, topology.IMAGE)
             apply_bearer(svc, vault_uri=tgt.vault_uri)
