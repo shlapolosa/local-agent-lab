@@ -100,6 +100,35 @@ def test_a_gateway_changes_nothing_about_servers_it_does_not_front():
                 == az.substrate_app(name, spec, PROFILE, TARGET)["properties"]["configuration"]["ingress"])
 
 
+APIM_URL = "https://apim-lab-prod.azure-api.net"
+CUT = az.Target(**{**TARGET.__dict__, "gateway_ips": ("20.233.102.119",), "gateway_url": APIM_URL})
+
+
+def test_with_apim_every_caller_reaches_the_gateway_at_apim_and_aggregates_its_servers():
+    """Production's gateway IS APIM: a workload's GATEWAY_URL, and a substrate service's, are APIM's, and
+    the servers it fronts one by one are named for the client to aggregate."""
+    assert CUT.gateway_public == APIM_URL
+    spec = topology.WORKLOADS["usecase-screening"]
+    env = az.workload_app("usecase-screening", spec, PROFILE, CUT)
+    names = {e["name"]: e.get("value") for e in env["properties"]["template"]["containers"][0]["env"]}
+    assert names["GATEWAY_URL"] == APIM_URL
+    assert names["GATEWAY_MCP_SERVERS"].split(",") == list(topology.MCP_SERVERS)
+    curator = _env(az.substrate_app("fabric-projector", topology.SUBSTRATE["fabric-projector"], PROFILE, CUT))
+    assert curator["GATEWAY_URL"]["value"] == APIM_URL and "GATEWAY_MCP_SERVERS" in curator
+
+
+def test_with_apim_the_litellm_gateway_is_not_rendered_for_production():
+    assert "gateway" not in az.substrate_services(PROFILE, CUT)
+    assert "gateway" in az.substrate_services(PROFILE, TARGET), "without APIM production still runs its own"
+
+
+def test_without_apim_nothing_changes_for_a_caller():
+    spec = topology.WORKLOADS["usecase-screening"]
+    env = az.workload_app("usecase-screening", spec, PROFILE, TARGET)
+    names = {e["name"]: e.get("value") for e in env["properties"]["template"]["containers"][0]["env"]}
+    assert names["GATEWAY_URL"] == TARGET.public("gateway") and "GATEWAY_MCP_SERVERS" not in names
+
+
 def test_without_a_gateway_nothing_is_opened():
     ing = az.substrate_app("semantic-mcp", topology.SUBSTRATE["semantic-mcp"], PROFILE, TARGET)["properties"]["configuration"]["ingress"]
     assert ing["external"] is False and "ipSecurityRestrictions" not in ing

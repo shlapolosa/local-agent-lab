@@ -99,13 +99,15 @@ class Target:
     telemetry: str = ""          # App Insights connection string (an ingestion address, held as an app secret)
     logs_workspace: str = ""     # Log Analytics workspace (customer) id — where `versions` reads start lines
     gateway_ips: tuple = ()      # production's API gateway (APIM) egress addresses; () = no gateway yet
+    gateway_url: str = ""        # production's API gateway (APIM); "" = production still runs LiteLLM
 
     def public(self, svc: str) -> str:
         return f"https://{svc}.{self.env_domain}"
 
     @property
     def gateway_public(self) -> str:
-        return self.public("gateway")
+        """Where every caller reaches the gateway: APIM once it exists (production's ONLY gateway)."""
+        return self.gateway_url or self.public("gateway")
 
     @property
     def review_public(self) -> str:
@@ -114,10 +116,19 @@ class Target:
 
 def network(target: Target) -> Network:
     """Production's network: everything it can compute, and nothing it must not hold."""
+    # With APIM, the gateway is APIM and it fronts each MCP server on its own, which the client
+    # aggregates (lab.platform.mcp_client.gateway_session) — so every caller is told which servers.
+    apim = {"GATEWAY_MCP_SERVERS": ",".join(topology.MCP_SERVERS)} if target.gateway_url else {}
+
+    def address(svc, port):
+        if svc == "gateway":
+            return target.gateway_public
+        return target.public(svc) if svc in PUBLIC else f"http://{svc}"
+
     return Network(
         bind_host="0.0.0.0",
-        address=lambda svc, port: target.public(svc) if svc in PUBLIC else f"http://{svc}",
-        coords={"REDIS_URL": REDIS_URL,
+        address=address,
+        coords={**apim, "REDIS_URL": REDIS_URL,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://{COLLECTOR_NAME}",
                 "OTEL_ENDPOINT": f"http://{COLLECTOR_NAME}/v1/traces",
                 "REVIEW_APP_URL": target.review_public,
@@ -424,8 +435,10 @@ def target(arm, subscription: str, resource_group: str, image: str) -> Target:
     gateways = arm.request("GET", f"{_rg(subscription, resource_group)}/providers/Microsoft.ApiManagement/service"
                                   f"?api-version=2024-05-01").get("value", [])
     ips = tuple(ip for g in gateways for ip in g["properties"].get("publicIPAddresses") or [])
+    url = next((g["properties"].get("gatewayUrl", "") for g in gateways), "")
     return Target(subscription, resource_group, loc, val("environmentId"), val("appsIdentityId"), val("vaultUri"),
-                  val("environmentDomain"), image, val("appInsightsConnectionString"), val("logsWorkspaceId"), ips)
+                  val("environmentDomain"), image, val("appInsightsConnectionString"), val("logsWorkspaceId"),
+                  ips, url)
 
 
 def secrets_sync(arm, profile: dict, target: Target) -> None:
@@ -472,6 +485,13 @@ def _apply(arm, target: Target, name: str, body: dict) -> None:
     print(f"  {name:24} {'updated' if current else 'created'}  {_image(body).split(':')[-1]}")
 
 
+def substrate_services(profile: dict, target: Target) -> dict:
+    """The substrate production renders. Once APIM is production's gateway the LiteLLM app is not one of
+    them — dev and prod gateways never meet. Retiring a running one is a separate, deliberate step."""
+    services = topology.substrate_services(profile)
+    return {n: s for n, s in services.items() if not (target.gateway_url and n == "gateway")}
+
+
 def substrate_up(arm, profile: dict, target: Target) -> None:
     """Publish the secrets, then apply every substrate app: Redis and the trace sink first (everything
     else depends on them), then each role and each configured channel. A person runs this, never CD."""
@@ -480,7 +500,7 @@ def substrate_up(arm, profile: dict, target: Target) -> None:
     print(f"applying substrate (new apps start on {target.image})")
     _apply(arm, target, "redis", redis_app(target))
     _apply(arm, target, COLLECTOR_NAME, collector_app(target))
-    for name, spec in topology.substrate_services(profile).items():
+    for name, spec in substrate_services(profile, target).items():
         _apply(arm, target, name, substrate_app(name, spec, profile, target))
     print(f"\n  gateway  {target.gateway_public}\n  review   {target.review_public}")
 

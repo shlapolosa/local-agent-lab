@@ -68,7 +68,8 @@ class FakeArm:
         if url.startswith(f"{BASE}?"):
             return {"location": "uaenorth"}
         if url.startswith(f"{BASE}/providers/Microsoft.ApiManagement/service?"):
-            return {"value": [{"properties": {"publicIPAddresses": ips}} for ips in self.gateways]}
+            return {"value": [{"properties": {"publicIPAddresses": ips, "gatewayUrl": "https://apim.azure-api.net"}}
+                              for ips in self.gateways]}
         if "/secrets/" in url:
             name = url.split("/secrets/")[1].split("?")[0]
             if method == "GET":
@@ -114,6 +115,7 @@ def test_the_gateway_addresses_are_read_from_the_api_gateway_itself():
     assert _target(fake).gateway_ips == (), "no gateway yet: nothing is opened"
     fake.gateways = [["20.233.102.119"]]
     assert _target(fake).gateway_ips == ("20.233.102.119",)
+    assert _target(fake).gateway_public == "https://apim.azure-api.net", "APIM IS the gateway once it exists"
 
 
 def test_secrets_sync_publishes_the_referenced_keys_and_prints_no_value(capsys):

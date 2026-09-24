@@ -290,15 +290,10 @@ MCP_TIMEOUT_S = 1000
 ROLE_PREFIX = grants.role("")
 
 
-def mcp_servers(config_path: Path = BASE_CONFIG) -> dict[str, str]:
-    """Gateway alias -> the Container App serving it: the alias and its URL variable are the gateway
-    config's, the service behind the variable is the topology's."""
-    servers = yaml.safe_load(open(config_path))["mcp_servers"]
-    out = {}
-    for alias, spec in servers.items():
-        key = str(spec["url"]).removeprefix("os.environ/")
-        out[alias] = topology.MCP_URL_ENV[key]
-    return out
+def mcp_servers() -> dict[str, str]:
+    """Gateway alias -> the Container App serving it (topology.MCP_SERVERS, parity-tested against the dev
+    gateway's config)."""
+    return {alias: svc for alias, (_key, svc) in topology.MCP_SERVERS.items()}
 
 
 def mcp_grants(server: str) -> dict[str, list[str] | str]:
@@ -511,8 +506,8 @@ def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the
         elif argv[1] == "products":
             apply_products(svc, embed_model=profile["REFERENCE_EMBED_MODEL"])
             keys = subscription_keys(svc)
-            write_profile_keys(Path(topology.ROOT) / aca.PROFILE_OVERLAY, {f"APIM_{v}": k for v, k in keys.items()})
-            print(f"subscription keys written to {aca.PROFILE_OVERLAY}: {', '.join(f'APIM_{v}' for v in keys)}")
+            write_profile_keys(Path(topology.ROOT) / aca.PROFILE_OVERLAY, keys)
+            print(f"subscription keys written to {aca.PROFILE_OVERLAY}: {', '.join(keys)}")
         else:
             tgt = aca.target(arm, sub, group, topology.IMAGE)
             apply_bearer(svc, vault_uri=tgt.vault_uri)

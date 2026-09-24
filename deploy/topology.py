@@ -254,13 +254,17 @@ SERVICE_PORTS = {
     "valuation-mcp": 9900, "gateway": 4000, "review": 8501, "live": 10000,
 }
 EMBED_PORT = 11434
-#: Which service answers each MCP server URL the gateway config names (`mcp_servers.<alias>.url:
-#: os.environ/<KEY>`). The gateway alias is the config's; the service behind it is this table's.
-MCP_URL_ENV = {
-    "ADOIT_MCP_URL": "adoit-mcp", "SEMANTIC_MCP_URL": "semantic-mcp", "STORAGE_MCP_URL": "storage-mcp",
-    "WORKFLOW_MCP_URL": "workflow-frontdoor", "GRAPH_MCP_URL": "graph-mcp", "SPEECH_MCP_URL": "speech-mcp",
-    "REFERENCE_MCP_URL": "reference-mcp", "DECISION_MCP_URL": "decision-mcp", "VALUATION_MCP_URL": "valuation-mcp",
+#: Every MCP server a gateway fronts: alias -> (the URL variable the gateway config reads, the service
+#: behind it). Held here, not parsed from config/litellm-config.yaml, because deploy/aca.py runs on the
+#: standard library alone; tests/deploy/test_apim.py holds the two equal in both directions.
+MCP_SERVERS = {
+    "ea_mcp": ("ADOIT_MCP_URL", "adoit-mcp"), "semantic_mcp": ("SEMANTIC_MCP_URL", "semantic-mcp"),
+    "storage_mcp": ("STORAGE_MCP_URL", "storage-mcp"), "workflow_mcp": ("WORKFLOW_MCP_URL", "workflow-frontdoor"),
+    "collab_mcp": ("GRAPH_MCP_URL", "graph-mcp"), "speech_mcp": ("SPEECH_MCP_URL", "speech-mcp"),
+    "reference_mcp": ("REFERENCE_MCP_URL", "reference-mcp"), "decision_mcp": ("DECISION_MCP_URL", "decision-mcp"),
+    "valuation_mcp": ("VALUATION_MCP_URL", "valuation-mcp"),
 }
+MCP_URL_ENV = {key: svc for key, svc in MCP_SERVERS.values()}
 
 
 @dataclass(frozen=True)
@@ -463,7 +467,7 @@ ROLE_ENV = {
     "continuations": [                             # src/lab/substrate/continuations.py + lab.substrate.approvals + lab.platform.workflows
         "REDIS_URL",                               # the approvals:decisions group + workflow:requests
         "REVIEW_APP_URL",                          # printed on start so an operator can find the gate
-        "GATEWAY_URL", "FABRIC_CURATOR_KEY",       # fabric_curator: a person's fabric decision applied at rung H
+        "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",   # fabric_curator: a person's fabric decision applied at rung H
         _OTLP,                                     # NOTHING else: no store, no bucket, no model and no
     ],                                             # provider credential. It cannot read what it releases.
     "fabric-ingress": [                            # src/lab/substrate/fabric_ingress.py + lab.platform.{fabric_events,workflows,delivery} — Redis ONLY
@@ -471,11 +475,11 @@ ROLE_ENV = {
         _OTLP,                                     # no store, no gateway, no credential: it reads run state and events, and submits requests
     ],
     "fabric-projector": [                          # src/lab/substrate/fabric_projector.py — a published record becomes a wiki page
-        "REDIS_URL", "GATEWAY_URL", "FABRIC_CURATOR_KEY", "FABRIC_WIKI_FOLDER",
+        "REDIS_URL", "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY", "FABRIC_WIKI_FOLDER",
         _OTLP,                                     # reads the record and writes the page THROUGH the gateway; no store credential
     ],
     "fabric-reconciler": [                         # src/lab/substrate/fabric_reconciler.py — the timer sweep of the allow-listed drives
-        "REDIS_URL", "GATEWAY_URL", "FABRIC_CURATOR_KEY", "FABRIC_EVENTS", "FABRIC_ALLOWLIST", "FABRIC_SWEEP_*",
+        "REDIS_URL", "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY", "FABRIC_EVENTS", "FABRIC_ALLOWLIST", "FABRIC_SWEEP_*",
         "FABRIC_WIKI_FOLDER",   # the measurements page (fabric_metrics.tick) lands beside the record pages
         _OTLP,
     ],
@@ -533,6 +537,7 @@ ROLE_ENV = {
     # the blast radius this table exists to prevent.
     "workload": [                                  # src/lab/workloads/* + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
         "GATEWAY_URL",                             # the ONLY substrate coordinate (LLM + MCP via the gateway)
+        "GATEWAY_MCP_SERVERS",                     # ... served one server at a time by APIM (prod), aggregated by the client
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # reported to the human (host.py prints; consumer writes back)
         "REDIS_URL",                               # workflows.py (consume requests) + runlog.py (live node status)
         _OTLP,                                     # lab.platform.otel.tracer; service name is set in code, not from env

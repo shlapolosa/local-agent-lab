@@ -108,6 +108,15 @@ def test_every_gateway_mcp_alias_has_a_service_behind_it():
     assert set(servers.values()) <= set(apim.topology.SERVICE_PORTS)
 
 
+def test_the_topologys_mcp_servers_are_exactly_the_dev_gateways():
+    """PARITY, both directions: production's gateway and development's must front the same servers under
+    the same aliases, read from the same URL variables — drift either way is the defect."""
+    import yaml
+    config = yaml.safe_load(open(apim.BASE_CONFIG))["mcp_servers"]
+    dev = {alias: str(spec["url"]).removeprefix("os.environ/") for alias, spec in config.items()}
+    assert dev == {alias: key for alias, (key, _svc) in apim.topology.MCP_SERVERS.items()}
+
+
 def test_every_granted_server_is_one_the_gateway_serves():
     served = set(apim.mcp_servers())
     for team, tools in apim.grants.TEAMS.items():
