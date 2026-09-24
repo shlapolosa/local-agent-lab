@@ -21,14 +21,37 @@ BASE = f"https://management.azure.com/subscriptions/{SUB}/resourceGroups/{RG}"
 OURS = "ghcr.io/shlapolosa/local-agent-lab"
 OUTPUTS = {"environmentId": {"value": "/env/cae"}, "appsIdentityId": {"value": "/id/apps"},
            "vaultUri": {"value": "https://kv.vault.azure.net/"},
-           "environmentDomain": {"value": "icybay.uaenorth.azurecontainerapps.io"}}
+           "environmentDomain": {"value": "icybay.uaenorth.azurecontainerapps.io"},
+           "appInsightsConnectionString": {"value": "InstrumentationKey=00000000-0000-0000-0000-000000000000"},
+           "logsWorkspaceId": {"value": "ws-1"}}
 
 
 class FakeArm:
     def __init__(self, apps=None):
-        self.calls, self.apps, self.vault = [], dict(apps or {}), {}
+        self.calls, self.apps, self.vault = [], {}, {}
+        self.revisions, self.unready = {}, set()
+        for n, a in (apps or {}).items():
+            self.apps[n] = copy.deepcopy(a)
+            self._revise(n)
 
-    def request(self, method, url, body=None):
+    revisions: dict = {}
+    unready: set = set()                     # apps whose newest revision never becomes ready
+
+    def _revise(self, name):
+        n = len([r for r in self.revisions if r.startswith(name + "--")]) + 1
+        rev = f"{name}--r{n}"
+        self.revisions[rev] = copy.deepcopy(self.apps[name]["properties"]["template"])
+        p = self.apps[name]["properties"]
+        p["latestRevisionName"] = rev
+        if name not in self.unready:
+            p["latestReadyRevisionName"] = rev
+
+    def _view(self, name):
+        app = self.apps[name]
+        return {"name": name, **app, "properties": {**app["properties"], "provisioningState": "Succeeded",
+                                                    "runningStatus": "Running"}}
+
+    def request(self, method, url, body=None, missing_ok=False):
         self.calls.append((method, url, copy.deepcopy(body)))
         if url.startswith(f"{BASE}/providers/Microsoft.Resources/deployments/foundation"):
             return {"properties": {"outputs": OUTPUTS}}
@@ -41,16 +64,21 @@ class FakeArm:
             self.vault[name] = body["value"]
             return {}
         if url.startswith(f"{BASE}/providers/Microsoft.App/containerApps?"):
-            return {"value": [{"name": n, **a} for n, a in self.apps.items()]}
+            return {"value": [self._view(n) for n in self.apps]}
+        if "/revisions/" in url:
+            name, rev = url.split("/containerApps/")[1].split("/revisions/")
+            return {"properties": {"template": copy.deepcopy(self.revisions[rev.split("?")[0]])}}
         if "/containerApps/" in url:
             name = url.split("/containerApps/")[1].split("?")[0]
+            if method == "GET" and name not in self.apps:
+                return None                                   # Arm.request(..., missing_ok=True)
             if method == "PUT":
                 self.apps[name] = copy.deepcopy(body)
             elif method == "PATCH":
                 self.apps[name]["properties"]["template"] = copy.deepcopy(body["properties"]["template"])
-            app = self.apps[name]
-            return {"name": name, **app, "properties": {**app["properties"], "provisioningState": "Succeeded",
-                                                        "runningStatus": "Running"}}
+            if method in ("PUT", "PATCH"):
+                self._revise(name)
+            return self._view(name)
         raise AssertionError(f"unexpected {method} {url}")
 
 
@@ -107,39 +135,72 @@ def test_images_reports_a_mismatch_of_this_repos_image_only(capsys):
                     "redis": _app("redis:7-alpine")})
     assert az.image_report(fake, _target(fake)) is True
     assert "MISMATCH" in capsys.readouterr().out
-    fake = FakeArm({"gateway": _app(f"{OURS}:sha-aaa"), "redis": _app("redis:7-alpine")})
-    assert az.image_report(fake, _target(fake)) is False
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-abc1234"), "redis": _app("redis:7-alpine")})
+    assert az.image_report(fake, _target(fake)) is False, "third-party images are never a mismatch"
 
 
-def test_release_asks_the_gate_with_the_master_key_read_from_the_vault(monkeypatch):
-    """CD holds no production secret: the one key the quiet gate needs is read from Key Vault by the
-    deploy identity, which may read that secret and no other."""
+# ------------------------------------------------------------------ review fixes (F3, F7, F8, F9, F14)
+def test_release_fails_when_a_new_revision_never_becomes_ready(monkeypatch):
+    """provisioningState=Succeeded says the ARM write landed, not that the new build serves: in Single
+    mode the old revision keeps serving and the template alone would say the release worked."""
+    monkeypatch.setattr(az, "_require_quiet", lambda profile: None)
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-old0000")})
+    fake.unready.add("gateway")
+    assert az.release(fake, _target(fake), wait_s=0) is True
+
+
+def test_release_with_nothing_to_roll_is_a_failure(monkeypatch):
+    """A wrong resource group or a renamed image ships nothing — that must not go green."""
+    monkeypatch.setattr(az, "_require_quiet", lambda profile: None)
+    fake = FakeArm({"redis": _app("redis:7-alpine")})
+    assert az.release(fake, _target(fake), wait_s=0) is True
+
+
+def test_release_asks_the_gate_with_the_bearer_it_is_given(monkeypatch):
     seen = {}
-    monkeypatch.delenv("LAB_GATE_KEY", raising=False)
     monkeypatch.setattr(az, "_require_quiet", lambda profile: seen.update(profile))
-    fake = FakeArm()
-    fake.vault["litellm-master-key"] = "sk-prod-master"
-    orig = fake.request
-    def request(method, url, body=None):
-        if method == "GET" and "/secrets/litellm-master-key" in url:
-            return {"value": fake.vault["litellm-master-key"]}
-        return orig(method, url, body)
-    fake.request = request
-    az.release(fake, _target(fake), wait_s=0)
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-old0000")})
+    az.release(fake, _target(fake), wait_s=0, bearer="eyJ.t.s")
     assert seen == {"PUBLIC_GATEWAY_URL": "https://gateway.icybay.uaenorth.azurecontainerapps.io",
-                    "LITELLM_MASTER_KEY": "sk-prod-master"}
+                    "GATE_BEARER": "eyJ.t.s"}
 
 
-def test_release_proceeds_unasked_when_the_vault_will_not_say(monkeypatch):
-    seen = {}
-    monkeypatch.delenv("LAB_GATE_KEY", raising=False)
-    monkeypatch.setattr(az, "_require_quiet", lambda profile: seen.update(profile))
-    fake = FakeArm()
-    orig = fake.request
-    def request(method, url, body=None):
-        if method == "GET" and "/secrets/" in url:
-            raise SystemExit("azure GET -> 403")
-        return orig(method, url, body)
-    fake.request = request
-    az.release(fake, _target(fake), wait_s=0)
-    assert seen["LITELLM_MASTER_KEY"] == "", "no key: the gate reports it cannot ask, and the release goes on"
+def test_images_compares_what_each_app_SERVES_with_the_release(capsys):
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-abc1234"), "review": _app(f"{OURS}:sha-abc1234")})
+    assert az.image_report(fake, _target(fake)) is False
+    fake.unready.add("review")
+    fake.apps["review"]["properties"]["template"]["containers"][0]["image"] = f"{OURS}:sha-new9999"
+    fake._revise("review")
+    assert az.image_report(fake, _target(fake)) is False, "the template moved but the old revision serves"
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-old0000")})
+    assert az.image_report(fake, _target(fake)) is True, "serving an image that is not this release"
+
+
+def test_substrate_up_publishes_secrets_first_and_keeps_an_existing_apps_image(monkeypatch):
+    """Configuration is not a code release: `substrate up` must not roll an app onto the operator's
+    local HEAD, which no reviewer approved."""
+    monkeypatch.setattr(az, "_require_quiet", lambda profile: None)
+    fake = FakeArm({"gateway": _app(f"{OURS}:sha-approved")})
+    order = []
+    orig = az.secrets_sync
+    monkeypatch.setattr(az, "secrets_sync", lambda arm, prof, tgt: (order.append("sync"), orig(arm, prof, tgt)))
+    az.substrate_up(fake, {"MCP_SHARED_SECRET": "x" * 40}, _target(fake))
+    assert order == ["sync"] and fake.calls.index(next(c for c in fake.calls if c[0] == "PUT")) > 0
+    assert fake.apps["gateway"]["properties"]["template"]["containers"][0]["image"] == f"{OURS}:sha-approved"
+    assert fake.apps["semantic-mcp"]["properties"]["template"]["containers"][0]["image"] == f"{OURS}:sha-abc1234"
+
+
+def test_the_cli_answers_an_unknown_command_with_its_usage():
+    import subprocess, sys
+    out = subprocess.run([sys.executable, os.path.join(ROOT, "deploy", "aca.py"), "substrate", "nonsense"],
+                         capture_output=True, text=True, env={**os.environ, "AZURE_SUBSCRIPTION_ID": ""})
+    assert out.returncode != 0 and "Traceback" not in out.stderr and "usage" in (out.stderr + out.stdout).lower()
+
+
+def test_versions_reads_the_build_each_app_says_it_runs(capsys):
+    rows = [{"ContainerAppName_s": "gateway", "Log_s": "consumer ready  build=abc1234def"},
+            {"ContainerAppName_s": "review", "Log_s": "x build=0000000aaa"}]
+    assert az.version_report(rows, "sha-abc1234") is True
+    out = capsys.readouterr().out
+    assert "review" in out and "MISMATCH" in out
+    assert az.version_report(rows[:1], "sha-abc1234") is False

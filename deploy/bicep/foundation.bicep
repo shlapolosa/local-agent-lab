@@ -223,3 +223,4 @@ output appsIdentityClientId string = appsIdentity.properties.clientId
 output environmentId string = apps.id
 output environmentDomain string = apps.properties.defaultDomain
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output logsWorkspaceId string = logs.properties.customerId      // where `aca.py substrate versions` reads start lines

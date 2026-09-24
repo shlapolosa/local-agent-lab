@@ -253,14 +253,20 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # The quiet gate asks the front door what is running with an Entra token for lab-deployer, which
+      # holds the Workflow.Submit role — no production secret in GitHub, not even the master key.
       - name: release — every existing production app onto this commit's image
         env:
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          ENTRA_GATEWAY_AUDIENCE: ${{ vars.ENTRA_GATEWAY_AUDIENCE }}
         run: python deploy/aca.py release     # stdlib only: no pip install needed
 
-      - name: verify — one build everywhere
+      # images: what each app's READY revision serves; versions: what each process SAYS it runs.
+      - name: verify — one build everywhere, and it is the one just released
         env:
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-        run: python deploy/aca.py substrate images
+        run: |
+          python deploy/aca.py substrate images
+          python deploy/aca.py substrate versions

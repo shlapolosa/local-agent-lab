@@ -91,3 +91,44 @@ def test_every_long_lived_workload_consumes_the_request_stream_under_its_own_gro
         if spec.get("restart") == "ALWAYS":
             assert topology.workload_group(spec) == spec["service"]
     assert topology.REQUEST_STREAM == "workflow:requests"
+
+
+# ------------------------------------------------------------------ review fixes: coordinates, copies, helpers
+def test_a_network_owns_the_coordinates_it_can_compute_and_denies_what_its_target_must_not_hold():
+    net = topology.Network(bind_host="0.0.0.0", address=lambda svc, port: f"http://{svc}",
+                           coords={"REDIS_URL": "redis://redis:6379/0"}, deny=("OLLAMA_API_KEY",))
+    base = {"REDIS_URL": "redis://redis.railway.internal:6379/0", "OLLAMA_API_KEY": "k", "MCP_SHARED_SECRET": "s"}
+    gw = topology.substrate_env("gateway", topology.SUBSTRATE["gateway"], base, net)
+    assert gw["REDIS_URL"] == "redis://redis:6379/0" and "OLLAMA_API_KEY" not in gw
+    wl = topology.workload_env("visio", topology.WORKLOADS["visio"], base, "http://gateway", net=net)
+    assert wl["REDIS_URL"] == "redis://redis:6379/0"
+
+
+def test_a_declared_copy_carries_its_source_value():
+    env = topology.substrate_env("gateway", topology.SUBSTRATE["gateway"], {"MCP_SHARED_SECRET": "short"},
+                                 topology.RAILWAY_NET)
+    assert topology.COPIES["PG_VECTOR_API_KEY"] == "MCP_SHARED_SECRET" and env["PG_VECTOR_API_KEY"] == "short"
+
+
+def test_coordinate_keys_are_the_ones_a_network_computes():
+    net = topology.Network(bind_host="0.0.0.0", address=lambda s, p: s, coords={"REDIS_URL": "x"})
+    keys = topology.coordinate_keys(net)
+    assert {"SEMANTIC_MCP_URL", "GATEWAY_URL", "BIND_HOST", "REDIS_URL"} <= keys
+    assert "PG_VECTOR_API_KEY" not in keys, "a copy of a secret is not a coordinate"
+
+
+def test_the_railway_gateway_command_is_unchanged_by_composing_it():
+    assert topology.SUBSTRATE["gateway"]["cmd"] == \
+        "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1"
+
+
+def test_image_helpers_say_what_is_ours_and_where_builds_disagree():
+    ours = f"ghcr.io/{topology.REPO}:sha-a"
+    assert topology.is_ours(ours) and not topology.is_ours("redis:7-alpine")
+    assert topology.image_mismatches({"a": ours, "b": ours, "r": "redis:7"}) == {}
+    assert set(topology.image_mismatches({"a": ours, "b": ours.replace("sha-a", "sha-b")})) == {ours, ours.replace("sha-a", "sha-b")}
+
+
+def test_long_lived_workloads_are_the_stream_consumers():
+    names = topology.long_lived_workloads()
+    assert "visio" in names and "visio-job" not in names

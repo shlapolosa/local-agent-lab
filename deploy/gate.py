@@ -28,7 +28,10 @@ QUIET_UNREACHABLE_WAIT_S = 300
 
 def open_runs(profile: dict):
     """The runs the front door says are still pending or running, or None when it cannot be asked."""
-    url, key = profile.get("PUBLIC_GATEWAY_URL", ""), profile.get("LITELLM_MASTER_KEY", "")
+    # GATE_BEARER: an Entra token for a caller holding the Workflow.Submit role (what CD uses — it holds
+    # no production secret); the master key is the operator's alternative.
+    url = profile.get("PUBLIC_GATEWAY_URL", "")
+    key = profile.get("GATE_BEARER") or profile.get("LITELLM_MASTER_KEY", "")
     if not url or not key:
         return None
     try:
@@ -50,6 +53,10 @@ def quiet_board(profile: dict, wait_s: int | None = None) -> bool:
         return True
     if not profile.get("PUBLIC_GATEWAY_URL"):
         print("  quiet gate: no PUBLIC_GATEWAY_URL in the profile — cannot ask, proceeding")
+        return True
+    if not (profile.get("GATE_BEARER") or profile.get("LITELLM_MASTER_KEY")):
+        # Not "unreachable": there is no credential to ask WITH, and waiting cannot produce one.
+        print("  quiet gate: no credential to ask the front door with — proceeding unasked")
         return True
     budget = int(os.environ.get("LAB_DEPLOY_WAIT_S", "1800")) if wait_s is None else wait_s
     waited = unreachable = 0

@@ -76,3 +76,19 @@ def test_the_committed_azure_overlay_covers_every_name_the_committed_config_serv
     assert out["model_list"], "production serves no model at all"
     for m in out["model_list"]:
         assert not m["litellm_params"]["model"].startswith(("ollama/", "anthropic/")), m["model_name"]
+
+
+def test_every_production_model_is_a_foundry_deployment():
+    """Stronger than 'not ollama/anthropic': `openai/kimi-k3` with an ollama api_base would pass that."""
+    base = yaml.safe_load(open(mo.ROOT / "config" / "litellm-config.yaml"))
+    overlay = yaml.safe_load(open(mo.ROOT / "config" / "litellm-models.azure.yaml"))
+    for m in mo.apply(base, overlay)["model_list"]:
+        p = m["litellm_params"]
+        assert p["model"].startswith("azure/") and p["api_base"] == "os.environ/AZURE_FOUNDRY_API_BASE", m["model_name"]
+
+
+def test_the_command_line_splits_at_the_separator_and_keeps_arguments_whole():
+    head, cmd = mo.split_argv(["--config", "a.yaml", "--overlay", "b.yaml", "--", "litellm", "--host", "0.0.0.0"])
+    assert head == ["--config", "a.yaml", "--overlay", "b.yaml"] and cmd == ["litellm", "--host", "0.0.0.0"]
+    with pytest.raises(SystemExit):
+        mo.split_argv(["--config", "a.yaml"])

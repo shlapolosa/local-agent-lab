@@ -79,3 +79,22 @@ def test_open_runs_asks_the_front_door_with_the_master_key_and_says_when_it_cann
     assert gate.open_runs(_profile()) is None and "unreachable" in capsys.readouterr().err
 
 
+
+
+def test_a_bearer_token_is_used_in_place_of_the_master_key(monkeypatch):
+    seen = {}
+    class R(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    def fake(req, timeout=None):
+        seen["auth"] = req.get_header("Authorization")
+        return R(json.dumps({"runs": []}).encode())
+    monkeypatch.setattr(gate.urllib.request, "urlopen", fake)
+    assert gate.open_runs({"PUBLIC_GATEWAY_URL": "https://gw", "GATE_BEARER": "eyJ.token.sig"}) == []
+    assert seen["auth"] == "Bearer eyJ.token.sig"
+
+
+def test_no_credential_proceeds_at_once_instead_of_waiting_for_a_door_it_could_never_open(monkeypatch, capsys):
+    monkeypatch.setattr(gate.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("waited")))
+    assert gate.quiet_board({"PUBLIC_GATEWAY_URL": "https://gw"}, wait_s=600) is True
+    assert "no credential" in capsys.readouterr().out

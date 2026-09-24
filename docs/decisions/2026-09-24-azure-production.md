@@ -101,6 +101,35 @@ to its target when the quota request is granted — a gateway-config change, no 
 - **Exit test**: `scripts/e2e_smoke.py` against the prod gateway (every contract tool exposed),
   `aca.py substrate versions` (asked tag == running `LAB_BUILD_SHA`), one use-case chain end to end.
 
+### Phase 1 as built — rules the design review (24 Sep 2026) turned into code
+
+- **Production computes its coordinates.** `aca.network(target)` sets REDIS_URL, the OTLP endpoints and
+  every public URL; `.env.azure` cannot point a production app at dev by omission, and `assert_production`
+  refuses to render while ANY app would receive a value containing `railway` or `ollama.com`. Production
+  DENIES dev's vendor keys (`OLLAMA_API_KEY` would otherwise let the `auto` router's classifier send
+  prompts to Ollama Cloud), the bucket, Railway's plane; Railway denies `AZURE_FOUNDRY_*`.
+- **A public server is reached at its own https edge**, an internal one at `http://<app>` — an external
+  ingress refuses plain http, and a redirected POST is a failed call.
+- **Secrets are decided by provenance, not by look**: a coordinate is plain, a declared COPY
+  (`topology.COPIES`) references its source, a profile value references itself. `LAB_CONFIG_DIGEST`
+  makes a changed value change the template, so it rolls — a Key Vault reference alone would not.
+- **Configuration is not a code release**: `substrate up` / `workload up` keep an existing app's image;
+  only `release` (CD, behind the reviewer) moves it. `substrate up` publishes the secrets first.
+- **Released means serving**: `release` waits for each app's newest revision to be its READY one and
+  fails when nothing was rolled; `images` compares what each READY revision serves with the release;
+  `versions` reads each process's own `build=` start line from Log Analytics.
+- **Replica churn cannot lose or duplicate a run** (shared consumer code, so Railway too): a running
+  consumer HOLDS its entry with a heartbeat, a reclaimed entry whose run already started is failed not
+  re-run, and a workload replica gets the maximum 600 s grace to finish.
+- **The quiet gate's credential is an identity, not a secret**: `lab-deployer` holds the `Workflow.Submit`
+  role and asks `/api/runs/open` with an Entra token. It still needs a virtual-key mapping in the prod
+  registry (custom_auth maps app -> key) — minted with the prod identities (separation item 1). Until
+  then the gate reports it cannot ask and proceeds.
+- **Known and accepted for now**: Redis persists to the replica's own disk (the Azure Files RDB spike is
+  open — approvals do not survive a Redis restart until it lands); every submit wakes every workload host
+  (each group has lag on the shared request stream — ~$0.08 per submit, per-process streams later);
+  the substrate stream consumers run one always-on replica rather than scaling to zero.
+
 ## Phase 2 — APIM as the governance plane
 
 - Tier chosen to fit the budget (Consumption or Developer; Basic v2 does not fit $150 alongside Phase 1)

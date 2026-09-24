@@ -8,7 +8,7 @@ import fnmatch
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 REPO = "shlapolosa/local-agent-lab"
@@ -58,6 +58,12 @@ REDIS_NAME = "redis"
 EMBED_NAME = "embedder"
 EMBED_MODEL = "nomic-embed-text"
 JAEGER_NAME = "local-agent-lab"   # pre-existing Jaeger service (Docker image; NOT built from our repo)
+
+# The gateway's ONE config and its server flags. A target that serves the config through a model
+# overlay (production) composes its command from these, so a flag added here reaches every target.
+GATEWAY_CONFIG = "config/litellm-config.yaml"
+GATEWAY_ARGS = "--host 0.0.0.0 --port 4000 --num_workers 1"
+REDIS_IMAGE = "redis:7-alpine"
 
 # --- substrate services: name -> role command, ingress, health ---
 SUBSTRATE = {
@@ -110,7 +116,7 @@ SUBSTRATE = {
     "fabric-ingress":    {"cmd": "python -m lab.substrate.fabric_ingress", "port": None},
     "fabric-projector":  {"cmd": "python -m lab.substrate.fabric_projector", "port": None},
     "fabric-reconciler": {"cmd": "python -m lab.substrate.fabric_reconciler", "port": None},
-    "gateway":      {"cmd": "litellm --config config/litellm-config.yaml --host 0.0.0.0 --port 4000 --num_workers 1",
+    "gateway":      {"cmd": f"litellm --config {GATEWAY_CONFIG} {GATEWAY_ARGS}",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.
                      # --host 0.0.0.0 + NO healthcheck: the verified working combo (health 200, 7 models).
                      # Railway uses TWO different network paths to a container: the PUBLIC edge reaches it
@@ -195,13 +201,41 @@ EMBED_PORT = 11434
 
 @dataclass(frozen=True)
 class Network:
-    """A deploy target's private network: where a server binds, and the base URL of (service, port)."""
+    """A deploy target's network: where a server binds, the base URL of (service, port), the
+    coordinates it can COMPUTE (so they are never typed into a profile where one missed line points
+    production at dev), and the keys its services must never hold (another target's credentials)."""
     bind_host: str
     address: Callable[[str, int], str]
+    coords: dict = field(default_factory=dict)
+    deny: tuple = ()
 
 
 # IPv6 for Railway private networking; *.railway.internal resolves only there.
-RAILWAY_NET = Network(bind_host="::", address=lambda svc, port: f"http://{svc}.railway.internal:{port}")
+# Its coordinates come from the `# CLOUD:` profile (unchanged); it must never hold production's model key.
+RAILWAY_NET = Network(bind_host="::", address=lambda svc, port: f"http://{svc}.railway.internal:{port}",
+                      deny=("AZURE_FOUNDRY_*",))
+
+
+# A coordinate that COPIES a secret: the value is the source's, and a target that keeps secrets by
+# reference must reference the source rather than repeat it. Declared, never inferred from the value.
+COPIES = {"PG_VECTOR_API_KEY": "MCP_SHARED_SECRET"}
+# The addresses substrate_env computes on every network (plus each network's own `coords`).
+_COORDINATES = frozenset({
+    "BIND_HOST", "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL", "GRAPH_MCP_URL",
+    "SPEECH_MCP_URL", "REFERENCE_MCP_URL", "DECISION_MCP_URL", "VALUATION_MCP_URL", "WORKFLOW_API_URL",
+    "GATEWAY_URL", "PG_VECTOR_API_BASE", "EMBED_URL", "REVIEW_APP_URL"})
+
+
+def coordinate_keys(net: Network) -> frozenset:
+    """Every key whose value the topology or `net` computes — configuration, never a secret."""
+    return _COORDINATES | frozenset(net.coords)
+
+
+def _select(env: dict, role: str, net: Network, s3: bool = False, workload: str | None = None) -> dict:
+    """The role's allowlist over `env` with the network's coordinates layered in first and its
+    denied keys taken out last — a denied key never ships, whatever an allowlist glob admits."""
+    env = env_for_role(role, {**env, **net.coords}, s3=s3, workload=workload)
+    return {k: v for k, v in env.items() if not any(fnmatch.fnmatchcase(k, p) for p in net.deny)}
 
 
 def substrate_env(name, spec, base_env, net: Network) -> dict:
@@ -225,9 +259,10 @@ def substrate_env(name, spec, base_env, net: Network) -> dict:
     # The relevance stores' provider (litellm-config.yaml vector_store_registry): an ORIGIN — the
     # client appends /v1/vector_stores/<id>/search — and the bearer reference-mcp expects.
     env["PG_VECTOR_API_BASE"] = at("reference-mcp")
-    env["PG_VECTOR_API_KEY"] = env.get("MCP_SHARED_SECRET", "")
+    for copy_key, source in COPIES.items():
+        env[copy_key] = env.get(source, "")
     env["EMBED_URL"] = at(EMBED_NAME)                       # the gateway's embedding model
-    env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
+    env = _select(env, name, net, s3=bool(spec.get("s3")))   # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))
     return env
 
@@ -707,7 +742,7 @@ def replica_services(spec) -> list[tuple[str, str]]:
     return [(base if i == 1 else f"{base}-{i}", str(i)) for i in range(1, n + 1)]
 
 
-def workload_env(name, spec, base_env, gw, review=None, consumer=None) -> dict:
+def workload_env(name, spec, base_env, gw, review=None, consumer=None, net: Network | None = None) -> dict:
     """The exact variables ONE workload receives. The two-tier isolation invariant is the ALLOWLIST
     itself — the shared `ROLE_ENV["workload"]` plus this process's own `WORKLOAD_ENV[name]`: no MCP
     server addresses (it reaches tools only via the gateway), no store credentials (inputs are
@@ -716,7 +751,7 @@ def workload_env(name, spec, base_env, gw, review=None, consumer=None) -> dict:
     env = dict(base_env)
     env["GATEWAY_URL"] = gw                                     # the ONLY substrate coordinate
     env["REVIEW_APP_URL"] = review or env.get("REVIEW_APP_URL", "")
-    env = env_for_role("workload", env, workload=name)
+    env = _select(env, "workload", net or RAILWAY_NET, workload=name)
     env.update(spec.get("env", {}))
     if consumer and "WF_CONSUMER" in spec.get("env", {}):
         # AFTER spec env, deliberately: the spec carries WF_CONSUMER="1" as the single-replica
@@ -728,3 +763,33 @@ def workload_env(name, spec, base_env, gw, review=None, consumer=None) -> dict:
         # handing it a consumer name would state something untrue about how it takes its work.
         env["WF_CONSUMER"] = str(consumer)
     return env
+
+
+def long_lived_workloads() -> list[str]:
+    """The workloads that are stream CONSUMERS (deployed and scaled); a one-shot job is not one."""
+    return sorted(n for n, w in WORKLOADS.items() if w.get("restart") == "ALWAYS")
+
+
+def is_ours(image: str | None) -> bool:
+    """Whether `image` is a build of THIS repo — third-party images (redis, jaeger, the collector) run
+    their own versions on purpose and are never a mismatch."""
+    return bool(image) and image.startswith(f"ghcr.io/{REPO}:")
+
+
+def image_mismatches(images: dict) -> dict:
+    """{image: [service, …]} when services running this repo's image disagree; {} when they agree."""
+    seen = {}
+    for name, img in sorted(images.items()):
+        if is_ours(img):
+            seen.setdefault(img, []).append(name)
+    return seen if len(seen) > 1 else {}
+
+
+BUILD_RE = re.compile(r"build=([0-9a-f]{7,40}|dev)")
+
+
+def build_of(line: str) -> str:
+    """The commit a role's start line says it runs (`build=<sha>`, printed by every role), or ""."""
+    m = BUILD_RE.search(line or "")
+    return m.group(1) if m else ""
+

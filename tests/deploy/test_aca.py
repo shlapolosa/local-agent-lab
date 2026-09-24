@@ -66,7 +66,7 @@ def test_a_coordinate_that_copies_a_secret_references_that_secret_instead_of_rep
 def test_the_secrets_to_publish_are_exactly_the_profile_keys_some_app_references():
     """`secrets sync` writes these to Key Vault. A key no app reads is not published: the vault holds
     what production needs, not a copy of the operator's whole .env."""
-    wanted = az.referenced_secrets(PROFILE)
+    wanted = az.referenced_secrets(PROFILE, TARGET)
     assert {"MCP_SHARED_SECRET", "DATABASE_URL", "LITELLM_MASTER_KEY", "REVIEW_APP_PASSWORD"} <= set(wanted)
     assert "GATEWAY_URL" not in wanted, "a coordinate the topology computes is never taken from the profile"
 
@@ -119,7 +119,8 @@ def test_servers_and_substrate_consumers_run_exactly_one_replica():
 def test_a_workload_reaches_the_substrate_only_through_the_gateway_and_holds_no_store_credential():
     body = az.workload_app("visio", topology.WORKLOADS["visio"], PROFILE, TARGET)
     env = _env(body)
-    assert env["GATEWAY_URL"] == {"name": "GATEWAY_URL", "value": "http://gateway"}
+    assert env["GATEWAY_URL"] == {"name": "GATEWAY_URL", "value": TARGET.gateway_public}, \
+        "a public server is reached at its https edge — its ingress refuses plain http"
     assert not {"DATABASE_URL", "LITELLM_MASTER_KEY", "MCP_SHARED_SECRET"} & set(env)
     assert "ingress" not in body["properties"]["configuration"]
 
@@ -161,7 +162,7 @@ def test_each_replica_consumes_under_its_own_name():
     c = az.workload_app("meeting", topology.WORKLOADS["meeting"], PROFILE, TARGET)["properties"]["template"]["containers"][0]
     assert "WF_CONSUMER" not in {e["name"] for e in c["env"]}
     assert c["command"][:2] == ["sh", "-c"]
-    assert c["command"][2].startswith('WF_CONSUMER="$CONTAINER_APP_REPLICA_NAME" exec ')
+    assert c["command"][2].startswith('WF_CONSUMER="${CONTAINER_APP_REPLICA_NAME:-$HOSTNAME}" exec ')
     assert c["command"][2].endswith(topology.WORKLOADS["meeting"]["cmd"])
 
 
@@ -174,3 +175,57 @@ def test_the_production_gateway_serves_the_same_config_through_the_azure_model_o
     env = _env(body)
     assert env["AZURE_FOUNDRY_API_KEY"] == {"name": "AZURE_FOUNDRY_API_KEY", "secretRef": "azure-foundry-api-key"}
     assert env["AZURE_FOUNDRY_API_BASE"]["secretRef"] == "azure-foundry-api-base"
+
+
+# ------------------------------------------------------------------ review fixes (F1, F2, F8, F10, F11)
+RAILWAY_VALUED = {**PROFILE, "REDIS_URL": "redis://redis.railway.internal:6379/0",
+                  "OTEL_EXPORTER_OTLP_ENDPOINT": "https://jaeger.up.railway.app",
+                  "REVIEW_APP_URL": "https://review.up.railway.app", "OLLAMA_API_KEY": "o" * 32,
+                  "ANTHROPIC_UPSTREAM_API_KEY": "a" * 32, "OPENAI_UPSTREAM_API_KEY": "p" * 32}
+
+
+def test_production_computes_its_own_coordinates_and_never_holds_a_dev_vendor_key():
+    for name, spec in topology.SUBSTRATE.items():
+        env = {e["name"]: e.get("value") for e in _env(az.substrate_app(name, spec, RAILWAY_VALUED, TARGET)).values()}
+        assert not [k for k, v in env.items() if v and "railway" in v], name
+        assert not {"OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "OPENAI_UPSTREAM_API_KEY"} & set(env), name
+    gw = _env(az.substrate_app("review", topology.SUBSTRATE["review"], RAILWAY_VALUED, TARGET))
+    assert gw["REDIS_URL"] == {"name": "REDIS_URL", "value": "redis://redis:6379/0"}
+
+
+def test_a_rendered_value_that_still_points_at_dev_is_refused_by_name():
+    with pytest.raises(SystemExit, match="JAEGER_UI_URL"):
+        az.assert_production({**PROFILE, "JAEGER_UI_URL": "https://jaeger.up.railway.app"}, TARGET)
+    az.assert_production(PROFILE, TARGET)
+
+
+def test_the_scaler_watches_the_redis_the_workloads_consume():
+    body = az.workload_app("visio", topology.WORKLOADS["visio"], RAILWAY_VALUED, TARGET)
+    redis_url = _env(body)["REDIS_URL"]["value"]
+    for rule in body["properties"]["template"]["scale"]["rules"]:
+        assert rule["custom"]["metadata"]["address"] == redis_url.split("//")[1].split("/")[0]
+
+
+def test_a_short_shared_secret_is_still_a_reference_when_copied():
+    env = _env(az.substrate_app("gateway", topology.SUBSTRATE["gateway"], {**PROFILE, "MCP_SHARED_SECRET": "short"}, TARGET))
+    assert env["PG_VECTOR_API_KEY"] == {"name": "PG_VECTOR_API_KEY", "secretRef": "mcp-shared-secret"}
+
+
+def test_a_changed_value_changes_the_template_so_a_new_revision_rolls():
+    a = az.substrate_app("semantic-mcp", topology.SUBSTRATE["semantic-mcp"], PROFILE, TARGET)
+    b = az.substrate_app("semantic-mcp", topology.SUBSTRATE["semantic-mcp"], {**PROFILE, "MCP_SHARED_SECRET": "t" * 40}, TARGET)
+    assert _env(a)["LAB_CONFIG_DIGEST"]["value"] != _env(b)["LAB_CONFIG_DIGEST"]["value"]
+    assert "t" * 40 not in json.dumps(b)
+
+
+def test_a_workload_gets_time_to_finish_and_as_many_replicas_as_the_topology_declares():
+    spec = topology.WORKLOADS["meeting"]
+    t = az.workload_app("meeting", spec, PROFILE, TARGET)["properties"]["template"]
+    assert t["terminationGracePeriodSeconds"] == 600
+    assert t["scale"]["maxReplicas"] == len(topology.replica_services(spec))
+    assert '${CONTAINER_APP_REPLICA_NAME:-$HOSTNAME}' in t["containers"][0]["command"][2]
+
+
+def test_an_invalid_replica_count_is_refused_not_rounded_up():
+    with pytest.raises(ValueError):
+        az.workload_scale({**topology.WORKLOADS["meeting"], "replicas": 0})

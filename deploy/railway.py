@@ -36,7 +36,7 @@ import topology  # noqa: E402 — ROOT is read through the module at call time, 
 from gate import _require_quiet  # noqa: E402
 from topology import (  # noqa: E402,F401 — re-exported: tests and scripts address these as railway.<name>
     BRANCH, CHANNELS, EMBED_MODEL, EMBED_NAME, IMAGE, IMAGE_TAG, JAEGER_NAME, MAX_REPLICAS, REDIS_NAME,
-    REPO, ROLE_ENV, S3_KEYS, SUBSTRATE, WORKLOAD_ENV, WORKLOADS, _OTLP, _head_tag, _print_env_keys,
+    REDIS_IMAGE, REPO, ROLE_ENV, S3_KEYS, SUBSTRATE, WORKLOAD_ENV, WORKLOADS, _OTLP, _head_tag, _print_env_keys,
     _value, deploy_profile, embedder_enabled, env_for_role, load_env_for_cloud, parse_env,
     replica_services, substrate_names, substrate_services, workload_env,
 )
@@ -141,7 +141,6 @@ def ensure_service(name):
 # `.env` points the cloud tier at it via `# CLOUD: REDIS_URL=redis://redis.railway.internal:6379/0`
 # (litellm falls back to REDIS_URL when REDIS_HOST/PORT are absent — verified); local lab.sh keeps
 # brew Redis. Limiter/budget state + the approval streams live here, so it deploys FIRST.
-REDIS_IMAGE = "redis:7-alpine"
 # --bind 0.0.0.0 :: is REQUIRED: Railway private DNS (*.railway.internal) is IPv6-only and Redis's
 # default v4-only bind would be unreachable from the gateway (the same bug class as the gateway's
 # own IPv4-edge / IPv6-healthcheck split). No password on the private network -> --protected-mode
@@ -322,7 +321,6 @@ def image_of(sid):
 # as a version mismatch is a false alarm, and a check that cries wolf is a check people stop reading.
 STOPPED = {"REMOVED", "CRASHED", "FAILED", "NONE"}
 
-BUILD_RE = re.compile(r"build=([0-9a-f]{7,40}|dev)")
 
 
 def running_build(sid):
@@ -343,9 +341,9 @@ def running_build(sid):
     except SystemExit:
         return None
     for m in lg["deploymentLogs"]:
-        found = BUILD_RE.search(m.get("message") or "")
+        found = topology.build_of(m.get("message") or "")
         if found:
-            return found.group(1)
+            return found
     return None
 
 
@@ -357,12 +355,11 @@ def version_report():
     it but which never restarted, so it is still serving the previous build.
     """
     ids = services()
-    ours = f"ghcr.io/{REPO}:"
     builds, stale = {}, []
     print(f"  {'service':22} {'asked to run':28} running")
     for name, sid in sorted(ids.items()):
         img = image_of(sid)
-        if img is None or not img.startswith(ours):
+        if not topology.is_ours(img):
             continue                                   # repo-built, or a third-party image
         if latest(sid).get("status") in STOPPED:
             continue                                   # runs nothing: no build to disagree about
@@ -462,8 +459,7 @@ def image_report():
     the missing instrument — run it after any deploy, and before believing a bug is a code bug.
     """
     ids = services()
-    ours = f"ghcr.io/{REPO}:"
-    seen = {}
+    running = {}
     for name, sid in sorted(ids.items()):
         img = image_of(sid)
         if img is None:
@@ -472,9 +468,10 @@ def image_report():
             print(f"  {name:15} {img}  (not running)")
             continue                                   # a stopped service runs no build at all
         print(f"  {name:15} {img}")
-        if img.startswith(ours):                       # third-party images (redis, jaeger) run their
-            seen.setdefault(img, []).append(name)      # OWN versions on purpose — never a mismatch
-    if len(seen) > 1:
+        running[name] = img
+    # third-party images (redis, jaeger) run their OWN versions on purpose — never a mismatch
+    seen = topology.image_mismatches(running)
+    if seen:
         print("\n  MISMATCH — these services run different builds of THIS repo:")
         for img, names in sorted(seen.items()):
             print(f"    {img}  <- {', '.join(names)}")
@@ -740,8 +737,7 @@ if __name__ == "__main__":
         # there too — a second place to declare something `WORKLOADS` already declares. One-shot
         # jobs are excluded: `restart=NEVER` means "run once", and running one on every push is
         # not a deployment.
-        print("\n".join(sorted(n for n, w in WORKLOADS.items()
-                               if w.get("restart") == "ALWAYS")))
+        print("\n".join(topology.long_lived_workloads()))
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] in WORKLOADS:
         {"up": workload_up, "down": workload_down, "status": workload_status,
          "env": workload_env_report}[cmd](sys.argv[2])

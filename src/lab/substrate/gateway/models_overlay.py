@@ -52,16 +52,23 @@ def resolve(config_path: str, overlay_path: str, out_dir: str | None = None) -> 
     return out
 
 
+def split_argv(argv: list[str]) -> tuple[list[str], list[str]]:
+    """(this module's arguments, the command to exec) — split at `--`, each argument kept whole."""
+    if "--" not in argv or argv.index("--") == len(argv) - 1:
+        raise SystemExit("usage: models_overlay --config <base> --overlay <overlay> -- <command …>")
+    i = argv.index("--")
+    return argv[:i], argv[i + 1:]
+
+
 def main(argv: list[str]) -> None:  # pragma: no cover — exec, exercised by the container start
-    head, _, cmd = " ".join(argv).partition(" -- ")
+    head, cmd = split_argv(argv)
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
     p.add_argument("--overlay", required=True)
-    args = p.parse_args(head.split())
+    args = p.parse_args(head)
     resolved = resolve(args.config, args.overlay)
     print(f"gateway config: {args.config} + {args.overlay} -> {resolved}", flush=True)
-    argv_cmd = cmd.split() + ["--config", resolved]
-    os.execvp(argv_cmd[0], argv_cmd)
+    os.execvp(cmd[0], cmd + ["--config", resolved])
 
 
 if __name__ == "__main__":  # pragma: no cover
