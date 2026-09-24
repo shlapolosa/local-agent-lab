@@ -173,7 +173,17 @@ and tool calls must be pointed at the gateway (LiteLLM in Phase 1, APIM in Phase
 URLs and state are separate (own gateway, own Postgres copy, own Redis). Three things are still SHARED
 and each is its own work item — the copy of dev's registry made them shared, it did not make them right:
 
-1. **Identities.** Prod's `litellm` database is a copy, so every virtual key, the master key and the
+1. **Identities — DONE 24 Sep 2026** (`scripts/mirror_identities_to_prod.py`, dry-run by default): 25 Entra
+   apps mirrored as `<name>-prod` with their own secrets and dev's GRANTED roles (a `lab-gateway` role
+   became the same role on the new **`lab-gateway-prod`** audience; Graph grants stay Graph grants; SSO
+   redirects point at production); all 26 registry keys re-minted with identical settings and the copies
+   deleted; `lab-deployer` mapped to a zero-tool key; the master key rotated with the old one kept as
+   `LITELLM_SALT_KEY` so LiteLLM's stored config still decrypts. Verified at the prod gateway: the new master
+   key 200 and the old 401; a prod agent 200; a DEV agent 401 on its own audience, on prod's, and by its
+   virtual key — while dev's gateway still accepts dev's. Found on the way: the ten use-case SPECIALIST
+   identities never reached the cloud workloads (allowlist admitted only USECASE_AGENT_*), so all ten ran on
+   the shared key; now admitted, parity-tested against `PREFIX_FOR`.
+   Was: Prod's `litellm` database is a copy, so every virtual key, the master key and the
    `ENTRA_CLIENT_TO_KEY` mapping are valid on BOTH gateways, and the Entra agent app registrations (one per
    agent) and their client secrets are the same objects. Target: prod-only app registrations per agent
    (`<agent>-prod`), minted prod virtual keys, a prod master key, and the dev keys revoked in the prod

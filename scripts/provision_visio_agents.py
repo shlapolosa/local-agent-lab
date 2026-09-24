@@ -32,7 +32,13 @@ GRAPH_CLIENT = "14d82eec-204b-4c2f-b7e8-296a70dab67e"   # Microsoft Graph public
 GW = os.environ.get("GATEWAY_URL", "http://127.0.0.1:4000")
 MASTER = os.environ["LITELLM_MASTER_KEY"]
 ROOT = Path(__file__).resolve().parents[1]
-ENV = ROOT / ".env"
+# The ENVIRONMENT an identity belongs to. Unset = dev, exactly as before. Production runs with
+# LAB_IDENTITY_SUFFIX=-prod and LAB_ENV_FILE=.env.azure: every app this module finds or creates is
+# `<name>-prod` (the gateway audience included, so a dev token cannot validate on prod), and every
+# value it records goes to production's own profile. One place, so no script can mint a prod key
+# onto a dev app, or write a prod secret into the file dev deploys from.
+SUFFIX = os.environ.get("LAB_IDENTITY_SUFFIX", "")
+ENV = ROOT / os.environ.get("LAB_ENV_FILE", ".env")
 TOKF = ROOT / "var" / "run" / "graph_token.json"
 
 # --- Graph token (auto-refresh) ---
@@ -63,8 +69,13 @@ def graph(method, path, body=None):
         return json.load(r) if r.status != 204 else {}
 
 
+def app_name(name):
+    """The display name of `name` in THIS environment (see SUFFIX)."""
+    return name if not SUFFIX or name.endswith(SUFFIX) else name + SUFFIX
+
+
 def find_app(name):
-    r = graph("GET", "/applications?$filter=" + urllib.parse.quote(f"displayName eq '{name}'"))
+    r = graph("GET", "/applications?$filter=" + urllib.parse.quote(f"displayName eq '{app_name(name)}'"))
     return r["value"][0] if r["value"] else None
 
 
@@ -79,6 +90,7 @@ def role_id(value):
 
 def ensure_agent(name, role_values, gw_sp):
     app = find_app(name)
+    name = app_name(name)
     if not app:
         app = graph("POST", "/applications",
                     {"displayName": name, "signInAudience": "AzureADMyOrg"})

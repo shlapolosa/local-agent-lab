@@ -22,6 +22,19 @@ def test_every_consumer_group_a_workload_is_scaled_on_is_a_registered_process_gr
     assert deployed == set(workflows.GROUPS), "a process with no host, or a host scaled on no process"
 
 
+def test_every_use_case_specialist_identity_reaches_the_workloads_that_call_it():
+    """`credential_for` prefers a specialist's OWN identity and falls back to the workload's shared one
+    when `<PREFIX>_KEY` is missing. The deploy allowlist admitted only USECASE_AGENT_*, so in the cloud
+    every specialist key was stripped and all ten ran on the shared credential — silently, the one
+    downgrade identity.py's own comment names as the thing that must not happen quietly."""
+    from lab.workloads.usecase.identity import PREFIX_FOR
+
+    for workload in ("usecase-screening", "usecase-design"):
+        env = topology.env_for_role("workload", {f"{p}_KEY": "k" for p in PREFIX_FOR.values()}, workload=workload)
+        missing = sorted(p for p in PREFIX_FOR.values() if f"{p}_KEY" not in env)
+        assert not missing, f"{workload} would not receive: {missing}"
+
+
 def test_every_stream_a_substrate_consumer_is_woken_on_is_one_it_reads():
     """A consumer scaled to zero wakes ONLY on the stream and group its scale rule names. Name the
     wrong one and it never wakes — a notification that silently never goes out."""

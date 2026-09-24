@@ -555,6 +555,14 @@ ROLE_ENV = {
 # What ONE workload needs on top of the shared list — its agents' credentials and its own settings.
 # Adding a process means adding a row here; an unlisted prefix is SILENTLY dropped in the cloud, which
 # is the failure this table is named after.
+# The use-case specialists' own identities (lab.workloads.usecase.identity.PREFIX_FOR). Literal — the
+# deploy job does not install the lab package — and held equal to PREFIX_FOR by a governance test.
+# Absent here until 24 Sep 2026: every specialist key was stripped in the cloud, and credential_for
+# fell back to the shared USECASE_AGENT key, so ten identities ran as one without a word.
+_USECASE_SPECIALISTS = tuple(f"{p}_*" for p in (
+    "USECASE_BA", "USECASE_BUSARCH", "USECASE_APPARCH", "USECASE_RISK", "USECASE_PO",
+    "USECASE_DATA", "USECASE_SOLARCH", "USECASE_TECHARCH", "USECASE_COST", "USECASE_VALUE"))
+
 WORKLOAD_ENV: dict[str, list[str]] = {
     "visio": [
         "BA_*", "ARCHITECT_*",                     # identity.agent_headers(): <PREFIX>_CLIENT_ID/SECRET/KEY;
@@ -563,11 +571,13 @@ WORKLOAD_ENV: dict[str, list[str]] = {
     ],
     "usecase-screening": [
         "USECASE_AGENT_*",                         # identity.agent_headers(): CLIENT_ID/SECRET/KEY
+        *_USECASE_SPECIALISTS,                     # each bounded context's OWN identity (credential_for)
         "AGENT_*",                                 # responses-store toggle, timeouts, caps
         "USECASE_MODEL_TRACE",                     # the throwaway per-step model trace (test aid)
     ],
     "usecase-design": [
         "USECASE_AGENT_*",
+        *_USECASE_SPECIALISTS,
         "AGENT_*",
         "USECASE_MODEL_TRACE",
     ],
