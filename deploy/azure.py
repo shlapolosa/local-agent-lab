@@ -19,13 +19,19 @@ Usage: python deploy/azure.py secrets sync
        python deploy/azure.py workload <name> up|env
        python deploy/azure.py release                (what CD runs: roll every existing app onto this image)
 """
+import json
 import os
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
 # deploy/ is scripts, loaded by path from tests and CI: its own directory goes on the import path once.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import topology  # noqa: E402
+from gate import _require_quiet  # noqa: E402
 from topology import Network  # noqa: E402
 
 API = "2026-01-01"
@@ -71,6 +77,7 @@ class Target:
     vault_uri: str
     env_domain: str
     image: str
+    telemetry: str = ""          # App Insights connection string (an ingestion address, held as an app secret)
 
     @property
     def gateway_public(self) -> str:
@@ -122,7 +129,7 @@ def _ingress(name: str, spec: dict) -> dict | None:
             "allowInsecure": not external}
 
 
-def _app(target: Target, *, name: str, command: str, env_entries: list, secrets: list,
+def _app(target: Target, *, name: str, command: str | list, env_entries: list, secrets: list,
          ingress: dict | None, scale: dict, resources: dict, image: str | None = None) -> dict:
     configuration = {"activeRevisionsMode": "Single", "secrets": secrets}
     if ingress:
@@ -135,7 +142,7 @@ def _app(target: Target, *, name: str, command: str, env_entries: list, secrets:
             "workloadProfileName": "Consumption",
             "configuration": configuration,
             "template": {
-                "containers": [{"name": name, "image": image or target.image, "command": ["sh", "-c", command],
+                "containers": [{"name": name, "image": image or target.image, "command": ["sh", "-c", command] if isinstance(command, str) else command,
                                 "env": env_entries, "resources": resources}],
                 "scale": scale,
             },
@@ -220,3 +227,229 @@ def referenced_secrets(profile: dict) -> list[str]:
     """The profile keys some production app references — exactly what `secrets sync` publishes."""
     return sorted({src for env in _app_envs(profile, "") for k, v in env.items()
                    if (src := _secret_for(k, v, profile))})
+
+
+# --- the trace sink: an OpenTelemetry Collector forwarding OTLP/HTTP to Application Insights -------
+# Every role exports OTLP over HTTP (lab.platform.otel); Container Apps' managed agent speaks only
+# gRPC and is in preview, so production runs the standard collector instead — tracing stays "chosen by
+# endpoint": OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector in the production profile.
+COLLECTOR_NAME = "otel-collector"
+COLLECTOR_IMAGE = "otel/opentelemetry-collector-contrib:0.135.0"
+COLLECTOR_CONFIG = """receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  batch: {}
+exporters:
+  azuremonitor:
+    connection_string: ${env:APPLICATIONINSIGHTS_CONNECTION_STRING}
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [azuremonitor]
+"""
+
+
+def collector_app(target: Target) -> dict:
+    """The trace sink: internal http on 4318, one replica, the connection string as an app secret."""
+    return _app(target, name=COLLECTOR_NAME, image=COLLECTOR_IMAGE,
+                command=["/otelcol-contrib", "--config=env:OTEL_CONFIG"],
+                env_entries=[{"name": "OTEL_CONFIG", "value": COLLECTOR_CONFIG},
+                             {"name": "APPLICATIONINSIGHTS_CONNECTION_STRING", "secretRef": "appinsights"}],
+                secrets=[{"name": "appinsights", "value": target.telemetry}],
+                ingress={"external": False, "targetPort": 4318, "transport": "auto", "allowInsecure": True},
+                scale=dict(ONE), resources={"cpu": 0.25, "memory": "0.5Gi"})
+
+
+# ================================================================== the Azure side (I/O)
+ARM = "https://management.azure.com"
+VAULT_API = "7.4"
+ATTEMPTS, BACKOFF_S = 3, 2.0
+
+
+def _az_token(resource: str) -> str:
+    """A bearer for `resource` from the signed-in Azure CLI — a person's `az login`, or CI's OIDC login."""
+    out = subprocess.run(["az", "account", "get-access-token", "--resource", resource, "--query", "accessToken",
+                          "-o", "tsv"], capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        raise SystemExit(f"az cannot issue a token for {resource}: {out.stderr.strip()[:200]}")
+    return out.stdout.strip()
+
+
+class Arm:
+    """Azure Resource Manager and Key Vault over HTTPS with the CLI's token. Retries a TRANSPORT failure,
+    never a rejection — the same rule as railway.gql, for the same reason."""
+
+    def __init__(self, token=_az_token):
+        self._token, self._cache = token, {}
+
+    def request(self, method, url, body=None):
+        resource = "https://vault.azure.net" if ".vault.azure.net" in url else ARM
+        if resource not in self._cache:
+            self._cache[resource] = self._token(resource)
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": f"Bearer {self._cache[resource]}", "Content-Type": "application/json"})
+        for attempt in range(1, ATTEMPTS + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    raw = r.read()
+                    return json.loads(raw) if raw else {}
+            except urllib.error.HTTPError as e:
+                raise SystemExit(f"azure {method} {url.split('?')[0]} -> {e.code}: {e.read().decode()[:400]}") from e
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                if attempt == ATTEMPTS:
+                    raise SystemExit(f"azure unreachable after {ATTEMPTS} attempts: {e}") from e
+                time.sleep(BACKOFF_S * attempt)
+
+
+def _rg(target_or_sub, rg=None) -> str:
+    sub, group = (target_or_sub.subscription, target_or_sub.resource_group) if rg is None else (target_or_sub, rg)
+    return f"{ARM}/subscriptions/{sub}/resourceGroups/{group}"
+
+
+def _apps_url(target: Target, name: str = "") -> str:
+    return f"{_rg(target)}/providers/Microsoft.App/containerApps{'/' + name if name else ''}?api-version={API}"
+
+
+def target(arm, subscription: str, resource_group: str, image: str) -> Target:
+    """The production environment, read from the `foundation` deployment's outputs — never constants."""
+    out = arm.request("GET", f"{_rg(subscription, resource_group)}/providers/Microsoft.Resources/deployments/"
+                             f"foundation?api-version=2024-03-01")["properties"]["outputs"]
+    loc = arm.request("GET", f"{_rg(subscription, resource_group)}?api-version=2024-03-01")["location"]
+    val = lambda k: out.get(k, {}).get("value", "")  # noqa: E731
+    return Target(subscription, resource_group, loc, val("environmentId"), val("appsIdentityId"),
+                  val("vaultUri"), val("environmentDomain"), image, val("appInsightsConnectionString"))
+
+
+def secrets_sync(arm, profile: dict, target: Target) -> None:
+    """Publish every referenced profile key to Key Vault. Names only are printed — never a value."""
+    keys = referenced_secrets(profile)
+    for k in keys:
+        arm.request("PUT", f"{target.vault_uri}secrets/{secret_name(k)}?api-version={VAULT_API}", {"value": profile[k]})
+        print(f"  {secret_name(k)}")
+    print(f"published {len(keys)} secret(s) to {target.vault_uri}")
+
+
+def _put(arm, target: Target, name: str, body: dict) -> None:
+    arm.request("PUT", _apps_url(target, name), body)
+    print(f"  {name:22} applied")
+
+
+def substrate_up(arm, profile: dict, target: Target) -> None:
+    """Apply every substrate app: Redis and the trace sink first (everything else depends on them), then
+    each role and each configured channel. Configuration AND code — a human runs this, never CD."""
+    _require_quiet({**profile, "PUBLIC_GATEWAY_URL": target.gateway_public})
+    print(f"applying substrate from {target.image}")
+    _put(arm, target, "redis", redis_app(target))
+    _put(arm, target, COLLECTOR_NAME, collector_app(target))
+    for name, spec in topology.substrate_services(profile).items():
+        _put(arm, target, name, substrate_app(name, spec, profile, target))
+    print(f"\n  gateway  {target.gateway_public}\n  review   {target.review_public}")
+
+
+def workload_up(arm, name: str, profile: dict, target: Target) -> None:
+    spec = topology.WORKLOADS[name]
+    _put(arm, target, spec["service"], workload_app(name, spec, profile, target))
+
+
+def _list(arm, target: Target) -> list[dict]:
+    return arm.request("GET", _apps_url(target))["value"]
+
+
+def _image(app: dict) -> str:
+    return app["properties"]["template"]["containers"][0]["image"]
+
+
+def _ours(image: str) -> bool:
+    return image.startswith(f"ghcr.io/{topology.REPO}:")
+
+
+def release(arm, target: Target, wait_s: int = 600) -> bool:
+    """Roll every EXISTING app that runs this repo's image onto `target.image`. Changes the image and
+    nothing else — env, secrets, scale and ingress are configuration, shipped by `substrate up`.
+    Returns True on any problem."""
+    _require_quiet({"PUBLIC_GATEWAY_URL": target.gateway_public,
+                    "LITELLM_MASTER_KEY": os.environ.get("LAB_GATE_KEY", "")})
+    rolled = []
+    for app in _list(arm, target):
+        if not _ours(_image(app)):
+            continue
+        template = app["properties"]["template"]
+        template["containers"][0]["image"] = target.image
+        arm.request("PATCH", _apps_url(target, app["name"]), {"properties": {"template": template}})
+        rolled.append(app["name"])
+        print(f"  {app['name']:22} rolling -> {target.image.split(':')[-1]}")
+    deadline, pending, bad = time.time() + wait_s, list(rolled), False
+    while True:
+        for name in list(pending):
+            p = arm.request("GET", _apps_url(target, name))["properties"]
+            if p.get("provisioningState") in ("Succeeded", "Failed"):
+                pending.remove(name)
+                if p["provisioningState"] == "Failed":
+                    bad = True
+                    print(f"  {name:22} FAILED on this image")
+        if not pending or time.time() >= deadline:
+            break
+        time.sleep(10)
+    for name in pending:
+        bad = True
+        print(f"  {name:22} STILL PROVISIONING after {wait_s}s")
+    print("\n  release " + ("INCOMPLETE" if bad else f"complete ({len(rolled)} app(s))"))
+    return bad
+
+
+def image_report(arm, target: Target) -> bool:
+    """Print every app's image; True when apps running this repo's image disagree."""
+    seen = {}
+    for app in sorted(_list(arm, target), key=lambda a: a["name"]):
+        img = _image(app)
+        print(f"  {app['name']:22} {img}")
+        if _ours(img):
+            seen.setdefault(img, []).append(app["name"])
+    if len(seen) > 1:
+        print("\n  MISMATCH — these apps run different builds of THIS repo:")
+        for img, names in sorted(seen.items()):
+            print(f"    {img}  <- {', '.join(names)}")
+        return True
+    return False
+
+
+def status(arm, target: Target) -> None:
+    for app in sorted(_list(arm, target), key=lambda a: a["name"]):
+        p = app["properties"]
+        fqdn = (p.get("configuration") or {}).get("ingress", {}).get("fqdn") or "(no ingress)"
+        print(f"  {app['name']:22} {p.get('provisioningState', '?'):10} {p.get('runningStatus', '?'):9} {fqdn}")
+
+
+def profile() -> dict:
+    """The production profile: `.env`'s cloud profile overlaid by the git-ignored `.env.azure`."""
+    overlay = os.path.join(topology.ROOT, PROFILE_OVERLAY)
+    if not os.path.exists(overlay):
+        raise SystemExit(f"no {PROFILE_OVERLAY} — production values are never taken from the dev profile")
+    return topology.load_env_for_cloud(overlay=overlay)
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:] + ["", "", ""]
+    sub, rg = os.environ.get("AZURE_SUBSCRIPTION_ID", ""), os.environ.get("AZURE_RESOURCE_GROUP", "rg-lab-prod")
+    if not sub:
+        raise SystemExit("set AZURE_SUBSCRIPTION_ID (and AZURE_RESOURCE_GROUP) — CI reads them from the production environment")
+    arm = Arm()
+    tgt = target(arm, sub, rg, topology.IMAGE)
+    tier, cmd = args[0], args[1]
+    if tier == "release":
+        sys.exit(1 if release(arm, tgt) else 0)
+    elif (tier, cmd) == ("secrets", "sync"):
+        secrets_sync(arm, profile(), tgt)
+    elif tier == "substrate":
+        {"up": lambda: substrate_up(arm, profile(), tgt), "status": lambda: status(arm, tgt),
+         "images": lambda: sys.exit(1 if image_report(arm, tgt) else 0)}[cmd]()
+    elif tier == "workload" and cmd in topology.WORKLOADS and args[2] == "up":
+        workload_up(arm, cmd, profile(), tgt)
+    else:
+        raise SystemExit(__doc__)
