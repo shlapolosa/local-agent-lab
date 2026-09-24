@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 
 
 from lab.platform import redis_client
+from lab.platform import streams
 from lab.platform.streams import StreamGroup
 from lab.platform.contracts import PROCESSES, WORKFLOW_FINISHED, WorkflowRequest, WorkflowStatus
 
@@ -383,6 +384,11 @@ def recent(limit=20, *, client=None):
     r = _r(client)
     ids = [f["request_id"] for _, f in r.xrevrange(REQ, count=limit)]
     return [status(i, client=r) for i in ids]
+
+
+def hold(group, entry_id, consumer="1", *, client=None):
+    """Hold a request this consumer is running (streams.holding), so a sibling does not reclaim it."""
+    return streams.holding(_requests(group, f"{group}-{consumer}"), entry_id, client=_r(client))
 
 
 def channel_events(group, consumer="1", block_ms=0, count=1, pending_only=False, *, client=None):

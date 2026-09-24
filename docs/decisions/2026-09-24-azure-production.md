@@ -60,7 +60,7 @@ to its target when the quota request is granted — a gateway-config change, no 
 2. **Observability**: Log Analytics workspace + Application Insights. OTLP from every role goes to App
    Insights (the Foundry-observability analogue CLAUDE.md names); Jaeger stays dev-only.
 3. **Key Vault** `kv-lab-prod`: the production secrets. **GitHub holds NO production secret** — unlike dev's
-   `LAB_ENV`. A human writes secrets (`deploy/azure.py secrets sync` from a local `.env.prod`); Container
+   `LAB_ENV`. A human writes secrets (`deploy/aca.py secrets sync` from a local `.env.prod`); Container
    Apps read them as Key Vault references through a user-assigned managed identity, scoped per role by the
    existing `ROLE_ENV` table (README already calls it "the Key-Vault-reference scope per Container App").
 4. **Foundry**: one AIServices resource + project in UAE North; the deployments in the table above.
@@ -80,7 +80,7 @@ to its target when the quota request is granted — a gateway-config change, no 
 
 - **One topology, two deploy targets** (DRY/Open-Closed, per CLAUDE.md): `SUBSTRATE`, `WORKLOADS`,
   `CHANNELS` and `ROLE_ENV` move out of `deploy/railway.py` into a platform-neutral `deploy/topology.py`;
-  `railway.py` and a new `deploy/azure.py` are adapters that render it. Same commands on both:
+  `railway.py` and a new `deploy/aca.py` are adapters that render it. Same commands on both:
   `substrate up|status|images|versions`, `workload <n> up`, `release`. Tests pin the topology once.
 - **Ingress**: external — `gateway`, `review` (Container Apps Entra auth replaces `REVIEW_APP_PASSWORD`),
   `graph-mcp` (Graph change notifications). Everything else internal.
@@ -99,7 +99,7 @@ to its target when the quota request is granted — a gateway-config change, no 
 - **External callers re-pointed to prod**: Copilot Studio connectors (a prod connection per agent),
   Graph subscriptions' notification URL, Power Automate webhooks, `PUBLIC_GATEWAY_URL`.
 - **Exit test**: `scripts/e2e_smoke.py` against the prod gateway (every contract tool exposed),
-  `azure.py substrate versions` (asked tag == running `LAB_BUILD_SHA`), one use-case chain end to end.
+  `aca.py substrate versions` (asked tag == running `LAB_BUILD_SHA`), one use-case chain end to end.
 
 ## Phase 2 — APIM as the governance plane
 
@@ -156,7 +156,7 @@ and each is its own work item — the copy of dev's registry made them shared, i
 ```
 push main → test → build (ghcr sha-<short>) → deploy-dev (Railway, as today) → smoke dev
           → deploy-prod  [environment: production, required reviewer]
-               azure/login (OIDC) → deploy/azure.py release  (SAME sha tag — promotion, never a rebuild)
+               azure/login (OIDC) → deploy/aca.py release  (SAME sha tag — promotion, never a rebuild)
                → substrate images + versions → e2e_smoke against prod
 ```
 

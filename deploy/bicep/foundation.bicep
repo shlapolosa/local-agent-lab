@@ -4,9 +4,9 @@
 // Container Apps read secrets with, the Container Apps environment, and Foundry with its model deployments.
 // Declarative and idempotent: re-running it converges; nothing here is a one-off CLI step.
 //
-//   az deployment group create -g rg-lab-prod -f deploy/azure/foundation.bicep -p deploy/azure/foundation.prod.bicepparam
+//   az deployment group create -g rg-lab-prod -f deploy/bicep/foundation.bicep -p deploy/bicep/foundation.prod.bicepparam
 //
-// Not here, deliberately: the Container Apps themselves (rendered from the one topology by deploy/azure.py,
+// Not here, deliberately: the Container Apps themselves (rendered from the one topology by deploy/aca.py,
 // Phase 1), and every secret VALUE (a human writes those into Key Vault; GitHub holds no production secret).
 
 targetScope = 'resourceGroup'

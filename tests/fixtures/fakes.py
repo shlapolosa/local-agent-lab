@@ -289,6 +289,21 @@ class FakeRedis:
             claimed.append((eid, dict(by_id[eid])) if eid in by_id else (eid, None))
         return "0-0", [c for c in claimed if c[1] is not None], [c[0] for c in claimed if c[1] is None]
 
+    @_op
+    def xclaim(self, stream, group, consumer, min_idle_time, message_ids, justid=False, **kw):
+        """Take (or keep) entries whose idle time is at least `min_idle_time`, resetting it — with
+        min_idle_time=0 and the owner's own name this is the HEARTBEAT a long run sends so that
+        nobody reclaims live work."""
+        g = self.groups.get((stream, group), {"pel": {}})
+        now, taken = time.time(), []
+        for eid in message_ids:
+            e = g["pel"].get(eid)
+            if e is None or (now - e["at"]) * 1000 < min_idle_time:
+                continue
+            g["pel"][eid] = {"consumer": consumer, "at": now}
+            taken.append(eid)
+        return taken if justid else [(eid, dict(dict(self.x.get(stream, [])).get(eid, {}))) for eid in taken]
+
     def age_pending(self, stream, group, seconds):
         """Pretend the group's pending entries were delivered `seconds` ago — the only way to reach
         the reclaim path without sleeping."""

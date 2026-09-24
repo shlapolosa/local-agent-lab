@@ -4,7 +4,7 @@ Two mechanical invariants, checked by reading the source:
 1. NO production module knows the hosting platform: the words "railway" / "Railway" appear only under
    `deploy/` (the Railway adapter) and in `.env`/docs. Production code addresses services only via
    `src/lab/platform/config.py` env vars (GATEWAY_URL, REDIS_URL, ARTIFACTS_URL, OTEL_*, …), so Azure = a different
-   `.env` + a `deploy/azure.py` sibling — never a code change.
+   `.env` + a `deploy/aca.py` sibling — never a code change.
 2. Configuration enters in ONE place: `os.environ` / `os.getenv` reads in production code are confined to
    `src/lab/platform/config.py` plus the composition roots (the hosts) — NOT inside domain/tool logic. This is a
    RATCHET: `KNOWN_ENV_READERS` lists today's remaining offenders (scheduled: A-F9 / C-H4); the test fails

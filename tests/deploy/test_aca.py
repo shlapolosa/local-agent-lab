@@ -1,4 +1,4 @@
-"""deploy/azure.py — the production target: the SAME topology rendered as Azure Container Apps.
+"""deploy/aca.py — the production target: the SAME topology rendered as Azure Container Apps.
 
 Pure renderers are tested here directly; the ARM calls go through an injected transport.
 The rules that matter most are the ones a wrong render would break SILENTLY:
@@ -15,7 +15,7 @@ import os
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_spec = importlib.util.spec_from_file_location("lab_deploy_azure", os.path.join(ROOT, "deploy", "azure.py"))
+_spec = importlib.util.spec_from_file_location("lab_deploy_azure", os.path.join(ROOT, "deploy", "aca.py"))
 az = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(az)
 topology = az.topology

@@ -1,4 +1,4 @@
-"""deploy/azure.py commands against a RECORDING fake of Azure Resource Manager and Key Vault.
+"""deploy/aca.py commands against a RECORDING fake of Azure Resource Manager and Key Vault.
 
 What each command must do, and what it must never do:
   * the target comes from the foundation deployment's outputs, not from constants;
@@ -12,7 +12,7 @@ import importlib.util
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_spec = importlib.util.spec_from_file_location("lab_deploy_azure_cli", os.path.join(ROOT, "deploy", "azure.py"))
+_spec = importlib.util.spec_from_file_location("lab_deploy_azure_cli", os.path.join(ROOT, "deploy", "aca.py"))
 az = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(az)
 

@@ -230,7 +230,7 @@ jobs:
   #
   # No production secret lives in GitHub. The job signs in with OIDC as `lab-deployer` (federated to
   # this environment only; Contributor on rg-lab-prod only), and `release` changes each app's IMAGE
-  # and nothing else. Configuration — secrets, a new app, a grant — is `azure.py secrets sync` /
+  # and nothing else. Configuration — secrets, a new app, a grant — is `aca.py secrets sync` /
   # `substrate up` by a person holding `.env.azure` (docs/decisions/2026-09-24-azure-production.md).
   # The quiet gate's key is read from Key Vault by the deploy identity, which may read that ONE secret.
   deploy-prod:
@@ -245,7 +245,7 @@ jobs:
       group: azure-release
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4      # azure.py derives the image tag from HEAD
+      - uses: actions/checkout@v4      # aca.py derives the image tag from HEAD
 
       - uses: azure/login@v2
         with:
@@ -257,10 +257,10 @@ jobs:
         env:
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-        run: python deploy/azure.py release     # stdlib only: no pip install needed
+        run: python deploy/aca.py release     # stdlib only: no pip install needed
 
       - name: verify — one build everywhere
         env:
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-        run: python deploy/azure.py substrate images
+        run: python deploy/aca.py substrate images

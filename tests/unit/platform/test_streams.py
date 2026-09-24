@@ -204,3 +204,31 @@ def test_once_serves_a_single_pass(monkeypatch):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ------------------------------------------------------------------ holding live work
+def test_a_touched_entry_is_not_reclaimable_while_its_owner_is_still_working():
+    """A 600-second run outlives the 60-second reclaim threshold; without a heartbeat a sibling
+    consumer takes the entry mid-run and the request runs twice."""
+    from fixtures.fakes import FakeRedis
+    r = FakeRedis()
+    owner, sibling = streams.StreamGroup("s", "g", "a", start_id="0"), streams.StreamGroup("s", "g", "b", start_id="0")
+    owner.ensure(r)
+    r.xadd("s", {"k": "v"})
+    [(eid, _)] = owner.read(client=r)
+    r.age_pending("s", "g", 120)
+    owner.touch(eid, client=r)
+    assert sibling.read(client=r) == [], "a held entry was reclaimed"
+    r.age_pending("s", "g", 120)
+    assert [e for e, _ in sibling.read(client=r)] == [eid], "an abandoned entry must still be reclaimable"
+
+
+def test_holding_touches_the_entry_until_the_block_ends():
+    touched = []
+    group = type("G", (), {"touch": lambda self, eid, client=None: touched.append(eid)})()
+    import time as _t
+    with streams.holding(group, "1-0", every_s=0.01):
+        _t.sleep(0.05)
+    n = len(touched)
+    _t.sleep(0.03)
+    assert n >= 2 and len(touched) == n, "touches while held, and stops after"

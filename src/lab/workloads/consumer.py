@@ -69,12 +69,24 @@ def handle(root, entry_id: str, fields: dict, *, process: str, run, group: str,
     spec = PROCESSES[process]
     req = WorkflowRequest.from_fields(fields)  # the contract: a malformed event fails here, loudly
     rid = req.request_id
+    was = workflows.status(rid, client=r).get("status", WorkflowStatus.PENDING.value)
+    if was != WorkflowStatus.PENDING.value:
+        # A RECLAIMED entry: another consumer took it and was lost (a replica scaled in or replaced
+        # mid-run). Re-running would stage a second approval and spend the tokens twice, silently, and
+        # a half-done 600-second run is not a run to resume — so it fails, like close_stale_runs.
+        if was == WorkflowStatus.RUNNING.value:
+            workflows.mark(rid, WorkflowStatus.FAILED, error="consumer lost mid-run (reclaimed, not re-run)",
+                           client=r)
+            print(f"request {rid} marked failed (its consumer was lost mid-run)", flush=True)
+        workflows.ack(group, entry_id, client=r)
+        return
     print(f"request {rid} running: {describe(req) if describe else process}", flush=True)
     workflows.mark(rid, WorkflowStatus.RUNNING, consumer=consumer_name(), client=r)
     t0 = time.time()
     try:
-        out = asyncio.run(run(root, req, lambda t: workflows.mark(
-            rid, WorkflowStatus.RUNNING, trace_id=t, client=r)))
+        with workflows.hold(group, entry_id, consumer_name(), client=r):
+            out = asyncio.run(run(root, req, lambda t: workflows.mark(
+                rid, WorkflowStatus.RUNNING, trace_id=t, client=r)))
         # Every output the process DECLARES must be written, or `<process>_result` cannot return it.
         done = {"trace_id": out.get("trace_id")}
         done.update(outputs(out) if outputs else {})

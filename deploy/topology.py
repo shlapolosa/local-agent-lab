@@ -1,6 +1,6 @@
 """The lab's deployment TOPOLOGY — what runs, and with which environment — independent of WHERE.
 
-One definition, two deploy targets: `deploy/railway.py` (development) and `deploy/azure.py`
+One definition, two deploy targets: `deploy/railway.py` (development) and `deploy/aca.py`
 (production) both render THIS. A role, a workload, a channel or an env allowlist line is added here
 once; neither target re-declares it. Pure: no network, no credentials, importable offline.
 """

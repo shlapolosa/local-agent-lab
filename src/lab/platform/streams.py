@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -38,6 +40,7 @@ from lab.platform import config, redis_client
 BLOCK_MS = 3000
 BACKOFF_S = 5              # after a blip: long enough not to spin, short enough to recover
 RECLAIM_IDLE_MS = 60_000   # how long an unacked entry waits before another consumer may take it
+HEARTBEAT_S = RECLAIM_IDLE_MS / 3000   # an owner touches live work three times per reclaim window
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,12 @@ class StreamGroup:
     def ack(self, entry_id: str, client=None):
         return _r(client).xack(self.stream, self.group, entry_id)
 
+    def touch(self, entry_id: str, client=None) -> None:
+        """Reset an entry's idle time while its owner is still working on it. Without this, work that
+        outlives RECLAIM_IDLE_MS (a 600-second run) looks abandoned, and a sibling reclaims it."""
+        _r(client).xclaim(self.stream, self.group, self.consumer, min_idle_time=0,
+                          message_ids=[entry_id], justid=True)
+
     def _reclaim(self, r, count) -> list[tuple[str, dict]]:
         """XAUTOCLAIM, not XPENDING+XCLAIM: one round trip, and it skips entries whose message is
         gone rather than returning ids that cannot be read."""
@@ -92,6 +101,29 @@ class StreamGroup:
             print(f"reclaim skipped for {self.group} ({type(e).__name__}: {e})", flush=True)
             return []
         return [(eid, f) for eid, f in entries if f]
+
+
+@contextmanager
+def holding(group, entry_id: str, *, every_s: float = HEARTBEAT_S, client=None):
+    """Keep `entry_id` this consumer's for the duration of the block: a heartbeat thread touches it
+    every `every_s` so reclaim only ever takes work whose owner has actually gone. A missed beat is
+    logged, not raised — the run it protects matters more than one touch."""
+    stop = threading.Event()
+
+    def beat():
+        while not stop.wait(every_s):
+            try:
+                group.touch(entry_id, client=client)
+            except Exception as e:                  # noqa: BLE001
+                print(f"heartbeat for {entry_id} missed ({type(e).__name__}: {e})", flush=True)
+
+    t = threading.Thread(target=beat, name=f"hold-{entry_id}", daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=5)
 
 
 def serve(*, name: str, ready: str, read: Callable[[], Any], handle: Callable[..., Any],

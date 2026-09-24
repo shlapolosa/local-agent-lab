@@ -178,3 +178,56 @@ def test_flush_is_a_noop_when_the_provider_cannot_flush(monkeypatch):
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+# ------------------------------------------------------------------ reclaimed entries are not re-run
+def test_a_reclaimed_entry_whose_run_already_started_is_failed_not_run_again(r):
+    """A replica killed mid-run (scale-in, a revision swap) leaves its entry pending; another replica
+    reclaims it. Re-running it would stage a second approval and spend the tokens twice, silently —
+    a half-done 600-second run is not a run to resume."""
+    rid = _submit(r)
+    eid, fields = _events(r)[0]
+    workflows.mark(rid, WorkflowStatus.RUNNING, consumer="replica-that-died", client=r)
+    ran = []
+
+    async def run(root, req, on_trace):
+        ran.append(req)
+        return {}
+    base.handle(_root(r), eid, fields, process=PROCESS, run=run, group=GROUP)
+    assert ran == []
+    st = workflows.status(rid, client=r)
+    assert st["status"] == WorkflowStatus.FAILED.value and "lost mid-run" in st["error"]
+    assert r.xpending(workflows.REQ, GROUP)["pending"] == 0, "and it is acked"
+
+
+def test_a_reclaimed_entry_for_a_finished_run_is_only_acked(r):
+    rid = _submit(r)
+    eid, fields = _events(r)[0]
+    workflows.mark(rid, WorkflowStatus.DONE, client=r)
+
+    async def run(root, req, on_trace):
+        raise AssertionError("a finished run must not run again")
+    base.handle(_root(r), eid, fields, process=PROCESS, run=run, group=GROUP)
+    assert workflows.status(rid, client=r)["status"] == WorkflowStatus.DONE.value
+    assert r.xpending(workflows.REQ, GROUP)["pending"] == 0
+
+
+def test_the_consumer_holds_its_entry_for_the_whole_run(r, monkeypatch):
+    held = []
+    monkeypatch.setattr(workflows, "hold", lambda group, eid, consumer, client=None: _Hold(held, eid))
+    rid = _submit(r)
+    eid, fields = _events(r)[0]
+    base.handle(_root(r), eid, fields, process=PROCESS, run=_ok, group=GROUP)
+    assert held == [("enter", eid), ("exit", eid)]
+    assert workflows.status(rid, client=r)["status"] == WorkflowStatus.DONE.value
+
+
+class _Hold:
+    def __init__(self, log, eid):
+        self.log, self.eid = log, eid
+
+    def __enter__(self):
+        self.log.append(("enter", self.eid))
+
+    def __exit__(self, *a):
+        self.log.append(("exit", self.eid))

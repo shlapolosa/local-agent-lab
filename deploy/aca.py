@@ -12,12 +12,12 @@ own, and each is a rule a wrong render would break silently:
     woken by KEDA's redis-streams scaler on the stream and group it consumes.
 
 Profile: `.env` (the `# CLOUD:` profile) overlaid by the git-ignored `.env.azure` (production values).
-Target: the outputs of the `foundation` Bicep deployment (deploy/azure/foundation.bicep).
+Target: the outputs of the `foundation` Bicep deployment (deploy/bicep/foundation.bicep).
 
-Usage: python deploy/azure.py secrets sync
-       python deploy/azure.py substrate up|status|images|env
-       python deploy/azure.py workload <name> up|env
-       python deploy/azure.py release                (what CD runs: roll every existing app onto this image)
+Usage: python deploy/aca.py secrets sync
+       python deploy/aca.py substrate up|status|images|env
+       python deploy/aca.py workload <name> up|env
+       python deploy/aca.py release                (what CD runs: roll every existing app onto this image)
 """
 import json
 import os
