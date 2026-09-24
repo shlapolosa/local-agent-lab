@@ -102,8 +102,16 @@ def _expr(code: str) -> str:
     return escape("@{" + code + "}")
 
 
-def models_policy(tenant: str, audience: str) -> str:
-    """The API-level policy of the OpenAI-shaped models API."""
+def key_models(embed_model: str) -> dict[str, list[str]]:
+    """Key-holding team -> the models it may call. A team absent here calls none."""
+    out = {team: list(models) for team, models in grants.KEY_MODELS.items()}
+    if embed_model:
+        out["reference-corpus"] = [embed_model]
+    return out
+
+
+def models_policy(tenant: str, audience: str, keyed: dict[str, list[str]] | None = None) -> str:
+    """The API-level policy of the OpenAI-shaped models API. `keyed`: key-holding team -> its models."""
     aliases = model_aliases()
     caller = ('context.Subscription != null ? context.Subscription.Id : '
               '((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("azp", "unknown")')
@@ -124,11 +132,24 @@ def models_policy(tenant: str, audience: str) -> str:
     unknown = (f'var body = context.Request.Body.As<JObject>(preserveContent: true); '
                f'var name = (string)body["model"]; '
                f'return name != null && {known}[name] == null;')
+    key_refused = (
+        'if (context.Subscription == null) { return false; } '
+        f'var keyed = JObject.Parse({_cs(keyed or {})}); '
+        'var allowed = keyed[context.Product != null ? context.Product.Id : ""]; '
+        'if (allowed == null) { return true; } '
+        'if (context.Request.Method != "POST") { return false; } '
+        'var model = (string)context.Request.Body.As<JObject>(preserveContent: true)["model"]; '
+        'return !allowed.Any(m => (string)m == model);')
     return (
         '<policies><inbound><base />'
         # a caller without a subscription must present a production token carrying Models.Use
         '<choose><when condition="' + escape('@(context.Subscription == null)') + '">'
         + _validate_jwt(tenant, audience, MODELS_ROLE, "jwt") +
+        '</when></choose>'
+        # ...and one WITH a subscription calls only the models its team declares (none = refused)
+        f'<choose><when condition="{_expr(key_refused)}">'
+        '<return-response><set-status code="403" reason="Forbidden" />'
+        '<set-body>{"error":{"message":"this key may not call that model"}}</set-body></return-response>'
         '</when></choose>'
         f'<llm-token-limit counter-key="{escape("@(" + caller + ")")}" tokens-per-minute="{TOKENS_PER_MINUTE}" '
         'estimate-prompt-tokens="false" remaining-tokens-variable-name="remainingTokens" />'
@@ -288,7 +309,7 @@ class Service:
         self.put(f"{path}/policies/policy", {"properties": {"format": "xml", "value": xml}})
 
 
-def apply_models(svc: Service, *, tenant: str, audience: str, foundry: str) -> None:
+def apply_models(svc: Service, *, tenant: str, audience: str, foundry: str, embed_model: str) -> None:
     svc.put("backends/foundry", {"properties": {"protocol": "http", "url": foundry.rstrip("/") + "/openai/v1"}})
     svc.put(f"apis/{MODELS_API}", {"properties": {
         "displayName": "Models", "path": "v1", "protocols": ["https"], "subscriptionRequired": False,
@@ -296,7 +317,7 @@ def apply_models(svc: Service, *, tenant: str, audience: str, foundry: str) -> N
     for name, method, url in MODEL_OPERATIONS:
         svc.put(f"apis/{MODELS_API}/operations/{name}",
                 {"properties": {"displayName": name, "method": method, "urlTemplate": url}})
-    svc.policy(f"apis/{MODELS_API}", models_policy(tenant, audience))
+    svc.policy(f"apis/{MODELS_API}", models_policy(tenant, audience, key_models(embed_model)))
     svc.policy(f"apis/{MODELS_API}/operations/models", models_list_policy())
 
 
@@ -354,20 +375,6 @@ def product_apis(team: str, models: tuple[str, ...]) -> list[str]:
     return ([MODELS_API] if models else []) + sorted(_api_id(s) for s in grants.TEAMS.get(team, {}))
 
 
-def product_policy(models: tuple[str, ...]) -> str:
-    """A key team calls only its declared models (the per-key allowlist LiteLLM enforced)."""
-    refused = (f'var allowed = JArray.Parse({_cs(list(models))}); '
-               'if (context.Api.Path != "v1" || context.Request.Method != "POST") { return false; } '
-               'var model = (string)context.Request.Body.As<JObject>(preserveContent: true)["model"]; '
-               'return !allowed.Any(m => (string)m == model);')
-    return ('<policies><inbound><base />'
-            f'<choose><when condition="{_expr(refused)}">'
-            '<return-response><set-status code="403" reason="Forbidden" />'
-            '<set-body>{"error":{"message":"this key may not call that model"}}</set-body></return-response>'
-            '</when></choose></inbound><backend><base /></backend><outbound><base /></outbound>'
-            '<on-error><base /></on-error></policies>')
-
-
 def _subscription_id(var: str) -> str:
     return var.lower().replace("_", "-")
 
@@ -375,15 +382,13 @@ def _subscription_id(var: str) -> str:
 def apply_products(svc: Service, *, embed_model: str) -> None:
     """One product per key-holding team (product id = team: the MCP policy reads it) and one subscription
     per key caller, scoped to it. Keys are read back separately (`subscription_keys`)."""
+    keyed = key_models(embed_model)
     for team in sorted(set(grants.KEY_CALLERS.values())):
-        models = grants.KEY_MODELS.get(team) or ((embed_model,) if team == "reference-corpus" else ())
         svc.put(f"products/{team}", {"properties": {
             "displayName": team, "subscriptionRequired": True, "approvalRequired": False, "state": "published",
             "description": f"The {team} team's key callers (deploy/grants.py KEY_CALLERS)"}})
-        for api in product_apis(team, models):
+        for api in product_apis(team, tuple(keyed.get(team, ()))):
             svc.put(f"products/{team}/apis/{api}", {})
-        if models:
-            svc.policy(f"products/{team}", product_policy(models))
     for var, team in grants.KEY_CALLERS.items():
         svc.put(f"subscriptions/{_subscription_id(var)}", {"properties": {
             "displayName": var, "scope": f"/products/{team}", "state": "active"}})
@@ -429,7 +434,7 @@ def main(argv: list[str]) -> int:  # pragma: no cover — composition: reads the
         svc = Service(arm, f"{rg}/providers/Microsoft.ApiManagement/service/{outputs['apimName']['value']}")
         who = dict(tenant=profile["ENTRA_TENANT_ID"], audience=profile["ENTRA_GATEWAY_AUDIENCE"])
         if argv[1] == "models":
-            apply_models(svc, foundry=profile["AZURE_FOUNDRY_API_BASE"], **who)
+            apply_models(svc, foundry=profile["AZURE_FOUNDRY_API_BASE"], embed_model=profile["REFERENCE_EMBED_MODEL"], **who)
         elif argv[1] == "products":
             apply_products(svc, embed_model=profile["REFERENCE_EMBED_MODEL"])
             keys = subscription_keys(svc)

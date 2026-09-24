@@ -149,10 +149,17 @@ def test_every_key_caller_has_a_team_the_gateway_can_serve():
         assert team in apim.grants.TEAMS or team in apim.grants.KEY_MODELS or team == "reference-corpus", var
 
 
-def test_a_key_team_may_call_only_its_models():
-    xml = apim.product_policy(("text-embedding-3-large",))
+def test_a_key_team_may_call_only_its_models_and_a_team_with_none_calls_nothing():
+    """Enforced in the models API's OWN policy, keyed by the subscription's product. Measured 24 Sep 2026:
+    with subscriptionRequired=false a valid key of a product WITHOUT the models API was still admitted,
+    and a product policy did not refuse — so neither may be what holds the line."""
+    keyed = apim.key_models("text-embedding-3-large")
+    assert keyed["reference-corpus"] == ["text-embedding-3-large"]
+    assert "fabric-curator" not in keyed, "a team that calls no model is absent, and absent is refused"
+    xml = apim.models_policy(TENANT, AUD, keyed)
     code = " ".join(v for e in ET.fromstring(xml).iter() for v in e.attrib.values())
-    assert '\\"text-embedding-3-large\\"' in code and "403" in xml
+    assert "context.Product" in code and '\\"reference-corpus\\"' in code
+    assert "this key may not call" in xml
 
 
 def test_subscriptions_are_one_per_key_caller_scoped_to_its_team_product():

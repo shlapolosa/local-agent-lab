@@ -195,6 +195,18 @@ cutover (workloads' GATEWAY_URL to APIM, the LiteLLM app removed from prod, CI's
   rollout: the allow-list filters only outside traffic — prod LiteLLM still reached a restricted server,
   and the laptop got 403. APIM presents `MCP_SHARED_SECRET` as a versionless Key Vault reference; its
   identity may read that one secret (`apim.bicep`).
+- **Key callers** (`apply products`): the six callers that hold a key, not an Entra identity, are declared
+  once in `grants.KEY_CALLERS` (variable -> team) with `KEY_MODELS`. One APIM product per team (product
+  id = team alias, which the MCP policy reads), one subscription per caller; keys land in `.env.azure` as
+  `APIM_<VAR>`. **The model allowlist lives in the models API's own policy**, keyed by the product —
+  measured: with `subscriptionRequired: false` a valid key of a product WITHOUT the models API was still
+  admitted (the curator chatted), and a product policy did not refuse. Verified after: curator, submitter
+  and embedder refused chat (403), the embedder embeds, evals call exactly their four models, a bogus key
+  401, Entra agents unchanged.
+- **Cutover owes the key header**: APIM reads a key from `api-key`; dev LiteLLM reads `Authorization:
+  Bearer` and accepts `api-key` on `/v1` but NOT on `/mcp` (measured). So the Python key callers
+  (`fabric_gateway`, the embedder, the eval scripts) send BOTH — one client for both gateways — and the
+  production connector clones name their key parameter `api-key`.
 
 ## Phase 2 as first planned (superseded above): APIM as the governance plane
 
