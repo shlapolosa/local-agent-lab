@@ -26,7 +26,6 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 
 from lab.platform import config, mcp_client
 from lab.platform.contracts import ApprovalTools, ArtifactRef, CollabTools, EATools
@@ -67,7 +66,9 @@ async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable
     # Bounded like any other exchange: the preflight's whole point is to cost nothing and refuse
     # early, and a preflight that hangs holds the run open before it has done anything at all.
     async def listing():
-        async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
+        # The SAME session the calls use — one aggregated endpoint, or one per server presented as one
+        # (production's APIM) — so preflight and the call can never disagree about the catalogue.
+        async with mcp_client.gateway_session(mcp_url, headers, client_class=Client) as c:
             return await c.list_tools()
 
     try:

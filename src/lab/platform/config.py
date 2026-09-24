@@ -43,6 +43,9 @@ GATEWAY_URL      = _e("GATEWAY_URL", "http://127.0.0.1:4000")           # LiteLL
 #: reach 127.0.0.1, and defaulting to it is a silent no-op rather than an error.
 PUBLIC_GATEWAY_URL = _e("PUBLIC_GATEWAY_URL", "")
 GATEWAY_MCP_URL  = _e("GATEWAY_MCP_URL", GATEWAY_URL.rstrip("/") + "/mcp/")
+#: The MCP servers when the gateway exposes each at its OWN endpoint (production's APIM, which cannot
+#: aggregate): `<GATEWAY_MCP_URL><server>/mcp` per alias. Empty = one aggregated endpoint (dev's LiteLLM).
+GATEWAY_MCP_SERVERS = tuple(s.strip() for s in _e("GATEWAY_MCP_SERVERS", "").split(",") if s.strip())
 ADOIT_MCP_URL    = _e("ADOIT_MCP_URL", "http://127.0.0.1:9100/mcp")     # as seen by the gateway
 SEMANTIC_MCP_URL = _e("SEMANTIC_MCP_URL", "http://127.0.0.1:9200/mcp")
 STORAGE_MCP_URL  = _e("STORAGE_MCP_URL", "http://127.0.0.1:9300/mcp")   # read-only governed object store

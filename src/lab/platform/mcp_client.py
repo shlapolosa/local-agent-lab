@@ -7,8 +7,9 @@ continuation runner applying a person's decision to the fabric) reaches it here,
 from __future__ import annotations
 
 import asyncio
-
+import copy
 from collections.abc import Iterable, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
 from fastmcp import Client
@@ -16,7 +17,55 @@ from fastmcp.client.transports import StreamableHttpTransport
 
 from lab.platform import config
 
-__all__ = ["resolve", "call_tools_raw", "call_tools"]
+__all__ = ["resolve", "call_tools_raw", "call_tools", "gateway_session"]
+
+#: Between a server's alias and its tool name, as LiteLLM names them (`collab_mcp-collab_watch`).
+SEP = "-"
+
+
+def _renamed(tool, name):
+    """`tool` under another name, every other attribute (its inputSchema) kept."""
+    if hasattr(tool, "model_copy"):
+        return tool.model_copy(update={"name": name})
+    other = copy.copy(tool)
+    other.name = name
+    return other
+
+
+class _Aggregate:
+    """Several per-server MCP sessions presented as ONE catalogue under `<server>-<tool>` names — what
+    LiteLLM's single /mcp does, done by the client because APIM exposes each server on its own."""
+
+    def __init__(self, sessions):
+        self._sessions = sessions                                  # {alias: open session}
+
+    async def list_tools(self):
+        return [_renamed(t, f"{alias}{SEP}{t.name}") for alias, s in self._sessions.items()
+                for t in await s.list_tools()]
+
+    async def call_tool(self, name, args):
+        alias, _, tool = name.partition(SEP)
+        if alias not in self._sessions:
+            raise RuntimeError(f"no MCP server {alias!r} behind the gateway ({sorted(self._sessions)})")
+        return await self._sessions[alias].call_tool(tool, args)
+
+
+@asynccontextmanager
+async def gateway_session(mcp_url: str, headers: Mapping[str, str], *, client_class=None):
+    """The gateway's MCP surface as one session: the aggregated endpoint as it is (dev), or one session
+    per `config.GATEWAY_MCP_SERVERS` entry at `<mcp_url><server>/mcp` presented as one (production)."""
+    cls = client_class or Client
+    hdrs = dict(headers or {})
+    if not config.GATEWAY_MCP_SERVERS:
+        async with cls(StreamableHttpTransport(mcp_url, headers=hdrs)) as c:
+            yield c
+        return
+    async with AsyncExitStack() as stack:
+        base = mcp_url.rstrip("/")
+        sessions = {alias: await stack.enter_async_context(
+                        cls(StreamableHttpTransport(f"{base}/{alias}/mcp", headers=hdrs)))
+                    for alias in config.GATEWAY_MCP_SERVERS}
+        yield _Aggregate(sessions)
 
 
 def resolve(exposed: Iterable[str], suffix: str) -> str:
@@ -46,7 +95,7 @@ async def call_tools_raw(headers: Mapping[str, str], mcp_url: str, calls, *, cli
     wanted = [sfx for sfx, _args in calls]
 
     async def exchange():
-        async with cls(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
+        async with gateway_session(mcp_url, headers, client_class=cls) as c:
             names = [t.name for t in await c.list_tools()]
             return [await c.call_tool(resolve(names, sfx), args) for sfx, args in calls]
 

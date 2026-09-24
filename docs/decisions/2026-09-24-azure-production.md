@@ -140,7 +140,39 @@ to its target when the quota request is granted — a gateway-config change, no 
   (each group has lag on the shared request stream — ~$0.08 per submit, per-process streams later);
   the substrate stream consumers run one always-on replica rather than scaling to zero.
 
-## Phase 2 — APIM as the governance plane
+## Phase 2 — APIM IS production's gateway (decided 24 Sep 2026)
+
+**Production runs on APIM only, dev on LiteLLM only — "never shall the two meet"** (user). This is the lab's
+founding claim put to the test: LiteLLM is the local stand-in for APIM, so production should need
+configuration and adapters, not a rewrite. Tier: **Developer** ($48/mo, UAE North; no SLA and no path to v2 —
+every API and policy lives in Bicep/rendered files so a Basic v2 move is a redeploy). Budget alert → $200.
+
+Decisions (user, 24 Sep 2026):
+- **MCP — the client aggregates.** APIM exposes each MCP server at `/mcp/<server>` (its native "expose an
+  existing MCP server"); `lab.platform.mcp_client` connects to each configured server and applies the same
+  `<server>-<tool>` naming, so contracts, preflight and REQUIRED_TOOLS are unchanged. Dev keeps LiteLLM's
+  single `/mcp`; the adapter is chosen by configuration.
+- **Authorisation — Entra app roles, enforced by APIM.** Each LiteLLM team grant becomes an app role on
+  `lab-gateway-prod` (per MCP server and tool set, the /api roles, model use), assigned to the `-prod` apps;
+  APIM's `validate-jwt` checks it per API/operation/tool. Budgets become per-client `llm-token-limit`, spend
+  becomes `llm-emit-token-metric` in App Insights.
+- **Key-holding callers — APIM subscription keys** (the virtual key's documented analogue): the fabric
+  curator, the embedder, the Copilot connectors, the deploy gate.
+- **PII — ported to an APIM policy fragment**: the patterns the lab uses replace matches with `[TYPE#n]`
+  inbound and restore them outbound, for every caller (streaming stays unrestored, as today).
+- Dropped in prod: `auto` routing (no workload uses it), Claude aliases (no Claude in UAE North), JIT
+  developer keys, the skills registry and agent cards (dev-only registries).
+
+Reachability: APIM Developer is outside the Container Apps environment and the servers' ingress is internal,
+so each server APIM routes to gets external ingress restricted by `ipSecurityRestrictions` to APIM's outbound
+IP, still behind `MCP_SHARED_SECRET` (which APIM injects). A VNet would mean recreating the environment.
+
+Build order: models API (Foundry via APIM's managed identity, alias map, token limit/metric) → /api from the
+apipolicy table (generated, parity-tested) → MCP APIs + the client aggregation adapter → app roles mirrored
+from the prod registry's team grants → subscriptions for key callers → PII fragment → vector-store routes →
+cutover (workloads' GATEWAY_URL to APIM, the LiteLLM app removed from prod, CI's registry steps dev-only).
+
+## Phase 2 as first planned (superseded above): APIM as the governance plane
 
 - Tier chosen to fit the budget (Consumption or Developer; Basic v2 does not fit $150 alongside Phase 1)
   — verify at the time which AI-gateway policies each tier supports.

@@ -20,6 +20,63 @@ class FakeClient:
         self.calls.append((name, args)); return SimpleNamespace(data={"name": name, **args}, content=[])
 
 
+# ------------------------------------------------------------------ per-server gateways (production: APIM)
+class PerServer:
+    """One fake MCP server per URL: `/mcp/<alias>/mcp` exposes that alias's UNprefixed tools."""
+    made, calls = [], []
+    tools = {"semantic_mcp": ["semantic_catalog_get", "semantic_search"], "collab_mcp": ["collab_watch"]}
+
+    def __init__(self, transport):
+        self.url = transport.url
+        self.alias = self.url.split("/mcp/")[1].split("/")[0]
+        PerServer.made.append(transport)
+
+    async def __aenter__(self): return self
+    async def __aexit__(self, *exc): return False
+
+    async def list_tools(self):
+        return [SimpleNamespace(name=n, inputSchema={}) for n in PerServer.tools[self.alias]]
+
+    async def call_tool(self, name, args):
+        PerServer.calls.append((self.alias, name, args))
+        return SimpleNamespace(data={"server": self.alias, "tool": name}, content=[])
+
+
+def test_a_per_server_gateway_is_presented_as_one_catalogue_under_the_same_names(monkeypatch):
+    """APIM exposes each MCP server at its own endpoint and cannot aggregate. The client does: the
+    catalogue a workload sees is `<server>-<tool>`, exactly LiteLLM's, so contracts, preflight and
+    REQUIRED_TOOLS do not know which gateway they are talking to."""
+    monkeypatch.setattr(mcp_client.config, "GATEWAY_MCP_SERVERS", ("semantic_mcp", "collab_mcp"))
+    PerServer.made.clear()
+    PerServer.calls.clear()
+    out = asyncio.run(mcp_client.call_tools({"Authorization": "Bearer t"}, "https://apim/mcp/",
+                                            [("semantic_catalog_get", {"iri": "u"}), ("collab_watch", {"r": 1})],
+                                            client_class=PerServer))
+    assert out == [{"server": "semantic_mcp", "tool": "semantic_catalog_get"},
+                   {"server": "collab_mcp", "tool": "collab_watch"}]
+    assert PerServer.calls == [("semantic_mcp", "semantic_catalog_get", {"iri": "u"}),
+                               ("collab_mcp", "collab_watch", {"r": 1})], "each call reaches ITS server by its own name"
+    assert {t.url for t in PerServer.made} == {"https://apim/mcp/semantic_mcp/mcp", "https://apim/mcp/collab_mcp/mcp"}
+    assert all(t.headers["Authorization"] == "Bearer t" for t in PerServer.made)
+
+
+def test_the_aggregate_catalogue_lists_every_server_prefixed(monkeypatch):
+    monkeypatch.setattr(mcp_client.config, "GATEWAY_MCP_SERVERS", ("semantic_mcp", "collab_mcp"))
+
+    async def names():
+        async with mcp_client.gateway_session("https://apim/mcp/", {}, client_class=PerServer) as s:
+            return [t.name for t in await s.list_tools()]
+    assert sorted(asyncio.run(names())) == ["collab_mcp-collab_watch", "semantic_mcp-semantic_catalog_get",
+                                            "semantic_mcp-semantic_search"]
+
+
+def test_no_server_list_is_the_single_gateway_as_before(monkeypatch):
+    monkeypatch.setattr(mcp_client.config, "GATEWAY_MCP_SERVERS", ())
+    FakeClient.made.clear()
+    out = asyncio.run(mcp_client.call_tools({}, "http://gw/mcp/", [("semantic_catalog_get", {})], client_class=FakeClient))
+    assert out[0]["name"] == "semantic_mcp-semantic_catalog_get" and len(FakeClient.made) == 1
+
+
 def test_resolve_matches_by_suffix_and_names_what_is_exposed():
     assert mcp_client.resolve(["a-b", "c-d"], "d") == "c-d"
     with pytest.raises(RuntimeError, match=r"tool \*z not exposed by gateway \(\['a-b'\]\)"):
