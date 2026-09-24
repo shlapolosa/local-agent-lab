@@ -213,9 +213,12 @@ def test_an_invalid_decision_lists_the_legal_ones(api):
 def test_both_ingresses_are_generated_from_the_one_registry():
     """Registering a process gives MCP tools AND REST routes at once, so neither can drift — including
     the refusal: a continuation-only process gets neither a submit tool nor a submit route."""
-    paths = {r.path for r in rest.routes(srv.server)}
+    routes = rest.routes(srv.server)
+    paths = {r.path for r in routes}
+    posts = {r.path for r in routes if "POST" in (r.methods or ())}
     for name, spec in PROCESSES.items():
-        assert (f"/api/processes/{name}/runs" in paths) is spec.external
+        assert (f"/api/processes/{name}/runs" in posts) is spec.external, "only external STARTS"
+        assert f"/api/processes/{name}/runs" in paths, "every process's runs stay findable"
         assert f"/api/processes/{name}/runs/{{request_id}}" in paths, "every run stays observable"
 
 

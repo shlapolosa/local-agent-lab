@@ -59,7 +59,11 @@ def tools(artifacts=(), *, version: str = VERSION, retrieval: dict | None = None
     modes = dict(retrieval or {})
 
     def pin(args):
-        ids = list(args.get("artifact_ids") or served)
+        # `or served` would be wrong: an EMPTY list means "pin nothing", which is not the same as
+        # the key being absent ("pin everything served"). A real gateway distinguishes them, and
+        # conflating them made a run that pins no artifact look like one that pinned all 36.
+        asked = args.get("artifact_ids")
+        ids = list(served if asked is None else asked)
         return {"pin_id": "pin-test", "ring": 0, "pinned_at": "t", "expires_at": "t",
                 "versions": [{"artifact_id": a, "version": version, "signature_id": "k1",
                               "retrieval": modes.get(a, "key")} for a in ids]}

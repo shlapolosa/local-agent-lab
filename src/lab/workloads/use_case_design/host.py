@@ -42,7 +42,8 @@ def run_fields(out: dict) -> dict:
     """The row a reviewer follows from the Runs board to what the run produced."""
     return {"approval_id": out.get("approval_id"),
             "verdict": out.get("verdict"),
-            "business_case_ref": out.get("business_case_ref")}
+            "business_case_ref": out.get("business_case_ref"),
+            "architecture_ref": out.get("architecture_ref")}
 
 
 async def run_once(root, submission_ref: str, screening_ref: str, criticality=None, *, on_trace=None, **extra) -> dict:

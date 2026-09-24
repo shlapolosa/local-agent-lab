@@ -99,6 +99,48 @@ def _isolated_otel():
     otel._STATE.update(saved_state)
 
 
+@pytest.fixture(autouse=True)
+def _reset_runlog_latch():
+    """`runlog._RETRY_AT` holds a retry window PER Redis client after a failure.
+
+    Per client now, so one dead client no longer silences everybody — but the map itself is still a
+    process global, and a test that latches a client must not hand that window to the next test.
+    This file exists to close exactly these seams.
+    """
+    from lab.platform import runlog
+    runlog._RETRY_AT.clear()
+    yield
+    runlog._RETRY_AT.clear()
+
+
+@pytest.fixture(autouse=True)
+def _empty_review_cache():
+    """The review app caches corpus tables, records and trace activity PROCESS-GLOBALLY.
+
+    It has to: the Runs page refreshes by reloading the browser, and a reload is a new Streamlit
+    session, so a cache in `st.session_state` is discarded seconds after it is filled. The cost of
+    that correctness is one more process-global seam, and process-global state leaking between
+    tests is exactly what this file exists to close — one test's trace activity was being served to
+    the next, which is how a cache turns a passing suite into a lie.
+    """
+    mods = []
+    for load in (lambda: __import__("lab.substrate.review.app", fromlist=["app"]),
+                 # The page tests exercise a SECOND copy of the module: `fixtures.streamlit`
+                 # loads app.py under its own name so the module-level decorators see a fake
+                 # `streamlit`. Two module objects means two caches, and clearing only the
+                 # importable one leaves the one the tests actually use holding yesterday's trace.
+                 lambda: __import__("fixtures.streamlit", fromlist=["APP"]).APP):
+        try:
+            mods.append(load())
+        except Exception:                      # noqa: BLE001 — a tier that does not import it
+            pass
+    for m in mods:
+        getattr(m, "_CACHE", {}).clear()
+    yield
+    for m in mods:
+        getattr(m, "_CACHE", {}).clear()
+
+
 @pytest.fixture
 def fake_redis():
     return FakeRedis()

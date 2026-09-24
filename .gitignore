@@ -32,3 +32,5 @@ var/
 # TEMPLATES tracked: they end in .template.json, which the first pattern would otherwise swallow.
 config/clients/**/*.json
 !config/clients/**/*.template.json
+config/clients/**/*.yaml
+!config/clients/**/*.template.yaml

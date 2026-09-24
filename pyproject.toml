@@ -20,6 +20,7 @@ where = ["src"]
 "lab.core.usecase" = ["seed/*.json", "seed/masters/*.md"]
 "lab.workloads.usecase" = ["prompts/*.md", "schemas/*.json"]
 "lab.substrate.mcp.adoit" = ["templates/*.xlsx"]
+"lab.substrate.review" = ["samples/*.csv"]
 "lab.workloads.visio_to_archimate" = ["prompts/*.md", "schemas/*.json", "references/*.md"]
 
 [tool.pytest.ini_options]

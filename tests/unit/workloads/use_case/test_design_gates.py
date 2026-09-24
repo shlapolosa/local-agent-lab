@@ -67,7 +67,13 @@ def test_the_governance_tier_must_be_the_maximum_of_the_step_tiers():
 
 
 def test_an_inexplicit_graph_must_be_said_rather_than_scored_around():
-    rejects("15", dict(DETERMINISM, graph_is_explicit=False), "escalation")
+    """The name was right and the assertion was the opposite of it. REJECTING the answer is how it
+    gets scored around: the model is told it was wrong and given one retry, so it either flips to
+    `true` (and the Board escalation disappears) or holds and the run dies with no record at all.
+
+    An unexplicit graph is a finding the framework has a route for — D3 at orchestration level —
+    not a defect in the answer. It is accepted here and carried to the reviewer by `owed()`."""
+    assert gated("15", dict(DETERMINISM, graph_is_explicit=False)) == []
 
 
 # ---------------------------------------------------------------- 17 · facet vectors
@@ -239,3 +245,133 @@ def test_a_service_level_with_no_source_is_refused():
 def test_a_work_item_with_no_owner_is_refused():
     item = without(DELIVERY["work_items"][0], "owner")
     rejects("25", dict(DELIVERY, work_items=[item]), "owner")
+
+
+# ---------------------------------------------------------------- 21 · the families still owed (soft)
+
+def soft(number, out, context):
+    return step_for(number).soft(out, context=context)
+
+
+#: What the design DERIVED from the published chain (family -> guardrail -> capability -> component),
+#: which is where family membership comes from — the catalogue has no such column.
+WITH_FAMILIES = {"component_families": {"by_component": {"cmp-model": ["F2"], "cmp-vault": ["F4", "F5"]},
+                                        "unclaimed": []},
+                 "component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog"},
+                                         {"id": "cmp-vault", "zone": "ident", "name": "Key Vault"}],
+                 "model_summary": {"required_families": ["F2", "F4"]}}
+
+
+def test_a_required_family_no_selected_component_carries_is_named_with_both_ways_out():
+    problems = soft("21", COMPONENTS, WITH_FAMILIES)
+    assert len(problems) == 1 and "F4" in problems[0]
+    assert "select a catalogue" not in problems[0], "the finding is a record a person reads, not an instruction"
+    assert "`unresolved`" in step_for("21").soft_remedy and "`families`" in step_for("21").soft_remedy
+
+
+def test_a_family_named_under_unresolved_is_accepted_as_owed_rather_than_refused():
+    out = dict(COMPONENTS) | {"unresolved": ["F4: no catalogue component enforces it yet"]}
+    assert soft("21", out, WITH_FAMILIES) == []
+
+
+def test_selecting_a_component_that_carries_the_family_satisfies_it():
+    out = dict(COMPONENTS) | {"selected": COMPONENTS["selected"] + [
+        {"capability": "secrets", "component_id": "cmp-vault", "component": "Key Vault",
+         "rejected_alternatives": ["env vars"]}]}
+    assert soft("21", out, WITH_FAMILIES) == []
+
+
+def test_without_a_derivation_or_a_column_the_rule_makes_no_claim():
+    """Neither derived nor published means nothing is known; a rule that refused here would refuse
+    work nobody could have done."""
+    assert soft("21", COMPONENTS, dict(CATALOGUE) | {"model_summary": {"required_families": ["F2"]}}) == []
+
+
+def test_a_family_the_corpus_is_silent_about_is_not_demanded():
+    """Ten of twenty-six published guardrails name a capability, so some families resolve to no
+    component at all — the corpus being silent, not the design failing."""
+    ctx = dict(WITH_FAMILIES)
+    ctx["component_families"] = {"by_component": {"cmp-model": ["F2"]}, "unclaimed": ["F4"]}
+    assert soft("21", COMPONENTS, ctx) == []
+
+
+def test_a_published_catalogue_column_is_believed_over_the_derivation():
+    ctx = dict(WITH_FAMILIES)
+    ctx["component_catalogue"] = [{"id": "cmp-model", "zone": "mod", "families": ["F2", "F4"]}]
+    assert soft("21", COMPONENTS, ctx) == []
+
+
+def test_a_run_with_no_composition_requires_nothing():
+    assert soft("21", COMPONENTS, dict(WITH_FAMILIES) | {"model_summary": {}}) == []
+    assert step_for("21").soft_key == "unresolved"
+
+
+# ---------------------------------------------------------------- 15 and 17 · every node, or none
+
+GRAPH = {"workflow_graph": {"nodes": [{"id": "n1"}, {"id": "n2"}, {"id": "n3"}]}}
+
+
+def test_a_facet_set_covering_one_node_of_three_is_refused_naming_the_nodes_it_skipped():
+    """Run 5, 15 Sep 2026: ONE vector for a ten-node graph. It derived cleanly, and the exposure,
+    the obligations and the composition all came back describing that one node."""
+    out = {"steps": [dict(FACETS["steps"][0], id="n2")]}
+    problems = " ".join(gated("17", out, context=GRAPH))
+    assert "'n1'" in problems and "'n3'" in problems and "covers 1" in problems
+
+
+def test_a_vector_for_a_node_the_graph_does_not_have_is_refused():
+    out = {"steps": [dict(FACETS["steps"][0], id=i) for i in ("n1", "n2", "n3", "n9")]}
+    assert any("n9" in p and "not nodes" in p for p in gated("17", out, context=GRAPH))
+
+
+def test_one_vector_per_node_passes_and_a_duplicate_does_not():
+    full = {"steps": [dict(FACETS["steps"][0], id=i) for i in ("n1", "n2", "n3")]}
+    assert gated("17", full, context=GRAPH) == []
+    twice = {"steps": full["steps"] + [dict(FACETS["steps"][0], id="n1")]}
+    assert any("more than once" in p for p in gated("17", twice, context=GRAPH))
+
+
+def test_without_a_graph_in_context_the_coverage_rule_says_nothing():
+    assert gated("17", FACETS) == []
+
+
+def test_the_determinism_tiering_is_held_to_the_same_coverage():
+    out = {"steps": [{"id": "n1", "tier": "D1", "necessity": "by necessity"}],
+           "governance_tier": "D1", "graph_is_explicit": True}
+    assert any("no determinism tier" in p and "'n2'" in p for p in gated("15", out, context=GRAPH))
+    full = {"steps": [{"id": i, "tier": "D1", "necessity": "by necessity"} for i in ("n1", "n2", "n3")],
+            "governance_tier": "D1", "graph_is_explicit": True}
+    assert gated("15", full, context=GRAPH) == []
+
+
+# ---------------------------------------------------------------- 21 · something runs the use case
+
+CROSS_CUTTING = {"component_catalogue": [{"id": "cmp-entra", "zone": "ident", "name": "Entra"},
+                                         {"id": "cmp-sentinel", "zone": "obs", "name": "Sentinel"},
+                                         {"id": "cmp-model", "zone": "mod", "name": "Model catalog"}]}
+
+
+def _picked(*ids):
+    return {"selected": [{"capability": "c", "component_id": i, "component": i,
+                          "rejected_alternatives": ["x"]} for i in ids],
+            "tradeoffs": [], "unresolved": []}
+
+
+def test_a_selection_of_only_cross_cutting_components_is_a_control_plane_with_nothing_inside_it():
+    """Run 5: sixteen components, every one identity, observability, platform or gateway — and a
+    solution view that was a parts list."""
+    problems = soft("21", _picked("cmp-entra", "cmp-sentinel"), CROSS_CUTTING)
+    assert any("control plane with nothing inside it" in p for p in problems)
+    assert "ident" in problems[0] and "obs" in problems[0]
+
+
+def test_one_component_that_runs_the_use_case_satisfies_it():
+    assert soft("21", _picked("cmp-entra", "cmp-model"), CROSS_CUTTING) == []
+
+
+def test_a_catalogue_with_no_zone_column_makes_no_claim_and_a_named_reason_is_accepted():
+    bare = {"component_catalogue": [{"id": "cmp-entra", "name": "Entra"}]}
+    assert soft("21", _picked("cmp-entra"), bare) == []
+    named = dict(_picked("cmp-entra"), unresolved=["no runtime component: the agent runtime is a "
+                                                   "zone this tenant has not catalogued"])
+    assert soft("21", named, CROSS_CUTTING) == []

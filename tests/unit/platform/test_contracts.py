@@ -219,3 +219,82 @@ def test_contracts_module_is_pure():
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_a_legacy_payload_naming_one_file_under_two_ref_keys_yields_one_download():
+    """A design whose drawing fell back to its model ref carries `architecture_ref == model_ref`;
+    two identical download buttons is what the review app refuses (Streamlit duplicate element)."""
+    from lab.platform.contracts import import_artifacts
+    payload = {"model_ref": "art://m/design.model.json", "architecture_ref": "art://m/design.model.json",
+               "archimate_xml_ref": "art://m/design.archimate.xml", "question": {}}
+    arts = import_artifacts(payload)
+    assert [a.ref for a in arts] == ["art://m/design.model.json", "art://m/design.archimate.xml"]
+    assert len({a.ref for a in arts}) == len(arts)
+
+
+# ------------------------------------------------------------ exactly one of a group (the xor)
+
+
+def test_a_process_can_declare_that_exactly_one_of_two_inputs_is_required():
+    """Some inputs are alternatives, not options. `use_case_screening` takes the submission either
+    as an uploaded `art://` ref or as a `collab://` handle to fetch — one or the other, never both
+    and never neither. Neither field can say that on its own: each is individually optional.
+
+    Until this existed the rule lived in step 1 of the workload, so an invalid submission passed
+    `validate`, queued, got a request_id and a TRACE, started a run and died at the first executor.
+    Measured 18 Sep 2026 — a person got a trace id where they should have got a form error.
+    """
+    spec = C.PROCESSES["use_case_screening"]
+    assert ("submission", "submission_handle") in spec.one_of
+
+
+def test_a_submission_with_neither_a_document_NOR_an_intake_is_refused():
+    """Every field is optional on its own — what the process cannot do is start with nothing to
+    assess. Captured answers and an uploaded document are both a submission, so the rule is at
+    least one of the three rather than exactly one of the two documents."""
+    spec = C.PROCESSES["use_case_screening"]
+    with pytest.raises(ValueError) as e:
+        spec.validate({"submitter": "a@b.com"})
+    assert "submission" in str(e.value) and "intake" in str(e.value)
+
+
+def test_both_DOCUMENTS_is_refused_because_those_two_are_alternatives():
+    """Two documents describing one submission is an ambiguity nobody can resolve. Supplying
+    neither is a different question and no longer the same refusal."""
+    spec = C.PROCESSES["use_case_screening"]
+    with pytest.raises(ValueError) as e:
+        spec.validate({"submitter": "a@b.com", "submission": "art://a/b.md",
+                       "submission_handle": "collab://item/drive1/item1"})
+    assert "at most one" in str(e.value)
+
+
+@pytest.mark.parametrize("given", [
+    {"submitter": "a@b.com", "submission": "art://a/b.md"},
+    {"submitter": "a@b.com", "submission_handle": "collab://item/drive1/item1"},
+])
+def test_exactly_one_passes(given):
+    assert C.PROCESSES["use_case_screening"].validate(given)
+
+
+def test_a_process_with_no_group_is_unaffected():
+    """YAGNI in the other direction: the default is an empty tuple, so every other process
+    validates exactly as before and no caller changes."""
+    assert C.PROCESSES["visio_to_archimate"].one_of == ()
+    assert C.PROCESSES["visio_to_archimate"].validate({"diagram": "art://a/b.vsdx"})
+
+
+def test_the_group_names_real_inputs():
+    """A typo'd group would silently never fire — the rule would look declared and enforce nothing."""
+    for spec in C.PROCESSES.values():
+        for group in spec.one_of:
+            for name in group:
+                assert name in {f.name for f in spec.inputs}, f"{spec.name}: {name}"
+
+
+def test_every_member_of_a_one_of_group_is_individually_optional():
+    """Otherwise the two rules contradict: `required=True` demands a field the group says may be
+    absent, and the caller can satisfy neither."""
+    for spec in C.PROCESSES.values():
+        for group in spec.one_of:
+            for name in group:
+                assert not spec.field(name).required, f"{spec.name}.{name}"

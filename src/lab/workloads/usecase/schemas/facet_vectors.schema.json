@@ -39,7 +39,20 @@
               "type": "object",
               "properties": {
                 "facet": {
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "determinism",
+                    "effect",
+                    "reversibility",
+                    "blast_radius",
+                    "audience",
+                    "authorisation",
+                    "domain",
+                    "sensitivity",
+                    "trust",
+                    "freshness"
+                  ],
+                  "description": "Which facet is overridden. A CLOSED set: an unrecognised name (\"effect class\") used to be discarded in silence while its justification stayed in the record, so the package read as the opposite of what was derived."
                 },
                 "from": {
                   "type": "string"
@@ -66,6 +79,27 @@
               "type": "boolean"
             },
             "description": "The prose conditions the published guardrail predicates ask about THIS step \u2014 'step invokes any registered tool', 'the source is spoofable'. Answer every one: an unanswered condition is refused, never read as false, because a guardrail that silently fails to fire is invisible."
+          },
+          "sensitivity": {
+            "type": "string",
+            "description": "How sensitive the data this step READS is. G21 is predicated on it; with no value it defaults to `internal`, and a step handling restricted data then carries no outbound control."
+          },
+          "trust": {
+            "type": "string",
+            "description": "How trustworthy that input is. Defaults to `authoritative`, which is the assumption a grounding control exists to question."
+          },
+          "freshness": {
+            "type": "string",
+            "description": "How current it must be. G17 is predicated on it; defaults to `static`."
+          },
+          "determines_externally": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 3,
+            "description": "The exposure class of an effect this step determines OUTSIDE this workflow \u2014 a number the graph cannot know, which is why this one IS asked. Null when the step determines nothing beyond the steps the graph already records."
           }
         },
         "required": [

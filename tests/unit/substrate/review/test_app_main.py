@@ -3,6 +3,8 @@ reviewer/mode widgets and the PAGES dispatch table — run under the fake stream
 tests/unit/substrate/review/test_app_pages.py. Offline.
 Run: .venv/bin/python tests/unit/substrate/review/test_app_main.py   (also pytest-compatible)"""
 import os
+
+import pytest
 import sys
 from types import SimpleNamespace
 
@@ -11,11 +13,34 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.d
 from fixtures.streamlit import APP, FakeSt, FakeWorkflows, Rerun, Stop, install  # noqa: E402
 
 
+def _stub_config(**overrides):
+    """A config stub that starts from the REAL one.
+
+    It used to be a bare `SimpleNamespace` of the two fields a test needed, and the module global
+    was never restored — so every later test in the directory ran against that stub and the next
+    setting the app read was an `AttributeError` in a test that had nothing to do with config.
+    Starting from the real module means a new setting cannot break unrelated tests, and
+    `_restore_app_config` puts the original back.
+    """
+    import lab.platform.config as real
+    return SimpleNamespace(**{**{k: v for k, v in vars(real).items() if not k.startswith("__")},
+                              **overrides})
+
+
+@pytest.fixture(autouse=True)
+def _restore_app_config():
+    """`APP.config` is a MODULE GLOBAL — a test that swaps it and walks away hands its stub to
+    every test after it."""
+    saved = APP.config
+    yield
+    APP.config = saved
+
+
 def _main(st, password=None):
     install(st)
     # `build_id` too: the app announces which build it is on start, so a person reading the deploy
     # log can tell what is actually serving — the same line every other role prints.
-    APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=password, build_id=lambda: "build=test")
+    APP.config = _stub_config(REVIEW_APP_PASSWORD=password, build_id=lambda: "build=test")
     APP.main()
     return st
 
@@ -25,7 +50,7 @@ def test_main_without_password_dispatches_the_chosen_mode():
     st = _main(FakeSt(Mode="Runs"))
     assert st.calls[0][0] == "set_page_config" and st.calls[0][2]["layout"] == "wide"
     assert ("sidebar.text_input", ("Reviewer",), {"value": "socrates"}) in st.calls
-    assert st.said("radio", "Mode ['Review', 'Submit', 'Runs']")
+    assert st.said("radio", "Mode ['Review', 'Submit', 'Runs', 'Artifacts']")
     assert st.said("title", "Runs") and not any(path == "text_input" for path, _, _ in st.calls)  # no gate
     # default mode = first entry of PAGES = Review; Submit reaches the Submit page with the reviewer name
     st = _main(FakeSt())
@@ -33,7 +58,7 @@ def test_main_without_password_dispatches_the_chosen_mode():
     wf = FakeWorkflows()
     st = FakeSt(Mode="Submit", Reviewer="ann", **{"▶️ Run visio_to_archimate": True})
     install(st, workflows=wf)
-    APP.config = SimpleNamespace(REVIEW_APP_PASSWORD=None)
+    APP.config = _stub_config(REVIEW_APP_PASSWORD=None)
     st.session_state["submit_refs_visio_to_archimate"] = {"diagram": "art://d/s.vsdx"}
     try:
         APP.main()
@@ -94,15 +119,22 @@ def test_streamlit_entry_point_runs_main():
         else:
             del sys.modules["streamlit"]
     names = [c[0] for c in fake_st.calls]
-    assert names[:2] == ["fragment", "fragment"] and "set_page_config" in names    # module load, then main()
+    # NO fragment at module load any more. `run_every`'s failure mode is "silently never fires"
+    # (streamlit#9080, #11660) and it was reported on both pages that used one — the Runs board and
+    # the submitter's status panel. Both refresh from a timer in the page instead, which either
+    # works or visibly does not, and both link out to the live view, which actually streams.
+    assert "fragment" not in names
+    assert names[0] == "set_page_config"
     assert fake_st.said("title", "Runs")
     assert fake_st.said("info", "No runs recorded yet")
 
 
 def test_pages_table_is_the_only_dispatch():
-    assert list(APP.PAGES) == ["Review", "Submit", "Runs"]
-    assert APP.PAGES["Review"] is APP._review_page and APP.PAGES["Submit"] is APP._submit_page
-    assert APP.PAGES["Runs"] is APP._runs_page
+    """Still the only routing — and each entry now carries the ROLES that may reach it, so a page
+    cannot be added without somebody deciding who it is for."""
+    assert list(APP.PAGES) == ["Review", "Submit", "Runs", "Artifacts"]
+    assert APP.PAGES["Review"][0] is APP._review_page and APP.PAGES["Submit"][0] is APP._submit_page
+    assert APP.PAGES["Runs"][0] is APP._runs_page and APP.PAGES["Artifacts"][0] is APP._artifacts_page
 
 
 if __name__ == "__main__":

@@ -320,6 +320,9 @@ set -a && source .env && set +a
 .venv/bin/python scripts/provision_connector_identity.py
 ```
 
+(In a git worktree there is no `.venv` — it lives in the canonical checkout, so run
+`../local-agent-lab/.venv/bin/python` there.)
+
 It adds the three `/api` app roles to the `lab-gateway` app (preserving the ones already there — a
 `PATCH` of `appRoles` replaces the whole collection, so appending is not optional), registers
 `power-automate-connector`, mints a secret, and grants it exactly:

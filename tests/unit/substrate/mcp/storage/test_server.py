@@ -366,11 +366,32 @@ def test_it_refuses_a_document_and_names_the_right_tool():
     assert "not an artifact" in msg and "storage_read_document" in msg
 
 
-def test_a_large_artifact_is_truncated_with_a_marker():
-    """Same contract as read_document: bounded, and honest that it was cut."""
+def test_a_large_artifact_is_returned_WHOLE_however_large():
+    """The defect that failed a cloud design run, 18 Sep 2026.
+
+    This tool defaulted to `docparse.MAX_DOC_CHARS` (60,000) and truncated — while its own docstring
+    said an artifact "must be handed back byte-faithfully". A screening record crossed 60 KB once
+    step 5 began matching every function properly, the design run read it, and `json.loads` died on
+    `Invalid control character at: line 1 column 60001`. Eleven minutes of work, lost to a cap
+    meant for PROSE.
+
+    A truncated document is a shorter document. A truncated JSON is a CORRUPT one — there is no
+    caller for whom half an object is useful, and the cap silently turned a size problem into a
+    parse error two rooms away from its cause.
+    """
+    body = b'{"x": "' + b"a" * 120_000 + b'"}'
+    ref = UP.put("big.json", body, "application/json")
+    out = call("storage_read_artifact", ref=ref).data
+    assert json.loads(out)["x"] == "a" * 120_000
+    assert "truncated" not in out
+
+
+def test_an_explicit_cap_REFUSES_rather_than_handing_back_half_an_object():
+    """The parameter is kept for a caller that genuinely wants a bound — but it refuses by name
+    instead of corrupting, so the failure says what it is and where."""
     ref = UP.put("big.json", b'{"x": "' + b"a" * 5000 + b'"}', "application/json")
-    out = call("storage_read_artifact", ref=ref, max_chars=200).data
-    assert len(out) < 400 and "truncated" in out
+    msg = call_error("storage_read_artifact", ref=ref, max_chars=200)
+    assert "200" in msg and ("larger" in msg or "exceeds" in msg)
 
 
 def test_the_transcript_a_speech_run_writes_is_this_family():

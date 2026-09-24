@@ -6,11 +6,15 @@ workload reaches this through `lab.workloads.gateway`; a substrate service that 
 continuation runner applying a person's decision to the fabric) reaches it here, with its own credential."""
 from __future__ import annotations
 
+import asyncio
+
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+
+from lab.platform import config
 
 __all__ = ["resolve", "call_tools_raw", "call_tools"]
 
@@ -24,14 +28,34 @@ def resolve(exposed: Iterable[str], suffix: str) -> str:
     return match[0]
 
 
-async def call_tools_raw(headers: Mapping[str, str], mcp_url: str, calls, *, client_class=None) -> list[Any]:
+async def call_tools_raw(headers: Mapping[str, str], mcp_url: str, calls, *, client_class=None,
+                         timeout: float | None = None) -> list[Any]:
     """Call gateway-MCP tools by name suffix; returns the RAW fastmcp results (`.content` is where image
     blocks live). `client_class` is the seam a test replaces; a caller module passes its own so the
-    established `patch.object(module, "Client", …)` keeps working."""
+    established `patch.object(module, "Client", …)` keeps working.
+
+    The WHOLE exchange is bounded by `timeout` (default `config.TOOL_CALL_TIMEOUT_S`) — opening the
+    session, listing the tools and every call — because a run hangs wherever the gateway stops
+    answering, not only on the call itself. Bounding the call alone was measured to be not enough:
+    15 Sep 2026 a screening host sat for half an hour with the gateway's auth span recorded and no
+    tool span at all, hung on the session it had just opened, while a 1000 s bound on `call_tool`
+    watched. Not failed, not done, the run board open and every deploy behind it. A run that fails
+    naming where it stopped is recoverable; a run that hangs is not even visible."""
     cls = client_class or Client
-    async with cls(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
-        names = [t.name for t in await c.list_tools()]
-        return [await c.call_tool(resolve(names, sfx), args) for sfx, args in calls]
+    limit = config.TOOL_CALL_TIMEOUT_S if timeout is None else timeout
+    wanted = [sfx for sfx, _args in calls]
+
+    async def exchange():
+        async with cls(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
+            names = [t.name for t in await c.list_tools()]
+            return [await c.call_tool(resolve(names, sfx), args) for sfx, args in calls]
+
+    try:
+        return await asyncio.wait_for(exchange(), limit)
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(f"the gateway did not answer {wanted} within {limit:.0f}s — opening the "
+                           f"session, listing the tools or the call itself is hung, not slow; the "
+                           f"run fails here rather than never") from exc
 
 
 async def call_tools(headers: Mapping[str, str], mcp_url: str, calls, *, client_class=None) -> list[Any]:

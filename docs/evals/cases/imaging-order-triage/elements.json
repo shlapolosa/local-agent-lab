@@ -1,0 +1,160 @@
+{
+  "active": [
+    {
+      "name": "radiologist",
+      "kind": "role",
+      "provenance": "frame/for_whom: 'Radiologists and radiographers in the imaging department'"
+    },
+    {
+      "name": "radiographer",
+      "kind": "role",
+      "provenance": "frame/for_whom: 'Radiologists and radiographers in the imaging department'"
+    },
+    {
+      "name": "ordering clinician",
+      "kind": "role",
+      "provenance": "frame/for_whom: 'the ordering clinicians in the emergency department and outpatient clinics'; single role covering both settings"
+    },
+    {
+      "name": "imaging department",
+      "kind": "organisation",
+      "provenance": "frame/problem: 'Radiology receives more CT and MRI orders than it can read the same day'"
+    },
+    {
+      "name": "Clinical Director of Radiology (candidate accountable owner)",
+      "kind": "role",
+      "provenance": "frame/accountable_owner: not named in the submission; candidate only, to be confirmed \u2014 flagged as open question 1"
+    },
+    {
+      "name": "imaging information system",
+      "kind": "system",
+      "provenance": "not named in the submission; inferred from orders arriving electronically, priority rules existing in 'machine-readable form' (open question 4) and clinicians being told when a report is signed \u2014 inclusion and scope unconfirmed"
+    }
+  ],
+  "behavioural": [
+    {
+      "name": "submit imaging order",
+      "verb": "submit",
+      "object": "imaging order",
+      "provenance": "frame/problem: 'Orders arrive without a usable urgency'"
+    },
+    {
+      "name": "assign order priority",
+      "verb": "assign",
+      "object": "order priority",
+      "provenance": "frame/expected_change: 'every order carries a usable priority'"
+    },
+    {
+      "name": "perform scan",
+      "verb": "perform",
+      "object": "scan",
+      "provenance": "frame/for_whom: radiographers in the imaging department; scan acquisition implicit in CT/MRI workflow"
+    },
+    {
+      "name": "prioritise reading queue",
+      "verb": "prioritise",
+      "object": "reading queue",
+      "provenance": "frame/expected_change: 'Urgent scans and their reports are read ahead of routine ones'"
+    },
+    {
+      "name": "interpret scan",
+      "verb": "interpret",
+      "object": "scan",
+      "provenance": "frame/problem: 'more CT and MRI orders than it can read the same day'"
+    },
+    {
+      "name": "sign report",
+      "verb": "sign",
+      "object": "radiology report",
+      "provenance": "frame/expected_change: 'ordering clinicians are told when a report is signed'"
+    },
+    {
+      "name": "notify ordering clinician",
+      "verb": "notify",
+      "object": "ordering clinician",
+      "provenance": "frame/expected_change: 'ordering clinicians are told when a report is signed and no longer phone to chase'"
+    },
+    {
+      "name": "communicate critical finding",
+      "verb": "communicate",
+      "object": "critical finding",
+      "provenance": "frame/expected_change: 'critical findings are acknowledged by a named person'"
+    },
+    {
+      "name": "acknowledge critical finding",
+      "verb": "acknowledge",
+      "object": "critical finding",
+      "provenance": "frame/expected_change: 'critical findings are acknowledged by a named person'"
+    },
+    {
+      "name": "measure report turnaround",
+      "verb": "measure",
+      "object": "report turnaround",
+      "provenance": "frame/expected_change: 'report turnaround is measured against the department's targets'"
+    },
+    {
+      "name": "assess turnaround against targets",
+      "verb": "assess",
+      "object": "turnaround target",
+      "provenance": "frame/expected_change: 'missed targets are visible and reduced'"
+    },
+    {
+      "name": "review priority rules",
+      "verb": "review",
+      "object": "priority rules",
+      "provenance": "frame/open_questions: priority rules 'are reviewed quarterly'; existence and format unconfirmed (open question 4)"
+    },
+    {
+      "name": "chase report status",
+      "verb": "chase",
+      "object": "radiology report",
+      "provenance": "frame/problem: 'clinicians phone the department to chase reports'; same interaction as radiology staff handling interruptions \u2014 one function, current-state behaviour the change is intended to eliminate"
+    }
+  ],
+  "passive": [
+    {
+      "name": "imaging order",
+      "provenance": "frame/problem: 'Radiology receives more CT and MRI orders than it can read the same day'"
+    },
+    {
+      "name": "order priority",
+      "provenance": "frame/problem: 'without a usable urgency'; frame/expected_change: 'a usable priority'"
+    },
+    {
+      "name": "reading queue",
+      "provenance": "frame/problem: 'urgent findings sit in the reading queue behind routine ones'"
+    },
+    {
+      "name": "scan",
+      "provenance": "frame/problem and expected_change: CT and MRI scans/studies"
+    },
+    {
+      "name": "radiology report",
+      "provenance": "frame/expected_change: 'when a report is signed'; frame/problem: 'clinicians phone the department to chase reports'"
+    },
+    {
+      "name": "critical finding",
+      "provenance": "frame/expected_change: 'critical findings are acknowledged'; 'urgent findings' in frame/problem treated as the same object"
+    },
+    {
+      "name": "critical finding acknowledgment",
+      "provenance": "frame/expected_change: 'acknowledged by a named person'"
+    },
+    {
+      "name": "report notification",
+      "provenance": "frame/expected_change: 'ordering clinicians are told when a report is signed'"
+    },
+    {
+      "name": "turnaround target",
+      "provenance": "frame/expected_change: 'measured against the department's targets'; values unknown (open question 2)"
+    },
+    {
+      "name": "report turnaround",
+      "provenance": "frame/expected_change: 'report turnaround is measured ... so missed targets are visible'"
+    },
+    {
+      "name": "priority rules",
+      "provenance": "frame/open_questions: 'the department's own priority rules ... an input and are reviewed quarterly'; existence in usable form unconfirmed (open question 4)"
+    }
+  ]
+}

@@ -24,9 +24,197 @@ from lab.workloads import gateway
 from lab.workloads.usecase import agents as A
 from lab.workloads.usecase import fallbacks
 from lab.workloads.usecase.gates import GateFailed, gate, run_gated
-from lab.workloads.usecase.steps import Step
+from lab.platform.contracts import ArtifactRef
+from lab.workloads.usecase.steps import Derived, Step
 
 __all__ = ["Derivation"]
+
+
+#: The most artifacts one step will be offered as links. A step that wrote more than this has
+#: produced a directory, not a result, and the row would stop being readable.
+MAX_ARTIFACTS = 20
+
+
+def artifacts_in(out) -> list[dict]:
+    """Every artifact this step wrote, as `{ref, name}`, first-seen order.
+
+    Found by SCHEME and never by field name. `screening_ref`, `xml_ref`, `svg_refs`, `record_ref`
+    and whatever the next step calls its output are all strings beginning `art://`, and a list of
+    known field names is a list somebody forgets to update — the failure being a missing download
+    rather than a loud one.
+
+    A malformed ref is NOT an artifact: a link that 404s reads to a person as a lost artifact,
+    which is worse than no link. The `#<page>` fragment is kept, so a multi-page source opens at
+    the page the step actually used.
+    """
+    found: dict[str, dict] = {}
+
+    def walk(value):
+        if len(found) >= MAX_ARTIFACTS:
+            return
+        if isinstance(value, str):
+            if ArtifactRef.is_ref(value):
+                try:
+                    ref = ArtifactRef.parse(value)
+                except ValueError:
+                    return                     # malformed: not an artifact, and not a broken link
+                found.setdefault(value, {"ref": value, "name": ref.name})
+        elif isinstance(value, Mapping):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                walk(item)
+
+    walk(out if isinstance(out, (Mapping, list, tuple, set)) else None)
+    return list(found.values())
+
+
+def stamp_shape(cfg, step, out) -> None:
+    """Record the step's record key and the SHAPE of its output on the run-log node.
+
+    PUBLIC because a sampled step stamps more than once: `coverage._one_pass` asks step 5 several
+    times and the answer is what the samples VOTED, so the last sample's shape would otherwise be
+    what a person watching the run sees while the record holds something else. It re-stamps with
+    the agreed output, and one instrument disagreeing with the record is worse than no instrument.
+
+    Best effort: the board is an instrument, and a run must not fail because one could not be
+    written. `run_id` absent means this run is not on a board at all (a CLI or test run).
+    """
+    from lab.platform import runlog
+
+    run_id = (cfg or {}).get("run_id")
+    if not run_id:
+        return
+    try:
+        runlog.node(run_id, f"step_{step.number}", "done", key=step.key, title=step.title,
+                    # A DERIVED step says so. "No model formed this answer" is something a reviewer
+                    # is entitled to see — there is nothing to have hallucinated and nothing a
+                    # retry would change — and it is a property of the node, so the page needs no
+                    # list of which numbers are which.
+                    derived=True if isinstance(step, Derived) else None,
+                    # What this step WROTE, so a watcher can open it. None rather than [] — an
+                    # empty list would put an empty heading on every step that wrote nothing.
+                    artifacts=artifacts_in(out) or None,
+                    produced=outline(out))
+    except Exception as e:                     # noqa: BLE001 — see the docstring
+        print(f"step {step.number} shape not stamped: {type(e).__name__}: {e}", flush=True)
+
+
+#: What an outline may carry onto the run log. Every frame the live view sends carries this, so it
+#: is bounded three ways — per string, per list, and overall — and a truncation always SAYS so.
+MAX_CHARS = 200
+#: Sized to the steps that actually run rather than to a round number: step 5 matched THIRTEEN
+#: capabilities against a ceiling of twelve, so the page said `truncated` and a reader could not
+#: tell whether the one it dropped was the one they were looking for. Still bounded — this rides
+#: every frame to every watcher — and a truncation still says so.
+MAX_ITEMS = 40
+MAX_BYTES = 12000
+
+#: What a record calls itself, in the order a record is likely to use. Records in this corpus name
+#: themselves differently by step — a capability by `capability_id`, an element by `name` — and
+#: guessing one field would render the rest as an empty label.
+#: An ID beats a FUNCTION here, and that ordering was paid for: `capability_label` is optional in
+#: the coverage_map schema and the model routinely omits it, so the chain fell through to
+#: `function` and a 38-row match rendered as "prepare design pack" seven times — the thing each
+#: match was made FROM, repeated once per capability it matched to. An id at least names the thing
+#: decided and is distinct per row. `function` stays last so an entry carrying nothing else is
+#: still named.
+#: `source` is deliberately NOT here. It is PROVENANCE, not a name, and it won over the fields
+#: that identify a row: an obligation rendered as "baseline" instead of "G01 · prompt and registry
+#: integrity". A field earns a place here only if it NAMES the thing.
+_LABELS = ("capability_label", "label", "name", "title", "what", "capability_id", "id", "function")
+
+
+def outline(out) -> dict:
+    """What a step produced, for a reader watching the run: values, and lists of what is in them.
+
+    It used to report TYPES (`problem: str`), on the argument that the run's content belongs behind
+    the review app's decision surface. That argument did not survive contact with the page: the
+    subject — `frame.problem`, model output — is already its heading, in full. A type name where a
+    value would fit protected nothing and cost the reader the only thing they opened the row for.
+    So the gate is the control, and this is what it guards.
+
+    Bounded, because this rides every frame to every watcher, and a truncation is always named:
+    a partial answer indistinguishable from a complete one is the failure this codebase keeps
+    running into.
+    """
+    if not isinstance(out, dict):
+        return {}
+    outlined: dict = {}
+    for key, value in out.items():
+        if isinstance(value, str):
+            outlined[key] = _clip(value)
+        elif isinstance(value, (list, tuple, set)):
+            items = list(value)
+            outlined[key] = {"count": len(items),
+                             "items": [_label(i) for i in items[:MAX_ITEMS]],
+                             **({"truncated": True} if len(items) > MAX_ITEMS else {})}
+        elif isinstance(value, dict):
+            # `key: value`, not the keys alone. A heat map rendered as
+            # "commodity, mature, meets_target, source" is the QUESTION written out — the reader
+            # opened the row for the answer, and every one of them was thrown away here.
+            outlined[key] = {"count": len(value),
+                             "items": [_clip(f"{k}: {_label(v)}")
+                                       for k, v in list(value.items())[:MAX_ITEMS]],
+                             **({"truncated": True} if len(value) > MAX_ITEMS else {})}
+        else:
+            outlined[key] = value
+    return _fit(outlined)
+
+
+def _clip(text: str) -> str:
+    text = str(text)
+    return text if len(text) <= MAX_CHARS else text[:MAX_CHARS] + "\u2026"
+
+
+def _label(item) -> str:
+    """One entry as a READER would name it — the human-facing field first.
+
+    `capability_id` used to lead, so thirteen matched capabilities rendered as `tec-cap-0031` and
+    twelve siblings: an id is how a record is joined, not what was decided. The id is still the
+    fallback, because naming something badly beats naming it not at all.
+    """
+    if isinstance(item, (list, tuple, set)):
+        # A LIST as a value — `by_step` is `{step: [obligation, ...]}` — rendered as a raw Python
+        # repr, which is not a rendering. The count and the first entry are what the line is for;
+        # the record holds the rest.
+        items = list(item)
+        if not items:
+            return "none"
+        return _clip(f"{len(items)} × {_label(items[0])}" if len(items) > 1
+                     else _label(items[0]))
+    if isinstance(item, dict):
+        for field in _LABELS:
+            if item.get(field):
+                return _clip(str(item[field]))
+        # No field NAMES the row, so show what it SAYS. This used to join the dict's keys, which
+        # rendered fifteen selected components as "capability, component_id, component,
+        # rejected_alternatives" fifteen times — the column headings, once per row. Nine
+        # array-of-object fields across seven steps land here, so the fallback is what was fixed.
+        #
+        # Scalars only: a nested list is the row's own detail, and splicing it into a one-line
+        # label is how a row stops being readable. A row of nothing but containers says what it
+        # holds rather than coming back empty.
+        scalars = [str(v).strip() for v in item.values()
+                   if v not in (None, "", [], {}) and not isinstance(v, (list, dict, tuple, set))]
+        if scalars:
+            return _clip(" · ".join(scalars[:3]))
+        return _clip(", ".join(f"{k}({len(v)})" if isinstance(v, (list, tuple, set)) else str(k)
+                               for k, v in list(item.items())[:3]))
+    return _clip(str(item))
+
+
+def _fit(outlined: dict) -> dict:
+    """Drop whole fields, largest first, until the outline fits. Dropping a FIELD leaves the rest
+    readable; trimming inside one would make every value suspect."""
+    import json
+
+    while len(json.dumps(outlined)) > MAX_BYTES and outlined:
+        biggest = max(outlined, key=lambda k: len(json.dumps(outlined[k])))
+        outlined.pop(biggest)
+        outlined["…"] = "some fields omitted — the record has them in full"
+    return outlined
 
 
 @dataclass
@@ -43,6 +231,18 @@ class Derivation:
     derived: dict[str, Any] = field(default_factory=dict)
     pending: dict[str, str] = field(default_factory=dict)
     defaulted: dict[str, str] = field(default_factory=dict)   # step number -> what stood in, and why
+    #: What a multi-stage step SHOWED its agent, for measurement rather than for the record. A
+    #: chooser cannot return what retrieval never put in front of it, so the candidate set is the
+    #: ceiling on every number downstream of it — and a pipeline scored only end-to-end cannot say
+    #: which stage lost the answer.
+    candidates: list = field(default_factory=list)
+    #: Called with the record SO FAR each time a step records an answer — the Observer seam that
+    #: lets a run be watched while it runs. The record used to be stored once, at the end, and its
+    #: ref reached the board only through the workflow's final output: for the whole window in
+    #: which anybody actually watches a run, no step could show what it had produced, and a run
+    #: that died showed nothing ever (`wfr-c53cdaa27bdb`, 18 Sep 2026 — four steps of real output,
+    #: visible on no surface). `None` keeps every existing caller unchanged.
+    publish: Any = None
 
     def record(self, key: str, out: Any, number: str = "") -> None:
         """A derived output, immediately readable by the steps after it. The invariant, in one
@@ -51,6 +251,32 @@ class Derivation:
         self.derived[key] = self.available[key] = out
         if number:
             self.pending.pop(number, None)
+
+    def snapshot(self) -> dict:
+        """The record SO FAR — what a person watching the run can be shown now.
+
+        `pending` and `defaulted` travel with it: a partial record without them reads as a run that
+        simply has fewer steps, rather than one whose steps did not run and said why.
+        """
+        return {**self.derived,
+                **({"pending_steps": dict(self.pending)} if self.pending else {}),
+                **({"defaulted_steps": dict(self.defaulted)} if self.defaulted else {})}
+
+    async def announce(self) -> None:
+        """Publish the record so far. BEST EFFORT, always: the record is the run's product and
+        showing it early is a convenience, so a store that is down must never turn a completed step
+        into a failed run.
+
+        Awaited from `run_step` rather than called from `record`, because publishing goes through
+        the GATEWAY — a workload holds no store credential — and that is a coroutine. `record`
+        stays the synchronous invariant it has always been.
+        """
+        if not self.publish:
+            return
+        try:
+            await self.publish(self.snapshot())
+        except Exception as e:                 # noqa: BLE001 — see the docstring
+            print(f"live record not published: {e}", flush=True)
 
     def defer(self, number: str, why: str) -> None:
         """A step that did not run, named with its reason. Never silently skipped: a record simply
@@ -97,19 +323,41 @@ class Derivation:
                 self.record(step.key, out, step.number)
                 self.defaulted[step.number] = (f"{label or step.key} — {corpus} is not published; "
                                                f"the declared default was recorded instead")
+                await self.announce()
                 return True
             self.defer(step.number, f"{label or step.key} — needs {needs}")
             return False
         context_seen = A.context_for(step.key, pool)
         # Every completeness rule takes the CONTEXT the agent was shown (step 21 checks a component
         # id against the catalogue it was given) — exactly that, and nothing more.
-        with gateway.node_span(cfg, f"step_{step.number}"):
+        with gateway.node_span(cfg, f"step_{step.number}", title=step.title):
             out = await run_gated(agent, A.message(step, context_seen),
                                   step=step.number, validator=step.validator(),
                                   normalise=step.normalise,
-                                  complete=functools.partial(step.complete, context=context_seen))
+                                  complete=functools.partial(step.complete, context=context_seen),
+                                  soft=(functools.partial(step.soft, context=context_seen)
+                                        if step.soft else None),
+                                  soft_key=step.soft_key, soft_remedy=step.soft_remedy)
         self.record(step.key, out, step.number)
+        # What this step produced, in SHAPE, onto the run log — so a reader watching the run can
+        # open a step and see that it matched 13 capabilities and raised 1 gap, without the page
+        # that shows it needing to read the run's content.
+        stamp_shape(cfg, step, out)
+        await self.announce()
         return True
+
+    async def derive(self, cfg: Mapping[str, Any], step: Derived, out: Any) -> None:
+        """Record a DERIVED step's output and put it on the board — the deterministic sibling of
+        `run_step`.
+
+        Everything `run_step` does around an answer EXCEPT asking for one: the record, the pending
+        entry cleared, the shape stamped and the watcher told. Those four were what made an agent
+        step visible, and steps 18, 19 and 22 went through `record` alone — so they produced real,
+        gated outputs that appeared on no surface at all.
+        """
+        self.record(step.key, out, step.number)
+        stamp_shape(cfg, step, out)
+        await self.announce()
 
     def package(self, **base: Any) -> dict:
         """The record this half produced: what was asked of it, what it derived, and what it did

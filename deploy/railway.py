@@ -188,6 +188,152 @@ def ensure_volume(sid, mount_path):
     return True
 
 
+# --- the STRUCTURED + VECTOR store: Postgres inside the substrate (19 Sep 2026) ---
+# It lived on Neon, whose free tier meters COMPUTE HOURS — and the gateway's two 50-connection
+# pools keep the endpoint from ever auto-suspending, so it billed around the clock and ran out:
+# ~110 h against a 100 h allowance. Every new connection was then refused, which meant every
+# virtual key returned 401 and the whole lab was down while only the master key (no database
+# lookup) still answered. This is the same move already made for Redis, whose managed free tier
+# fell over on a client CAP for the same reason, and it also removes the cross-region latency a
+# US-East database was adding to a gateway in the UAE.
+#
+# TWO of Neon's three jobs move here — the LiteLLM registry (prisma) and the reference corpus
+# (`ref_*`, including `ref_passage`'s pgvector column). The third, the artifact store, is a URL:
+# `artifacts.py` dispatches on scheme and its own docstring already says "Railway Bucket now,
+# Azure Blob later", so pointing ARTIFACTS_URL at a bucket is configuration, not code.
+#
+# The DEFAULT image ships pgvector, because the corpus's first schema statement is
+# `CREATE EXTENSION IF NOT EXISTS vector` and Railway's own Postgres template may or may not carry
+# it. `LAB_PG_IMAGE` overrides, so Railway's hosted template and this self-hosted image are the
+# same code path and choosing between them is a setting rather than an edit.
+#
+# Why pgvector and not a dedicated vector service: `schema.py` is explicit that the search is
+# EXACT — "NO approximate index, and this is a decision rather than an omission" — and
+# `ref_passage` carries a FOREIGN KEY into `ref_artifact_version`, so a publish is one transaction
+# and a crash leaves a draft rather than something servable. An ANN engine in another process
+# would give up both, and would be less portable to Azure, not more: pgvector rides to Azure
+# Database for PostgreSQL as configuration.
+PG_NAME = "postgres"
+PG_IMAGE_DEFAULT = "pgvector/pgvector:pg16"
+PG_IMAGE = os.environ.get("LAB_PG_IMAGE") or PG_IMAGE_DEFAULT
+PG_VOLUME = "/var/lib/postgresql/data"
+# `listen_addresses='*'` is the Postgres spelling of Redis's `--bind 0.0.0.0 ::`: Railway private
+# DNS is IPv6-only, and a v4-only listener is unreachable from every service that needs it — the
+# same bug class as the gateway's IPv4-edge / IPv6-healthcheck split.
+#
+# `docker-entrypoint.sh` is NOT decoration. A Railway start command REPLACES the image's entrypoint
+# and is exec'd directly (the same gotcha that makes `a && b` run only `a`), so `postgres …` alone
+# runs the server as ROOT — which it refuses outright: "root execution of the PostgreSQL server is
+# not permitted". Measured on the first deploy, which crash-looped on exactly that. The entrypoint
+# is what runs initdb, applies POSTGRES_PASSWORD, and re-execs as the unprivileged postgres user;
+# naming it explicitly restores everything bypassing it took away.
+PG_CMD = "docker-entrypoint.sh postgres -c listen_addresses='*'"
+PG_SUPERUSER = "postgres"
+
+
+#: The port the proxy fronts. Railway assigns the external host and a RANDOM external port, so the
+#: operator DSN is built from what the API returns — a hardcoded external port connects to nothing,
+#: or to somebody else's service.
+PG_PROXY_PORT = 5432
+
+
+def pg_proxy_wanted(base):
+    """Whether to give Postgres a public TCP endpoint. OPT-IN (`LAB_PG_PUBLIC`).
+
+    It exists for ONE caller: the reference publisher, which holds the Ed25519 signing seed and so
+    can only ever run on the publishing workstation — the seed is deliberately kept out of `.env`
+    and `LAB_ENV`, which is exactly what stops publishing becoming a job in the cloud. Prisma's
+    schema push needs the same reach.
+
+    Parity rather than new exposure — Neon was a public endpoint with password auth too — but an
+    operator publishes rarely, and a database whose only other readers sit on the private network
+    should not carry a public endpoint the rest of the time.
+    """
+    return str(base.get("LAB_PG_PUBLIC", "")).strip().lower() in ("1", "true", "yes")
+
+
+def pg_public_dsn(host, port, password, *, db, user=PG_SUPERUSER):
+    """The operator's DSN, from the host and port Railway actually assigned."""
+    return f"postgresql://{user}:{password}@{host}:{int(port)}/{db}"
+
+
+def ensure_pg_proxy(sid):
+    """Create (or find) the TCP proxy and return `(host, port)`, or None if unavailable."""
+    try:
+        d = gql('query($e:String!,$s:String!){ tcpProxies(environmentId:$e, serviceId:$s){ '
+                'domain proxyPort applicationPort } }', {"e": ENV, "s": sid})
+        for proxy in d.get("tcpProxies") or []:
+            if int(proxy.get("applicationPort") or 0) == PG_PROXY_PORT:
+                return proxy["domain"], int(proxy["proxyPort"])
+    except SystemExit as e:
+        print(f"  (tcp proxy lookup unavailable: {str(e)[:60]} — attempting create)")
+    try:
+        d = gql('mutation($in:TCPProxyCreateInput!){ tcpProxyCreate(input:$in){ '
+                'domain proxyPort } }',
+                {"in": {"environmentId": ENV, "serviceId": sid, "applicationPort": PG_PROXY_PORT}})
+        p = d["tcpProxyCreate"]
+        return p["domain"], int(p["proxyPort"])
+    except SystemExit as e:
+        print(f"  {PG_NAME:13} no TCP proxy ({str(e)[:70]}) — publish from inside the network")
+        return None
+
+
+def pg_internal_dsn(password, *, db, user=PG_SUPERUSER):
+    """The DSN every consumer gets — the service's own private name, never a vendor host.
+
+    The password is REQUIRED and never defaulted: this database holds every virtual key, and a
+    blank or well-known one is not a lab shortcut, it is the registry.
+    """
+    if not password or password in (PG_SUPERUSER, "password", "changeme"):
+        raise ValueError("a real POSTGRES_PASSWORD is required — this database holds every "
+                         "virtual key; set LAB_PG_PASSWORD (or POSTGRES_PASSWORD) in .env")
+    return f"postgresql://{user}:{password}@{PG_NAME}.railway.internal:5432/{db}"
+
+
+def postgres_password(base):
+    return base.get("LAB_PG_PASSWORD") or base.get("POSTGRES_PASSWORD") or ""
+
+
+def postgres_enabled(base):
+    """Provision the substrate's own Postgres only when a password says to.
+
+    Same shape as `embedder_enabled`, and for the same reason: a deployment may legitimately point
+    DATABASE_URL at a database somebody else runs, and `substrate up` must not start refusing for
+    everyone the moment this service exists. During the migration off Neon both are live at once.
+    """
+    return bool(postgres_password(base))
+
+
+def ensure_postgres(base):
+    """The substrate's own Postgres, on the private network with its data on a volume."""
+    password = postgres_password(base)
+    pg_internal_dsn(password, db="postgres")               # refuse early, before creating anything
+    sid, created = ensure_image_service(PG_NAME, PG_IMAGE)
+    print(f"  {PG_NAME:13} {'created' if created else 'exists '} {sid[:8]}  ({PG_IMAGE})")
+    gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
+        {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
+                "variables": {"POSTGRES_PASSWORD": password, "POSTGRES_USER": PG_SUPERUSER,
+                              "POSTGRES_DB": PG_SUPERUSER, "PGDATA": PG_VOLUME + "/pgdata"},
+                "replace": True, "skipDeploys": True}})
+    gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
+        'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
+        {"s": sid, "e": ENV, "in": {"source": {"image": PG_IMAGE}, "startCommand": PG_CMD,
+                                    "healthcheckPath": "", "restartPolicyType": "ALWAYS"}})
+    # No volume, no database: a redeploy would take the registry's keys and the whole published
+    # corpus with it. PGDATA is a SUBDIRECTORY of the mount because the postgres image refuses to
+    # initialise into a directory that already contains `lost+found`.
+    if ensure_volume(sid, PG_VOLUME):
+        print(f"  {PG_NAME:13} volume attached at {PG_VOLUME}")
+    if pg_proxy_wanted(base):
+        where = ensure_pg_proxy(sid)
+        if where:
+            print(f"  {PG_NAME:13} operator endpoint {where[0]}:{where[1]} "
+                  f"(for prisma + the corpus publisher, which holds the signing seed)")
+    deploy(sid, latest=False)
+    print(f"  {PG_NAME:13} deploying (pgvector, listen_addresses='*', data on the volume)")
+    return sid
+
+
 def ensure_redis():
     sid, created = ensure_image_service(REDIS_NAME, REDIS_IMAGE)
     print(f"  {REDIS_NAME:13} {'created' if created else 'exists '} {sid[:8]}  ({REDIS_IMAGE})")
@@ -404,7 +550,13 @@ def release(wait_s: int = 600):
     ids = services()
     names = [n for n in substrate_names(deploy_profile(), ids)
              if n not in (REDIS_NAME, EMBED_NAME, JAEGER_NAME)]
-    names += [w["service"] for w in WORKLOADS.values()]
+    # REPLICAS, not just the base name. `w["service"]` is the FIRST replica only, and every other
+    # one was therefore never rolled by CD: after each push the meeting workload had two replicas of
+    # ONE consumer group running two different commits, taking work from the same stream. That is the
+    # version skew this file's own instruments exist to catch, and it hid because `substrate images`
+    # and `substrate versions` only run in the `verify` step AFTER a deploy job that had already
+    # aborted. Found 14 Sep 2026 by a person noticing the replica on an older build.
+    names += [service for w in WORKLOADS.values() for service, _consumer in replica_services(w)]
     print(f"releasing {IMAGE}")
     rolled, missing = [], []
     for name in names:
@@ -530,17 +682,37 @@ def substrate_up():
     for name in CHANNELS:
         if name not in table:
             print(f"  {name:13} skipped  (not configured: {', '.join(CHANNELS[name]['requires'])})")
-    ensure_redis()                                         # first: gateway/MCP/review depend on it
+    if postgres_enabled(base):
+        ensure_postgres(base)                              # first of all: the gateway runs prisma at boot
+    else:
+        print(f"  {PG_NAME:13} skipped  (no LAB_PG_PASSWORD — DATABASE_URL points at a database "
+              f"somebody else runs; an existing service is left to `down`)")
+    ensure_redis()                                         # then: gateway/MCP/review depend on it
     if embedder_enabled(base):
         ensure_embedder()                                  # the substrate's own embedding model
     else:
         print(f"  {EMBED_NAME:13} skipped  (REFERENCE_EMBED_MODEL={base.get('REFERENCE_EMBED_MODEL')!r} "
               f"is served by a vendor through the gateway; an existing service is left to `down`)")
+    # Each service is deployed INDEPENDENTLY and the failures are reported at the end. It used to
+    # stop at the first one, and on 19 Sep 2026 a single transient Railway API error
+    # ("Problem processing request") on one service left the THIRTEEN behind it on the previous
+    # commit — including the gateway and the review app — while the workload loop beside it
+    # deployed fine. Half a fleet on the previous build is the failure the image pinning exists to
+    # prevent; it must not be a side effect of another service's bad minute. Exactly the reasoning
+    # already applied to the workload loop in CI, applied here at last.
+    failed: dict[str, str] = {}
     for name, spec in table.items():
-        sid, created = ensure_service(name)
-        print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
-        configure(sid, name, spec, base)
-        deploy(sid)
+        try:
+            sid, created = ensure_service(name)
+            print(f"  {name:13} {'created' if created else 'exists '} {sid[:8]}")
+            configure(sid, name, spec, base)
+            deploy(sid)
+        except SystemExit as e:                # gql() raises SystemExit on a Railway API error
+            failed[name] = str(e)
+            print(f"  {name:13} FAILED — {str(e)[:110]}")
+        except Exception as e:                 # noqa: BLE001 — one service must not hide the rest
+            failed[name] = f"{type(e).__name__}: {e}"
+            print(f"  {name:13} FAILED — {failed[name][:110]}")
     ensure_jaeger(services())                              # observability is part of the substrate
     print("\ntriggered builds. Public URLs (once healthy):")
     ids = services()
@@ -548,6 +720,13 @@ def substrate_up():
         print(f"  {name:8} https://{domain_of(ids[name]) or '(pending)'}")
     print(f"  jaeger   {os.environ.get('JAEGER_UI_URL', '(see .env)')}")
     print("Watch builds: railway dashboard, or `python deploy/railway.py substrate status`.")
+    if failed:
+        # Loud and LAST, so it is the final thing on the terminal, and non-zero so CI is red. Every
+        # other service is deployed; these are the ones to re-run.
+        print(f"\n{len(failed)} service(s) NOT deployed — re-run `substrate up` for them:")
+        for name, why in failed.items():
+            print(f"  {name:13} {why[:140]}")
+        raise SystemExit(1)
 
 
 def substrate_env_report():
@@ -641,6 +820,39 @@ def workload_up(name):
     print(f"  watch: python deploy/railway.py workload {name} status   (logs: Railway dashboard)")
 
 
+def postgres_up():
+    """Bring up the substrate's Postgres on its own, and print the DSNs it will serve."""
+    base = load_env_for_cloud()
+    if not postgres_enabled(base):
+        raise SystemExit("set LAB_PG_PASSWORD in .env first — this database holds every virtual key")
+    print(f"deploying {PG_NAME} ({PG_IMAGE})")
+    ensure_postgres(base)
+    password = postgres_password(base)
+    print("\n  services reach it on the private network as:")
+    for db in ("litellm", "reference"):
+        print(f"    {db:10} {pg_internal_dsn('<LAB_PG_PASSWORD>', db=db)}")
+    if pg_proxy_wanted(base):
+        where = ensure_pg_proxy(services()[PG_NAME])
+        if where:
+            print(f"\n  operator endpoint (prisma + the corpus publisher):")
+            print(f"    {pg_public_dsn(where[0], where[1], '<LAB_PG_PASSWORD>', db='postgres')}")
+    print("\nNext: `postgres status` until it is serving, then create the databases.")
+
+
+def postgres_status():
+    sid = services().get(PG_NAME)
+    if not sid:
+        print(f"  {PG_NAME:13} (not created)")
+        return
+    d = latest(sid)
+    print(f"  {PG_NAME:13} {d.get('status')}  {str(d.get('id'))[:8]}  image {image_of(sid)}")
+    base = load_env_for_cloud()
+    if pg_proxy_wanted(base):
+        where = ensure_pg_proxy(sid)
+        if where:
+            print(f"  operator endpoint  {where[0]}:{where[1]}")
+
+
 def workload_env_report(name):
     """OFFLINE audit: the exact key names workload `name` receives (gateway/review URLs shown as
     placeholders — the real public domains are resolved at `up`)."""
@@ -708,6 +920,8 @@ if __name__ == "__main__":
     usage = ("usage: railway.py substrate up|down|status|env\n"
              "       railway.py workload <" + "|".join(WORKLOADS) + "> up|down|status|env\n"
              "       railway.py bucket up|status      (upload store: create once, credentials -> .env # CLOUD:)\n"
+             "       railway.py postgres up|status    (the substrate's own Postgres+pgvector: the LiteLLM\n"
+             "                                         registry and the reference corpus, on a volume)\n"
              "       railway.py substrate images        (what image each service runs; exit 1 on a MISMATCH)\n"
              "       railway.py release                 (roll every EXISTING service onto this commit's\n"
              "                                           image; sets NO env vars — what CI/CD runs)\n"
@@ -731,6 +945,11 @@ if __name__ == "__main__":
          "versions": lambda: sys.exit(1 if version_report() else 0)}[cmd]()
     elif tier == "bucket":
         {"up": ensure_bucket, "status": bucket_status}[cmd]()
+    elif tier == "postgres":
+        # Standalone so the database can be brought up and PROVED — extension, databases, roles —
+        # before anything is pointed at it. `substrate up` would deploy it alongside everything
+        # else, and a cutover that fails halfway is the outage it is meant to end.
+        {"up": postgres_up, "status": postgres_status}[cmd]()
     elif tier == "workload" and len(sys.argv) > 2 and sys.argv[2] == "list":
         # The LONG-LIVED workloads, one per line, for CD to iterate. CI used to carry its own
         # hardcoded list, so a new process was deployed only when somebody remembered to add it

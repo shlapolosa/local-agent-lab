@@ -21,6 +21,7 @@ __all__ = ["CORPUS_FOR", "FALLBACKS", "fallback"]
 
 #: The corpus each defaultable step reads — the one whose absence the default stands in for.
 CORPUS_FOR: dict[str, str] = {
+    "coverage_map": "capabilities",
     "realisation_match": "landscape",
     "quality_attributes": "service_levels",
     "source_contracts": "source_classification",
@@ -73,7 +74,29 @@ def _source_contracts(pool: Mapping[str, Any]) -> dict:
                                 "published and step 11 is re-run", "Information Governance")]}
 
 
+def _coverage_map(pool: Mapping[str, Any]) -> dict:
+    """No capability map could be read: no function is tied to a capability, and none is claimed.
+
+    The conservative reading here is not "match nothing rather than guess" — it is that a capability
+    put into a design package must come from a map somebody published and owns. CAFÉ is explicit
+    that "a capability invented to justify a use case is the failure this specification exists to
+    prevent". Step 5 reads the TECHNOLOGY capability map from the corpus, so this default fires when
+    that read returned nothing: an unpublished map, a pin that does not carry it, or a corpus
+    outage. Whichever it is, a run reaches the end and says so.
+    """
+    # `capabilities_without_function` is empty rather than absent: the map holds no capabilities,
+    # so none is unexercised. Absent would read as "not checked"; empty is the true answer.
+    return {"matched": [], "functions_without_capability": _names(pool, "behavioural"),
+            "capabilities_without_function": [],
+            "gap_flags": [_flag("DEFAULT — the capabilities corpus returned no rows, so no function "
+                                "could be tied to a named capability. Readiness gate A and the "
+                                "feasibility verdict escalate to an architect instead; check that "
+                                "the technology capability map is published and in this run's pin, "
+                                "then re-run step 5", "Enterprise Architecture")]}
+
+
 FALLBACKS: dict[str, Callable[[Mapping[str, Any]], dict]] = {
+    "coverage_map": _coverage_map,
     "realisation_match": _realisation_match,
     "quality_attributes": _quality_attributes,
     "source_contracts": _source_contracts,

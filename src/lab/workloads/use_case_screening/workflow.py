@@ -31,9 +31,11 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import coverage
+from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
+from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
+from lab.workloads.usecase import intake, modeltrace, modelling
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.steps import SCREENING_STEPS
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
 #: a submission that arrives as a handle needs it, and a deployment without the grant should degrade
@@ -60,54 +62,121 @@ CORPORA = {
 #: scheme names the artifact (= the gateway's relevance store), and what is fetched up front is
 #: the top level (the drill's first candidates) and the leaves (what `leaves` reads whole, and
 #: what the drill fallback measures) — `id, parent, level, label, path`, a version cited.
-SCHEME = "healthcare-provider-v2.0"
-CAPABILITY_MAP = VectorStores.for_scheme(SCHEME)
+#: **Step 5 matches against the TECHNOLOGY capability map** (user decision, 18 Sep 2026), read from
+#: the governed corpus under the run's pin like any other artifact — nothing about it is in this
+#: file or in a prompt, so the map changes by publishing a new version and no code moves.
+#:
+#: It replaced the business map, which is retired until this enterprise publishes its own (see
+#: `docs/decisions/2026-09-18-two-capability-maps.md`; reinstating it means building the read path
+#: for THAT map — its record type, its levels and its store are its own, so a dormant setting here
+#: would have promised a switch that does not exist). The technology map answers a different
+#: question — *how would we do this* rather than *what ability does this exercise* — and it is the
+#: one the rest of the framework actually joins on: a match returns `"Domain · Capability"`, which
+#: IS the key `guardrails.cap` and `ai-capability-map.components` resolve against. So a matched
+#: capability reaches its obligations and its components with no further resolution, where a
+#: business-map match reached nothing this framework catalogues.
+CAPABILITY_ARTIFACT = "ai-capability-map"
+DOMAIN_ARTIFACT = "capability-domains"
 MAP_RECORD_TYPE = "capability"
-FETCHED_LEVELS = (1, coverage.DEEPEST_LEVEL)
-#: More than any level of the published maps holds (the healthcare map's L3 is ~1,000 rows);
-#: `reference.records` refuses a read the server truncated, so a map that outgrows this fails
-#: loudly rather than matching over a random subset.
-MAP_LIMIT = 5000
+DOMAIN_RECORD_TYPE = "domain"
 
 #: Fields a corpus record contributes to a PROMPT, by corpus. Everything else is dropped before the
 #: message is built.
 #:
 #: This is a projection, not a truncation — no concept is lost, so a coverage match still sees the
-#: whole published map and can still refuse to match. What goes is the prose: a capability record
-#: carries a `definition` that a MATCH does not read, and 1,666 of them made step 5's prompt 94,000
-#: tokens. Measured, on a live run that sat on step 5 for fifty-three minutes without failing —
-#: which is the worst way for a size problem to present, because a hang looks like slowness and
-#: slowness looks like patience.
-PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent", "path")}
-
-#: What this run pins: the capability map its coverage match reads.
-REFERENCE_ARTIFACTS = (CAPABILITY_MAP,)
-
-def required_stores() -> tuple[str, ...]:
-    """The relevance store the `vector` matcher searches — preflighted like a tool, for zero
-    tokens, only when that matcher is the one configured. Read at RUN time, not import time."""
-    return (CAPABILITY_MAP,) if config.COVERAGE_MATCHER == "vector" else ()
-
-#: What one corpus may contribute to a prompt. A projection that is STILL over this is reported as
-#: unavailable with its size, rather than sent — a step that silently receives half a corpus
-#: answers confidently from half a corpus.
+#: whole published map and can still refuse to match. What goes is everything a MATCH does not read.
 #:
-#: Sized by MEASUREMENT (10 Sep 2026): the healthcare map's `leaves` projection is 168,707 bytes
-#: (~42k tokens, well inside kimi-k3's window), and the harness ranked `leaves` first on both cases
-#: (F1 0.41/0.56 vs drill ~0.39/0.47, vector 0.24/0.41). At the old 120,000 the configured matcher
-#: fell back to drill on EVERY cloud run, silently — `coverage.resolve` is arithmetic, and the
-#: arithmetic said no. Raise this only with a measurement; lower it and the fallback returns.
+#: Both halves were learned on the business map and both still apply. Sending a `definition` per
+#: concept made step 5's prompt 94,000 tokens and a live run sat on it for fifty-three minutes
+#: without failing — the worst way for a size problem to present, because a hang looks like
+#: slowness and slowness looks like patience. Stripping the definition entirely then made every
+#: match in every cloud run come back `assumption`: a label is frequently ambiguous on its own, and
+#: the model was correctly reporting that it had inferred from words. So the definition travels,
+#: capped — bounded prose beats no prose, and unbounded prose is what hung the run.
+PROMPT_FIELDS = {"capabilities": ("id", "label", "level", "parent", "path", "definition")}
+
+#: How much of a definition a match may read. The technology map's run to a sentence or two — the
+#: rationale for the row plus the products — and the cap is what keeps a map that GROWS from
+#: silently becoming a prompt nobody sized.
+DEFINITION_CHARS = 300
+
+#: More rows than any published map holds. `reference.records` REFUSES a read the server truncated,
+#: because the surviving subset is ordered by a content hash and nothing downstream could tell it
+#: was partial — so a map that outgrows this fails loudly rather than being matched over in part.
+MAP_LIMIT = 5000
+
+#: What one step's prompt may carry. A corpus over it is recorded as unavailable by name rather than
+#: sent in part: a step that silently receives half a corpus answers confidently from half a corpus.
 MAX_CORPUS_BYTES = 200_000
 
+#: What this run pins: the technology capability map its coverage match reads, and the domains that
+#: give it its top level. Both are corpus artifacts, so which map a run matched against is part of
+#: the record and a new version is a publish, never a deploy.
+#: The published intake questions. Pinned because this run READS them — to say which answered
+#: labels reach no step — and a pin carries exactly what its run reads and nothing else.
+INTAKE_ARTIFACT = "intake-field-specs"
+
+REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, DOMAIN_ARTIFACT, INTAKE_ARTIFACT)
+
+
+async def intake_problems(cfg, pin_id: str, answered) -> list[dict]:
+    """Gap flags for intake labels no published field matches — reported, never refused.
+
+    `_mapping` validates the SHAPE of an intake and cannot validate its LABELS: the published list
+    lives in the corpus and the contract does no I/O. So a paraphrased question was accepted,
+    stored, carried into the business case and read by nothing, with nothing saying so — while the
+    CSV door named every unmatched field. Same mistake, loud in one door and silent in the other.
+
+    Best effort in both directions: a corpus that cannot be read reports NOTHING rather than
+    reporting every label as unmatched, which would bury the real ones and blame a submitter for
+    an artifact they cannot reach.
+    """
+    if not answered:
+        return []
+    try:
+        rows = await reference.records(cfg, pin_id, INTAKE_ARTIFACT, record_type="intake-field",
+                                       field="intake")
+    except Exception as exc:                    # noqa: BLE001 — a check that cannot run says so
+        print(f"intake labels not checked: {type(exc).__name__}: {exc}", flush=True)
+        return []
+    published = [str(r.get("Field") or "").strip() for r in rows or ()]
+    return intake.gap_flags(intake.unmatched(answered, published), published)
+
+def required_stores() -> tuple[str, ...]:
+    """The relevance stores this run must be granted — none, and it REFUSES rather than returning
+    an empty tuple when the configured matcher needs one.
+
+    The technology capability map is 74 rows read whole; it has no store. A deployment configured
+    for `vector` or `translate` therefore preflighted clean, ran for ten minutes, and then deferred
+    step 5 because the search seam raised — leaving readiness gate A unevidenced and the reason
+    buried in `pending_steps`, all for a configuration typo. Preflight is where that costs zero
+    tokens, which is the whole reason it exists.
+    """
+    if config.COVERAGE_MATCHER in coverage.STORE_BACKED:
+        raise RuntimeError(
+            f"COVERAGE_MATCHER={config.COVERAGE_MATCHER!r} searches a relevance store, and the "
+            f"technology capability map has none — it is a register read whole. "
+            f"Configure `leaves` or `drill`.")
+    return ()
 
 
 def project(name: str, corpus):
-    """A corpus as a step should READ it — the fields a match needs, and nothing else."""
+    """A corpus as a step should READ it — the fields a match needs, and nothing else.
+
+    Prose is TRUNCATED rather than dropped: `definition` is what makes a match a lookup instead of
+    a guess, and its first sentences carry the meaning."""
     fields = PROMPT_FIELDS.get(name)
     if not fields or not isinstance(corpus, list):
         return corpus
-    return [{k: c[k] for k in fields if c.get(k) is not None}
-            for c in corpus if isinstance(c, dict)]
+    out = []
+    for c in corpus:
+        if not isinstance(c, dict):
+            continue
+        row = {k: c[k] for k in fields if c.get(k) is not None}
+        if isinstance(row.get("definition"), str) and len(row["definition"]) > DEFINITION_CHARS:
+            row["definition"] = row["definition"][:DEFINITION_CHARS].rstrip() + "…"
+        out.append(row)
+    return out
 
 #: Corpora the assessment needs and this instance does not have. NAMED, because a step that reads
 #: an absent corpus answers confidently from nothing and the answer is indistinguishable from a
@@ -121,11 +190,22 @@ UNAVAILABLE = {
 
 #: The steps this spine does not yet derive. Named rather than silently skipped: a screening record
 #: that simply lacked these fields would be indistinguishable from one whose agents found nothing.
-PENDING_STEPS = {
-    "3": "frame use case", "4": "decompose elements", "5": "match capabilities",
-    "6": "match realisations", "7": "assign criticality band", "8": "derive quality attributes",
-    "9": "check ontology", "10": "sequence workflow", "11": "contract sources",
-}
+#: What a deferred step is CALLED in the record, derived from the steps themselves rather than
+#: typed out a second time: these were nine hand-maintained labels that had to be kept in step with
+#: `Step.title`, and a renamed step would have quietly kept its old name here.
+PENDING_STEPS = {s.number: s.title for s in SCREENING_STEPS}
+
+
+def summary_counts(screening: Mapping[str, Any]) -> dict:
+    """What a reviewer is told about how much of the screening actually happened.
+
+    Counted from THIS run's record, never from the table's size. The summary carried
+    `len(PENDING_STEPS)` — a module constant — so it read 17 on a run that accounted for every one
+    of its nine steps, and would read 17 on a run where no agent was wired at all. A number that is
+    the same in the best and the worst case is not a measurement of anything.
+    """
+    return {"pending_steps": len((screening or {}).get("pending_steps") or {}),
+            "defaulted_steps": sorted((screening or {}).get("defaulted_steps") or {})}
 
 PROMPT = ("Confirm the criticality class derived for this use case. It sets the rigour of the "
           "system that gets built — the evaluation depth, the approval shape and the corroboration "
@@ -147,27 +227,22 @@ def make_cfg(*, credential="", mcp_url="", gateway_url="", traceparent="", agent
             "root_ctx": root_ctx, "run_id": run_id, "process": PROCESS}
 
 
-def _map_rows(rows) -> list[dict]:
-    """Corpus rows as the matchers read them: a level is a number and a root has no parent."""
-    out = []
-    for row in rows:
-        try:
-            level = int(row.get("level", 0))
-        except (TypeError, ValueError):
-            continue
-        out.append({**row, "level": level,
-                    "parent": None if row.get("parent") in ("-", "", None) else row["parent"]})
-    return out
-
-
 async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
-    """The map's top level and its leaves, under the pin, attributed to the coverage map."""
-    rows: list[dict] = []
-    for level in FETCHED_LEVELS:
-        rows += await reference.records(cfg, pin_id, CAPABILITY_MAP, record_type=MAP_RECORD_TYPE,
-                                        key={"level": str(level)}, field="coverage_map",
-                                        limit=MAP_LIMIT)
-    return _map_rows(rows)
+    """The technology capability map, whole, under the pin, attributed to the coverage map.
+
+    WHOLE and not by key: it is a small complete register (74 rows), and CAFÉ's own rule for such an
+    artifact is to read every record rather than "the relevant rows" — a selection would decide
+    relevance before the step whose job that is. `reference.records` with an empty key returns every
+    record of a `whole` artifact whatever the limit.
+
+    An empty read is NOT an error: step 5 then takes its declared default and the gap is stated on
+    the record, rather than a corpus outage being presented as a use case that matched nothing.
+    """
+    rows = await reference.records(cfg, pin_id, CAPABILITY_ARTIFACT, record_type=MAP_RECORD_TYPE,
+                                   key={}, field="coverage_map", limit=MAP_LIMIT)
+    domains = await reference.records(cfg, pin_id, DOMAIN_ARTIFACT, record_type=DOMAIN_RECORD_TYPE,
+                                      key={}, field="coverage_map", limit=MAP_LIMIT)
+    return capabilities.concepts(rows, domains)
 
 
 async def match_capabilities(cfg, d, pin_id: str) -> dict:
@@ -176,25 +251,105 @@ async def match_capabilities(cfg, d, pin_id: str) -> dict:
     The strategies live in `lab.workloads.usecase.coverage` with the evidence for choosing between
     them. The corpus and the two seams are supplied HERE — which artifact a run reads, and that it
     reads it under this pin attributed to this field, is the workload's decision; how the map is
-    matched is not."""
+    matched is not.
+
+    The grain is `capabilities.LEVEL`, the map's own: CAFÉ's M4 is domain -> capability -> product
+    and only the first two are rows. It is passed rather than left to the default, which is 3 and
+    would yield NO candidates over a two-level map — indistinguishable downstream from "nothing is
+    relevant".
+
+    The technology map has no relevance store, so a store-backed matcher has nothing to search and
+    `search` says so by name instead of returning an empty result.
+    """
     async def children(ids, level):
         found: list[dict] = []
         for ident in ids:
-            found += await reference.records(cfg, pin_id, CAPABILITY_MAP,
-                                             record_type=MAP_RECORD_TYPE,
-                                             key={"parent": ident, "level": str(level)},
-                                             field="coverage_map")
-        return _map_rows(found)
+            found += [c for c in (d.available.get("capabilities") or [])
+                      if c.get("parent") == ident and c.get("level") == level]
+        return found
 
     async def search(query, k):
-        return await gateway.vector_search(
-            cfg["gateway_url"], cfg["headers"], CAPABILITY_MAP, query, k=k,
-            filters={"pin_id": pin_id, **reference.attribution(cfg, "coverage_map")})
+        # Unreachable while `required_stores()` refuses a store-backed matcher at preflight. Kept,
+        # and loud, because the seam is part of the matcher contract and a silent empty result here
+        # would read as "the map knows nothing about this function".
+        raise RuntimeError(
+            f"{CAPABILITY_ARTIFACT} has no relevance store to search — it is a register read whole. "
+            f"Configure COVERAGE_MATCHER as `leaves` or `drill`.")
+
+    if not (d.available.get("capabilities") or []):
+        # No map. Run the step with NO context override so `capabilities` is genuinely absent from
+        # the pool and `run_step` takes the declared default — every matcher passes the candidate
+        # list AS context, and an empty list present under that name looks like a published map
+        # with nothing in it, which defers instead of defaulting.
+        await d.run_step(cfg, step_for("5"), label="match capabilities")
+        return {}
 
     return await coverage.match(
         cfg, d, d.available.get("capabilities") or [],
         name=config.COVERAGE_MATCHER, children=children, search=search,
-        project=lambda rows: project("capabilities", rows), budget=MAX_CORPUS_BYTES)
+        project=lambda rows: project("capabilities", rows), budget=MAX_CORPUS_BYTES,
+        deepest=capabilities.LEVEL)
+
+
+def _live_record(cfg):
+    """A publisher that puts the record SO FAR on the run board after every step, or None.
+
+    Why it has to exist at all: the record was stored once, at the end, and its ref reached the
+    board only through the workflow's final output — so for the entire window in which a person
+    watches a run, no step could show what it had actually produced, and a run that died showed
+    nothing ever. `wfr-c53cdaa27bdb` (18 Sep 2026) died at step 7 holding four steps of real
+    output that no surface could display.
+
+    Written under its OWN field. `screening_ref` means "the screening record" and other consumers
+    read it — the notifier, the fabric ingest, the design run — so pointing it at a half-built
+    record mid-run would be a lie told to everything downstream, to serve one page. The review app
+    prefers `record_ref` while a run is live and falls back to `screening_ref` once it is done.
+
+    Returns None when the run is not on the board (a CLI or test run): nothing to publish to.
+    """
+    from lab.platform import runlog
+
+    run_id = cfg.get("run_id")
+    if not run_id:
+        return None
+
+    async def publish(record: dict) -> None:
+        # Awaited in order, never concurrent: two partial records landing out of sequence would
+        # make the roadmap go backwards, which is worse than one arriving a second late. It is one
+        # small gateway call between steps that each take tens of seconds.
+        stored = await gateway.call(cfg, SemanticTools.store_spec,
+                                    {"spec": record, "name": "screening.partial.json"})
+        fields = {"record_ref": gateway.ref_from(stored)}
+        # WHAT THIS RUN IS ABOUT, as soon as step 3 has framed it. A run is addressed by its trace
+        # id, so a board of runs is a column of 32-character hex nobody can read — a person came
+        # looking for the run they had just started and could not tell which row was theirs. The
+        # subject already existed but only on the FINISHED run's output, which is exactly too late:
+        # the moment you need to find a run is while it is still going. A run that dies before step
+        # 3 has no subject, and no subject is honest.
+        problem = str(((record.get("frame") or {}).get("problem") or "")).strip()
+        if problem:
+            fields["subject"] = problem[:160]
+        runlog.update(run_id, **fields)
+
+    return publish
+
+
+#: What each executor DOES, declared beside the graph that declares the executors. A node id is an
+#: address — `derive` says where a run is, not what it is doing — and the live page must not be
+#: where a human name for somebody else's step is invented. Stamped on the node by `_node` below,
+#: so the SSE frame carries the label and the page renders whatever arrived.
+#: Held honest by `tests/unit/workloads/test_node_titles.py`, which reads the `@executor(id=...)`
+#: declarations themselves rather than a list kept in step with them.
+NODES = {"receive": "accept the submission",
+         "validate_and_persist": "validate and store it",
+         "corpora": "pin the corpora",
+         "derive": "run the screening steps",
+         "ask_criticality": "ask to confirm criticality"}
+
+
+def _node(cfg, name: str):
+    """A run-log span for one executor, labelled from `NODES`."""
+    return gateway.node_span(cfg, name, title=NODES.get(name, ""))
 
 
 def build_workflow(cfg):
@@ -207,7 +362,7 @@ def build_workflow(cfg):
         Exactly one of `submission` and `submission_handle` is required. `ProcessSpec.validate`
         cannot express an xor, so it is checked here — stated plainly rather than hidden, because
         it is the one input rule the contract does not carry."""
-        with gateway.node_span(cfg, "receive"):
+        with _node(cfg, "receive"):
             ref, handle = state.get("submission", ""), state.get("submission_handle", "")
             if bool(ref) == bool(handle):
                 raise ValueError(
@@ -227,7 +382,7 @@ def build_workflow(cfg):
         FR-04: every later step reads the datastore, never the channel. The workload holds no store
         credential, so it reads through the governed store and persists through `semantic_store_spec`
         — the same move the Visio architect makes with its spec."""
-        with gateway.node_span(cfg, "validate_and_persist"):
+        with _node(cfg, "validate_and_persist"):
             text = await gateway.call(cfg, StorageTools.read_document, {"ref": state["submission"]})
             prose = text if isinstance(text, str) else json.dumps(text)
             if not prose.strip():
@@ -238,6 +393,9 @@ def build_workflow(cfg):
                 "submitter": state.get("submitter", ""),
                 "attachments": list(state.get("attachments") or ()),
                 "intake": dict(state.get("intake") or {}),
+                # The typed effort table travels with the record, because the design half reads
+                # this record and never the original submit — and driver 1 is computed there.
+                "effort": list(state.get("effort") or ()),
                 "conversation": state.get("conversation", ""),
                 "prose": prose,
             }
@@ -255,15 +413,18 @@ def build_workflow(cfg):
         an absent capability map answers confidently from nothing, and the answer is
         indistinguishable from one grounded in a real map. What could not be read is named, and the
         steps that needed it stay pending."""
-        with gateway.node_span(cfg, "corpora"):
+        with _node(cfg, "corpora"):
             pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS)
+            # Which answered labels reach no step — the one check the contract cannot make.
+            state = state | {"intake_problems": await intake_problems(
+                cfg, pinned["pin_id"], state.get("intake") or {})}
             fetched: dict = {}
             missing: dict = dict(UNAVAILABLE)
             # The map, from the corpus under the pin. Not size-checked here: a matcher decides
             # what of it goes into a prompt (`coverage.resolve` measures the leaves), so the
             # working set is not the prompt.
             try:
-                rows = await fetch_capabilities(cfg, pinned["pin_id"])
+                rows = project("capabilities", await fetch_capabilities(cfg, pinned["pin_id"]))
                 if rows:
                     fetched["capabilities"] = rows
                 else:
@@ -307,10 +468,11 @@ def build_workflow(cfg):
         field omitted — an absent coverage map and one an agent produced empty are different
         findings, and only one of them is a gap flag.
         """
-        with gateway.node_span(cfg, "derive"):
+        with _node(cfg, "derive"):
             d = Derivation(available={"submission": state["submission_record"]["prose"],
                                       **(state.get("corpora") or {})},
-                           pending=dict(PENDING_STEPS))
+                           pending=dict(PENDING_STEPS),
+                           publish=_live_record(cfg))
             for step in SCREENING_STEPS:
                 if step.key == "coverage_map":
                     # Run by the configured matcher, not by this loop. The keys are spelled
@@ -323,10 +485,14 @@ def build_workflow(cfg):
                     # reader most needs the record to say how deep the match went.
                     state = state | {"capability_depth": drilled.get("capability_depth", 0),
                                      "coverage_trail": drilled.get("coverage_trail") or []}
+                    await modelling.grow(cfg, d, step.key)
                     continue
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.
                 await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
+                # Onto the ONE architecture model the run grows: every later step reads it as
+                # data, and the views a reviewer sees are projections of it.
+                await modelling.grow(cfg, d, step.key)
             derived, pending = d.derived, d.pending
 
             screening = {"pending_steps": pending,
@@ -354,7 +520,7 @@ def build_workflow(cfg):
     @executor(id="ask_criticality")
     async def ask_criticality(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Step 12 — derive the class, then ask an architect to confirm it. Terminal."""
-        with gateway.node_span(cfg, "ask_criticality"):
+        with _node(cfg, "ask_criticality"):
             # Derived by step 7 when its agent ran. Absent, the question still goes to an
             # architect — with nothing proposed, which is honest: an unasked question is
             # worse than one whose default is blank.
@@ -362,8 +528,10 @@ def build_workflow(cfg):
             summary = {
                 "attachments": len(state.get("attachments") or ()),
                 "intake_groups": len(state.get("intake") or {}),
-                "pending_steps": len(PENDING_STEPS),
-                "defaulted_steps": sorted((state.get("screening") or {}).get("defaulted_steps") or {}),
+                **summary_counts(state.get("screening") or {}),
+                # Named at the gate, because the architect is the first person who can act on a
+                # label that reached no step.
+                "intake_unmatched": len(state.get("intake_problems") or ()),
                 "criticality_band": band,
             }
             # What approving RELEASES. Carried on the approval rather than as a static edge, because
@@ -383,13 +551,26 @@ def build_workflow(cfg):
                            "samples": ["routine", "business-critical", "safety-of-life"]},
                           {"label": "justification", "samples": []}],
                 "fields": ["value"],                   # one thing to say per label, not a voice
+                "summary": summary,                    # what this screening found, before the refs
                 "continuation": cont.to_dict(),
-                "artifacts": {"submission": state["submission_record_ref"],
-                              "screening": state["screening_ref"]},
+                # `_ref`-SUFFIXED, because that is what the review app renders as a download.
+                # Named `submission`/`screening`, they matched neither the explicit
+                # `import_artifacts` list nor the legacy `*_ref` rule, so the architect setting the
+                # criticality class was shown no screening evidence at all — on the one surface
+                # this lab actually decides in, while `approvals_get` carried both refs happily.
+                "artifacts": {"submission_ref": state["submission_record_ref"],
+                              "screening_ref": state["screening_ref"],
+                              # The per-step model trace, while it is on: one tab per step.
+                              **({"svg_refs": trace_tabs} if (trace_tabs := modeltrace.tabs(
+                                  state.get("screening") or {})) else {})},
                 "requester": state.get("submitter", ""),
                 "process": PROCESS})
             out = {"approval_id": asked["request_id"],
                    "review_app": asked.get("review_app", ""),
+                   # The problem as step 3 framed it, one line: what a person recognises this run
+                   # by when they come looking for it later.
+                   "subject": str(((state.get("screening") or {}).get("frame") or {})
+                                  .get("problem", ""))[:160],
                    "submission_ref": state["submission_record_ref"],
                    "screening_ref": state["screening_ref"],
                    "criticality_band": band,

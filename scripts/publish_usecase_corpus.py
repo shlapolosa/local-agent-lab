@@ -29,7 +29,7 @@ MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: corpus whose artifacts drift apart in version cannot be pinned coherently, and the one time an
 #: artifact was corrected on its own (v0.25.1) the next corpus-wide run silently RE-RELEASED the
 #: older v0.25 over it, because that is the version this script releases.
-VERSION = "v0.27"
+VERSION = "v0.29"
 
 #: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
 #: and differs from the file stem where a consumer already spells it differently.
@@ -75,6 +75,13 @@ ARTIFACTS = {
     "surface-enforceability": ("obligation", "Obligation", "architecture governance"),
     "ai-capability-map": ("capability", "domain,capability", "architecture governance"),
     "capability-domains": ("domain", "domain", "architecture governance"),
+    # The review app's roadmap: the published methodology joined to the implementation's step
+    # numbers, record keys and AGENTS. Derived by scripts/derive_process_step_keys.py, because
+    # `substrate` may not import `workloads` to read `Step.service` directly.
+    "process-step-keys": ("step-key", "Step,Number", "architecture governance"),
+    # The intake GROUPS, split into typed fields so the Submit form is generated from the artifact.
+    # Finance owns them for the same reason it owns the groups they came from.
+    "intake-field-specs": ("intake-field", "Field", "finance"),
     "capability-map-rules": ("capability-rule", "A capability is", "architecture governance"),
     "composition-moves": ("move", "Move", "architecture governance"),
     "tradeoff-catalogue": ("tradeoff", "Conflict", "architecture governance"),
@@ -123,6 +130,13 @@ RETRIEVAL = {
     "determinism-criteria": "whole", "facet-schema": "whole", "facet-schema-defaults": "whole",
     "facet-schema-readers": "whole", "surface-enforceability": "whole",
     "reference-architecture-components": "whole", "intake-fields": "whole",
+    # Both are small complete registers a form or a roadmap reads ENTIRELY — "the relevant rows" of
+    # a process is not a process.
+    "process-step-keys": "whole", "intake-field-specs": "whole",
+    # Step 5 matches every function against the WHOLE technology map (74 rows). "The relevant rows"
+    # would decide relevance before the step whose job that is — CAFÉ's own rule for a small
+    # complete register is to read every record.
+    "ai-capability-map": "whole",
     "capability-domains": "whole", "criticality-taxonomy": "whole", "readiness-gates": "whole",
 }
 
@@ -186,6 +200,7 @@ def main() -> int:
 
     have = already_published()
     deferred: dict[str, str] = {}                         # artifact -> why it is not in this run
+    failures: dict[str, str] = {}                         # artifact -> why it could not be published
     published = released = skipped = 0
     refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_MODELS_REFS}
     everything = {**{a: ("markdown",) + spec for a, spec in ARTIFACTS.items()},
@@ -222,8 +237,16 @@ def main() -> int:
                 print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
                 continue
             if code:
-                print(f"FAILED {artifact_id}: {out.strip().splitlines()[-1]}")
-                return 1
+                # NAMED AND CARRIED ON, not `return 1`. Stopping here stranded every artifact
+                # alphabetically after the failure: measured 19 Sep 2026, one unreadable workbook
+                # took down a publish at artifact 8 of 55 and the 47 behind it — none of which had
+                # anything wrong — simply never ran. The reason is the same one this script already
+                # gives for a deferral: an artifact silently absent from the corpus is read
+                # downstream as "the corpus says there is none", and 47 of those is worse than one.
+                # The exit code still reports the failure, so nothing passes unnoticed.
+                failures[artifact_id] = out.strip().splitlines()[-1]
+                print(f"  {artifact_id:38} FAILED — {failures[artifact_id]}")
+                continue
             published += 1
         if args.release:
             code, out = run("release", artifact_id, VERSION, "--ring", str(args.ring),
@@ -238,7 +261,11 @@ def main() -> int:
           f"{released} released to ring {args.ring}")
     for artifact_id, why in deferred.items():
         print(f"deferred {artifact_id}: {why}")
-    return 0
+    for artifact_id, why in failures.items():
+        print(f"FAILED {artifact_id}: {why}", file=sys.stderr)
+    # Non-zero when anything failed — every OTHER artifact is published, and the operator is told
+    # exactly which ones were not. A green run that published 8 of 55 is the outcome to avoid.
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

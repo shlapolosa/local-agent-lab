@@ -4,7 +4,7 @@
       "id": "G01",
       "asi": "ASI01",
       "pred": "always — every step executed by an agent",
-      "cap": "Cognitive · Agent runtime; Cross-cutting · Gate decision and approval evidence store",
+      "cap": "Cognitive · Agent supply chain / manifests; Cross-cutting · Gate decision and approval evidence store",
       "rule": "Agent goals are immutable at runtime: system prompt and tool registry come from a signed, version-controlled artifact.",
       "ctrl": "Copilot Studio environment governance + Microsoft Agent Framework manifest",
       "src": [
@@ -28,7 +28,7 @@
       "id": "G03",
       "asi": "ASI03",
       "pred": "step.authorisation ≠ per-action human ∨ the step runs without an interactive user at trigger time",
-      "cap": "Cross-cutting · Agent identity (Entra Agent ID)",
+      "cap": "Cognitive · Agent identity",
       "rule": "Agents whose authorisation is not per-action human, or which run with no interactive user at trigger time, authenticate using a dedicated Entra Agent ID with a Managed Identity; user-delegated tokens never persist.",
       "ctrl": "Microsoft Entra Agent ID + Conditional Access at blueprint level, lifecycle-governed by Microsoft Agent 365",
       "src": [
@@ -40,7 +40,7 @@
       "id": "G04",
       "asi": "ASI04",
       "pred": "always — evaluated at the Stage 5 exit gate for every selected component",
-      "cap": "the capability map itself",
+      "cap": "Cross-cutting · Component admission catalogue",
       "rule": "Third-party tools, plugins and MCP servers are admitted via the M4 capability map only; projects cannot introduce components unilaterally.",
       "ctrl": "Purview catalog of approved AI assets + Entra blueprint review + Agent 365 inventory (incl. cross-cloud registry sync)",
       "src": [
@@ -64,7 +64,7 @@
       "id": "G06",
       "asi": "ASI06",
       "pred": "step.activity = retrieve ∨ step reads any grounding source",
-      "cap": "Knowledge · Federated retrieval; Knowledge · Grounding source registry",
+      "cap": "Knowledge · Agentic retrieval; Knowledge · Grounding source registry",
       "rule": "All retrieval performed through a declared Knowledge contract; sources permission-trimmed and citations surfaced.",
       "ctrl": "Foundry IQ federated retrieval + semantic ranker + permission-aware grounding",
       "src": [
@@ -86,7 +86,7 @@
       "id": "G08",
       "asi": "ASI08",
       "pred": "step.determinism ≥ D2 ∨ step invokes a downstream service",
-      "cap": "Cognitive · Agent runtime middleware",
+      "cap": "Cognitive · Agent SDK / framework",
       "rule": "Cascading failure containment: every agent has step + tool-call budgets and a circuit breaker per downstream.",
       "ctrl": "Agent Framework middleware hooks + Foundry runtime limits",
       "src": [
@@ -110,7 +110,7 @@
       "id": "G10",
       "asi": "ASI10",
       "pred": "always — every production agent",
-      "cap": "Cognitive · Agent control plane; Cross-cutting · Influence-sized evaluation",
+      "cap": "Cognitive · Agent control plane (observe / govern / secure); Cross-cutting · Influence-sized evaluation",
       "rule": "Every production agent registered in the Agent Registry, has a named owner, access-reviewed quarterly, and an evaluation harness gating deploys.",
       "ctrl": "Microsoft Entra ID Governance access reviews + Microsoft Agent 365 registry + project eval suite",
       "src": [
@@ -144,7 +144,7 @@
       "id": "G13",
       "asi": "CAFÉ-AI",
       "pred": "exposure ≥ 3 ∨ influence ≥ 3 ∨ criticality = safety-of-life",
-      "cap": "Knowledge · Federated retrieval (multi-source corroboration)",
+      "cap": "Knowledge · Agentic retrieval",
       "rule": "Corroboration before high-confidence output: a high-severity assessment requires agreement of ≥2 independent sources, at least one official or physical-sensor; single-source (especially social) signals may only open a low-confidence watch.",
       "ctrl": "Corroboration rule over trust-tiered Knowledge sources",
       "src": [
@@ -167,7 +167,7 @@
       "id": "G15",
       "asi": "CAFÉ-AI",
       "pred": "step.activity ∈ {interpret, decide, transform} ∧ the step reasons over or emits a named concept",
-      "cap": "Semantic · Ontology; Cross-cutting · Ontology and alias-set stewardship",
+      "cap": "Semantic · Ontology (entities, rules); Cross-cutting · Ontology / alias-set stewardship",
       "rule": "Ontology conformance: an agent may not reason over, or emit, a concept not defined in the ontology with relationships, rules and data bindings. Coverage is evidenced by the M0 Gate B record.",
       "ctrl": "Fabric IQ ontology binding + Purview Unified Catalog term governance; breaks G06 if unsatisfied",
       "src": [
@@ -179,7 +179,7 @@
       "id": "G16",
       "asi": "CAFÉ-AI",
       "pred": "criticality ∈ {business-critical, safety-of-life}",
-      "cap": "the readiness record carried on the routing record",
+      "cap": "Cross-cutting · Gate decision and approval evidence store",
       "rule": "Criticality-proportionate rigor: evaluation, corroboration and approval depth are set by the M0 Gate D criticality class, not by cost or delivery timeline. A gate routing only on spend does not satisfy this.",
       "ctrl": "M0 readiness record carried on the routing record; Architecture Board conformance review",
       "src": [

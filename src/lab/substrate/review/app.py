@@ -24,8 +24,10 @@ from the substrate container built once at import (`container.artifacts()` for r
 `container.uploads()` for submitted inputs) — tests override its providers.
 """
 import base64
+import json
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
 from html import escape
 
@@ -35,7 +37,7 @@ from lab.platform import config, contracts, runlog, workflows
 from lab.platform.filetypes import content_type_for
 from lab.substrate import approvals
 from lab.substrate.container import build
-from lab.substrate.review import traces
+from lab.substrate.review import identity, intake_csv, roadmap, staging, traces
 
 container = build("review-app")
 JAEGER_UI = container.config.jaeger_ui_url().rstrip("/")   # one source for both the link and the reader
@@ -44,6 +46,13 @@ TRACES = traces.JaegerTraceReader(JAEGER_UI)               # trace-store port; t
 NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
 DIAGRAM_TYPES = ["vsdx", "png", "jpg", "jpeg", "gif", "webp"]
 REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
+#: PROSE only. `submission` is a narrative — `ProcessSpec` says "a .md, .docx or .pdf saying what
+#: the problem is, who has it, and what changes" — and a tabular file there is read as that
+#: narrative. Measured twice on 23 Sep 2026: an INTAKE FIELD csv uploaded here (it belongs in the
+#: intake editor) became a table of blank driver rows standing in for the use case, and the run
+#: spent ten minutes framing the absence of input as the problem. Evidence stays welcome on
+#: `attachments`, where a spreadsheet means what it says.
+PROSE_TYPES = ["docx", "pdf", "md", "txt"]
 
 #: Which file types each REF field accepts, by (process, field). A hint only — the CONTRACT is
 #: `ProcessSpec.validate`, and a field with no entry accepts anything the store will hold. It lives
@@ -52,7 +61,7 @@ REQUIREMENT_TYPES = ["docx", "pdf", "md", "txt", "csv"]
 UPLOAD_TYPES = {
     ("visio_to_archimate", "diagram"): DIAGRAM_TYPES,
     ("visio_to_archimate", "requirements"): REQUIREMENT_TYPES,
-    ("use_case_screening", "submission"): REQUIREMENT_TYPES,
+    ("use_case_screening", "submission"): PROSE_TYPES,
     ("use_case_screening", "attachments"): REQUIREMENT_TYPES + DIAGRAM_TYPES,
 }
 
@@ -61,6 +70,12 @@ UPLOAD_TYPES = {
 #: submission that does not fit the suggested shape must still be possible to make.
 MAPPING_ROWS = {
     ("use_case_screening", "intake"): "intake-fields",       # the corpus ARTIFACT, read under a pin
+}
+
+#: The TYPED fields inside those groups — one record per field, so the form is generated rather than
+#: guessed. Adding a field later (ROI, say) is a corpus publish, not a change to this app.
+MAPPING_FIELDS = {
+    ("use_case_screening", "intake"): ("intake-field-specs", "intake-field"),
 }
 
 
@@ -92,9 +107,281 @@ def _mapping_labels(process: str, field: str) -> list[str]:
     return list(cache[artifact])
 
 
+#: The two corpus artifacts the roadmap is built from: the published methodology, and the join to
+#: the implementation's step numbers, record keys and AGENTS.
+ROADMAP_ARTIFACTS = (("process-steps", "process-step"), ("process-step-keys", "step-key"))
+
+#: Which HALF of the published methodology a run belongs to, so the roadmap draws that run's steps
+#: and not the whole book. Screening implements E0.1-E0.10 and the readiness gate; everything from
+#: Q1.1 down is the design half, run later and separately. Drawing all nineteen rows made a
+#: COMPLETED screening look half-finished, with ten rows permanently pending that were never its
+#: to run. A process absent here is not filtered — unknown is shown in full, never hidden.
+PROCESS_HALF = {
+    "use_case_screening": "screening",
+    "use_case_design": "design",
+}
+
+
+def _corpus_table(artifact: str, record_type: str) -> tuple:
+    """`(rows, headers)` for a whole-retrieval artifact, read under a pin and cached per session.
+
+    Same contract as `_mapping_labels`: a corpus that cannot answer is a view missing, never a page
+    that fails — and the roadmap says so rather than inventing the process from code.
+    """
+    # Process-global and time-boxed, NOT session state: the page refreshes by reloading, and a
+    # reload is a new session. Kept per session this re-pinned the corpus every three seconds.
+    # 10 minutes of staleness is nothing against a RELEASED artifact, and it is the difference
+    # between one consumption row per reader and one per tick.
+    def read():
+        return _read_corpus_table(artifact, record_type)
+    return _cached(f"corpus:{artifact}:{record_type}", 600, read)
+
+
+def _read_corpus_table(artifact: str, record_type: str) -> tuple:
+    cache: dict = {}
+    if artifact in cache:
+        return cache[artifact]
+    try:
+        from lab.core.reference.model import RunRef
+        library = container.reference()
+        pin = library.pin([artifact])
+        records = library.lookup(pin, record_type=record_type, key={},
+                                 run=RunRef(run_id="review-app", process="review-app",
+                                            field="roadmap"),
+                                 artifact_id=artifact).records
+        headers = list(records[0].body) if records else []
+        cache[artifact] = ([[r.body.get(h, "") for h in headers] for r in records], headers)
+    except Exception:                      # noqa: BLE001 — a view missing, never a page that fails
+        cache[artifact] = ([], [])
+    return cache[artifact]
+
+
+def _roadmap_view(h):
+    """The run as the nineteen published steps, with this run's state on each.
+
+    Replaces the Mermaid graph, which drew EXECUTORS — `readiness`, `feasibility`, `derive_design` —
+    and so answered "which node" when an SME is asking "which step".
+    """
+    (steps_rows, steps_headers) = _corpus_table(*ROADMAP_ARTIFACTS[0])
+    (key_rows, key_headers) = _corpus_table(*ROADMAP_ARTIFACTS[1])
+    if not steps_rows:
+        st.caption("the published process steps could not be read from the corpus, so there is no "
+                   "roadmap to draw — the methodology is an artifact, not a list in this app")
+        return
+    ref = (h or {}).get("record_ref") or ""
+    record = (_cached(f"record:{ref}", 3600,
+                      lambda: _record_cached(h, store=container.artifacts(), cache={}))
+              if ref else {}) or _record_of(h)
+    plan = roadmap.build(steps_rows, steps_headers,
+                         roadmap.index_from(key_rows, key_headers),
+                         order=roadmap.order_from(key_rows, key_headers),
+                         nodes=h.get("nodes") or [], record=record,
+                         process=PROCESS_HALF.get(h.get("process", ""), ""),
+                         activity=_trace_activity(h))
+    for step in plan:
+        icon = {"done": "✅", "running": "🏃", "failed": "⛔", "defaulted": "⚠️"}.get(step.state, "⚪")
+        who = step.agent or ("derived, not asked" if step.derived else "")
+        head = f"{icon} **{step.id}** {step.title}" + (f" · {who}" if who else "")
+        if step.elapsed:
+            head += f" · {_fmt_elapsed(step.elapsed)}"
+        with st.expander(head, expanded=step.open):
+            if step.note:
+                st.warning(step.note)
+            if step.error:
+                st.error(step.error)
+            cols = st.columns(3)
+            cols[0].caption(f"**Input**  \n{step.inputs_declared or '—'}")
+            cols[1].caption(f"**Decides**  \n{step.decided or '—'}")
+            cols[2].caption(f"**Output**  \n{step.outputs_declared or '—'}")
+            for gap in step.gaps:
+                st.warning(gap)
+            if step.model:
+                st.caption(f"{step.model} · {step.tokens:,} tokens · ${step.cost:.4f}")
+            # The three captions above are the PUBLISHED contract — the same words on every run.
+            # These two are what THIS run did, and they are what a reviewer came for.
+            actual = st.columns(2)
+            with actual[0]:
+                st.caption(f"**What it was shown**  \n`{'`, `'.join(step.reads) or '—'}`")
+                if step.input is not None:
+                    st.json(step.input, expanded=False)
+            with actual[1]:
+                st.caption("**What it produced**")
+                if step.output is not None:
+                    st.json(step.output, expanded=False)
+                else:
+                    st.caption("— nothing recorded yet")
+
+
+def _record_of(h) -> dict:
+    """The run's own record, for the per-step sections the roadmap shows. Absent is `{}` — a run
+    still in flight has not written one, and every step then shows its published shape alone."""
+    # `record_ref` FIRST: it is the partial record a live run republishes after every step, so a
+    # run in flight — the only time anyone is watching — shows what each step actually produced.
+    # `screening_ref` is the finished article and wins once the run closes, because `finish_from`
+    # writes it last. Preferring the partial for a DONE run would show a record one step short.
+    ref = (h.get("screening_ref") or h.get("design_ref") or h.get("xml_ref")
+           or h.get("record_ref"))
+    if not ref or not str(ref).endswith(".json"):
+        return {}
+    try:
+        raw = container.artifacts().get(ref)
+        return json.loads(raw if isinstance(raw, str) else raw.decode())
+    except Exception:                      # noqa: BLE001
+        return {}
+
+
+#: A worked example, filled in: the use-case screening agent group assessed as a use case of itself.
+#: Ships in the image (`pyproject.toml` package-data) so the page can hand it over without a network
+#: read. It is an EXAMPLE, not a schema — the schema is the published artifact, and a row of this
+#: file that no longer matches one is reported by the parser like any other unknown field.
+SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "samples")
+
+
+def sample_csvs() -> list[tuple[str, bytes]]:
+    """The filled examples that ship, `(name, bytes)`, in a stable order.
+
+    DISCOVERED from the directory rather than listed here, so adding one is a file and removing one
+    cannot leave a dead button — the same property the blank template has by being generated from
+    the published rows. One example taught one shape: a person could not see what a minimal honest
+    submission looks like, nor one the framework will deterministically reject, nor how much a
+    genuinely complicated case carries.
+    """
+    try:
+        names = sorted(n for n in os.listdir(SAMPLES_DIR) if n.endswith(".csv"))
+    except OSError:                        # no examples is not a submission refused
+        return []
+    out = []
+    for name in names:
+        try:
+            with open(os.path.join(SAMPLES_DIR, name), "rb") as handle:
+                out.append((name[:-4], handle.read()))
+        except OSError:
+            continue
+    return out
+
+
+def sample_submissions() -> list[tuple[str, bytes]]:
+    """The worked EXAMPLE submissions that ship, `(name, bytes)` — the prose each intake CSV
+    describes the drivers for.
+
+    Discovered from the same directory and on the same terms as `sample_csvs`. They exist because
+    for a while only the drivers shipped: the one concrete artifact on this page was a field table,
+    so "attach the use case" had no example to follow and the field table got attached instead —
+    twice on 23 Sep 2026, each time producing a ten-minute run that assessed a blank form.
+    """
+    try:
+        names = sorted(n for n in os.listdir(SAMPLES_DIR) if n.endswith(".md"))
+    except OSError:                        # no examples is not a submission refused
+        return []
+    out = []
+    for name in names:
+        try:
+            with open(os.path.join(SAMPLES_DIR, name), "rb") as handle:
+                out.append((name[:-3], handle.read()))
+        except OSError:
+            continue
+    return out
+
+
+def _intake_from_csv(rows, headers, key: str) -> None:
+    """Fill the intake from a CSV file instead of twenty-one boxes.
+
+    The template is GENERATED from the same published rows the form is, so it cannot drift from the
+    fields; a stale hand-written column would be indistinguishable from a typo. The upload sets the
+    widgets' own session state and reruns, so what lands is an ordinary filled-in form the person
+    can read and correct — not a hidden payload that bypasses the one surface they can check.
+    """
+    col = {h: i for i, h in enumerate(headers)}
+    with st.expander("📄 Fill this in from a CSV file", expanded=False):
+        left, right = st.columns(2)
+        left.download_button("⬇️ Blank template (.csv)", intake_csv.template(rows, headers),
+                             file_name="intake-template.csv", mime="text/csv",
+                             key=f"{key}_tmpl", use_container_width=True)
+        samples = sample_csvs()
+        if samples:
+            names = [name for name, _ in samples]
+            picked = right.selectbox("Filled example", names, key=f"{key}_pick",
+                                     format_func=lambda n: n.replace("-", " "))
+            body = dict(samples)[picked]
+            right.download_button(f"⬇️ {picked}.csv", body, file_name=f"{picked}.csv",
+                                  mime="text/csv", key=f"{key}_sample",
+                                  use_container_width=True)
+        else:                              # examples missing is not a submission refused
+            right.caption("no filled example ships with this build")
+        st.caption("Fill the **Value** column and upload it back here. A blank cell means *not answered*; "
+                   "every field is still editable below before you run.")
+        upload = st.file_uploader("Completed intake", type=["csv"], key=f"{key}_csv")
+        if upload is None:
+            return
+        # Apply ONCE per file: this reruns top-to-bottom on every interaction, and re-applying would
+        # silently undo an edit the person made to a field after uploading.
+        stamp = f"{upload.name}:{upload.size}"
+        if st.session_state.get(f"{key}_csv_done") == stamp:
+            return
+        answer, problems = intake_csv.parse(upload.getvalue(), rows, headers)
+        # `Field` is the full "Group · Label" key the parser resolves to, and also the widget key
+        # suffix `_typed_intake` uses — one identity, so the join needs no second convention.
+        kinds = {str(r[col["Field"]]): str(r[col["Type"]]) for r in rows}
+        for label, value in answer.items():
+            text = str(value.get("value", ""))
+            # A yes/no field is a selectbox, and Streamlit refuses a value outside its options.
+            if kinds.get(label) == "yesno" and text.strip().lower() not in ("yes", "no"):
+                problems.append(f"{label}: {text!r} is not yes or no — left blank")
+                continue
+            st.session_state[f"{key}_{label}"] = (text.strip().lower()
+                                                  if kinds.get(label) == "yesno" else text)
+        st.session_state[f"{key}_csv_done"] = stamp
+        st.session_state[f"{key}_csv_note"] = (len(answer), problems)
+        st.rerun()
+
+
+def _typed_intake(process: str, field, key: str) -> dict | None:
+    """One input per PUBLISHED field, grouped — or None when the corpus cannot say what the fields
+    are, in which case the caller falls back to the free grid.
+
+    The answer shape is unchanged: `{label: {"value": text}}`, which is what `InputKind.MAPPING`
+    means and what every other producer sends. A type here is a widget and a hint to the person, not
+    a promise about the wire — `InputField._mapping` accepts strings only.
+    """
+    spec = MAPPING_FIELDS.get((process, field.name))
+    rows, headers = _corpus_table(*spec) if spec else ([], [])
+    if not rows:
+        return None
+    _intake_from_csv(rows, headers, key)
+    filled, problems = st.session_state.pop(f"{key}_csv_note", (0, []))
+    if filled or problems:
+        st.success(f"{filled} field{'' if filled == 1 else 's'} filled in from the CSV")
+        # Named, never dropped: a row that went nowhere is invisible once filtered, and the
+        # submission then arrives short with nothing to explain it.
+        for problem in problems:
+            st.warning(problem)
+    col = {h: i for i, h in enumerate(headers)}
+    answer: dict = {}
+    for group in dict.fromkeys(str(r[col["Group"]]) for r in rows):
+        with st.expander(group, expanded=True):
+            for row in [r for r in rows if str(r[col["Group"]]) == group]:
+                label, kind = str(row[col["Label"]]), str(row[col["Type"]])
+                required = str(row[col.get("Required", 0)]).strip().lower() == "yes"
+                widget_key = f"{key}_{row[col['Field']]}"
+                shown = f"{label}{'' if required else ' (optional)'}"
+                if kind == "yesno":
+                    picked = st.selectbox(shown, ["", "yes", "no"], key=widget_key)
+                else:
+                    picked = st.text_input(shown, key=widget_key,
+                                           help=f"{kind} — used by {row[col['Used by']]}"
+                                           if "Used by" in col else kind)
+                if str(picked).strip():
+                    answer[f"{group} · {label}"] = {"value": str(picked).strip()}
+    return answer
+
+
 def _mapping_editor(process: str, field, key: str) -> dict:
-    """A small label -> value grid. `MAPPING` is a human's answer, not a payload — the contract
-    bounds it, and this offers the shape rather than enforcing it."""
+    """The published fields when the corpus can name them, and a free label/value grid when it
+    cannot. `MAPPING` is a human's answer, not a payload — the contract bounds it, and this offers
+    the shape rather than enforcing it."""
+    typed = _typed_intake(process, field, key)
+    if typed is not None:
+        return typed
     rows = st.session_state.setdefault(key, [{"label": name, "value": ""}
                                              for name in _mapping_labels(process, field.name)]
                                             or [{"label": "", "value": ""}])
@@ -107,6 +394,17 @@ def _mapping_editor(process: str, field, key: str) -> dict:
     # that has to accept it.
     return {r["label"].strip(): {"value": r["value"].strip()} for r in edited
             if str(r.get("label", "")).strip() and str(r.get("value", "")).strip()}
+
+
+#: What a text field's kind expects, shown IN the empty box. Derived from the kind's own validator
+#: (`InputField._handle`/`._identity`/`._conversation`), not invented here — a placeholder that
+#: disagreed with the validator would be worse than none.
+PLACEHOLDERS = {
+    contracts.InputKind.HANDLE: "collab://item/<drive-id>/<item-id>",
+    contracts.InputKind.IDENTITY: "name@domain, or a directory object id",
+    contracts.InputKind.CONVERSATION: "the provider's conversation id",
+    contracts.InputKind.REF: "art://<id>/<name>",
+}
 
 
 def _field_widget(spec, field) -> object:
@@ -126,7 +424,19 @@ def _field_widget(spec, field) -> object:
     if field.kind is kinds.MAPPING:
         st.caption(f"**{label}** — {field.description}")
         return _mapping_editor(spec.name, field, f"map_{spec.name}_{field.name}")
-    return st.text_input(label, key=f"in_{spec.name}_{field.name}", help=field.description)
+    if field.kind is kinds.CHOICE and getattr(field, "choices", ()):
+        # It declared its options and was still rendered as free text, so the one field whose valid
+        # answers are KNOWN was the one most easily got wrong.
+        picked = st.selectbox(label, ["", *field.choices], key=f"in_{spec.name}_{field.name}",
+                              help=field.description)
+        return picked or ""
+    # Three kinds fall through to a text box, and each has a STRICT validator behind it: HANDLE
+    # parses as `collab://kind/scope/id`, IDENTITY refuses a display name, CONVERSATION refuses
+    # whitespace and URLs. They looked identical to free text with the format hidden in a hover,
+    # so a person typed their own name into the first box on the form and learned the rule from a
+    # rejection. A placeholder shows the shape before it is typed, which is the whole difference.
+    return st.text_input(label, key=f"in_{spec.name}_{field.name}", help=field.description,
+                         placeholder=PLACEHOLDERS.get(field.kind, ""))
 
 
 # ============================================================================ Submit mode
@@ -148,6 +458,18 @@ def _submit_page(reviewer):
     st.caption(spec.description)
 
     refs = st.session_state.setdefault(f"submit_refs_{spec.name}", {})
+    # What a submission LOOKS like, before the empty file picker. The drivers had examples and the
+    # narrative did not, so the driver file was what got uploaded as the narrative.
+    if (examples := sample_submissions()) and any(
+            f.kind is contracts.InputKind.REF and f.name == "submission" for f in spec.inputs):
+        with st.expander("📄 What does a submission look like?", expanded=False):
+            st.caption("Prose — what the problem is, who has it, what changes if it works, and ONE "
+                       "accountable person. Download one, edit it, upload it as **submission**. "
+                       "The intake CSVs are a different thing: they carry the DRIVERS, and go in "
+                       "the intake section below.")
+            for column, (name, body) in zip(st.columns(max(len(examples), 1)), examples):
+                column.download_button(f"⬇️ {name}", body, file_name=f"{name}.md",
+                                       mime="text/markdown", key=f"ex_{spec.name}_{name}")
     widgets = {f.name: _field_widget(spec, f) for f in spec.inputs}
 
     file_fields = [f for f in spec.inputs
@@ -175,7 +497,25 @@ def _submit_page(reviewer):
             st.write(f"**{name}**", " ".join(f"`{v}`" for v in
                                              (value if isinstance(value, list) else [value])))
 
-    ready = all(refs.get(n) for n in required_files)
+    # What Run is allowed to send. It used to check only REQUIRED FILE fields, and for
+    # `use_case_screening` that list is EMPTY — both submission routes are individually optional
+    # because the real rule is "exactly one of them" — so Run was always enabled and pressing it
+    # with nothing attached queued a run that died at the first executor. Now the button asks the
+    # same three questions `ProcessSpec.validate` will ask, so the form refuses what the contract
+    # would refuse, rather than a 600-second run discovering it.
+    def _supplied(name: str) -> bool:
+        value = refs.get(name, widgets.get(name))
+        return bool(value) if not isinstance(value, str) else bool(value.strip())
+
+    missing = [f.name for f in spec.inputs if f.required and not _supplied(f.name)]
+    unmet = [g for g in spec.one_of if sum(_supplied(n) for n in g) != 1]
+    ready = not missing and not unmet
+    for group in unmet:
+        st.caption("Supply exactly one of " + " or ".join(f"**{n}**" for n in group)
+                   + " — upload a document, or give the handle of one already in the "
+                     "collaboration platform.")
+    if missing:
+        st.caption("Still needed: " + ", ".join(f"**{n}**" for n in missing))
     if st.button(f"▶️ Run {spec.name}", type="primary", disabled=not ready):
         inputs = dict(refs)
         for field in spec.inputs:
@@ -208,8 +548,15 @@ def _submit_page(reviewer):
         st.write(line)
 
 
-@st.fragment(run_every=5)
 def _run_status(rid):
+    """What became of a submission, and the way to WATCH it.
+
+    No longer a `run_every` fragment. That mechanism silently never fires (streamlit#9080, #11660)
+    — reported here as "on the submitter page, no updates" — and the honest replacement is not a
+    better poll but a different surface: the live view updates in place and this page cannot. So
+    this refreshes with the page and, the moment the run has a trace, hands the reader a link to
+    something that actually streams.
+    """
     s = workflows.status(rid)
     if not s:
         st.warning(f"unknown request {rid}"); return
@@ -221,10 +568,16 @@ def _run_status(rid):
     cols[1].write(f'**Started** {s.get("started_at", "—")}')
     cols[2].write(f'**Finished** {s.get("finished_at", "—")}')
     cols[3].write(f'**Consumer** {s.get("consumer", "—")}')
+    # The run id IS the trace id (`governed_run` sets them equal), so the live view is addressable
+    # the moment a host has started the run — which is the moment somebody wants to watch it.
+    if s.get("trace_id") and config.LIVE_APP_URL:
+        st.link_button(f"👁️ Watch this run — {status}",
+                       f"{config.LIVE_APP_URL.rstrip('/')}/run/{s['trace_id']}",
+                       type="primary", use_container_width=True)
     if s.get("trace_id"):
         st.write(f'**Trace** [{s["trace_id"][:16]}…]({JAEGER}{s["trace_id"]})')
     if status == "pending":
-        st.info("Waiting for a workload host to pick this up (the wf-visio consumer).")
+        st.info("Waiting for a workload host to pick this up — the link appears as soon as it does.")
     elif status == "running":
         st.info("BA → Architect → validate/render in progress…")
     elif status == "done":
@@ -253,12 +606,94 @@ def _fmt_elapsed(s):
     return f"{s:.0f}s" if s < 90 else f"{s / 60:.1f}m"
 
 
+def _about(h) -> str:
+    """One line naming what this run is about, or the input it was given.
+
+    The workload writes `subject` to the board as soon as its framing step produces one, so a run
+    is findable WHILE it runs — which is when somebody is looking. Before that (and for a process
+    that names no subject) the input filename is the honest fallback: less useful, never wrong.
+    """
+    subject = str(h.get("subject") or "").strip()
+    return subject if subject else os.path.basename(h.get("input", "") or "")
+
+
+#: A run still moving is worth watching; a finished one will never change again, and a page that
+#: keeps reloading it spends a round trip a second to redraw the same thing while stealing the
+#: reader's scroll position. An UNKNOWN status refreshes: a host recording something new must not
+#: leave the page permanently stale, because a staleness nobody can notice is the worse failure.
+_SETTLED = ("done", "failed")
+
+
+#: A cache that OUTLIVES a session. The Runs page refreshes by reloading the browser, and a reload
+#: begins a fresh Streamlit session with empty `st.session_state` — so anything kept there is
+#: discarded a few seconds after it is filled. For the corpus that meant taking a new reference PIN
+#: on every reload, writing a `ref_consumption` row every three seconds for a page nobody is
+#: reading. The server process outlives the sessions connected to it, so the cache lives here.
+#:
+#: Bounded, because the server runs for weeks and the keys are per (artifact, run, ref): unbounded
+#: it is a slow leak nobody would attribute to a cache.
+_CACHE: dict = {}
+_CACHE_MAX = 256
+
+
+def _cached(key: str, ttl: float, produce):
+    """`produce()` at most once per `ttl` seconds for this key."""
+    now = time.time()
+    hit = _CACHE.get(key)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]
+    value = produce()
+    if len(_CACHE) >= _CACHE_MAX:                        # oldest first; plain FIFO is enough here
+        for stale in sorted(_CACHE, key=lambda k: _CACHE[k][0])[:len(_CACHE) - _CACHE_MAX + 1]:
+            _CACHE.pop(stale, None)
+    _CACHE[key] = (now, value)
+    return value
+
+
+def _should_refresh(h) -> bool:
+    return str((h or {}).get("status") or "") not in _SETTLED
+
+
+def _change_token(h) -> tuple:
+    """What makes this run DIFFERENT from the last time we drew it.
+
+    `elapsed` is deliberately absent: `runlog._parse` recomputes it live for every running run, so
+    including it would make every single tick a change and defeat the whole purpose.
+    """
+    h = h or {}
+    return (h.get("status"), h.get("node"), len(h.get("nodes") or ()), h.get("record_ref"))
+
+
+def _record_cached(h, *, store, cache):
+    """The run's record, fetched once per REF rather than once per tick.
+
+    The record used to be written once at the very end, so re-reading it per tick cost nothing.
+    It is now republished after every step (so a live roadmap can show each step's real output),
+    which turned that same read into an artifact-store download every five seconds. The ref changes
+    exactly when the record does, so it is the right cache key.
+    """
+    ref = (h or {}).get("record_ref") or ""
+    if not ref:
+        return {}
+    if cache.get("ref") != ref:
+        try:
+            raw = store.get(ref)
+            cache.update(ref=ref, body=json.loads(raw if isinstance(raw, str) else raw.decode()))
+        except Exception:                     # noqa: BLE001 — a view missing, never a page that fails
+            cache.update(ref=ref, body={})
+    return cache.get("body") or {}
+
+
 def _run_row(h):
     node = h.get("node") or ""
     if h.get("status") == "running" and node:
         node = f"{node} ({h.get('node_status', '')})"
     return {"run": h.get("run_id", ""), "process": h.get("process", ""),
-            "host": h.get("host", ""), "input": os.path.basename(h.get("input", "") or ""),
+            # WHAT IT IS ABOUT, first among the descriptive columns. A run is keyed by its trace id,
+            # so without this the board is a column of 32-character hex and the only way to find
+            # the run you just started is to remember where it was.
+            "about": _about(h), "host": h.get("host", ""),
+            "input": os.path.basename(h.get("input", "") or ""),
             "status": h.get("status", ""),
             "current node": node, "started": (h.get("started_at") or "")[:19].replace("T", " "),
             "elapsed": _fmt_elapsed(h.get("elapsed")),
@@ -307,11 +742,9 @@ def _trace_activity(h):
     unique: every run of one DevUI session shares its session trace. Jaeger down or trace expired =
     an empty panel (never an error)."""
     key = (h.get("run_id"), h.get("trace_id"), h.get("status"), len(h.get("nodes") or []))
-    hit = st.session_state.get("trace_detail")
-    if not hit or hit[0] != key:
-        hit = (key, traces.activity(TRACES.spans(h.get("trace_id") or ""), h.get("nodes") or []))
-        st.session_state["trace_detail"] = hit
-    return hit[1]
+    return _cached("trace:" + "|".join(str(k) for k in key), 3600,
+                   lambda: traces.activity(TRACES.spans(h.get("trace_id") or ""),
+                                           h.get("nodes") or []))
 
 
 def _activity_label(a):
@@ -366,7 +799,14 @@ def _runs_board():
     ids = [r["run"] for r in rows]
     default = st.session_state.get("runs_selected")
     # the DETAIL is the view (watch a run); the list is one expander below (pick another run)
-    sel = st.selectbox("Run", ids, index=ids.index(default) if default in ids else 0)
+    # Labelled by SUBJECT, so choosing a run is reading rather than matching hex. The choice lives
+    # in the URL beside the page, so a browser refresh lands on the SAME run.
+    about = {r["run"]: r["about"] for r in rows}
+    opened = _selected_from(st.query_params, ids)
+    sel = st.selectbox("Run", ids, index=ids.index(opened) if opened in ids else 0,
+                       format_func=lambda r: f"{about.get(r) or r}  ·  {r[:12]}")
+    if sel != opened:
+        st.query_params["run"] = sel
     st.session_state["runs_selected"] = sel
     h = runlog.get(sel)
     if h:
@@ -396,9 +836,15 @@ def _run_detail(h):
         if h.get(k):
             st.write(f"**{k}** `{h[k]}`")
 
-    left, right = st.columns([2, 3])
-    with left:
-        st.markdown("**Node timeline**")
+    # The way OUT to the live view: this page can only refresh by reloading (Streamlit is
+    # server-rendered), and the live service updates in place. A reader watching a run in flight
+    # wants that one; a reader reviewing what a run produced wants this one.
+    if config.LIVE_APP_URL and _should_refresh(h):
+        st.link_button("👁️ Watch this run live", f"{config.LIVE_APP_URL.rstrip('/')}/run/{sel}")
+
+    st.markdown("**Roadmap**")
+    _roadmap_view(h)
+    with st.expander("Node timeline — the executors, for debugging the workflow itself"):
         timeline = [{"": STATUS_ICON.get(n["status"], "•"), "node": n["name"], "status": n["status"],
                      "at": n["ts"][11:19], "elapsed": _fmt_elapsed(n["attrs"].get("elapsed")),
                      "detail": ", ".join(f"{k}={v}" for k, v in n["attrs"].items() if k != "elapsed")}
@@ -407,31 +853,63 @@ def _run_detail(h):
             st.dataframe(timeline, hide_index=True, width="stretch")
         else:
             st.caption("no node reported yet")
-    with right:
-        st.markdown("**Workflow graph**")
-        if h.get("mermaid"):
-            _render_mermaid(_mermaid_with_state(h["mermaid"], _node_states(h)))
-        else:
-            st.caption("no graph stored on this run (the host stores `mermaid` via "
-                       "`lab.workloads.workflowviz.mermaid(workflow)` at start)")
     _node_events(h)
 
 
-@st.fragment(run_every=5)
-def _runs_board_live():
-    _runs_board()
+def released_run(approval_id: str, tries: int = 12, wait: float = 0.5) -> tuple:
+    """`(request_id, process)` of the run this decision released — once the release records it.
+
+    The release is ASYNCHRONOUS: a consumer picks the approval off a stream and submits the
+    continuation, so the released id appears a moment after the decision rather than with it.
+    Waiting a bounded moment is the whole trick — waiting forever hangs the page on a handover
+    that may never come (a final approval, or a declined one, releases nothing), and not waiting
+    at all is what left three people in one session asking what had happened.
+    """
+    import time as _time
+    for attempt in range(max(1, tries)):
+        state = approvals.status(approval_id) or {}
+        rid = str(state.get("released_request_id") or "")
+        if rid:
+            return rid, str(state.get("released_process") or "")
+        if attempt < tries - 1 and wait:
+            _time.sleep(wait)
+    return "", ""
+
+
+def _artifact_download(ref: str) -> None:
+    """Offer ONE artifact, named by `?artifact=<ref>` — where the live view's links land.
+
+    That page holds no store credential and never will: it emits a link, this app reads the store,
+    and a person has already signed in (or passed the gate) before reaching here. So the watcher
+    stays credential-free and the bytes stay behind the door that authenticates.
+
+    It knows nothing about what the artifact IS — the filename and type come from the ref, exactly
+    as the import-artifact list already does, so a new kind of output needs no change here.
+    """
+    if not ref:
+        return
+    try:
+        art = contracts.ArtifactRef.parse(ref)
+    except ValueError:
+        # Never reach the store on a ref that cannot be one: a malformed link is a caller's
+        # mistake, and answering it with a store error would blame the wrong thing.
+        st.warning(f"not an artifact reference: {ref!r}")
+        return
+    try:
+        data = container.artifacts().get(ref)
+    except Exception as e:      # artifacts outlive the run log on a different clock
+        st.warning(f"{art.name}: not available ({e})")
+        return
+    st.download_button(f"⬇️ {art.name}", data, file_name=art.name,
+                       mime=content_type_for(art.name))
 
 
 def _runs_page(_reviewer):
     st.title("Runs")
-    top = st.columns([1, 1, 6])
-    if top[0].button("🔄 Refresh"):
+    _artifact_download(str(st.query_params.get("artifact") or ""))
+    if st.button("🔄 Refresh"):
         st.rerun()
-    auto = top[1].toggle("Auto (5 s)", value=True, key="runs_auto")
-    if auto:
-        _runs_board_live()          # st.fragment re-runs only this board every 5 s
-    else:
-        _runs_board()
+    _runs_board()
 
 
 # ============================================================================ Review mode
@@ -445,6 +923,42 @@ def _xml_bytes(p):
     except Exception as e:      # an old approval whose artifact expired/was purged must not crash the gate
         st.warning(f"model artifact unavailable for this request: {e}")
         return None
+
+
+#: The figures a reviewer judges the open items against — shown only when the approval carries them,
+#: so a model approval keeps the five counts above and nothing else changes.
+_HEADLINE = (("recommendation", "Recommendation"), ("topology", "Topology"),
+             ("components", "Components"), ("year_one_cost", "Year-one cost"),
+             ("annual_benefit", "Annual benefit"))
+
+
+def _still_open(summ):
+    """What the work has left OPEN, before the reviewer opens anything.
+
+    A conformance approval used to arrive with an EMPTY summary: a package of twenty-five sections,
+    a question, and nothing saying that four obligations were bound to no enforcement point. The
+    reviewer then judges what reads well rather than what is complete, which is the one failure this
+    gate exists to prevent.
+    """
+    figures = [(label, summ[key]) for key, label in _HEADLINE if summ.get(key) not in (None, "")]
+    if figures:
+        cols = st.columns(len(figures))
+        for col, (label, value) in zip(cols, figures):
+            col.metric(label, f"{value:,.0f}" if isinstance(value, (int, float)) else str(value))
+    total, priced = summ.get("components"), summ.get("components_priced")
+    if isinstance(total, int) and isinstance(priced, int) and priced < total:
+        st.caption(f"The year-one figure prices {priced} of {total} selected components — the rest "
+                   f"have no line in the catalogue at this envelope.")
+    open_items = [str(o) for o in (summ.get("owed") or []) if str(o).strip()]
+    if not open_items:
+        if summ.get("owed") is not None:
+            st.success("Nothing outstanding: every obligation is bound, every figure computed.")
+        return
+    st.warning(f"**{len(open_items)} thing(s) still open** — approving accepts them as they are.")
+    for item in open_items[:20]:
+        st.markdown(f"- {item}")
+    if len(open_items) > 20:
+        st.caption(f"…and {len(open_items) - 20} more, in the record.")
 
 
 def _model_contents(p):
@@ -486,18 +1000,24 @@ def _import_files(p):
     That is the point — the vendor's knowledge stays on the vendor's adapter. Approvals staged before
     this shape existed still render (the normaliser turns their flat `*_ref` fields into downloads),
     so a reviewer can open the ~10 requests already waiting."""
-    for art in contracts.import_artifacts(p):
+    declared = contracts.import_artifacts(p)
+    readable = 0
+    for art in declared:
         try:
             data = container.artifacts().get(art.ref)
         except Exception as e:      # an old approval whose artifact expired must not break the gate
             st.warning(f"{art.label}: not available ({e})")
             continue
+        readable += 1
         st.download_button(art.label, data, file_name=art.filename, mime=art.mime)
         if art.note:
             st.caption(art.note)
     if p.get("instructions"):
         with st.expander("Import instructions (from the EA repository)"):
             st.text(p["instructions"])
+    # Whether the EVIDENCE still exists. Declared-but-none-readable is not cosmetic: approving
+    # releases a run that reads these same refs, so the decision cannot be carried out.
+    return bool(declared) and readable == 0
 
 
 def _views(p):
@@ -637,6 +1157,16 @@ def _review_page(reviewer):
         approvals.ack("review-app", eid)
 
     st.title("Architecture Review")
+    # The handover from the decision just taken. It is rendered AFTER the rerun — `_decide` cannot
+    # show anything itself, because it ends by rerunning the script — and it is a LINK rather than
+    # a redirect: the live view is a different origin, and Streamlit has no honest way to navigate
+    # the top window there.
+    released, released_process = st.session_state.pop("just_released", ("", ""))
+    if released and config.LIVE_APP_URL:
+        st.success(f"{released_process or 'The next run'} started — `{released}`")
+        st.link_button(f"👁️ Watch {released_process or 'it'} run live →",
+                       f"{config.LIVE_APP_URL.rstrip('/')}/run/{released}", type="primary")
+
     items = approvals.pending()
     st.sidebar.metric("Pending", len(items))
     if not items:
@@ -647,7 +1177,16 @@ def _review_page(reviewer):
             st.write(f'`{h["request_id"]}` **{h["decision"]}** by {h["actor"]} via {h["channel"]} — {h["comment"]} ({h["decided_at"]})')
         return
 
-    labels = [f'{i["subject"]} · {i["request_id"]}' for i in items]
+    # NEWEST FIRST — the reviewer's question is "what just arrived", and `pending()` answers a
+    # different one: it is INSERTION order, a pinned contract the CLI and the channels rely on, so
+    # the reversal belongs here in the view. With 64 open requests, oldest-first buried a run
+    # raised minutes ago under approvals from twelve days before, and the stale one got decided.
+    items = list(reversed(items))
+    # The DATE is part of the label because the subject is not distinguishing: every criticality
+    # request reads "Confirm the criticality class of a submitted use case", so without it the
+    # list is rows that differ only by an opaque id.
+    labels = [f'{i["subject"]} · {str(i.get("created_at", ""))[:10]} · {i["request_id"]}'
+              for i in items]
     # A card links here with ?approval=<id>: a reviewer with three open should land on theirs.
     wanted = st.query_params.get("approval")
     index = next((n for n, i in enumerate(items) if i["request_id"] == wanted), 0)
@@ -680,11 +1219,21 @@ def _review_page(reviewer):
     m = st.columns(5)
     for col, k in zip(m, ("elements", "relations", "views", "violations", "warnings")):
         col.metric(k, summ.get(k, "—"))
+    _still_open(summ)
 
     _model_contents(p)
     _views(p)
-    _import_files(p)
+    evidence_gone = _import_files(p)
     answer, blocked = _answer_form(p, req["request_id"])
+    # An approval whose evidence the store no longer holds cannot be APPROVED — approving releases
+    # the next run, which reads those same refs and dies on them (measured 23 Sep 2026: a design
+    # run failed in 3 s on `unknown artifact art://…/screening.json`). Declining and requesting
+    # changes stay open, because a request nobody can action is one a person should be able to
+    # close. This never overrides a block the question form already raised.
+    blocked = blocked or (evidence_gone and
+                          "the evidence this request rests on is no longer in the artifact store, "
+                          "so approving would release a run that cannot read it — decline it "
+                          "instead, or re-run the submission")
 
     # --- decision ---
     st.divider()
@@ -701,7 +1250,26 @@ def _review_page(reviewer):
                                      answer=answer if d == "approve" else None)
         except ValueError as e:                 # blank reviewer, or already decided
             st.error(str(e)); return
-        st.success(f"Recorded: {d}"); st.rerun()
+        # A decision that releases a run says WHICH run, and takes the person to it. Asked three
+        # times in one session — "why is it not progressing", "no idea what to do next" — and every
+        # time the work had moved somewhere nobody was told about.
+        released, process = released_run(req["request_id"])
+        if released:
+            # WHERE the handover goes: a run that has just started is WATCHED, not reviewed, and
+            # only the live service updates in place — this app is server-rendered and can refresh
+            # only by reloading. Routing in-app to `?mode=Runs` landed the reviewer on the surface
+            # for reading what a run PRODUCED, of a run that had produced nothing yet.
+            # `LIVE_APP_URL` unset is a supported deployment, so that in-app view stays the
+            # fallback: a handover must not vanish because an optional service is not there.
+            st.success(f"Recorded: {d} — {process or 'the next run'} started ({released}).")
+            if config.LIVE_APP_URL:
+                st.session_state["just_released"] = (released, process or "")
+            else:
+                st.session_state["runs_selected"] = released
+                st.query_params.update({"mode": "Runs", "run": released})
+        else:
+            st.success(f"Recorded: {d}")
+        st.rerun()
     # An approval that asks a question is approved by ANSWERING it, so the button says so and is
     # disabled until every speaker has one — better than letting someone submit and be refused.
     # ...and says what approving STARTS, read from the continuation the asker declared. Guarded,
@@ -722,8 +1290,71 @@ def _review_page(reviewer):
     if b3.button("⛔ Decline"): _decide("decline")
 
 
+# ============================================================================ Artifacts mode
+
+
+def _artifacts_page(reviewer):
+    """Admin: replace a reference artifact's master, validated, and STAGE it.
+
+    It cannot publish, and says so. The corpus publisher holds the Ed25519 signing seed, which is
+    deliberately kept out of `.env` and `LAB_ENV` — putting it behind a web session would make the
+    thing that signs the corpus reachable by anyone who reaches this page. So the app does the part
+    that actually prevents a bad corpus (validate, diff, stage) and an operator does the part that
+    needs the key.
+    """
+    st.title("Reference artifacts")
+    st.caption("Upload a replacement master. It is validated and staged; an operator signs and "
+               "releases it. Nothing here changes what a run reads until they do.")
+    names = staging.artifact_names()
+    if not names:
+        st.info("No artifact catalogue available — the publisher's artifact table could not be read.")
+        return
+    artifact_id = st.selectbox("Artifact", names)
+    upload = st.file_uploader("New master (markdown)", type=["md"], key=f"master_{artifact_id}")
+    if upload and st.button("Validate and stage", type="primary"):
+        try:
+            result = staging.stage(artifact_id, upload.getvalue(), actor=reviewer)
+        except staging.StagingError as bad:
+            st.error(f"Refused: {bad}")           # the reason, not just a refusal
+            return
+        st.success(f"Staged {artifact_id}: {result.records} record(s), "
+                   f"{len(result.added)} added, {len(result.removed)} removed, "
+                   f"{len(result.changed)} changed.")
+        for title, rows in (("Added", result.added), ("Removed", result.removed),
+                            ("Changed", result.changed)):
+            if rows:
+                with st.expander(f"{title} — {len(rows)}"):
+                    st.dataframe(rows, use_container_width=True)
+        st.code(f"python -m lab.substrate.reference.publish publish {artifact_id} --from-staged",
+                language="bash")
+    for cand in staging.list_staged():
+        st.caption(f"staged: **{cand['artifact_id']}** by {cand['actor']} at {cand['staged_at']} "
+                   f"— {cand['records']} records")
+
+
 # ============================================================================ page
-PAGES = {"Review": _review_page, "Submit": _submit_page, "Runs": _runs_page}
+#: The dispatch table, and now the authorisation beside it: `name -> (page, roles that may reach it)`.
+#: Together, so a page cannot be added without somebody deciding who it is for — the table was
+#: always the only routing, and a second table of permissions would be a second thing to forget.
+#: An EMPTY role tuple means any signed-in person; it is not the same as "no reader".
+PAGES = {
+    "Review":    (_review_page, (identity.ARCHITECT, identity.BUSINESS)),
+    "Submit":    (_submit_page, (identity.ARCHITECT, identity.BUSINESS)),
+    "Runs":      (_runs_page, identity.ROLES),
+    "Artifacts": (_artifacts_page, (identity.ADMIN,)),
+}
+
+
+def pages_for(principal) -> list:
+    """The pages this person may open, in table order."""
+    return [name for name, (_, roles) in PAGES.items() if principal.holds_any(roles)]
+
+
+def may_open(principal, name: str) -> bool:
+    """Checked again at the point of entry, not only when building the menu. A hidden option is not
+    an authorisation control — the mode is a query parameter anyone can set."""
+    entry = PAGES.get(name)
+    return bool(entry) and principal.holds_any(entry[1])
 
 
 def _announce_build():
@@ -739,21 +1370,93 @@ def _announce_build():
         _announce_build.done = True
 
 
+def _principal():
+    """Who is signed in, or None when SSO is not configured.
+
+    Entra when it is configured, and the shared password otherwise — the fallback is deliberate: a
+    half-configured SSO must not half-enable the gate, and "not set up" and "locked out" are
+    different states. `st.stop()` on every path that has not yet produced a principal.
+    """
+    if not identity.configured():
+        return None
+    who = st.session_state.get("principal")
+    if isinstance(who, identity.Principal):
+        return who
+    flow = identity.build()
+    code = st.query_params.get("code")
+    if code:
+        try:
+            who = flow.redeem(code)
+        except identity.SignInError as bad:
+            st.error(f"Sign-in failed: {bad}")
+            st.stop()
+        st.session_state["principal"] = who
+        st.query_params.clear()        # the code is single-use; leaving it on the URL re-redeems it
+        st.rerun()
+    st.title("Architecture Review")
+    st.link_button("Sign in with Microsoft", flow.login_url(state="review"), type="primary")
+    st.stop()
+
+
+def _selected_from(params, ids: list) -> str:
+    """Which run is open, from the URL — the page alone is not enough.
+
+    A browser refresh starts a NEW session, so a selectbox with no key resets to the first run and
+    the reader lands on somebody else's. The list is the authority: a run from an old link, or one
+    past the run log's seven-day TTL, falls back to the newest rather than failing.
+    """
+    wanted = str((params or {}).get("run") or "")
+    return wanted if wanted in ids else (ids[0] if ids else "")
+
+
+def _mode_from(params, offered: list) -> str:
+    """Which page is open, from the URL — the only thing that survives a page reload.
+
+    The Runs page refreshes by reloading, and a reload is a new session: a sidebar radio with no
+    key resets to its first option, so every refresh threw the reader back to `Review` and made the
+    board unusable. A URL that names the page fixes that and makes a page linkable besides.
+
+    The offered list is the authority: an unknown page, or one this principal's roles do not reach,
+    falls back to the first rather than failing — a stale link is not an error.
+    """
+    wanted = str((params or {}).get("mode") or "")
+    return wanted if wanted in offered else (offered[0] if offered else "")
+
+
 def main():
     _announce_build()
     st.set_page_config(page_title="Architecture Review", page_icon="🏛️", layout="wide")
-    if config.REVIEW_APP_PASSWORD:      # minimal gate; production fronts this app with Entra / an identity-aware proxy
-        if st.session_state.get("authed") is not True:
-            pw = st.text_input("Review app password", type="password")
-            if pw == config.REVIEW_APP_PASSWORD:
-                st.session_state["authed"] = True; st.rerun()
+    who = _principal()
+    if who is None:
+        if config.REVIEW_APP_PASSWORD:  # the fallback gate, for a deployment with no SSO configured
+            if st.session_state.get("authed") is not True:
+                pw = st.text_input("Review app password", type="password")
+                if pw == config.REVIEW_APP_PASSWORD:
+                    st.session_state["authed"] = True; st.rerun()
+                st.stop()
+        # the audit log answers "who released this EA-repository write", so the reviewer is never
+        # blank — and on this path it is still self-asserted, which is what SSO exists to end
+        reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer")).strip()
+        if not reviewer:
+            st.sidebar.warning("Enter your name to decide — an approval must carry the human who made it.")
+        offered = list(PAGES)
+    else:
+        reviewer = who.actor
+        st.sidebar.caption(f"**{who.name or reviewer}**  \n{reviewer}")
+        offered = pages_for(who)
+        if not offered:
+            st.warning(f"You are signed in as {reviewer} but hold no role in this app, so there is "
+                       f"nothing here yet. Ask for one of {', '.join(identity.ROLES)} — it is "
+                       f"granted in Entra, under Enterprise applications -> lab-review-app.")
             st.stop()
-    # the audit log answers "who released this EA-repository write", so the reviewer is never blank
-    reviewer = st.sidebar.text_input("Reviewer", value=os.environ.get("USER", "reviewer")).strip()
-    if not reviewer:
-        st.sidebar.warning("Enter your name to decide — an approval must carry the human who made it.")
-    mode = st.sidebar.radio("Mode", list(PAGES), horizontal=True)
-    PAGES[mode](reviewer)
+    opened = _mode_from(st.query_params, offered)
+    mode = st.sidebar.radio("Mode", offered, horizontal=True,
+                            index=offered.index(opened) if opened in offered else 0)
+    if mode != opened:                                   # a click: record it so a reload stays put
+        st.query_params["mode"] = mode
+    if who is not None and not may_open(who, mode):      # not merely hidden
+        st.error(f"{reviewer} may not open {mode}."); st.stop()
+    PAGES[mode][0](reviewer)
 
 
 if __name__ == "__main__":

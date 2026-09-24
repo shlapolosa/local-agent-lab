@@ -1,0 +1,133 @@
+# The capability matcher's evaluation harness, run where it has memory.
+#
+# G10 requires every production agent to have "an evaluation harness gating deploys" and G18 a
+# stated recall target on the branch it can suppress. The harness existed; its HOME did not. It ran
+# on a laptop, and on 21 Sep 2026 an 8 GB machine under ~22 GB of compressed memory killed a 30-run
+# baseline three times — at 17 of 30, then again, then part-way through the second case. Nothing was
+# wrong with the run: the OS reclaimed the newest large allocator. Only the DRIVER is local (the 90
+# model calls all execute at the gateway), so the fix is to drive it from somewhere with headroom.
+#
+# MANUAL ONLY, and that is a rule rather than a default. An eval spends real money (~$2.79 for a
+# six-case baseline at samples=3, measured) and shares one upstream account with live runs — the
+# standing rule is never to run it beside a cloud run, so the job REFUSES when the board is not
+# quiet, exactly as `release` does and for the same reason.
+#
+# The baseline is a REPO FILE, which is why this lives here and not in a Railway job: a bar that
+# gates merges has to move through review, not be copied out of somebody's logs.
+name: evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "repeats per case (the bar's n)"
+        default: "3"
+      samples:
+        description: "step-5 samples per run (COVERAGE_SAMPLES; 1 = the single pass)"
+        default: "3"
+      record:
+        description: "open a PR with the new baseline"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:                 # one eval at a time: they share an upstream account and a budget
+      group: evals
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py312-${{ hashFiles('deploy/requirements.txt', 'deploy/requirements-dev.txt', 'pyproject.toml') }}
+
+      - name: install
+        run: |
+          [ -d .venv ] || python -m venv .venv
+          .venv/bin/pip install -q -r deploy/requirements.txt -e .
+
+      # Unlike the test suite, this job NEEDS the profile: it holds EVAL_AGENT_KEY (the evals' own
+      # identity — the scripts refuse a production agent's key or the master key) and the public
+      # gateway URL. Never echoed; the file dies with the runner.
+      - name: materialise the profile
+        env:
+          LAB_ENV: ${{ secrets.LAB_ENV }}
+        run: |
+          if [ -z "$LAB_ENV" ]; then echo "::error::no LAB_ENV — the evals have no identity"; exit 1; fi
+          printf '%s' "$LAB_ENV" > .env
+          echo "profile: $(grep -c '^[A-Z_]*=' .env) keys"
+
+      # The standing rule the deploy gate cannot enforce for us: an eval beside a cloud run shares
+      # one rate bucket for the whole ACCOUNT, and it took ~3.5 h to clear twice. A front door that
+      # cannot be asked is reported and the job stops — unlike a deploy, an eval is never urgent.
+      - name: refuse to run beside a cloud run
+        run: |
+          set -a && . ./.env && set +a
+          open=$(curl -sS -m 30 -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+                   "$PUBLIC_GATEWAY_URL/api/runs/open" || echo FAILED)
+          echo "board: $open"
+          case "$open" in
+            '{"runs":[]}') echo "board quiet — proceeding" ;;
+            FAILED) echo "::error::could not ask the front door; not guessing"; exit 1 ;;
+            *) echo "::error::runs are open; an eval would share their rate bucket"; exit 1 ;;
+          esac
+
+      # A CASE AT A TIME, with results written as it goes. Same reason the harness gained
+      # `--record-from`: a long invocation is one that can be lost whole, and a case already paid
+      # for should never be paid for twice.
+      - name: score every case
+        run: |
+          set -a && . ./.env && set +a
+          export EVAL_GATEWAY="$PUBLIC_GATEWAY_URL"
+          mkdir -p var/eval/cases
+          for c in $(ls docs/evals/cases); do
+            echo "::group::$c"
+            .venv/bin/python scripts/eval_coverage.py --matcher leaves --case "$c" \
+              --runs "${{ inputs.runs }}" --samples "${{ inputs.samples }}" --concurrency 1 \
+              --out "var/eval/cases/$c.json" || echo "::warning::$c did not score"
+            echo "::endgroup::"
+          done
+
+      - name: record the baseline from what scored
+        run: |
+          set -a && . ./.env && set +a
+          .venv/bin/python scripts/eval_coverage.py --record-from var/eval/cases/*.json \
+            --samples "${{ inputs.samples }}"
+
+      # The results themselves, whatever happened — a failed arm is a data point, and the payload is
+      # worth most on the run that did not finish.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-results
+          path: var/eval/
+
+      # A PR, never a push to main: the bar decides what ships, so a human sees the numbers move.
+      - uses: peter-evans/create-pull-request@v7
+        if: inputs.record
+        with:
+          branch: evals/baseline
+          title: "test(evals): re-record the coverage baseline"
+          commit-message: |
+            test(evals): re-record the coverage baseline
+
+            Recorded by the evals workflow at samples=${{ inputs.samples }}, n=${{ inputs.runs }}.
+          body: |
+            Recorded by `.github/workflows/evals.yml` at
+            `samples=${{ inputs.samples }}`, `runs=${{ inputs.runs }}`.
+
+            The bar decides what ships, so it moves by review. Check the recall per case against
+            the diff before merging — and that every case is present: a baseline missing one has
+            silently stopped gating it.
+          add-paths: docs/evals/technology-baseline.json

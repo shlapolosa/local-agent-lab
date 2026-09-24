@@ -114,9 +114,11 @@ def test_review_page_selects_the_chosen_request_and_new_model_branch():
     b = _request(request_id="apr-b", subject="B", trace_id="")
     b["payload"]["summary"] = {"decision": "NEW", "domain": "Finance", "elements": 4}
     ap = FakeApprovals(items=[a, b])
-    st = install(FakeSt(Requests="B · apr-b"), approvals=ap, store=_store_for(b))
+    st = install(FakeSt(Requests="B · 2026-09-03 · apr-b"), approvals=ap, store=_store_for(b))
     APP._review_page("ann")
-    assert st.said("radio", "Requests ['A · apr-a', 'B · apr-b']")
+    # newest first, and each row carries its own date — see
+    # test_the_newest_request_is_at_the_top_of_the_review_list
+    assert st.said("radio", "Requests ['B · 2026-09-03 · apr-b', 'A · 2026-09-03 · apr-a']")
     assert st.said("success", "**NEW** model in domain **Finance** — 4 new element(s).")
     assert st.said("write", "`apr-b`") and not st.said("write", "**Trace**")
     assert not st.said("warning", "Last comment")
@@ -345,7 +347,7 @@ def test_runs_board_empty():
     assert st.said("info", "No runs recorded yet") and st.count("dataframe") == 0
 
 
-def test_runs_board_rows_selection_timeline_and_highlighted_graph():
+def test_runs_board_rows_selection_timeline_and_roadmap():
     act = _run()
     rec = _run(run_id="run-0", status="done", node="render", elapsed=200, finished_at="2026-09-03T09:00:00+00:00",
                request_id="wfr-1", approval_id="apr-1", xml_ref="art://x/m.xml", trace_id="")
@@ -356,7 +358,10 @@ def test_runs_board_rows_selection_timeline_and_highlighted_graph():
     assert st.said("expander", "All runs — 1 active, 1 recent")
     board = [a[0] for p, a, _ in st.calls if p.endswith("dataframe")][-1]
     assert [r["run"] for r in board] == ["run-1", "run-0"]
-    assert board[0] == {"run": "run-1", "process": "visio_to_archimate", "host": "", "input": "sys.vsdx",
+    # `about` is what the run IS — the workload's own subject once it has framed one, and the input
+    # filename until then. Without it a board of runs is a column of 32-character trace ids.
+    assert board[0] == {"run": "run-1", "process": "visio_to_archimate", "about": "sys.vsdx",
+                        "host": "", "input": "sys.vsdx",
                         "status": "running", "current node": "ba (start)", "started": "2026-09-03 10:00:00",
                         "elapsed": "42s", "trace": APP.JAEGER + "ff" * 16}
     assert board[1]["current node"] == "render" and board[1]["elapsed"] == "3.3m" and board[1]["trace"] is None
@@ -367,11 +372,10 @@ def test_runs_board_rows_selection_timeline_and_highlighted_graph():
     assert [(t["node"], t["status"], t["at"], t["elapsed"], t["detail"]) for t in timeline] == [
         ("read_input", "start", "10:00:01", "—", ""), ("read_input", "done", "10:00:03", "2s", "shapes=12"),
         ("ba", "start", "10:00:03", "—", "")]
-    graph = st.texts("code")[0]
-    assert graph.startswith(MERMAID)
-    assert f"style read_input {APP.NODE_STYLE['done']};" in graph and f"style ba {APP.NODE_STYLE['running']};" in graph
-    assert "style store" not in graph
-    assert st.count("iframe") == 1 and st.said("expander", "Mermaid source")
+    # The ROADMAP is the primary view now; the executor timeline is demoted to an expander, because
+    # it answers "which node" when an SME is asking "which step".
+    assert st.said("markdown", "**Roadmap**")
+    assert st.said("expander", "Node timeline — the executors")
 
 
 def test_runs_board_selected_run_details_and_fallbacks():
@@ -379,17 +383,20 @@ def test_runs_board_selected_run_details_and_fallbacks():
                request_id="wfr-1", approval_id="apr-1", xml_ref="art://x/m.xml", trace_id="")
     rl = FakeRunlog(recent=[rec], runs={"run-0": rec})
     st = install(FakeSt(), runlog=rl); _traces()
-    st.session_state["runs_selected"] = "run-0"
+    st.query_params["run"] = "run-0"          # selection lives in the URL now
     APP._runs_board()
     assert st.said("subheader", "`run-0` — failed") and not st.said("subheader", "· at")
     assert st.said("error", "RuntimeError: boom") and not st.said("write", "**Trace**")
     for k in ("request_id", "approval_id", "xml_ref"):
         assert st.said("write", f"**{k}** `{rec[k]}`")
-    assert st.said("caption", "no node reported yet") and st.said("caption", "no graph stored on this run")
+    assert st.said("caption", "no node reported yet")
+    # No corpus in this harness, so the roadmap says the methodology could not be read rather than
+    # drawing a process from code — the artifact is the source, or there is no roadmap.
+    assert st.said("caption", "published process steps could not be read")
     # a stale default selection falls back to the first row; an expired hash warns
     rl = FakeRunlog(recent=[rec], runs={})
     st = install(FakeSt(), runlog=rl); _traces()
-    st.session_state["runs_selected"] = "gone"
+    st.query_params["run"] = "gone"           # a stale link falls back to the newest
     APP._runs_board()
     assert st.said("warning", "run run-0 expired") and st.count("subheader") == 0
     assert st.said("expander", "All runs — 0 active, 1 recent")      # the list stays reachable
@@ -454,7 +461,9 @@ def test_runs_board_shows_per_node_llm_and_tool_calls_read_back_from_the_trace()
     APP._runs_board()
     assert tr.asked == ["ff" * 16]                                   # the run's own trace id
     assert st.said("markdown", "**Inside the run**")
-    labels = [t for t in st.texts("expander") if " — " in t]
+    # the per-NODE activity expanders, by their status glyph — the roadmap and the demoted timeline
+    # also use expanders, so " — " alone no longer identifies these
+    labels = [t for t in st.texts("expander") if t[:1] in ("•", "⛔")]
     assert labels[:2] == ["• ba — 1 LLM call(s) · 1 tool call(s) · 2,000 tokens · $0.0021",
                           "⛔ store — 0 LLM call(s) · 1 tool call(s)"]
     dfs = [a[0] for p, a, _ in st.calls if p.endswith("dataframe")]
@@ -472,6 +481,10 @@ def test_node_with_no_calls_says_so_and_a_missing_trace_leaves_an_empty_panel():
     assert st.said("caption", "no trace detail (no node has run yet, the trace expired")
     st = install(FakeSt(), runlog=FakeRunlog(active=[h], runs={"run-1": h}))
     _traces([traces.Span("quiet", "process-x", T0 + 1, 0.1, {})])    # a span that is neither LLM nor tool
+    # The trace SOURCE is swapped, which the cache key cannot see — it keys on the run having
+    # MOVED, and in a real deployment the reader does not change under a run. Clearing it is what
+    # the second scenario means.
+    APP._CACHE.clear()
     APP._runs_board()
     assert st.said("expander", "• ba — 0 LLM call(s) · 0 tool call(s)")
     assert st.said("caption", "no LLM or tool call in this step")
@@ -512,7 +525,7 @@ def test_two_runs_of_one_devui_session_do_not_share_the_memoised_trace_detail():
              traces.Span("litellm_request", "litellm-gateway", T0 + 101, 1.0, {"gen_ai.request.model": "m2"})])
     APP._runs_board()                                        # both runs carry trace_id "ff"*16
     assert st.said("expander", "• ba — 1 LLM call(s)")
-    st.session_state["runs_selected"] = "s-2"
+    st.query_params["run"] = "s-2"
     APP._runs_board()
     labels = [t for t in st.texts("expander") if "LLM call(s)" in t]
     assert labels[-2:] == ["• ba — 1 LLM call(s) · 0 tool call(s)", "• store — 0 LLM call(s) · 0 tool call(s)"]
@@ -672,11 +685,17 @@ def test_two_open_approvals_do_not_share_speaker_widget_state():
     them doing it on purpose. Disjoint keys per approval is what stops that."""
     other = dict(QUESTION_REQ, request_id="apr-OTHER", subject="Tuesday standup — who is speaking?")
     ap = FakeApprovals(items=[QUESTION_REQ, other])
-    st = install(FakeSt(**ANSWERED), approvals=ap, store=_store_for(QUESTION_REQ))
+    # Each is SELECTED by name: which one the list offers first is the ordering test's business
+    # (newest first), and this test must not depend on it.
+    st = install(FakeSt(**ANSWERED,
+                        Requests=f'{QUESTION_REQ["subject"]} · '
+                                 f'{str(QUESTION_REQ["created_at"])[:10]} · apr-9'),
+                 approvals=ap, store=_store_for(QUESTION_REQ))
     APP._review_page("ann")
     first = [k for k in _widget_keys(st) if k.startswith(("id_", "tag_"))]
 
-    st2 = install(FakeSt(**ANSWERED, Requests=f'{other["subject"]} · apr-OTHER'),
+    st2 = install(FakeSt(**ANSWERED,
+                         Requests=f'{other["subject"]} · {str(other["created_at"])[:10]} · apr-OTHER'),
                   approvals=FakeApprovals(items=[QUESTION_REQ, other]), store=_store_for(other))
     APP._review_page("ann")
     second = [k for k in _widget_keys(st2) if k.startswith(("id_", "tag_"))]
@@ -847,3 +866,62 @@ def test_a_continuation_this_build_cannot_start_leaves_the_approval_decidable():
     APP._review_page("ann")
     assert st.said("warning", "not_a_process_yet")
     assert st.said("button", "Decline")
+
+
+def test_a_run_that_has_framed_its_problem_is_named_by_it_not_by_its_trace_id():
+    """The fix for "I started a run and cannot find it". A run is keyed by its trace id, so the
+    board was a column of hex; the workload now writes `subject` as soon as its framing step
+    produces one, which is seconds in rather than at the end."""
+    assert APP._about({"subject": "Referral triage takes too long", "input": "art://x/u.md"}) \
+        == "Referral triage takes too long"
+
+
+def test_without_a_subject_the_input_filename_stands_rather_than_a_blank():
+    """A run that died before framing, or a process that names no subject at all. Less useful than
+    a subject, never wrong — and never an empty cell that reads as a broken row."""
+    assert APP._about({"input": "art://7d0/use-case-submission.md"}) == "use-case-submission.md"
+    assert APP._about({"subject": "   ", "input": "art://7d0/x.vsdx"}) == "x.vsdx"
+    assert APP._about({}) == ""
+
+
+# ============================================================================ Review mode — ordering
+def _radio_options(st):
+    """The options `sidebar.radio` was handed, in the order a person sees them."""
+    return next(a[1] for name, a, _ in st.calls if name == "sidebar.radio" and a[0] == "Requests")
+
+
+def test_the_newest_request_is_at_the_top_of_the_review_list():
+    """`approvals.pending()` is INSERTION order and stays that way — it is a pinned contract
+    (tests/unit/platform/test_pending_order.py) and the CLI counts on it. The REVIEW LIST is a
+    different question: with 64 open requests the reviewer wants the one that just arrived, and
+    oldest-first buried a run raised minutes ago under approvals from twelve days earlier.
+    Measured 23 Sep 2026 — a stale one was decided by mistake, and the design run it released
+    died in 3 s on a screening record the store no longer holds."""
+    old = _request(request_id="apr-old", subject="Old one", created_at="2026-09-12T08:00:00+00:00")
+    new = _request(request_id="apr-new", subject="New one", created_at="2026-09-23T07:00:00+00:00")
+    ap = FakeApprovals(items=[old, new])                 # pending(): oldest first
+    st = install(FakeSt(), approvals=ap, store=_store_for(new))
+    APP._review_page("ann")
+    assert [o.split(" · ")[0] for o in _radio_options(st)] == ["New one", "Old one"]
+
+
+def test_a_request_is_labelled_with_ITS_DATE_so_a_stale_one_is_visible_as_stale():
+    """The label was `subject · request_id`, and every criticality request shares one subject —
+    "Confirm the criticality class of a submitted use case". So a list of them is indistinguishable
+    rows differing only by an opaque id, and picking the right one is guesswork."""
+    old = _request(request_id="apr-old", subject="Old one", created_at="2026-09-12T08:00:00+00:00")
+    ap = FakeApprovals(items=[old])
+    st = install(FakeSt(), approvals=ap, store=_store_for(old))
+    APP._review_page("ann")
+    assert "2026-09-12" in _radio_options(st)[0]
+
+
+def test_a_deep_link_still_opens_ITS_request_whatever_the_order():
+    """?approval=<id> is how a channel card and the live view hand a person the one they want."""
+    old = _request(request_id="apr-old", subject="Old one", created_at="2026-09-12T08:00:00+00:00")
+    new = _request(request_id="apr-new", subject="New one", created_at="2026-09-23T07:00:00+00:00")
+    ap = FakeApprovals(items=[old, new])
+    st = install(FakeSt(), approvals=ap, store=_store_for(old))
+    st.query_params = {"approval": "apr-old"}
+    APP._review_page("ann")
+    assert st.said("write", "`apr-old`")

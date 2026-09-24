@@ -28,8 +28,8 @@ from typing import Any
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from lab.platform import mcp_client
-from lab.platform.contracts import ArtifactRef
+from lab.platform import config, mcp_client
+from lab.platform.contracts import ApprovalTools, ArtifactRef, CollabTools, EATools
 from lab.platform.webhook import get_json, post_json
 
 __all__ = ["auth_headers", "call", "call_tools", "call_tools_raw", "node_span",
@@ -64,8 +64,18 @@ async def preflight(mcp_url: str, headers: Mapping[str, str], required: Iterable
     """
     wanted = {(r if isinstance(r, str) else r[0]): (() if isinstance(r, str) else tuple(r[1]))
               for r in required}
-    async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
-        tools = await c.list_tools()
+    # Bounded like any other exchange: the preflight's whole point is to cost nothing and refuse
+    # early, and a preflight that hangs holds the run open before it has done anything at all.
+    async def listing():
+        async with Client(StreamableHttpTransport(mcp_url, headers=dict(headers or {}))) as c:
+            return await c.list_tools()
+
+    try:
+        tools = await asyncio.wait_for(listing(), config.TOOL_CALL_TIMEOUT_S)
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(f"the gateway did not list its tools within "
+                           f"{config.TOOL_CALL_TIMEOUT_S:.0f}s — the run refuses here rather than "
+                           f"hanging before it has started") from exc
     exposed = [t.name for t in tools]
     missing = [t for t in wanted if not any(n.endswith(t) for n in exposed)]
     if missing:
@@ -239,20 +249,52 @@ def auth_headers(credential: str, traceparent: str = "") -> dict[str, str]:
     return headers
 
 
-def node_span(cfg: Mapping[str, Any], node: str):
+def node_span(cfg: Mapping[str, Any], node: str, **attrs):
     """A run-log span for one node, or nothing when the run is not on the board (a CLI or test
-    run). A null context rather than a branch at every call site."""
+    run). A null context rather than a branch at every call site.
+
+    `attrs` — `title=` above all — are stamped on the node. A node id is an ADDRESS: `derive` and
+    `step_5` say where a run is, not what it is doing, and the workload that declares the node is
+    the only place that knows. So the label travels from the declaration and the page renders what
+    arrived, rather than a screen inventing names for somebody else's steps.
+    """
     import contextlib
 
     from lab.platform import runlog
     rid = cfg.get("run_id")
-    return runlog.span_node(rid, node) if rid else contextlib.nullcontext()
+    return runlog.span_node(rid, node, **attrs) if rid else contextlib.nullcontext()
 
 
-async def call(cfg: Mapping[str, Any], suffix: str, args: Mapping[str, Any]) -> Any:
+#: Tools that must never be asked twice. Each mints a durable, human-facing object, and a second
+#: one is invisible to the first: two `approvals_ask` calls are two people asked to decide one
+#: thing. DECLARED rather than inferred from a name — a rule like "anything containing ask" would
+#: silently mis-classify the next tool added. Everything else is a read or replaces by identity.
+NEVER_RETRIED = frozenset({ApprovalTools.ask, EATools.stage_import,
+                           CollabTools.watch, CollabTools.watch_renew})
+
+
+async def call(cfg: Mapping[str, Any], suffix: str, args: Mapping[str, Any],
+               *, _call_tools=None, _sleep=None) -> Any:
     """ONE governed tool call, by suffix. Suffix rather than full name because the gateway prefixes
-    a server's alias and a workload must stay alias-agnostic."""
-    return (await call_tools(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
+    a server's alias and a workload must stay alias-agnostic.
+
+    Retried across a gateway restart, exactly as an agent call is. `survive_restart` was written for
+    that event — a deploy restarts the gateway with no zero-downtime cutover, so calls in flight get
+    a 5xx for one to three minutes — and it was wired to `gates.run_gated` and not here, so half the
+    traffic was protected and half was not. Measured 20 Sep 2026: a screening run died at `derive`
+    with a 500 from `/mcp/` two minutes into a rollout, having already completed steps 3 and 4.
+
+    Not unconditionally: a tool in `NEVER_RETRIED` is asked once and its failure reported.
+    """
+    invoke = _call_tools or call_tools
+
+    async def attempt():
+        return (await invoke(cfg["headers"], cfg["mcp_url"], [(suffix, args)]))[0]
+
+    if suffix in NEVER_RETRIED:
+        return await attempt()
+    kw = {"sleep": _sleep} if _sleep else {}
+    return await survive_restart(attempt, **kw)
 
 
 async def run_graph(cfg: Mapping[str, Any], build, inputs: Mapping[str, Any], *, what: str,

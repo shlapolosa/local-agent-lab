@@ -361,6 +361,23 @@ def _publisher(soak_days: float = 1.0) -> Publisher:
                      embedder=container.embedder(), soak=timedelta(days=soak_days))
 
 
+def _staged_master(args):
+    """The master to publish: the one an ADMIN staged, or the one named on the command line.
+
+    Refuses by name rather than falling back. An operator who typed `--from-staged` and was silently
+    given something else would sign content nobody reviewed, which is the one outcome the staging
+    split exists to prevent.
+    """
+    if not getattr(args, "from_staged", None):
+        return args.master
+    if args.master:
+        raise SystemExit("--master and --from-staged are alternatives; pass one")
+    path = Path(args.from_staged) / f"{args.artifact_id}.md"
+    if not path.is_file():
+        raise SystemExit(f"nothing staged for {args.artifact_id} at {path}")
+    return path
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="lab.substrate.reference.publish",
                                  description=(__doc__ or "").splitlines()[0])
@@ -372,6 +389,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     pub = sub.add_parser("publish", help="publish one artifact version from its master")
     pub.add_argument("artifact_id")
     pub.add_argument("--master", type=Path, default=None, help="a markdown master on disk")
+    pub.add_argument("--from-staged", type=Path, default=None, metavar="DIR",
+                     help="publish the master an ADMIN staged in the review app, written to DIR as "
+                          "<artifact_id>.md. The app validates and diffs but cannot publish — the "
+                          "signing seed stays with the operator — so this is the handover, and it "
+                          "is one command against a file the app already proved derives records.")
     pub.add_argument("--master-ref", default="",
                      help="or its art:// ref in the private store (a licensed workbook lives ONLY there)")
     pub.add_argument("--master-format", choices=("markdown", "workbook"), default="markdown")
@@ -406,7 +428,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{publisher.init(grants=args.grants)} statements applied")
     elif args.command == "publish":
         out = publisher.publish(
-            args.artifact_id, master_path=args.master, version=args.version, kind=args.kind,
+            args.artifact_id, master_path=_staged_master(args), version=args.version, kind=args.kind,
             owner=args.owner, record_type=args.record_type,
             key_fields=[f for f in args.key_fields.split(",") if f],
             supersedes=args.supersedes, retrieval=args.retrieval,

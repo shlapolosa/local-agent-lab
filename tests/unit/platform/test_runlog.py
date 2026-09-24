@@ -14,7 +14,7 @@ from fixtures.fakes import DeadRedis, FakeRedis, capture as _quiet  # (tests/fix
 
 
 def test_start_node_finish_via_client():
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()
     r = FakeRedis()
     _, out, _ = _quiet(runlog.start, "run-1", process="visio_to_archimate", input="d.vsdx", trace_id="t1", mermaid="graph TD", client=r)
     assert "[run run-1] started visio_to_archimate input=d.vsdx trace=t1" in out
@@ -60,7 +60,7 @@ def test_a_run_is_logged_under_the_process_that_ran_it():
 
 
 def test_span_node_records_failure():
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()
     r = FakeRedis()
     _quiet(runlog.start, "run-2", process="visio_to_archimate", input="x", client=r)
     try:
@@ -83,7 +83,7 @@ def test_error_text_is_the_one_phrasing_of_a_failure():
 def test_finish_from_closes_a_run_the_same_way_for_every_host():
     """ONE implementation of "the run is over" (host, DevUI, any future host): an exception fails it,
     a `fail` NODE fails it even when nothing raised, and the artifacts ride along either way."""
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()
     r = FakeRedis()
     _quiet(runlog.start, "fin-ok", process="visio_to_archimate", input="x", client=r)
     assert _quiet(runlog.finish_from, "fin-ok", client=r, approval_id="apr-9",
@@ -123,25 +123,28 @@ def test_bad_statuses_rejected():
 
 def test_retry_after_latch():
     """First failure -> one stderr notice, print-only for RETRY_AFTER_S; then Redis is tried again."""
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()
     dead = DeadRedis()
     _, out, err = _quiet(runlog.start, "run-3", process="visio_to_archimate", input="x", client=dead)
     assert dead.attempts == 1 and "redis unavailable" in err and "[run run-3] started" in out
-    assert runlog._RETRY_AT > time.time() and runlog._RETRY_AT <= time.time() + runlog.RETRY_AFTER_S + 1
+    # The window belongs to THIS client. A global one meant a workload's dead Redis also silenced
+    # every other client in the process — ten unrelated CI failures on 20 Sep 2026.
+    assert time.time() < runlog._RETRY_AT[dead] <= time.time() + runlog.RETRY_AFTER_S + 1
     _, out, err = _quiet(runlog.node, "run-3", "ba", "start", client=dead)
     _, _, _ = _quiet(runlog.finish, "run-3", "failed", error="e", client=dead)
     assert dead.attempts == 1, "inside the retry window Redis must not be touched"
     assert err == "" and "[run run-3] ba" in out, "stdout progress continues; no repeated notice"
     assert runlog.get("run-3", client=dead) == {}
     # the window elapses -> the next call tries Redis again (a healthy client now succeeds)
-    runlog._RETRY_AT = time.time() - 1
+    runlog._RETRY_AT[dead] = time.time() - 1
     ok = FakeRedis()
     _quiet(runlog.start, "run-4", process="visio_to_archimate", input="y", client=ok)
-    assert "run:run-4" in ok.h and runlog._RETRY_AT == 0.0, "success clears the latch"
+    assert "run:run-4" in ok.h and ok not in runlog._RETRY_AT, "success clears that client's latch"
     # and a failure after that re-arms it (not a permanent flag either way)
     _, _, err = _quiet(runlog.update, "run-4", k="v", client=dead)
-    assert dead.attempts == 2 and "redis unavailable" in err and runlog._RETRY_AT > time.time()
-    runlog._RETRY_AT = 0.0
+    assert dead.attempts == 2 and "redis unavailable" in err
+    assert runlog._RETRY_AT[dead] > time.time(), "that client's window is re-armed"
+    runlog._RETRY_AT.clear()
 
 
 if __name__ == "__main__":
@@ -149,3 +152,14 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print(f"  [PASS] {name}")
     print("test_runlog: ALL PASSED")
+
+
+def test_active_runs_are_newest_first_like_recent_ones(fake_redis):
+    """`recent` is newest first and `active` was oldest first, and the board concatenates them —
+    so the run at the top of the list was the OLDEST thing still running, and the default
+    selection landed there. Two sibling readers with opposite orders is a trap whichever way the
+    caller reads it."""
+    for rid, when in (("old", "2026-09-01T00:00:00"), ("new", "2026-09-23T00:00:00")):
+        runlog.start(rid, process="p", input="x", client=fake_redis)
+        runlog.update(rid, started_at=when, client=fake_redis)
+    assert [h["run_id"] for h in runlog.active(client=fake_redis)] == ["new", "old"]

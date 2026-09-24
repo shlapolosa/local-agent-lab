@@ -66,6 +66,27 @@ GATEWAY_ARGS = "--host 0.0.0.0 --port 4000 --num_workers 1"
 REDIS_IMAGE = "redis:7-alpine"
 
 # --- substrate services: name -> role command, ingress, health ---
+# ADDING A SERVICE HERE? Five things are learned, written down, and still walked into — twice in
+# one day (19 Sep 2026: Postgres ran as root, the live view 502'd). Nothing in this table prompts
+# you at the moment you need them, so they are here, where a service is actually declared:
+#
+#   1. BIND — a service reached on the PRIVATE network binds `::` (Railway's internal DNS is
+#      IPv6-only); one reached by a PERSON over the public edge binds `0.0.0.0` (that edge is
+#      IPv4). Binding the wrong stack deploys healthily and 502s every request.
+#   2. HEALTHCHECK — the probe runs over IPv6. A service bound `0.0.0.0` must declare NONE, or
+#      Railway kills a deploy that is actually serving.
+#   3. ENTRYPOINT — a start command REPLACES the image's entrypoint and is exec'd without a shell.
+#      `a && b` runs only `a`, and an image whose entrypoint drops privileges (postgres) will run
+#      as root and refuse. Name `docker-entrypoint.sh` explicitly, or wrap in `sh -c '…'`.
+#   4. VOLUME — anything with state needs one, and PGDATA-style dirs want a SUBDIRECTORY of the
+#      mount (the mount root already contains `lost+found`).
+#   5. PORT — must be unique across config's `*_PORT` settings; a test asserts it.
+#   6. BUILD LINE — the service must print `config.build_id()` at START, in the shape `BUILD_RE`
+#      greps for, or `substrate versions` answers "(no build line in its logs)" about it for ever.
+#      Added to this list because the review app's was fixed in the morning and the live view
+#      shipped with the same blind spot the same afternoon: a new service inherits the gap unless
+#      it inherits the line.
+#   7. SERVICE_PORTS — a server needs its listen port there too, or production gives it no ingress.
 SUBSTRATE = {
     "semantic-mcp": {"cmd": "python -m lab.substrate.mcp.semantic.server", "port": None},
     "adoit-mcp":    {"cmd": "python -m lab.substrate.mcp.adoit.server", "port": None},
@@ -133,10 +154,31 @@ SUBSTRATE = {
                      # Neon is already migrated by the native bootstrap; skip the ~152-migration cold-start
                      # replay a fresh container otherwise runs against remote Neon.
                      "env": {"OTEL_SERVICE_NAME": "litellm-gateway", "DISABLE_SCHEMA_UPDATE": "true"}},
-    "review":       {"cmd": "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
-                            "--server.address :: --server.headless true", "port": 8501,
+    # The build line is printed BEFORE streamlit, by the start command, not by the app. The app
+    # prints it from `main()`, and Streamlit runs the script only when a browser session begins —
+    # so a freshly deployed app nobody has opened reported "(no build line in its logs)" in
+    # `substrate versions`, which is precisely when you want to know what is serving. `sh -c`
+    # because a start command is exec'd WITHOUT a shell, so an unwrapped `a && b` runs only `a`.
+    "review":       {"cmd": "sh -c 'python -c \"from lab.platform import config; "
+                            "print(f\\\"review: serving {config.build_id()}\\\", flush=True)\" && "
+                            "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
+                            "--server.address :: --server.headless true'", "port": 8501,
                      "s3": True,    # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
                      "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no reader DSN
+    # The LIVE run view. Its own service because Streamlit cannot be driven by an event stream —
+    # it is server-rendered, so the only way to change a page is a script rerun, and a three-second
+    # reload made the Runs board unusable. It serves the page AND the stream so the two are
+    # same-origin: the browser holds no Entra token and could never watch through the gateway's
+    # /api. PUBLIC domain because a person opens it; the gate is the review app's own password.
+    # Redis and nothing else — it reads the run log and never an artifact.
+    # BIND_HOST 0.0.0.0 and no healthcheck, for the SAME measured reason as the gateway: Railway
+    # reaches a container over TWO paths — the public edge over IPv4, the healthcheck probe over
+    # IPv6 — and uvicorn binds one stack. `::` passes the probe and 502s every real request, which
+    # is exactly what this service did on its first deploy. The substrate default is `::` because
+    # every other server here is reached on the PRIVATE network, whose DNS is IPv6-only; this one
+    # is reached by a person, so it is the exception and says so.
+    "live":         {"cmd": "python -m lab.substrate.live.server", "port": 10000,
+                     "env": {"BIND_HOST": "0.0.0.0"}},
 }
 S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE", "UPLOADS_URL")
 
@@ -194,7 +236,7 @@ def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
 SERVICE_PORTS = {
     "adoit-mcp": 9100, "semantic-mcp": 9200, "storage-mcp": 9300, "workflow-frontdoor": 9400,
     "graph-mcp": 9500, "speech-mcp": 9600, "reference-mcp": 9700, "decision-mcp": 9800,
-    "valuation-mcp": 9900, "gateway": 4000, "review": 8501,
+    "valuation-mcp": 9900, "gateway": 4000, "review": 8501, "live": 10000,
 }
 EMBED_PORT = 11434
 
@@ -427,8 +469,27 @@ ROLE_ENV = {
         "MEETING_WEBHOOK_URL",  # where it POSTs. Unset = it logs what it would say
         _OTLP,                  # NO store, NO Graph credential, NO gateway: it reads run state and
     ],                          # posts ids and links. It never opens an artifact it announces.
+    # Watching is not reviewing: this holds the gate and Redis, and no store, model or EA
+    # credential whatsoever — the narrowest slice any public service here gets.
+    "live": ["REVIEW_APP_PASSWORD", "REDIS_URL", "BIND_HOST", "LIVE_PORT",
+             "OTEL_EXPORTER_OTLP_ENDPOINT",
+             # Where a person DECIDES. The live view builds the "open the approval" CTA and every
+             # artifact download link from it (live/server.py `_approval_link` / `_with_links`);
+             # unset, config falls back to localhost and the cloud served `http://127.0.0.1:8501`
+             # — the one button the handover exists for, pointing at the reader's own machine.
+             # A URL a person clicks, not a credential: the channel roles hold it for this reason.
+             "REVIEW_APP_URL"],
     "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
-        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate
+        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the FALLBACK
+        "LIVE_APP_URL",                            # where to send a reader who wants to WATCH a run
+                                                   # rather than review one; absent = no link offered
+        "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # the app's own Entra registration:
+                                                   # signs a PERSON in, so the approval ledger names
+                                                   # a human the tenant vouches for rather than a
+                                                   # typed string. Unset -> the password gate stands
+                                                   # (`review.identity.configured()`), which is why
+                                                   # a half-configured SSO cannot lock the app out
+        "ENTRA_TENANT_ID", "REVIEW_APP_URL",       # the authority, and the registered redirect
         "REDIS_URL",                               # approvals / workflows / runlog streams
         "ARTIFACTS_URL", "DATABASE_URL",           # reads xml/svg refs of a request
         "JAEGER_UI_URL",                           # trace links
@@ -461,7 +522,12 @@ ROLE_ENV = {
         "REDIS_URL",                               # workflows.py (consume requests) + runlog.py (live node status)
         _OTLP,                                     # lab.platform.otel.tracer; service name is set in code, not from env
         "ENTRA_TENANT_ID", "ENTRA_GATEWAY_AUDIENCE",   # identity.py MSAL authority + scope
-        "AGENT_*",                                 # agents.py: AGENT_RESPONSES_STORE / REQUEST_TIMEOUT / MAX_RETRIES / MAX_OUTPUT_TOKENS
+        "AGENT_*",                                 # agents.py: AGENT_RESPONSES_STORE / REQUEST_TIMEOUT / MAX_RETRIES / MAX_OUTPUT_TOKENS / SEED
+        # usecase/coverage.py: which matcher runs, how many times step 5 is asked, and how many of
+        # those must agree. Read INSIDE the workload, and absent here until 20 Sep 2026 — so they
+        # could be set in .env, shipped in LAB_ENV, and change nothing about the running service.
+        # A knob that looks connected and is not is worse than no knob.
+        "COVERAGE_*",
         "WF_CONSUMER",                             # consumer.py replica name (spec env)
     ],
     # image services built from nothing in this repo: they get NO .env keys at all
@@ -483,10 +549,12 @@ WORKLOAD_ENV: dict[str, list[str]] = {
     "usecase-screening": [
         "USECASE_AGENT_*",                         # identity.agent_headers(): CLIENT_ID/SECRET/KEY
         "AGENT_*",                                 # responses-store toggle, timeouts, caps
+        "USECASE_MODEL_TRACE",                     # the throwaway per-step model trace (test aid)
     ],
     "usecase-design": [
         "USECASE_AGENT_*",
         "AGENT_*",
+        "USECASE_MODEL_TRACE",
     ],
     "usecase-investment": [                        # a DIFFERENT identity: its grants carry the write
         "USECASE_DELIVERY_*",                      # path, and one workload never holds another's

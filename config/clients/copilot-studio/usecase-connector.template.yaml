@@ -1,0 +1,69 @@
+# The SAME definition as usecase-connector.json, in the YAML the portal's Swagger editor
+# speaks. Import the JSON; paste THIS when the editor is already open. Rendered by
+# `./lab.sh clients` — edit usecase-connector.template.json, never this file.
+#
+# It declares only what the portal cannot infer. On save the portal adds the rest of an
+# agentic operation itself: the {connectionId} path prefix, Mcp-Session-Id, and its own
+# `queryRequest` body. Do not add a body parameter — Swagger 2.0 allows one, and a second
+# makes the definition invalid (APIM refuses the save, which is what blocked this connector
+# on 15-16 Sep 2026).
+swagger: '2.0'
+info:
+  title: AI use case assessment (lab)
+  description: Submit an AI use case for assessment, find one somebody already submitted, follow a run
+    to its outcome, and answer the questions the assessment raises. Every operation goes through the
+    lab's governed gateway, which meters it, traces it and enforces what this connection is granted.
+  version: '1.0'
+  contact:
+    name: the lab's gateway
+    url: ${PUBLIC_GATEWAY_URL}
+host: ${PUBLIC_GATEWAY_HOST}
+basePath: /
+schemes:
+- https
+consumes:
+- application/json
+produces:
+- application/json
+- text/event-stream
+paths:
+  /mcp:
+    post:
+      summary: Use case assessment tools
+      description: 'The governed tool surface: use_case_screening_submit, _status, _result, _runs (find
+        a past use case), and the approval gate (approvals_list, approvals_get, approvals_decide). Which
+        of them this connection may call is decided by the key, not by this file. Streamable HTTP: the
+        caller must accept BOTH application/json and text/event-stream, which is what `produces` declares
+        — a client that accepts only JSON is refused with 406 before it reaches a tool.'
+      operationId: InvokeMCP
+      x-ms-agentic-protocol: mcp-streamable-1.0
+      responses:
+        default:
+          description: The MCP stream. Shaped by the protocol, not by this file.
+      parameters:
+      - name: Accept
+        in: header
+        required: true
+        type: string
+        default: application/json, text/event-stream
+        x-ms-visibility: internal
+        description: 'Streamable HTTP requires BOTH media types. Declared as a parameter with a default
+          rather than left to `produces`: the Power Platform runtime does not derive the Accept header
+          from `produces`, and a client that accepts only JSON is refused with 406 before it reaches
+          a tool.'
+securityDefinitions:
+  api_key:
+    type: apiKey
+    in: header
+    name: Authorization
+    description: Bearer <USECASE_SUBMITTER_KEY> — the virtual key of the `usecase-submitter` team. Type
+      it when you create the connection; it is never stored in this file.
+security:
+- api_key: []
+x-ms-connector-metadata:
+- propertyName: Website
+  propertyValue: ${PUBLIC_GATEWAY_URL}
+- propertyName: Privacy policy
+  propertyValue: ${PUBLIC_GATEWAY_URL}
+- propertyName: Categories
+  propertyValue: AI;Productivity

@@ -44,6 +44,11 @@ class FakeSt:
     def __init__(self, **answers):
         self.calls, self.answers, self.session_state = [], answers, {}
         self.has_iframe, self.raise_on = True, {}
+        # A real `st.query_params` is dict-LIKE and assignable. It has to be modelled rather than
+        # recorded, because the app both READS it (which page is open, so a reload stays put) and
+        # WRITES it (a click records the page) — a recorder returns a `_Rec` and the read is then
+        # a truth the test invented.
+        self.query_params = dict(answers.pop("query_params", {})) if "query_params" in answers else {}
 
     def __getattr__(self, n):
         if n.startswith("__") or (n == "iframe" and not self.has_iframe):
@@ -146,6 +151,13 @@ class FakeApprovals:
 
     def ack(self, channel, eid):
         self.acked.append((channel, eid))
+
+    #: approval id -> (released request id, process), as `continuations` records after a release.
+    released: dict = {}
+
+    def status(self, request_id, **_):
+        rid, process = self.released.get(request_id, ("", ""))
+        return {"released_request_id": rid, "released_process": process} if rid else {}
 
     def pending(self):
         return list(self.items)

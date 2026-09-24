@@ -133,7 +133,8 @@ def valuation_benefit(effort: list[dict] | None = None, role_rates: dict | None 
                       quality_baseline: dict | None = None, error_costs: dict | None = None,
                       sensitivity_flags: list[str] | None = None,
                       cited_avoided_cost: float | None = None, citation: str = "",
-                      build_cost: float = 0.0, monthly_run_cost: float = 0.0,
+                      build_cost: float | None = None, monthly_run_cost: float = 0.0,
+                      capex: float = 0.0,
                       data_fully_digital: bool = True,
                       open_conditions: list[str] | None = None) -> dict:
     """Step 24 — the three benefit drivers, the financial summary and the recommendation.
@@ -158,8 +159,11 @@ def valuation_benefit(effort: list[dict] | None = None, role_rates: dict | None 
                                          cited_avoided_cost=cited_avoided_cost,
                                          citation=citation),
         ]
+        # `build_cost=None` (nobody captured one) travels as UNKNOWN rather than as zero, and
+        # `capex` is part of year one — the figure the delegated authority routes on has to be the
+        # one the conformance reviewer was shown.
         summary = benefit.financial_summary(drivers, build_cost=build_cost,
-                                            monthly_run_cost=monthly_run_cost)
+                                            monthly_run_cost=monthly_run_cost, capex=capex)
         outcome = benefit.recommend(summary, open_conditions=open_conditions or [])
     except benefit.BenefitError as exc:
         raise ToolError(str(exc)) from exc

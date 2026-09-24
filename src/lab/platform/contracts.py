@@ -30,7 +30,7 @@ import re
 from lab.platform import config
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Mapping
 
 from lab.core.ids import POINTER_ID_FIELDS      # stdlib-only: this module must import without rdflib
 
@@ -236,6 +236,7 @@ class SemanticTools(ToolCatalogue):
     derive = "semantic_derive"                     # rebuild rung D (two rules) — the publish workload, after a baseline
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
+    render_cafe = "semantic_render_cafe"           # a solution view (draw.io + SVG) projected from a model spec
     # FOUR GRANTS. `READ` is what every team had before the fabric and every query the products answer.
     # `PIPELINE` is what the intake and publish workloads write — per artifact, at a rung, with provenance —
     # and the curator. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
@@ -246,7 +247,8 @@ class SemanticTools(ToolCatalogue):
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, questions, ask,
-            catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes)
+            catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
+            render_cafe)
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
     PROMOTE = (promote,)
@@ -278,7 +280,8 @@ class EATools(ToolCatalogue):
 class WorkflowTools(ToolCatalogue):
     """workflow-mcp — the governed front door to every business PROCESS. Its process tools are not fixed
     constants: they are GENERATED per entry in `PROCESSES` below (`<process>_submit`,
-    `<process>_status`, `<process>_result`), so registering a process is the one place that changes.
+    `<process>_status`, `<process>_result`, `<process>_runs`), so registering a process is the one
+    place that changes.
     The same server also carries the APPROVAL tools (`ApprovalTools` below) — a run PAUSES for a human
     approval, so the pause is part of the lifecycle this front door exposes.
 
@@ -289,7 +292,12 @@ class WorkflowTools(ToolCatalogue):
     name here that no server exposes is exactly the drift that test exists to catch.
     """
     SERVER = "workflow_mcp"
-    VERBS = ("submit", "status", "result")             # a tuple, so `names()`'s string filter ignores it
+    #: `fields` PUBLISHES the questionnaire: the labels, types, choices and required-ness a caller
+    #: must fill in. Generated like the rest, and offered only by a process that HAS a
+    #: questionnaire — an agent asked to "gather the intake fields" otherwise invents its own
+    #: labels, and the mapping it sends matches nothing the corpus published, with nothing
+    #: anywhere reporting the mismatch.
+    VERBS = ("submit", "status", "result", "runs", "fields")
     replay = "workflow_replay"                         # run a FAILED request again, from its own inputs
 
     # ONE grant, and it is a write: a replay starts a run. It is safe to offer even for a process
@@ -302,7 +310,10 @@ class WorkflowTools(ToolCatalogue):
     def verbs_for(cls, spec: "ProcessSpec") -> tuple[str, ...]:
         """The tools this process actually gets. One place, read by the catalogue and by the server's
         registration, so the two cannot disagree about what exists."""
-        return cls.VERBS if spec.external else tuple(v for v in cls.VERBS if v != "submit")
+        verbs = cls.VERBS if spec.external else tuple(v for v in cls.VERBS if v != "submit")
+        # A process with no questionnaire does not advertise one: a tool answering "this process
+        # has no questions" is worse than no tool, because a grant can name it.
+        return verbs if spec.questionnaire else tuple(v for v in verbs if v != "fields")
 
     @classmethod
     def names(cls) -> frozenset[str]:
@@ -582,8 +593,15 @@ def import_artifacts(payload: dict[str, Any]) -> list[ImportArtifact]:
     declared = payload.get("import_artifacts")
     if declared is not None:
         return [ImportArtifact.from_dict(d) for d in declared]
-    return [ImportArtifact(ref=v, label=ImportArtifact(v, "?").filename)
-            for k, v in payload.items() if k.endswith("_ref") and isinstance(v, str) and v.strip()]
+    # ONE download per ref: two keys naming the same file (a design whose `architecture_ref` fell
+    # back to its `model_ref`) would render two identical buttons, which the review app refuses.
+    seen: set[str] = set()
+    out = []
+    for k, v in payload.items():
+        if k.endswith("_ref") and isinstance(v, str) and v.strip() and v not in seen:
+            seen.add(v)
+            out.append(ImportArtifact(ref=v, label=ImportArtifact(v, "?").filename))
+    return out
 
 
 class Decision(StrEnum):
@@ -941,6 +959,12 @@ class InputKind(StrEnum):
     MAPPING = "mapping"    # a SMALL flat object of label -> {field: value}, from a human's answer
     CONVERSATION = "conversation"   # ONE opaque provider conversation id: where a result is announced
     CHOICE = "choice"      # ONE value from a CLOSED set declared on the field
+    NUMBER = "number"      # ONE number — a figure a formula reads, never prose for it to parse
+    # A repeating table of TYPED rows, columns declared on the field. `MAPPING` holds one value per
+    # label, and 37 % of real submissions list two or three effort roles — so a third of them could
+    # not be expressed, driver 1 was understated or left open, and a driver left open means
+    # `recommend()` can never return `proceed`: every case in the portfolio read the same verdict.
+    TABLE = "table"
     APPROVAL = "approval"  # ONE approval id (`apr-<12 hex>`): the decision a continuation was released by
     # The Documentation Fabric's three (docs/fabric/FRS.md §4.4, §4.6): a POINTER is a bounded structured
     # reference INTO a system of record (never content, never a URL); an EVENT is the ULID of the
@@ -1054,6 +1078,33 @@ def check_artifact_iri(value: Any, field: str = "artifact_iri") -> str:
     return text
 
 
+#: How many rows a TABLE may carry. Bounded for the reason MAPPING is bounded: an input that can
+#: grow without limit is a way to smuggle arbitrary state through a governed door. Twelve is well
+#: past the widest real answer measured (three effort roles).
+MAX_TABLE_ROWS = 12
+
+
+@dataclass(frozen=True)
+class Column:
+    """One column of a TABLE input — its name, its kind, and whether a row may omit it.
+
+    The kinds are the scalar ones (`NUMBER`, `CHOICE`, `IDENTITY`, …): a column is a value a
+    formula or a domain object reads, so nesting a table inside a table would be a shape no
+    consumer here has.
+    """
+    name: str
+    kind: "InputKind"
+    required: bool = False
+    choices: tuple[str, ...] = ()
+    description: str = ""
+
+    def field(self, table: str) -> "InputField":
+        """This column as a one-value field, so a cell is coerced by exactly the rules a top-level
+        input of that kind is — rather than by a second implementation that can disagree."""
+        return InputField(f"{table}.{self.name}", self.kind, self.description,
+                          required=self.required, choices=self.choices)
+
+
 @dataclass(frozen=True)
 class InputField:
     """One field of a process's input contract: its name, kind, prose (the JSON-schema description an
@@ -1066,7 +1117,19 @@ class InputField:
     kind: InputKind
     description: str
     required: bool = True
+    #: The corpus ARTIFACT that publishes this field's questions — their labels, types, choices and
+    #: which are required. Empty means the field carries no questionnaire.
+    #:
+    #: The artifact id rather than a flag, and declared HERE rather than in each surface, because
+    #: the questions must be discoverable and the discovery must be derived: `<process>_fields`
+    #: serves them to an agent, the review app renders them as a form, the CSV template is the same
+    #: list, and adding or removing a question is a corpus publish that changes all three at once.
+    #: NOT inferred from `MAPPING`: a mapping can equally be an answer a human already gave — a
+    #: speaker map is not a set of questions, and offering to "read its questions" would invite
+    #: somebody to fill in another person's attribution.
+    questions: str = ""
     choices: tuple[str, ...] = ()          # CHOICE only: the closed set of accepted values
+    columns: tuple[Column, ...] = ()       # TABLE only: the typed columns one row may carry
 
     def __post_init__(self) -> None:
         # A CHOICE with no members would accept nothing (and read as an oversight); a CHOICE that
@@ -1074,6 +1137,9 @@ class InputField:
         # to avoid. Either way the failure belongs at construction, not at the first submit.
         if (self.kind is InputKind.CHOICE) != bool(self.choices):
             raise ValueError(f"{self.name}: CHOICE declares its choices, and nothing else takes them")
+        if (self.kind is InputKind.TABLE) != bool(self.columns):
+            raise ValueError(f"{self.name}: a TABLE declares its columns, and nothing else takes "
+                             f"them — a table whose shape nobody stated is a free-text blob")
 
     def coerce(self, value: Any) -> Any:
         """The normalised value, or ValueError naming the field. `None`/absent is legal only when the
@@ -1092,6 +1158,10 @@ class InputField:
             return self._conversation(value)
         if self.kind is InputKind.CHOICE:
             return self._choice(value)
+        if self.kind is InputKind.NUMBER:
+            return self._number(value)
+        if self.kind is InputKind.TABLE:
+            return self._table(value)
         if self.kind is InputKind.POINTER:
             return check_pointer(value, self.name)
         if self.kind is InputKind.EVENT:
@@ -1169,6 +1239,47 @@ class InputField:
                              f"{MAX_CONVERSATION_CHARS} an id may be")
         return text
 
+    def _number(self, value: Any) -> float:
+        """ONE number. A figure a formula reads, so it arrives as a number rather than as prose for
+        the formula to parse — the scraping that replaces this reads a latency SLA as a volume."""
+        if isinstance(value, bool):        # bool is an int in Python, and "yes" is not a figure
+            raise ValueError(f"{self.name}: {value!r} is a yes/no, not a number")
+        try:
+            return float(str(value).strip().replace(",", ""))
+        except (TypeError, ValueError):
+            raise ValueError(f"{self.name}: {value!r} is not a number") from None
+
+    def _table(self, value: Any) -> list[dict]:
+        """A repeating table of typed rows, each coerced by its column's own kind.
+
+        A column nobody declared is REFUSED rather than carried: an undeclared column is a value
+        somebody believes was captured and nothing reads. A required column missing is refused by
+        name, for the same reason — `requires_input` and a wrong number are the distinction the
+        whole valuation rests on.
+        """
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"{self.name}: a table is a list of rows, got {type(value).__name__}")
+        if len(value) > MAX_TABLE_ROWS:
+            raise ValueError(f"{self.name}: {len(value)} rows; at most {MAX_TABLE_ROWS} — an input "
+                             f"that can grow without limit is a way to smuggle arbitrary state")
+        known = {c.name: c for c in self.columns}
+        out = []
+        for n, row in enumerate(value, start=1):
+            if not isinstance(row, Mapping):
+                raise ValueError(f"{self.name} row {n}: a row is an object, "
+                                 f"got {type(row).__name__}")
+            extra = sorted(set(row) - set(known))
+            if extra:
+                raise ValueError(f"{self.name} row {n}: {extra} are not columns of this table — "
+                                 f"have {sorted(known)}")
+            got: dict = {}
+            for name, column in known.items():
+                coerced = column.field(self.name).coerce(row.get(name))
+                if coerced is not None:
+                    got[name] = coerced
+            out.append(got)
+        return out
+
     def _choice(self, value: Any) -> str:
         """One member of the closed set, normalised. The refusal NAMES the members, because a closed
         set nobody can see is just a rejection with no remedy."""
@@ -1237,6 +1348,38 @@ class ProcessSpec:
     # is declared here and refused on every external surface at once. Note the asymmetry: submit is
     # refused, status/result are not — a caller may always observe a run it caused indirectly.
     external: bool = True
+    # Groups of inputs of which EXACTLY ONE must be supplied — alternatives, not options. No single
+    # field can say this: each member is individually optional, so `required` cannot express it and
+    # the rule used to live inside the workload's first executor. That meant an invalid submission
+    # passed `validate`, queued, got a request_id and a TRACE, started a run and died at step 1 —
+    # measured 18 Sep 2026, where a person received a trace id instead of a form error. Declared
+    # here, it is refused by EVERY surface at once (MCP tool, REST front door, the review app), for
+    # the same reason `external` is: a rule about the process belongs to the process.
+    @property
+    def questionnaire(self) -> str | None:
+        """The input that carries a QUESTIONNAIRE — a set of published questions a caller answers.
+
+        Declared on the field, not inferred from its KIND: `transcript_to_minutes` takes a
+        `speaker_map` mapping that is an ANSWER a human already gave, not a set of questions to
+        ask — and offering to "read its questions" would be an invitation to fill in somebody's
+        attribution. One flag, read here, so renaming the field is one edit and a new process that
+        declares one gets its `fields` tool for free.
+        """
+        for field in self.inputs:
+            if field.questions:
+                return field.name
+        return None
+
+    #: Fields that are ALTERNATIVES: at most one of them. Two documents describing one submission
+    #: is an ambiguity nobody can resolve, so it is refused — but supplying NEITHER is a separate
+    #: question, and conflating the two is what made a conversational intake unsubmittable.
+    one_of: tuple[tuple[str, ...], ...] = ()
+
+    #: Fields of which at least one must arrive — what the process cannot proceed without, stated
+    #: as the SET that satisfies it rather than as a single required field. A completed
+    #: questionnaire and an uploaded document are both a submission; demanding the document meant
+    #: an agent could walk a user through every question and then not be allowed to submit them.
+    at_least_one: tuple[tuple[str, ...], ...] = ()
 
     def tool(self, verb: str) -> str:
         """The name of one of this process's generated tools (`<process>_<verb>`)."""
@@ -1262,6 +1405,20 @@ class ProcessSpec:
             v = f.coerce(values.get(f.name))
             if v is not None:
                 out[f.name] = v
+        # Checked AFTER coercion, so a field present but empty counts as absent — the same reading
+        # every other rule here takes, and the one a person filling a form expects.
+        for group in self.one_of:
+            given = [n for n in group if out.get(n)]
+            if len(given) > 1:
+                raise ValueError(
+                    f"{self.name}: supply at most one of "
+                    + " or ".join(f"`{n}`" for n in group)
+                    + "; got both")
+        for group in self.at_least_one:
+            if not any(out.get(n) for n in group):
+                raise ValueError(
+                    f"{self.name}: supply at least one of "
+                    + " or ".join(f"`{n}`" for n in group) + "; got none")
         return out
 
 
@@ -1450,13 +1607,46 @@ USE_CASE_SCREENING = ProcessSpec(
                    "reduction, error class), the sensitivity flags, the budget bucket or vendor "
                    "quote, and the urgency. Missing entries do not block the run — they become "
                    "requires-input markers that the business case carries to the approver as gate "
-                   "conditions rather than estimating around.", required=False),
+                   "conditions rather than estimating around. Call `use_case_screening_fields` "
+                   "for the published questions — their labels, types, choices and which are "
+                   "required — rather than inventing labels: a label nothing published matches is "
+                   "carried into the record and reported by nothing.",
+                   required=False, questions="intake-field-specs"),
+        InputField("effort", InputKind.TABLE,
+                   "Who does this work today and for how long — ONE ROW PER ROLE. The only benefit "
+                   "driver a submitter can answer from memory, and the one the business case can "
+                   "compute exactly: headcount x frequency x the minutes saved, at the published "
+                   "rate for that seniority. A role left out is effort the case will not claim.",
+                   required=False,
+                   columns=(
+                       Column("role", InputKind.CHOICE, required=True,
+                              choices=("junior", "mid", "senior", "lead", "exec"),
+                              description="Seniority band — the key the published rate registry "
+                                          "is written against. Job titles vary per team; bands do "
+                                          "not, which is why the rate card is keyed on them."),
+                       Column("headcount", InputKind.NUMBER, required=True,
+                              description="How many people at this band do it."),
+                       Column("frequency_per_week", InputKind.NUMBER, required=True,
+                              description="How many times a week, per person."),
+                       Column("current_minutes", InputKind.NUMBER, required=True,
+                              description="Minutes it takes now, per occurrence."),
+                       Column("expected_minutes", InputKind.NUMBER, required=True,
+                              description="Minutes it would take with the solution. Must not "
+                                          "exceed `current_minutes` — a saving is what this "
+                                          "measures."))),
         InputField("conversation", InputKind.CONVERSATION,
                    "Optional id of the conversation the submission came from, so the outcome can "
                    "be announced where it was asked for.", required=False),
     ),
+    # The submission arrives EITHER as an uploaded ref OR as a handle to fetch. Neither field can
+    # carry that rule alone, and leaving it to the workload cost a run per mistake.
+    # Two documents is an ambiguity; NO document is not, when the intake itself carries the case.
+    one_of=(("submission", "submission_handle"),),
+    at_least_one=(("submission", "submission_handle", "intake"),),
     outputs=("trace_id", "approval_id", "review_app", "submission_ref", "screening_ref",
-             "criticality_band", "summary"),
+             # What a person looking for a past use case actually searches by. Without it a listing
+             # of runs is a column of `art://` refs and nobody can find "the referral triage one".
+             "subject", "criticality_band", "summary"),
     products=('screening_ref',),
     identity=("submission", "submission_handle"),
 )

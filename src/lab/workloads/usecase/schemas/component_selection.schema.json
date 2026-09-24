@@ -7,7 +7,8 @@
         "type": "object",
         "properties": {
           "capability": {
-            "type": "string"
+            "type": "string",
+            "description": "The capability this component provides, written as the map's own key — \"Domain · Capability\", copied character for character from the coverage map's `capability_id`. NOT the bare label: the key is what joins this selection to the capability step 5 matched, and a label joins to nothing."
           },
           "component_id": {
             "type": "string",

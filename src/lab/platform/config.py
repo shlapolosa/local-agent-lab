@@ -34,6 +34,7 @@ def _rows(name: str) -> tuple[dict, ...]:
 # --- where the tree is (paths, not URLs): the repo root and the git-ignored runtime dir ---
 REPO_ROOT = Path(__file__).resolve().parents[3]            # src/lab/platform/config.py -> repo (editable install)
 VAR_DIR = Path(_e("LAB_VAR_DIR") or REPO_ROOT / "var")     # logs/ run/ artifacts/ out/ inputs/ tools/ reference-sources/
+SKILLS_DIR = REPO_ROOT / "skills"                           # the registered skills (SKILL.md + engines); COPYed into the image
 
 # --- where things are (URLs as seen by the CALLER) ---
 GATEWAY_URL      = _e("GATEWAY_URL", "http://127.0.0.1:4000")           # LiteLLM, for agents/clients
@@ -89,6 +90,10 @@ STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
+#: The LIVE run view — not an MCP server: a page and its own event stream, served together so
+#: they are same-origin (the browser holds no Entra token, so it could never have watched
+#: through the gateway's /api).
+LIVE_PORT         = int(_e("LIVE_PORT", "10000"))
 REFERENCE_MCP_PORT = int(_e("REFERENCE_MCP_PORT", "9700"))
 DECISION_MCP_PORT = int(_e("DECISION_MCP_PORT", "9800"))
 VALUATION_MCP_PORT = int(_e("VALUATION_MCP_PORT", "9900"))
@@ -148,6 +153,9 @@ SOFFICE_BIN = _e("SOFFICE_BIN")                      # override for an install o
 # --- trust between services ---
 MCP_SHARED_SECRET = _e("MCP_SHARED_SECRET")          # gateway -> MCP servers bearer token; unset = open (local only)
 REVIEW_APP_PASSWORD = _e("REVIEW_APP_PASSWORD")      # minimal gate when no identity-aware proxy fronts the app
+#: Where the LIVE run view is served, if it is deployed. Unset = the review app simply does not
+#: offer the link, which is the honest degradation: the board still works, it just reloads.
+LIVE_APP_URL = _e("LIVE_APP_URL")
 
 # --- ADOIT write policy ---
 # The hosted Community Edition (adoit-ce.boc-cloud.com) BLOCKS REST write verbs at its edge proxy
@@ -210,6 +218,15 @@ ENTRA_GATEWAY_AUDIENCE = _e("ENTRA_GATEWAY_AUDIENCE", "")   # api://… — the 
 #: Entra app id -> virtual key, the mapping the gateway turns a validated JWT into a key with. Empty
 #: is a real answer: a deployment where no agent has a registration yet still runs on durable keys.
 ENTRA_CLIENT_TO_KEY = _mapping("ENTRA_CLIENT_TO_KEY")
+
+#: The REVIEW APP's own Entra registration — a confidential WEB app that signs a PERSON in, distinct
+#: from the agent registrations above, which are client-credentials identities for machines.
+#:
+#: Unset means the app keeps its shared-password gate. That fallback is deliberate: a half-configured
+#: SSO must not half-enable the gate, and the difference between "not set up" and "locked out" is
+#: worth a branch. `lab.substrate.review.identity.configured()` is the one reader.
+REVIEW_ENTRA_CLIENT_ID = _e("REVIEW_ENTRA_CLIENT_ID", "")
+REVIEW_ENTRA_CLIENT_SECRET = _e("REVIEW_ENTRA_CLIENT_SECRET", "")
 
 # --- where an agent's A2A card is published; unset = nowhere, and it says so ---
 # The card itself is portable (the A2A spec, with the Entra identity in `securitySchemes` — the same
@@ -321,6 +338,34 @@ MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # group with reasoning_effort=medium) recalled 0.50/0.40 in ~90 s — the kimi baseline — at a
 # fraction of claude-sonnet-5's cost. Speed alone is the wrong answer for this step.
 USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini-think")
+#: How long a workload waits for ONE governed tool call before treating it as hung. The FLOOR under
+#: every other bound, so it sits above the longest legitimate synchronous call — speech transcription
+#: is 900 s by design (`lab.substrate.mcp.speech.http.TIMEOUT`: an hour of audio is not quick) — and
+#: above the gateway's own MCP client timeout (LITELLM_MCP_CLIENT_TIMEOUT, 300 s in .env today, which
+#: is therefore the bound that actually bites first; make it one deliberate number when the first
+#: hour-long recording arrives). Measured 14 Sep 2026: a screening host sat for an hour inside a
+#: store call the server had already answered, holding the board open — this is what ends that.
+TOOL_CALL_TIMEOUT_S = float(_e("TOOL_CALL_TIMEOUT_S", "1000"))
+#: THROWAWAY test aid (14 Sep 2026): render what every step ADDED to the run's architecture model as
+#: its own artifact, so a step's contribution is proven on the run itself. One store + one render per
+#: mapped step, so off by default; `lab.workloads.usecase.modeltrace` is the whole of it.
+USECASE_MODEL_TRACE = _e("USECASE_MODEL_TRACE", "false").lower() == "true"
+#: The seed every agent asks with. A fixed one makes two identical calls the SAME call on a model
+#: that honours it (measured: gpt-5.4-mini and gpt-4.1 do; a *-think model does not). Settable so
+#: a sampling run can vary it deliberately rather than by accident.
+AGENT_SEED = int(_e("AGENT_SEED", "20260920"))
+
+#: How many times step 5 (match capabilities) is asked before its answers vote. 1 = the single pass
+#: that was there before sampling existed. Above 1 costs that many step-5 calls and buys down the
+#: spread that decoding options cannot: measured 20 Sep 2026 on the step's real payload, both
+#: `gpt-5.4-mini` and `gpt-5.4-mini-think` at temperature 0 WITH a seed returned three distinct
+#: answers out of three.
+COVERAGE_SAMPLES = int(_e("COVERAGE_SAMPLES", "1"))
+
+#: How many of those samples must agree before a match is kept. 0 = a majority of the samples that
+#: actually answered, which is the only threshold that means "most runs said so" for every sample
+#: count rather than for the one it was tuned at.
+COVERAGE_VOTES = int(_e("COVERAGE_VOTES", "0"))
 # The gateway's upstream implements only the NON-stateful Responses flavour, so a stateful turn comes
 # back empty and full context is resent each turn. Set true only against a Responses-stateful backend.
 AGENT_RESPONSES_STORE = _e("AGENT_RESPONSES_STORE", "false").lower() == "true"

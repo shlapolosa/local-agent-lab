@@ -192,6 +192,12 @@ def register(server: LabServer) -> None:
                                                                "releases nothing.")] = None,
         artifacts: Annotated[dict | None, Field(description="`art://` references a reviewer may open "
                                                             "while deciding, as {name: ref}.")] = None,
+        summary: Annotated[dict | None, Field(description="What a reviewer must know BEFORE opening "
+                                                          "anything: the headline figures, and an "
+                                                          "`owed` list naming what this work has "
+                                                          "left open. A reviewer given a package "
+                                                          "and no summary judges what reads well "
+                                                          "rather than what is complete.")] = None,
         requester: Annotated[str, Field(description="Who the answer is on behalf of — the person "
                                                     "whose work this approval concerns, so a "
                                                     "channel knows who to tell.")] = "",
@@ -268,6 +274,8 @@ def register(server: LabServer) -> None:
                              "approval's own meaning (the question, its completeness contract, the "
                              "continuation, the reviewer's brief). Pass artifacts under names of "
                              "your own.")
+        if summary:
+            payload["summary"] = dict(summary)
         payload |= dict(artifacts or {})
         rid = approvals.request(kind=kind, subject=subject,
                                 payload=payload, requester=requester or SOURCE, client=_client())

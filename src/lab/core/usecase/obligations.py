@@ -112,32 +112,60 @@ def _mapping_rows(rows=None) -> dict[str, str]:
     return out
 
 
-def _obligations_from(cell: str, source: str, seen: set[str]) -> list[Obligation]:
+def _obligations_from(cell: str, source: str) -> list[Obligation]:
     """Split a mapping cell into obligations, following "All of E1" rather than reading it as one.
 
-    Cells are `·`-separated clauses; a clause may name a guardrail or may be pure prose."""
+    Cells are `·`-separated clauses; a clause may name a guardrail or may be pure prose. Every
+    clause is emitted; supersession is settled once, in `_supersede`, because it cannot be decided
+    from inside one cell.
+    """
     out: list[Obligation] = []
     for clause in (c.strip() for c in cell.split("·")):
         if not clause or _INHERITS.match(clause):
             continue
         ids = _GUARDRAIL.findall(clause)
-        key = f"{ids[0] if ids else clause}"
-        if key in seen:
-            continue
-        seen.add(key)
         out.append(Obligation(text=clause, source=source, guardrail=ids[0] if ids else ""))
     return out
 
 
-def _resolve(label: str, rows: dict[str, str], seen: set[str]) -> list[Obligation]:
+def _key(obligation: Obligation) -> str:
+    return obligation.guardrail or obligation.text
+
+
+def _supersede(found: list[Obligation]) -> list[Obligation]:
+    """One obligation per guardrail: the HIGHEST class's wording, in first-seen order.
+
+    `_resolve` recurses into the inherited class first, so the inherited clause arrives before the
+    one that re-states it — and a plain "already seen" test kept the weaker text. E3's "G09 as
+    per-action human authorisation — a policy-bounded gate is NOT sufficient at this class" was
+    dropped in favour of E2's "or a policy-bounded gate", so a reviewer approving an irreversible
+    financial commitment was handed the sentence saying the weaker control is acceptable.
+
+    A higher class re-stating a guardrail is OVERRIDING it, so the later wording wins — while the
+    position is the first one, because the order a control set is read in is its own information.
+    """
+    order: dict[str, int] = {}
+    out: list[Obligation] = []
+    for obligation in found:
+        key = _key(obligation)
+        if key in order:
+            out[order[key]] = obligation
+        else:
+            order[key] = len(out)
+            out.append(obligation)
+    return out
+
+
+def _resolve(label: str, rows: dict[str, str]) -> list[Obligation]:
+    """Everything this class mandates, inherited rows FIRST so a re-statement can supersede them."""
     cell = rows.get(label)
     if cell is None:
         raise ObligationError(f"the mapping has no row for {label!r}; have {sorted(rows)}")
     out: list[Obligation] = []
     inherits = _INHERITS.search(cell)
     if inherits:
-        out += _resolve(inherits.group(1).upper(), rows, seen)
-    return out + _obligations_from(cell, label, seen)
+        out += _resolve(inherits.group(1).upper(), rows)
+    return out + _obligations_from(cell, label)
 
 
 def mandatory_for(exposure: int, influence: int, *, mapping_rows=None) -> list[Obligation]:
@@ -146,13 +174,14 @@ def mandatory_for(exposure: int, influence: int, *, mapping_rows=None) -> list[O
         if not isinstance(value, int) or not 0 <= value <= 3:
             raise ObligationError(f"{name}: {value!r} is not a published class (0-3)")
     rows = _mapping_rows(mapping_rows)
-    seen: set[str] = set()
-    out = _obligations_from(rows["BASELINE"], "baseline", seen)
+    out = _obligations_from(rows["BASELINE"], "baseline")
     if exposure:
-        out += _resolve(f"E{exposure}", rows, seen)
+        out += _resolve(f"E{exposure}", rows)
     if influence:
-        out += _resolve(f"I{influence}", rows, seen)
-    return out
+        out += _resolve(f"I{influence}", rows)
+    # Once, over the whole set: a class that re-states a guardrail is strengthening it, and the
+    # baseline/inherited wording must not shadow the stronger one.
+    return _supersede(out)
 
 
 # ---------------------------------------------------------------- the predicates

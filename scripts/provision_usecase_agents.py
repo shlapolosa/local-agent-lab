@@ -31,8 +31,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lab.platform import config
-from lab.platform.contracts import (ApprovalTools, DecisionTools, ReferenceTools,  # noqa: E402
-                                    SemanticTools, StorageTools, USE_CASE_SCREENING,
+from lab.platform.contracts import (ApprovalTools, DecisionTools, EATools, ReferenceTools,  # noqa: E402
+                                    SemanticTools, StorageTools, USE_CASE_DESIGN, USE_CASE_SCREENING,
                                     ValuationTools, VectorStores, WorkflowTools)
 from lab.workloads.usecase.identity import PREFIX_FOR  # noqa: E402
 
@@ -56,7 +56,13 @@ INTAKE_TOOLS = {
     # `ontologies` is the corpus step 9 reads; the capability map is no longer a semantic tool —
     # it is read from the governed corpus under the run's pin, and searched through a store.
     SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.ontologies,
-                           SemanticTools.describe],
+                           SemanticTools.describe,
+                           # The CAFÉ solution view of the model the run grew (draw.io + SVG).
+                           SemanticTools.render_cafe],
+    # The ArchiMate ENGINE's renderer only — the model the run grows is drawn by it (legality is
+    # checked in-process by `relrepair.check` as the model grows, so no validate tool is needed);
+    # nothing here reads or stages anything in the EA repository.
+    EATools.SERVER: [EATools.render],
     # The deterministic derivations. Read-only, and the whole catalogue: a run that could compute
     # its exposure but not its obligations would produce a design package with a hole in it.
     DecisionTools.SERVER: sorted(DecisionTools.names()),
@@ -80,9 +86,13 @@ DELIVERY_TOOLS = {
 #: continuations with no submit tool, and a grant naming one would name a tool the server does not
 #: expose. Nothing to grant is not the same as granting nothing — the first is a typo the gateway
 #: cannot report, the second looks like a broken server.
+#: The surface a person's own client reaches: start a screening, find one, follow it — and follow the
+#: DESIGN it becomes, which is a continuation, so `verbs_for` withholds its submit and hands over only
+#: the ways to observe. A submitter who could not see the design half would be told their use case was
+#: approved and then nothing.
 SUBMITTER_TOOLS = {
-    WorkflowTools.SERVER: [USE_CASE_SCREENING.tool(v)
-                           for v in WorkflowTools.verbs_for(USE_CASE_SCREENING)]
+    WorkflowTools.SERVER: [spec.tool(v) for spec in (USE_CASE_SCREENING, USE_CASE_DESIGN)
+                           for v in WorkflowTools.verbs_for(spec)]
                           + list(ApprovalTools.READ) + list(ApprovalTools.WRITE),
 }
 
@@ -94,17 +104,25 @@ SUBMITTER_TOOLS = {
 NO_STORES = ("-",)
 
 
-#: The relevance stores each team may search — a GRANT unit, like a tool (see `_grants`). The
-#: intake team matches capabilities against the maps; the delivery and submitter identities search
-#: nothing and are spelled as such, because an empty grant is an open one.
-INTAKE_STORES = [VectorStores.CAPABILITY_MAP_HEALTHCARE, VectorStores.CAPABILITY_MAP_INSURANCE]
+#: The relevance stores each team may search — a GRANT unit, like a tool (see `_grants`).
+#:
+#: NONE, since 18 Sep 2026. Step 5 matches the TECHNOLOGY capability map, which is a 74-row register
+#: read WHOLE from the corpus under the run's pin — it has no relevance store and nothing searches
+#: one. The two BA Guild workbook stores granted here until then were a standing permission for a
+#: search no code makes, which is the kind of grant that is only ever noticed by an audit.
+#:
+#: Declared EMPTY, like the other two. `_grants` turns an empty list into the `NO_STORES` sentinel
+#: at the one place that writes the grant — spelling the sentinel here as well would put the same
+#: decision in two places, and the one that matters is the writer's.
+INTAKE_STORES: list[str] = []
 
 #: The EVALS identity: what `scripts/eval_coverage.py` and `scripts/adjudicate_coverage.py` run as.
 #: Its own team and key, because a harness on the production agents' key competes with real runs
 #: for the same rpm/tpm and budget and is indistinguishable from them in the ledger (11 Sep 2026).
-#: Reads the corpus and searches the maps like a run does; starts nothing, answers nothing. The
-#: second model family is for the adjudicator's independent opinion. No Entra app: it is a harness
-#: an operator runs, not an agent a process hosts.
+#: Reads the corpus exactly as a run does; starts nothing, answers nothing. The second model family
+#: is for the adjudicator's independent opinion. No Entra app: it is a harness an operator runs, not
+#: an agent a process hosts. No stores, for the same reason the intake team has none — the harness
+#: scores the map a run reads, and that map is read whole.
 EVALS_TOOLS = {ReferenceTools.SERVER: list(ReferenceTools.READ)}
 EVALS_STORES = list(INTAKE_STORES)
 #: THE model the use-case agents run on, read where it is declared. Every key and team allowlist
@@ -229,7 +247,15 @@ def main() -> int:
             ("USECASE_DELIVERY_KEY", "usecase-delivery-agent", delivery_team,
              "investment and provisioning", (AGENT_MODEL,)),
             ("EVAL_AGENT_KEY", "usecase-evals", evals_team, "coverage evals and adjudication",
-             EVALS_MODELS)):
+             EVALS_MODELS),
+            # The SUBMITTER surface's own credential — what a Copilot Studio connector or any other
+            # front end connects with. Its own key rather than an agent's, so the spend, the rate
+            # limit and the grants belong to this surface and revoking it costs nobody else
+            # anything. NO models: it calls tools, never inference (an empty allowlist would read as
+            # "every model", so it is spelled as a model that does not exist — the same sentinel
+            # reasoning as the vector-store grant).
+            ("USECASE_SUBMITTER_KEY", "usecase-submitter-client", submitter_team,
+             "submit and find use cases", ("-",))):
         if os.environ.get(env_key):
             _reconcile_key(litellm, os.environ[env_key], models)
             print(f"{env_key} already set — kept, allowed {', '.join(models)}")

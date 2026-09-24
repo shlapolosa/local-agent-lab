@@ -1,0 +1,22 @@
+Group,Field,Type,Required,Used by,Value
+Effort table,Role,text,no,Driver 1,Data centre technician
+Effort table,headcount,number,no,Driver 1,2
+Effort table,frequency per week,number,no,Driver 1,1
+Effort table,current minutes per instance,number,no,Driver 1,180
+Effort table,expected minutes per instance,number,no,Driver 1,180
+Quality baseline,Current volume,number,no,Driver 2,
+Quality baseline,error rate,number,no,Driver 2,
+Quality baseline,expected reduction,number,no,Driver 2,
+Quality baseline,error class,text,no,Driver 2,
+Sensitivity flags,Personal data,yesno,yes,Driver 3 and the criticality band,no
+Sensitivity flags,health data,yesno,yes,Driver 3 and the criticality band,no
+Sensitivity flags,financial,yesno,yes,Driver 3 and the criticality band,no
+Sensitivity flags,regulated,yesno,yes,Driver 3 and the criticality band,no
+Avoided cost citation,Specific avoided fine or audit-hour reduction,number,no,"Driver 3, where quantified",
+Avoided cost citation,with its source,text,no,"Driver 3, where quantified",
+Data maturity,Whether the underlying data is fully digital,yesno,no,Driver 1 Year-1 discount,no
+Investment,Budget bucket or vendor quote,text,no,Build cost,"under AED 10,000"
+Urgency,Required-by date or urgency band,date,yes,Roadmap section,2027-06-30
+Volume assumptions,Runs per month,number,no,"Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess",
+Volume assumptions,users,number,no,"Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess",
+Volume assumptions,records (Finance-owned),number,no,"Cost — places every banded price line in its band; a driver left blank makes that line requires_input, never a guess",

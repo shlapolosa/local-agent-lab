@@ -182,26 +182,41 @@ def compliance_reduction(*, sensitivity_flags: Sequence[str],
 @dataclass(frozen=True)
 class FinancialSummary:
     annual_benefit: float
-    year_one_investment: float
+    #: `None` when no build cost was captured. NOT 0.0: `authority.route` escalates to the top band
+    #: on an unknown figure and routes on a known one, so turning "nobody said" into a number is
+    #: what routes money DOWN — the direction that produces no observable event afterwards.
+    year_one_investment: float | None
     payback_months: float | None
-    three_year_roi: float
+    three_year_roi: float | None
     drivers: tuple[Driver, ...] = ()
     requires_input: tuple[str, ...] = ()
 
 
-def financial_summary(drivers: Sequence[Driver], *, build_cost: float,
-                      monthly_run_cost: float) -> FinancialSummary:
-    """Total annual benefit, Year-1 investment, payback in months, three-year ROI multiple."""
+def financial_summary(drivers: Sequence[Driver], *, build_cost: float | None,
+                      monthly_run_cost: float, capex: float = 0.0) -> FinancialSummary:
+    """Total annual benefit, Year-1 investment, payback in months, three-year ROI multiple.
+
+    `capex` is part of year one and was missing: the reviewer saw the cost model's year-one total
+    (which includes it) while the authority routed on a figure that did not. 400k of capex against
+    a 250k band is the difference between a director and the board.
+
+    `build_cost=None` means nobody captured one, and it stays unknown all the way through — the
+    investment, the payback and the ROI are all `None` rather than computed from a zero. A figure
+    routes; only the absence of one escalates.
+    """
     if len(drivers) > MAX_DRIVERS:
         raise BenefitError(
             f"{len(drivers)} drivers were supplied; exactly {MAX_DRIVERS} enter the ROI. Value "
             f"identified outside them is captured qualitatively and stated as excluded.")
 
     annual_benefit = sum(d.amount for d in drivers)
-    investment = float(build_cost) + 12 * float(monthly_run_cost)
+    investment = (None if build_cost is None
+                  else float(build_cost) + float(capex) + 12 * float(monthly_run_cost))
     monthly_net = annual_benefit / 12 - float(monthly_run_cost)
-    payback = investment / monthly_net if monthly_net > 0 else None
-    roi = (3 * annual_benefit - investment) / investment if investment else 0.0
+    payback = (investment / monthly_net
+               if investment is not None and monthly_net > 0 else None)
+    roi = (None if investment is None
+           else (3 * annual_benefit - investment) / investment if investment else 0.0)
     return FinancialSummary(
         annual_benefit=annual_benefit, year_one_investment=investment,
         payback_months=payback, three_year_roi=roi, drivers=tuple(drivers),

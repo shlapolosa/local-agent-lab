@@ -256,6 +256,79 @@ host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` 
 that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
 agents.
 
+**The use-case workflow grows ONE ArchiMate model, step by step, and its views are projections of
+it (14 Sep 2026).** After every step is recorded — the agent steps and the governed derivations
+alike — a deterministic MAPPER (`lab.workloads.usecase.mappers.MAPPERS`, keyed by step KEY, one
+entry per step) writes that step's output onto `lab.workloads.usecase.model.Model`: the frame as
+motivation, step 4's elements as actors/functions/objects, the coverage match as capabilities
+realised by functions, the workflow graph as processes (`bp-<node id>` — the ONE element steps 10,
+15, 17, 18 and 19 all land on, because they share the node id), obligations as constraints, the
+composition as family groupings carrying the CAFÉ archetype, step 21's components as
+ApplicationComponents tagged `cafe.zone`/`cafe.families` from the pinned catalogue. Ids are a pure
+function of the output (`ids.slug`, prefixed by kind) so a re-run UPDATES; every relation is checked
+against the published matrix (`relrepair.check`) at proposal and an illegal one is COUNTED under
+`dropped`, never raised — a mapper is bookkeeping and must not fail a 20-minute run (`mappers.apply`
+restores the model and records the failure on it if a mapper throws). The model rides the process
+records (`screening.json["model"]`, `design.package.json["model"]`) — no contract change — and the
+design re-records it into its own package. A later step reads it as `model_summary` (names by
+type, plus the composition's required families and which are realised), NEVER the spec: `message()`
+dumps a context entry whole. Consequences: **the composition (22) now runs BEFORE step 21** (its
+inputs are 17/19/20), so the selector is held to the families by a SOFT rule
+(`steps._families_realised`, `Step.soft`, `gates.run_gated(soft=)`: asked for once on the retry,
+then RECORDED under `unresolved` rather than raised — a family nobody selected is something the
+design owes, which a reviewer must see, not a reason to lose the run; a catalogue with no
+`families` column makes no claim, and that column is authored content still to publish). At the END
+of the design `render_views` stores the model by ref (`design.model.json`) and projects it twice —
+`archimate_render` (XML + one SVG per standard view) and the new semantic-mcp
+**`semantic_render_cafe`** (`lab.substrate.mcp.semantic.cafe`: ours only, `include_comps:
+["none"]`, every component in the CAFÉ zone its property names, on the archetype the composition
+put on the root; a component with no zone is `unplaced`, never guessed; the skill's engine is
+imported from `config.SKILLS_DIR` via `sys.path`, the one such seam) — refs into the package, SVGs
+onto the conformance approval as tabs, and **`architecture_ref` is the draw.io file** (the model
+when nothing drew, the package as a last resort). Neither render tool is REQUIRED: a design that
+cannot draw is still a design, and the warning it records is the visible degradation.
+**A step that answers for SOME of the workflow is the dangerous shape (15 Sep 2026).** Run 5 returned
+ONE facet vector for a ten-node graph: it validated, it derived cleanly, and the exposure, the
+obligations and the composition all came back describing that single node with max exposure 0 — a
+control set nine steps short that looks exactly like a complete one. `steps._covers_every_node` now
+holds steps 15 and 17 to the node ids the graph in their context carries: every node exactly once,
+no id the graph does not have (a readiness EVIDENCE record spells `nodes` as a count, so a non-list
+makes no claim). Two sibling rules, from the same run: a coverage map in which NO match is a
+`lookup` must say so in a gap flag — the confidence is never forced up, the map is made to state
+what it is — and step 21 carries a second SOFT rule, `_does_the_work`: a selection drawn entirely
+from the cross-cutting zones (`ident`, `obs`, `plat`) is a control plane with nothing inside it,
+recorded under `unresolved` rather than failing the run. Zones are the catalogue's own column, so it
+asks nothing the corpus does not already say.
+
+**The CAFÉ view reuses the reference architecture's OWN component ids** (`cafe.catalogue()`, matched
+on normalised name): our corpus components were extracted from the artifact the skill draws, so a
+selected component is usually the catalogue's own under the same name, and that is what lets the
+published edges between two selected components survive `include_comps: ["none"]`. Run 5 drew
+fifteen tiles and no lines because every id was minted; the same model now draws five. A minted id
+(and its M4-extension warning) is left only for what the reference architecture does not carry, and
+a view with tiles but no connections says so in a warning rather than passing as an architecture.
+
+**Every governed tool call is BOUNDED (`config.TOOL_CALL_TIMEOUT_S`, 1000 s, in
+`lab.platform.mcp_client.call_tools_raw`) — the FLOOR under every other bound, above speech's
+synchronous 900 s transcription and the gateway's 300 s MCP client timeout, which is the one that bites
+first today (three numbers that should become one deliberate one before the first hour-long meeting).** Measured 14 Sep 2026: a screening host sat for an hour
+inside a `semantic_store_spec` call the server had already answered (its spans complete, the gateway's
+response never arriving) — not failed, not done, the run board open and the quiet deploy gate holding
+every push behind it, and nothing to see but a log that stopped. A hung call now raises a `TimeoutError`
+naming where it stopped; the run FAILS there, which is recoverable, where a hang is not even visible.
+**The bound covers the WHOLE exchange — opening the session, listing the tools, and the call** — because
+a run hangs wherever the gateway stops answering: on 15 Sep 2026 a screening host sat for half an hour
+with the gateway's auth span recorded and no tool span at all, hung on the session it had just opened,
+while a bound that only wrapped `call_tool` watched. `gateway.preflight`'s listing is bounded the same
+way: a preflight exists to cost nothing and refuse early, and one that hangs holds the run open before
+it has done anything at all. A hung host is unstuck by restarting the service (`deploymentRestart`); its crash-hygiene pass
+marks the stale request failed rather than re-running it.
+**THROWAWAY test aid, on by `USECASE_MODEL_TRACE=true`** (`lab.workloads.usecase.modeltrace`, one
+module, one call in `modelling.grow`): every step that touched the model also stores and renders
+its DELTA (touched elements + the step's relations + their endpoints, one view), and both approvals
+show one tab per step in run order — "for the sake of proving the outputs of each step". Off by
+default (one store + one render per step); `model_trace` never enters a prompt.
+
 **A screening step whose tenant corpus is unpublished records a DECLARED default (13 Sep 2026).**
 Steps 6, 8 and 11 read corpora this tenant does not have (the as-is landscape, the business service
 levels, the source classification). Rather than stay pending and fail readiness gate C on every case,
@@ -278,6 +351,55 @@ tool that does not exist. Verified live: the minutes submit path is 404 for the 
 master key. Status and result stay, deliberately — refusing to START is not refusing to OBSERVE, and a
 flow that cannot poll the run its own approval began cannot tell a person the minutes are ready. The
 continuation runner submits IN-PROCESS, so the legitimate path pays nothing.
+
+**A workflow graph is a DECOMPOSITION, and family membership is DERIVED (15 Sep 2026).** Two more
+run-8 findings. Step 10 returned ten nodes for ten functions, each node wearing its function's own
+name — and since the determinism tier, the facet vector, the exposure and the control set are all PER
+NODE, the whole risk chain came out exactly as coarse as the inventory it copied while looking like
+analysis. The prompt had literally asked for it ("one step per business function"); it now asks for a
+split wherever the ACTION changes (retrieving is not interpreting, interpreting is not deciding), and
+`steps._decomposes` refuses a graph whose every node is a function renamed, one-for-one. A function
+that genuinely is one step stays one node — what is refused is EVERY function being one.
+And step 21's family rule no longer waits on an authored column the reference architecture does not
+have: `lab.workloads.usecase.families` follows the published chain **family → guardrail (the
+composition's own enforcement map) → capability (`guardrails.cap`) → components
+(`ai-capability-map.components`)**, recorded before step 21 so the architect sees what each component
+would satisfy and the gate holds the selection to it. It is PARTIAL by nature — ten of twenty-six
+guardrails name a capability — so `unclaimed()` names the families the corpus is silent about and the
+rule demands nothing for them; a published catalogue column, if a tenant ever writes one, is believed
+over the derivation. On run 8's real design: five families carried, six unclaimed, none uncovered.
+The cost headline now carries `components_priced` beside `components`, because a year-one figure that
+priced five of sixteen and says so is evidence, and one that does not is the empty summary again.
+
+**An approval SAYS WHAT THE WORK LEFT OPEN, before the reviewer opens anything (15 Sep 2026).** Run 8
+proceeded with four obligations bound to no enforcement point, eleven components nobody could price
+and a benefit nobody could compute — every one recorded in the package, and the conformance
+approval's summary was literally EMPTY, because `approvals_ask` had no way to carry one. A reviewer
+given a package and no summary judges what reads well rather than what is complete, which is the one
+failure this gate exists to prevent. `lab.workloads.usecase.owed` derives the lines from the package
+— worst first: an unbound obligation (Q5.3 is a stop), a commit-invariant violation, what step 21
+left `unresolved`, the figures that could not be computed, the steps that defaulted, what is missing
+from the drawing — and `counts()` adds the headline the lines are judged against. `approvals_ask`
+takes a `summary`, the screening's (built since the first version and never shown to anyone) is now
+passed too, and the review app renders it as `_still_open`: the figures, then the open items, or
+"nothing outstanding" when there are none. A model approval, which carries no `owed`, is unchanged.
+
+**A person finds a run by what they remember, not by an id they were never given (15 Sep 2026).**
+`<process>_runs` is the fourth generated verb and `GET /api/processes/<name>/runs` its REST twin, both
+answered by ONE implementation (`lab.substrate.mcp.workflow.listing`) so the two surfaces cannot drift:
+the runs of one process, newest first, each as its declared outputs describe it, with `q` filtering
+those fields as text. Cheap by construction — one read of the request stream, never opening a stored
+record — and `use_case_screening` now declares a **`subject`** output (the problem as step 3 framed
+it) so a listing reads as use cases rather than as a column of `art://` refs. **Listing is generated
+for EVERY process, `external` or not**: refusing to START a continuation is not refusing to FIND one,
+and the design runs a person follows are all continuations. The refusal is therefore per METHOD —
+a continuation's `/runs` serves GET and 405s POST — which is how the tests now state it.
+
+**The Copilot Studio agent is that surface's client** (`config/clients/copilot-studio/`): one Power
+Platform custom connector over the gateway's MCP endpoint (`x-ms-agentic-protocol:
+mcp-streamable-1.0`), connected with the `usecase-submitter` virtual key, so submit, find, follow and
+decide all arrive metered, traced and grant-checked. It holds no store credential and cannot start a
+continuation, because those tools do not exist for it to call.
 
 **The front door's REST ingress (`/api`) is authorised PER OPERATION by Entra app roles, enforced at
 the GATEWAY.** `lab.substrate.apipolicy` is the table — `(method, path) -> role`, default DENY for an
@@ -523,7 +645,18 @@ stateless and address each other only through `src/lab/platform/config.py` env v
   write credential and the ADOIT password.** Rotating any of them means rotating in BOTH places — a
   stale `LAB_ENV` deploys old credentials over good ones, which fails confusingly. Without `LAB_ENV`
   the job falls back to `release` (image + redeploy, no config), so a fork still ships code. Both
-  **A deploy WAITS for a quiet run board (11 Sep 2026).** A rollout restarts the gateway with no
+  **A deploy's two halves run INDEPENDENTLY, and the verify step is the instrument (15 Sep 2026).**
+The CD job ran `substrate up` and then its workload loop under one shell, so when `substrate up`
+exited non-zero on its last service the loop never ran: every `wf-*` service stayed on the PREVIOUS
+image while the substrate moved, and the job's red looked like the one service it named. A whole
+use-case run was then read as evidence for four fixes that were not deployed. Both halves now run
+with their own status and the step fails at the end if either did. The lesson is the older one, one
+layer up: `substrate versions` WOULD have printed the mismatch — it iterates the live service list,
+so it sees a replica nobody configured — but the job aborted before `verify`. An instrument that is
+not reached is not an instrument. **After any deploy that did not end green, read
+`substrate versions` before believing a cloud result.**
+
+**A deploy WAITS for a quiet run board (11 Sep 2026).** A rollout restarts the gateway with no
   zero-downtime cutover, so every LLM, tool and embedding call in flight gets a 502 for one to three
   minutes — two derives, an adjudication and a publish's embedding batches all died under one push.
   `release`, `substrate up` and `workload up` now ask the front door `GET /api/runs/open` (a
@@ -1218,6 +1351,37 @@ in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory 
   every read still lands in `ref_consumption`. What it forgoes is the gateway's metering and span
   for those reads; routing them through the gateway would mean a virtual key per substrate server —
   deliberately not done yet, recorded here so the rule erodes by decision and not by accident.
+- **"Capability map" is BANNED unqualified — there are two, answering different questions**
+  (`docs/decisions/2026-09-18-two-capability-maps.md`, 18 Sep 2026). The **business** map
+  (`healthcare-provider-v2.0`, matched at L3 by a MODEL) answers *what ability does this exercise*;
+  the **technology** map (`ai-capability-map`, CAFÉ M4, 2 levels) answers *how would we do it*.
+  Measured: **836 of the business map's 1,042 L3 concepts — 80% — name nothing clinical**, and a
+  negative-control chat bot that tells the time matched it 3-4 times on every run with entries whose
+  definitions are literally true of it. So **a business-capability match is a classification, not a
+  justification**: it may inform a gate and a prompt, and must never on its own select a component,
+  attach a guardrail or price anything. Identity matters on the technology map (guardrails and cost
+  dispatch on it, so that path is an exact key join with an id gate, G04) and does NOT on the
+  business map (no consumer distinguishes siblings) — so near-synonym choice there is not a defect
+  and must not be scored as one. Two labels are acceptable substitutes when **nothing downstream can
+  tell them apart**, a property of the CODE; two siblings no consumer distinguishes carry no
+  information, which is a defect in the MAP. The matching GRAIN belongs to the map —
+  `coverage.leaves` takes `deepest` as a parameter because the constant silently returns zero
+  candidates against a shallower map, and zero candidates reads downstream as "nothing is relevant"
+  (`match`/`resolve` forward it now; they did not, so every live run matched at the constant 3).
+  **Step 5 matches the TECHNOLOGY map** (18 Sep 2026): `ai-capability-map` + `capability-domains`,
+  read WHOLE from the corpus under the pin, projected by `lab.core.usecase.capabilities.concepts` —
+  74 candidates, ~5,700 tokens, so `leaves` needs no retrieval. **The concept id IS the natural key
+  `"Domain · Capability"`**, so a match reaches its guardrails and its components with no further
+  resolution. The business map is retired behind `config.BUSINESS_CAPABILITY_SCHEME` (empty), step 5
+  records a declared default without one, and `Feasibility.ESCALATE` asks a human rather than
+  rejecting every use case for a map nobody published. **Guardrail bindings**: `guardrails.cap` ->
+  a capability -> its components is checked with NO ratchet by
+  `tests/governance/test_guardrail_bindings_resolve.py` (20 of 24 dangled until 18 Sep 2026, reported
+  by `families.unclaimed()` as corpus silence and therefore invisible); composition move 5 —
+  obligation bound to a SELECTED component — is `lab.core.usecase.enforcement`, keeping `unbound`
+  (the design's fault) apart from `unenforceable` (the corpus's). **Artifact content never lives in
+  code**: `tests/governance/test_no_artifact_content_in_code.py` ratchets the seeding scripts'
+  translation tables downward — put the fact in the CAFÉ artifact, where its author owns it.
 - **The capability map is read from the corpus, searched through a store, matched three ways.**
   Screening pins its map (`VectorStores.for_scheme(SCHEME)` = the artifact id), fetches L1 and L3
   rows under the pin (`id, parent, level, label, path`) and hands the matchers two SEAMS —

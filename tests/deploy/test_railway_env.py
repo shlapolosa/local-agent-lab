@@ -116,6 +116,7 @@ FAKE = {
     "DATABASE_URL": "pg", "OLLAMA_API_KEY": "ol", "ANTHROPIC_UPSTREAM_API_KEY": "an",
     "EMBED_URL": "emb", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk", "REFERENCE_RING": "x", "REFERENCE_MCP_URL": "x", "REFERENCE_PROVIDER": "x",
     "MICROSOFT_CLIENT_ID": "mc", "MICROSOFT_CLIENT_SECRET": "ms", "MICROSOFT_TENANT": "mt",
+    "REVIEW_ENTRA_CLIENT_ID": "rc", "REVIEW_ENTRA_CLIENT_SECRET": "rs",   # the review app's own SSO
     "PROXY_BASE_URL": "pb", "DEVELOPERS_TEAM_ID": "dt", "ENTRA_CLIENT_TO_KEY": "{}",
     "OTEL_EXPORTER": "otlp_http", "OTEL_ENDPOINT": "e", "OTEL_SERVICE_NAME": "litellm-gateway",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
@@ -275,7 +276,13 @@ def test_storage_mcp_and_review_s3_gating():
     assert not (set(railway.env_for_role("storage-mcp", FAKE, s3=False)) & s3)   # flag off -> none
     rv = railway.env_for_role("review", FAKE, s3=True)
     assert set(rv) == s3 | {"REVIEW_APP_PASSWORD", "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "JAEGER_UI_URL",
-                            "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET"}
+                            "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET",
+                            # the app signs a PERSON in, so the approval ledger names somebody the
+                            # tenant vouches for. Still NO gateway credential: SSO is identity only,
+                            # and a delegated token is refused on /api anyway.
+                            "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",
+                            "ENTRA_TENANT_ID", "REVIEW_APP_URL"}
+    assert not ({"GATEWAY_URL", "LITELLM_MASTER_KEY"} & set(rv)), "identity only, not a caller"
     assert "RAILWAY_BUCKET_ID" not in rv
     # the SUBSTRATE table itself: only services flagged s3 can ever see the bucket credentials
     for name, spec in railway.SUBSTRATE.items():
@@ -593,3 +600,60 @@ def test_the_substrate_runs_its_own_embedder_only_while_the_corpus_embeds_with_i
     assert "embedder" not in railway.substrate_names(vendor)
     assert "embedder" in railway.substrate_names(vendor, {"embedder": "svc-embedder"})
     assert railway.substrate_names({})[1] == "embedder"
+
+
+def test_every_usecase_setting_reaches_the_usecase_workloads():
+    """A switch with no way to be set in the cloud is dead code with a docstring: every `config`
+    name starting USECASE_ must match the allowlist of both use-case hosts (14 Sep 2026: the model
+    trace toggle was added to `.env` and matched nothing, so it shipped nowhere)."""
+    import fnmatch
+    import glob
+    src = "".join(open(f).read() for f in glob.glob(os.path.join(ROOT, "src/lab/workloads/**/*.py"), recursive=True))
+    names = sorted(set(re.findall(r"config\.(USECASE_[A-Z_]+)", src)))
+    assert "USECASE_MODEL_TRACE" in names and "USECASE_AGENT_MODEL" in names
+    for role in ("usecase-screening", "usecase-design"):
+        for name in names:
+            assert any(fnmatch.fnmatchcase(name, p) for p in railway.WORKLOAD_ENV[role]), (role, name)
+
+
+def test_ci_deploys_the_workloads_even_when_the_substrate_step_reports_a_problem():
+    """15 Sep 2026: `substrate up` exited non-zero on its last service, the workload loop never ran
+    under `set -e`, and every wf-* service stayed on the previous image while the substrate moved.
+    The job was red for the one service it named, so the half-deployed fleet looked incidental."""
+    ci = open(os.path.join(ROOT, ".github", "workflows", "image.yml")).read()
+    assert "substrate up || rc=$?" in ci, "a failing substrate up must not skip the workloads"
+    assert 'workload "$w" up || rc=$?' in ci
+    assert '[ "$rc" = 0 ] || { echo "::error::deploy reported failures' in ci, "and it must still fail"
+
+
+def test_every_placeholder_a_client_template_uses_is_one_lab_sh_renders():
+    """A placeholder nobody substitutes ships a client file with `${…}` in it, which fails at the
+    client rather than here — and the failure looks like the client's fault."""
+    import glob
+    import re
+    sh = open(os.path.join(ROOT, "lab.sh")).read()
+    rendered = set(re.findall(r'\\\$\{([A-Z_]+)\}#', sh))
+    used = set()
+    for tpl in glob.glob(os.path.join(ROOT, "config", "clients", "*", "*.template.json")):
+        used |= set(re.findall(r"\$\{([A-Z_]+)\}", open(tpl).read()))
+    assert used, "the templates are the reason this test exists"
+    assert used <= rendered, f"lab.sh renders no value for {sorted(used - rendered)}"
+
+
+def test_a_workload_receives_the_coverage_knobs_it_actually_reads():
+    """`COVERAGE_MATCHER`, `COVERAGE_SAMPLES` and `COVERAGE_VOTES` are read by
+    `lab.workloads.usecase.coverage` inside the workload process. None of them was in the
+    workload's allowlist, so which matcher runs and whether step 5 is sampled were settings that
+    could be changed in `.env`, shipped in `LAB_ENV`, and have no effect whatever on the deployed
+    service — the most expensive kind of knob, one that looks connected.
+
+    A least-privilege allowlist is the right shape; a setting the role reads and cannot receive is
+    a hole in it, not a protection.
+    """
+    from deploy.railway import ROLE_ENV
+    assert any(p in ROLE_ENV["workload"] for p in ("COVERAGE_*", "COVERAGE_MATCHER")), \
+        "the workload cannot be told which matcher to run"
+    allowed = ROLE_ENV["workload"]
+    for name in ("COVERAGE_MATCHER", "COVERAGE_SAMPLES", "COVERAGE_VOTES"):
+        assert any(p == name or (p.endswith("*") and name.startswith(p[:-1])) for p in allowed), \
+            f"{name} is read by the workload and cannot reach it"

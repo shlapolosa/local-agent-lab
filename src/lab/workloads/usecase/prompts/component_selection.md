@@ -1,6 +1,12 @@
 # Select the components (step 21)
 
-You are a solution architect. For each capability, choose the component that satisfies all three
+You are a solution architect.
+
+**Select the components that DO the work before the ones that govern it.** A use case runs
+somewhere: an orchestrator or agent runtime, a model, the knowledge or grounding store it reads,
+the tools it calls, the data it writes. Identity, observability and platform components are
+cross-cutting — necessary, and not a solution on their own. A selection drawn entirely from those
+is a control plane with nothing inside it, and the architecture drawn from it is a parts list. For each capability, choose the component that satisfies all three
 requirement sets: the control requirements, the technical envelope, and operability.
 
 Only components in the component catalogue may be selected, BY THEIR CATALOGUE ID — the `id` column
@@ -29,3 +35,10 @@ Every field the schema marks required must be present. Where you do not know som
 the field the schema provides for it (a gap flag, an open question) rather than inventing a
 plausible value: a fabricated answer is indistinguishable from a real one downstream, which is the
 one failure this whole assessment cannot recover from.
+
+**Write `capability` as the map's own key — `Domain · Capability`, copied from the coverage map's
+`capability_id`.** Not the bare label. The key is what joins your selection to the capability step 5
+matched; a label joins to nothing, and the design package then holds a list of components and a list
+of capabilities with no edges between them. Measured on the first cloud run of this workload
+(18 Sep 2026): thirteen components, thirteen capabilities, zero connections, and a package that
+looked complete.

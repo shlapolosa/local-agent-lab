@@ -62,3 +62,46 @@ def test_replica_count_is_bounded_by_something_a_person_chose():
         railway.replica_services({"service": "wf-x", "replicas": 99})
     with pytest.raises(ValueError, match="replicas"):
         railway.replica_services({"service": "wf-x", "replicas": 0})
+
+
+# ------------------------------------------------------------------ CD must roll every replica
+def test_release_rolls_EVERY_replica_not_just_the_first(monkeypatch):
+    """The defect this file's whole premise depends on, and it was live for as long as replicas were.
+
+    `release` — what CD runs on every push to main — built its service list from `w["service"]`, the
+    BASE name, while `replica_services` is what knows about the rest. So `wf-meeting-transcript-2`
+    was never rolled: after every push, one consumer group had two replicas running two different
+    commits, taking work from the same stream.
+
+    That is exactly the version skew CLAUDE.md opens with, and it hid for the most uncomfortable
+    reason — `substrate images` compares what each service was ASKED to run against what it IS
+    running, and a service nobody asked to change is perfectly consistent with itself. Found on
+    14 Sep 2026 by another session noticing the replica on an older build, not by any check here.
+    """
+    rolled = []
+    monkeypatch.setattr(railway, "deploy_profile", lambda: FAKE)
+    monkeypatch.setattr(railway, "_require_quiet", lambda profile: None)
+    monkeypatch.setattr(railway, "services",
+                        lambda: {n: f"id-{n}" for n in _every_service_name()})
+    monkeypatch.setattr(railway, "gql", lambda *a, **k: rolled.append(a) or {})
+    monkeypatch.setattr(railway, "deploy", lambda sid, latest=True: rolled.append(sid))
+    monkeypatch.setattr(railway, "latest", lambda sid: {"status": "SUCCESS"})
+    monkeypatch.setattr(railway.time, "sleep", lambda _s: None)
+    railway.release(wait_s=0)
+    every = {s for spec in railway.WORKLOADS.values() for s, _c in railway.replica_services(spec)}
+    missed = {s for s in every if not any(f"id-{s}" in str(r) for r in rolled)}
+    assert not missed, f"CD left these on the previous image: {sorted(missed)}"
+
+
+def _every_service_name():
+    names = [n for n in railway.substrate_names(FAKE, {})]
+    names += [s for spec in railway.WORKLOADS.values()
+              for s, _c in railway.replica_services(spec)]
+    return names
+
+
+def test_the_replica_that_exposed_it_is_in_the_list():
+    """Named, so the fix cannot regress into 'the first replica is the workload'. `meeting` declares
+    two, and the second is the one that sat on an older commit taking work from the same group."""
+    every = {s for spec in railway.WORKLOADS.values() for s, _c in railway.replica_services(spec)}
+    assert "wf-meeting-transcript" in every and "wf-meeting-transcript-2" in every

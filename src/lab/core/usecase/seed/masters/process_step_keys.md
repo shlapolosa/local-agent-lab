@@ -1,0 +1,29 @@
+# Process step keys
+
+**Artifact:** process_step_keys
+**Source:** derived from lab.workloads.usecase.steps by scripts/derive_process_step_keys.py — regenerate when a step is added
+**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+
+| Step | Number | Record key | Agent | Kind | Order | Process | Reads |
+|---|---|---|---|---|---|---|---|
+| E0.1 | 3 | frame | Business Analyst | agent | 01 | screening | submission |
+| E0.2 | 4 | elements | Business Architect | agent | 02 | screening | frame |
+| E0.3 | 5 | coverage_map | Business Architect | agent | 03 | screening | elements; capabilities |
+| E0.4 | 6 | realisation_match | Application Architect | agent | 04 | screening | elements; landscape |
+| E0.5 | 8 | quality_attributes | Product Owner | agent | 05 | screening | coverage_map; service_levels |
+| E0.6 | 9 | ontology_delta | Data Architect | agent | 06 | screening | elements; ontology |
+| E0.7 | 10 | workflow_graph | Business Analyst | agent | 07 | screening | elements; coverage_map; ontology_delta |
+| E0.8 | 11 | source_contracts | Data Architect | agent | 08 | screening | workflow_graph; source_classification |
+| E0.9 | 7 | criticality_band | Risk Officer | agent | 09 | screening | frame |
+| E0.10 | 13 | assertions | Product Owner | agent | 10 | design | workflow_graph; criticality |
+| Q0.8–Q0.9 | — |  |  | gate | 11 | screening | — |
+| Q1.1–Q1.5 | 15 | determinism | Solution Architect | agent | 12 | design | workflow_graph; determinism_criteria |
+| Q2.1–Q2.4 | 17 | facet_vectors | Risk Officer | agent | 13 | design | workflow_graph; determinism; facet_schema |
+| Q2.1–Q2.4 | 18 | risk |  | derived | 13 | design | — |
+| Q3.1–Q3.4 | 19 | obligations |  | derived | 14 | design | — |
+| Q4.1–Q4.3 | 20 | build_surface | Technology Architect | agent | 15 | design | obligations; realisation_match; surface_enforceability |
+| Q5.1–Q5.3 | 21 | component_selection | Solution Architect | agent | 16 | design | obligations; quality_attributes; realisation_match; ai_capability_map; component_catalogue; build_surface; model_summary; coverage_map; enforcement_points; component_families |
+| Q6.1–Q6.2 | 22 | composition |  | derived | 17 | design | — |
+| Q7.1 | 25 | delivery_artifacts | Product Owner | agent | 18 | design | frame; composition; obligations; cost; benefit; component_selection; quality_attributes; criticality; model_summary |
+| Q7.2–Q7.3 | 23 | cost_inputs | Cost Engineer | agent | 19 | design | intake; component_selection; composition |
+| Q7.2–Q7.3 | 24 | benefit_inputs | Value Analyst | agent | 19 | design | frame; workflow_graph; quality_attributes; criticality |

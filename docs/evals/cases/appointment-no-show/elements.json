@@ -1,0 +1,103 @@
+{
+  "active": [
+    {
+      "name": "Outpatient clinic scheduler",
+      "kind": "role",
+      "provenance": "for_whom: 'Outpatient clinic schedulers and receptionists'"
+    },
+    {
+      "name": "Receptionist",
+      "kind": "role",
+      "provenance": "for_whom: 'Outpatient clinic schedulers and receptionists'"
+    },
+    {
+      "name": "Clinic manager",
+      "kind": "role",
+      "provenance": "accountable_owner: role identified from the submission, no named individual; also in for_whom as 'clinic managers'"
+    },
+    {
+      "name": "Waiting-list patient",
+      "kind": "person",
+      "provenance": "for_whom: 'the patients on the waiting list'; also 'other patients wait weeks for an opening'"
+    },
+    {
+      "name": "Booking and reminder system",
+      "kind": "system",
+      "provenance": "Not named in the submission. Inferred: reminders are sent ('reminders are one-size-fits-all') and weekly attendance/slot-fill/reminder-effect figures are produced, so some system must hold bookings, send reminders and compile figures. Flagged as an inference, not a stated actor."
+    }
+  ],
+  "behavioural": [
+    {
+      "name": "book appointment",
+      "verb": "book",
+      "object": "appointment",
+      "provenance": "From the scheduler/receptionist roles and references to 'bookings' and 'outpatient appointments'"
+    },
+    {
+      "name": "send reminder",
+      "verb": "send",
+      "object": "reminder",
+      "provenance": "From 'reminders are one-size-fits-all'"
+    },
+    {
+      "name": "tailor reminder",
+      "verb": "tailor",
+      "object": "reminder",
+      "provenance": "From the contrast with 'one-size-fits-all' reminders and the open question on whether consent covers 'all reminder channels and languages intended'. Distinct from 'send reminder': tailoring determines content/channel/language per patient."
+    },
+    {
+      "name": "predict no-show",
+      "verb": "predict",
+      "object": "missed booking",
+      "provenance": "From 'the clinic cannot tell which bookings are likely to be missed until the day itself' and 'predicted-empty slots'"
+    },
+    {
+      "name": "fill slot from waiting list",
+      "verb": "fill",
+      "object": "slot",
+      "provenance": "From 'freed or predicted-empty slots are refilled from the waiting list instead of going unused'. Also expressed in the submission as 'refill slot'; both names refer to this one function."
+    },
+    {
+      "name": "review weekly figures",
+      "verb": "review",
+      "object": "attendance, slot-fill and reminder-effect figures",
+      "provenance": "From expected_change: 'observable in the manager's weekly attendance, slot-fill, and reminder-effect figures'"
+    },
+    {
+      "name": "record consent",
+      "verb": "record",
+      "object": "consent",
+      "provenance": "From the open question: 'the consent recorded on the patient record'. Included as an existing function the reminder functions depend on, though only mentioned via an open question."
+    }
+  ],
+  "passive": [
+    {
+      "name": "Appointment booking",
+      "provenance": "From 'outpatient appointments' and 'bookings'; the submission uses both terms for the same object"
+    },
+    {
+      "name": "Slot",
+      "provenance": "From 'The slots go unused' and 'freed or predicted-empty slots'. Kept distinct from the booking: a slot is the capacity unit a booking occupies and that the fill function refills."
+    },
+    {
+      "name": "Reminder",
+      "provenance": "From 'reminders are one-size-fits-all' and 'reminder-effect figures'"
+    },
+    {
+      "name": "Waiting list",
+      "provenance": "From 'the patients on the waiting list' and 'refilled from the waiting list'"
+    },
+    {
+      "name": "No-show prediction",
+      "provenance": "Not named in the submission. Implied by 'tell which bookings are likely to be missed' \u2014 the per-booking risk indication the predict function produces and the fill function consumes. Flagged as inference."
+    },
+    {
+      "name": "Weekly performance figures",
+      "provenance": "From 'the manager's weekly attendance, slot-fill, and reminder-effect figures'"
+    },
+    {
+      "name": "Consent record",
+      "provenance": "From the open question: 'consent recorded on the patient record'; the consent record is part of the patient record, which is not otherwise mentioned"
+    }
+  ]
+}

@@ -42,6 +42,10 @@ class Feasibility(StrEnum):
     PROCEED = "proceed"
     REJECT = "reject"
     INTEGRATION = "integration"
+    #: The evidence this rule needs does not exist in this tenant, so no machine verdict is honest.
+    #: Distinct from REJECT because "we cannot tell" and "we can tell, and no" are different answers
+    #: with different owners — and both halt, so the distinction costs a reader nothing to ignore.
+    ESCALATE = "escalate"
 
 
 @dataclass(frozen=True)
@@ -114,7 +118,7 @@ def readiness_verdict(evidence: Mapping[str, Any], *, criticality: str,
 
 # ---------------------------------------------------------------- step 16
 
-def feasibility_verdict(*, capability_matched: bool, existing_realisation: bool,
+def feasibility_verdict(*, capability_matched: bool | None, existing_realisation: bool,
                         capability_is_commodity: bool, capability_is_mature: bool,
                         capability_meets_target: bool) -> FeasibilityOutcome:
     """Apply the published verdict rule, in order. The first rule that fires decides.
@@ -123,7 +127,7 @@ def feasibility_verdict(*, capability_matched: bool, existing_realisation: bool,
     fired" is a persisted design-pack artifact: a rejection an architect cannot interrogate is not
     reviewable, and OA-1 requires an architect to see every one.
     """
-    if not capability_matched:
+    if capability_matched is False:
         return FeasibilityOutcome(
             Feasibility.REJECT,
             "no capability match — the use case serves no capability on the map, so there is "
@@ -133,6 +137,17 @@ def feasibility_verdict(*, capability_matched: bool, existing_realisation: bool,
             Feasibility.INTEGRATION,
             "an existing realisation already serves this capability — the use case returns as an "
             "integration rather than a build")
+    if capability_matched is None:
+        # UNKNOWN, not false. The reject rule below reads "serves no capability ON THE MAP", which
+        # is only a finding when a map exists. With none published it would reject every use case
+        # the lab ever sees, identically, citing an artifact nobody wrote — absence of evidence
+        # read as evidence of absence. So a human is asked, by name, as the investment step is
+        # asked when no delegation-of-authority table is configured.
+        return FeasibilityOutcome(
+            Feasibility.ESCALATE,
+            "no business capability map is published for this tenant, so whether this use case "
+            "serves a named capability cannot be derived — an architect must decide it, and the "
+            "verdict becomes automatic again once a conformant map is published")
     if capability_is_commodity and capability_is_mature and capability_meets_target:
         return FeasibilityOutcome(
             Feasibility.REJECT,

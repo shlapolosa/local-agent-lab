@@ -32,7 +32,7 @@ TMP = srv = STORE = None            # set up by `_server` (never at import: it p
 TOOLS = {"semantic_ontologies", "semantic_describe", "semantic_classify", "semantic_check",
          "semantic_validate_model", "semantic_load_model", "semantic_query", "semantic_schemes",
          "semantic_concepts", "semantic_export_archimate", "semantic_store_spec", "semantic_questions",
-         "semantic_ask"}
+         "semantic_ask", "semantic_render_cafe"}
 
 
 def _scheme(name, title, extra=()):
@@ -344,3 +344,23 @@ def test_the_licensed_workbooks_are_not_in_the_repository():
     committed = [p for p in root.rglob("*.xlsx")
                  if "reference-sources" in str(p) or "baguild" in p.name.lower()]
     assert not committed, committed
+
+
+def test_render_cafe_stores_the_drawing_and_its_preview_by_ref():
+    spec = {"name": "Triage", "id": "usecase",
+            "elements": [{"id": "usecase", "type": "Grouping", "name": "Triage",
+                          "props": {"cafe.archetype": "A1"}},
+                         {"id": "ac-cmp-x", "type": "ApplicationComponent", "name": "Model catalog",
+                          "props": {"cafe.zone": "mod"}},
+                         {"id": "ac-old", "type": "ApplicationComponent", "name": "Cerner"}],
+            "relations": []}
+    stored = call("semantic_store_spec", spec=spec, name="design.model.json")
+    r = call("semantic_render_cafe", spec_ref=stored["spec_ref"], basename="design")
+    assert r["drawio_ref"].endswith("/design.drawio") and r["svg_ref"].endswith("/design.cafe.svg")
+    assert STORE.get(r["drawio_ref"]).startswith(b"<mxfile") and b"<svg" in STORE.get(r["svg_ref"])[:300]
+    assert r["placed"] == ["ac-cmp-x"] and r["unplaced"] == ["ac-old"]
+    # The two counts a reviewer reads instead of opening the drawing — a run recorded them as None
+    # for a week because the tool computed them and did not return them (run 9, 17 Sep 2026).
+    assert r["catalogued"] == 0 and r["edges"] == 0
+    assert "cafe.archetype" in call_error("semantic_render_cafe", spec={"name": "n", "id": "i", "elements": [],
+                                                                        "relations": []})

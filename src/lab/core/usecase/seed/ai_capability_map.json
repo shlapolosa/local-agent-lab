@@ -73,6 +73,48 @@
       ]
     },
     {
+      "domain": "Cross-cutting",
+      "capability": "Component admission catalogue",
+      "primary": "Purview catalog of approved AI assets, keyed to this capability map",
+      "rationale": "Enforces G04; the catalogue IS the admission point. Replaces the prose reference 'the capability map itself', which named no row and so could not be checked",
+      "alternative": "Any asset catalogue gating introduction of third-party tools, plugins and MCP servers",
+      "sources": [
+        "S13",
+        "S5"
+      ],
+      "components": [
+        "cmp-9b2ff06ba9",
+        "cmp-24a7eea78f"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Retrieval-boundary content inspection",
+      "primary": "Azure AI Content Safety prompt shields, enforced at the APIM — AI Gateway retrieval boundary",
+      "rationale": "Enforces G20; content the enterprise did not author is inspected before it reaches the model, where indirect injection is still separable from instruction",
+      "alternative": "Any inspection layer on the retrieval path with indirect-injection detection",
+      "sources": [
+        "S3",
+        "S16"
+      ],
+      "components": [
+        "cmp-967db4e8ad"
+      ]
+    },
+    {
+      "domain": "Cross-cutting",
+      "capability": "Sensitivity labelling and outbound inspection",
+      "primary": "Microsoft Purview sensitivity labels + DLP on the egress path",
+      "rationale": "Enforces G21; G06 trims permissions on the way in and nothing checked the way out — the gap the v0.25 completeness test found",
+      "alternative": "Any DLP enforcing label-derived egress policy",
+      "sources": [
+        "S13"
+      ],
+      "components": [
+        "cmp-24a7eea78f"
+      ]
+    },
+    {
       "domain": "Business",
       "capability": "Capability map / value streams",
       "primary": "Power BI semantic models, Dataverse",
@@ -206,6 +248,22 @@
     },
     {
       "domain": "Knowledge",
+      "capability": "Grounding source registry",
+      "primary": "Foundry IQ knowledge bases + Purview Unified Catalog classification",
+      "rationale": "Enforces G06; a source with no registry entry has no declared sensitivity, permission scope or freshness, so no retrieval contract can be checked against it",
+      "alternative": "Any catalogue carrying classification, permission scope and freshness per source",
+      "sources": [
+        "S9",
+        "S13",
+        "S15"
+      ],
+      "components": [
+        "cmp-356d2c0c79",
+        "cmp-24a7eea78f"
+      ]
+    },
+    {
+      "domain": "Knowledge",
       "capability": "Enterprise context layer",
       "primary": "Work IQ",
       "rationale": "Permission-aware; understands collaboration patterns",
@@ -308,6 +366,48 @@
       "rationale": "Successor of Semantic Kernel + AutoGen; Magentic-One",
       "alternative": "LangGraph, CrewAI",
       "sources": [
+        "S6"
+      ],
+      "components": [
+        "cmp-aeadf1eec9"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Tool surface / MCP registry",
+      "primary": "Dataverse skill governance + MCP server allowlist",
+      "rationale": "Enforces G02; the registry IS the scoping point — a tool absent from it is not exposed, so scoping is structural rather than reviewed",
+      "alternative": "Any MCP registry with per-agent allowlisting and periodic access review",
+      "sources": [
+        "S8",
+        "S12"
+      ],
+      "components": [
+        "cmp-80346290a1"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Agent-to-agent protocol",
+      "primary": "Microsoft Agent Framework handoff + Agent 365 delegation governance",
+      "rationale": "Enforces G07; delegation is a governed edge with its own trust boundary, not an implementation detail of the calling agent",
+      "alternative": "Any A2A implementation declaring the trust boundary and the delegated scope",
+      "sources": [
+        "S6",
+        "S30"
+      ],
+      "components": [
+        "cmp-aeadf1eec9"
+      ]
+    },
+    {
+      "domain": "Cognitive",
+      "capability": "Structured-output enforcement",
+      "primary": "Foundry structured outputs (JSON schema response format), validated by Agent Framework middleware in the orchestrator",
+      "rationale": "Enforces G22; validates the bounded-output claim that DEFINES D1 — without it the tier is asserted rather than held",
+      "alternative": "Any middleware rejecting a completion that does not conform to the declared schema",
+      "sources": [
+        "S3",
         "S6"
       ],
       "components": [
@@ -449,6 +549,46 @@
       ],
       "components": [
         "cmp-aa1d470734"
+      ]
+    },
+    {
+      "domain": "Application",
+      "capability": "Approval action",
+      "primary": "Power Automate approval + Copilot Studio human-in-the-loop step",
+      "rationale": "Enforces G09; the gate is where the commit invariant is discharged, and it records the actor",
+      "alternative": "Any workflow engine approval task recording a named human actor",
+      "sources": [
+        "S8",
+        "S2"
+      ],
+      "components": [
+        "cmp-aa1d470734"
+      ]
+    },
+    {
+      "domain": "Application",
+      "capability": "Compensating action",
+      "primary": "Durable Functions saga / compensation handler invoked by the orchestrator via Power Automate",
+      "rationale": "Enforces G23; an irreversible effect with no reversal path has no answer to the failure-semantics field the EA building-block register requires",
+      "alternative": "Any orchestrator supporting compensation with an idempotency key",
+      "sources": [
+        "S6"
+      ],
+      "components": [
+        "cmp-aa1d470734"
+      ]
+    },
+    {
+      "domain": "Application",
+      "capability": "Output templating and provenance",
+      "primary": "Agent Framework output middleware emitting citations and an AI-disclosure block",
+      "rationale": "Enforces G25; the guardrail discloses rather than forbids, so the control lives in the rendering path",
+      "alternative": "Any templating layer structurally unable to emit an untagged model output",
+      "sources": [
+        "S6"
+      ],
+      "components": [
+        "cmp-aeadf1eec9"
       ]
     },
     {
@@ -664,6 +804,19 @@
       ],
       "components": [
         "cmp-f560d81190"
+      ]
+    },
+    {
+      "domain": "Technology",
+      "capability": "Progressive delivery and rate limiting",
+      "primary": "APIM — AI Gateway rate limiting + progressive rollout (rings / deployment slots)",
+      "rationale": "Enforces G24; a blast radius of cohort or population is bounded by how a change is released, never by intent",
+      "alternative": "Any gateway with quota enforcement paired with a staged rollout mechanism",
+      "sources": [
+        "S27"
+      ],
+      "components": [
+        "cmp-967db4e8ad"
       ]
     },
     {

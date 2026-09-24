@@ -167,7 +167,14 @@ jobs:
           # role's env slice AND deploys); `release` when there is not (image + redeploy only), so a
           # fork or a repo without LAB_ENV still ships code. Both log key NAMES and never values.
           if [ -s .env ]; then
-            python deploy/railway.py substrate up   # stdlib only: no pip install needed
+            # `substrate up` and the workload loop run INDEPENDENTLY, and the step fails at the end
+            # if either did. They used to be sequential under `set -e`: on 15 Sep 2026 `substrate up`
+            # exited non-zero on its last service and the loop below never ran, so every wf-* service
+            # stayed on the PREVIOUS image while the substrate moved — and the job's red looked like
+            # the one service it named. Half a fleet on the previous commit is the failure the image
+            # pinning exists to prevent; it must not be a side effect of another service's problem.
+            rc=0
+            python deploy/railway.py substrate up || rc=$?   # stdlib only: no pip install needed
             # The workload list comes from `WORKLOADS` itself, not from this file. It used to be
             # spelled out here, so a new business process shipped its substrate on push and its
             # HOST only when somebody remembered to edit CI — which is the same class of drift the
@@ -178,7 +185,8 @@ jobs:
             # silent tag fallback this file's pinning exists to prevent.
             workloads=$(python deploy/railway.py workload list) || exit 1
             [ -n "$workloads" ] || { echo "::error::no workloads listed"; exit 1; }
-            for w in $workloads; do python deploy/railway.py workload "$w" up; done
+            for w in $workloads; do python deploy/railway.py workload "$w" up || rc=$?; done
+            [ "$rc" = 0 ] || { echo "::error::deploy reported failures (see above)"; exit "$rc"; }
           else
             python deploy/railway.py release
           fi

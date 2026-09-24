@@ -231,3 +231,62 @@ class _Hold:
 
     def __exit__(self, *a):
         self.log.append(("exit", self.eid))
+
+
+def test_crash_hygiene_also_CLOSES_the_run_on_the_board_not_only_the_request(r, monkeypatch):
+    """A run that died with its consumer must stop saying it is running.
+
+    Measured on the cloud 18 Sep 2026: `wfr-c53cdaa27bdb` was correctly marked FAILED on the request
+    hash by this very function, while its run-log entry — keyed by TRACE id, not request id — was
+    never closed. `runlog.finish_from` only ever runs inside the workload process, and that process
+    is precisely what died. The Runs board therefore showed `🏃 running · at step_7` with elapsed
+    climbing past four DAYS, because `_parse` computes elapsed live for anything still `running`.
+
+    Two records of one run disagreeing is worse than either being wrong: the front door said failed,
+    the board a person actually watches said running, and the board is the one they believe.
+    """
+    from lab.platform import runlog
+
+    rid = _submit(r)
+    trace = "a" * 32
+    workflows.annotate(rid, trace_id=trace, client=r)
+    runlog.start(trace, input="screening art://x/y.md", process=PROCESS, trace_id=trace, client=r)
+    runlog.node(trace, "step_7", "start", client=r)
+    list(workflows.channel_events(GROUP, base.consumer_name(), block_ms=0, count=10, client=r))
+
+    monkeypatch.setattr(signal, "signal", lambda sig, fn: None)
+    base.serve(process=PROCESS, service="svc", run=_ok, build=lambda _s: _root(r), once=True)
+
+    assert workflows.status(rid, client=r)["status"] == WorkflowStatus.FAILED.value
+    closed = runlog.get(trace, client=r)
+    assert closed["status"] == "failed", "the board must not still show this run as running"
+    assert "restarted mid-run" in closed.get("error", "")
+    assert closed.get("finished_at"), "a closed run has a finish time, so elapsed stops climbing"
+
+
+def test_a_stale_request_with_no_trace_id_still_fails_cleanly(r, monkeypatch):
+    """A request that died before its span existed has no run-log entry to close. Closing the
+    request is still required; the absent board row is not an error."""
+    rid = _submit(r)
+    list(workflows.channel_events(GROUP, base.consumer_name(), block_ms=0, count=10, client=r))
+    monkeypatch.setattr(signal, "signal", lambda sig, fn: None)
+    base.serve(process=PROCESS, service="svc", run=_ok, build=lambda _s: _root(r), once=True)
+    assert workflows.status(rid, client=r)["status"] == WorkflowStatus.FAILED.value
+
+
+def test_a_run_lost_to_a_reclaim_is_closed_on_the_board_too(r):
+    """The reclaim path fails a run whose consumer was lost — and, like crash hygiene, must close its
+    run-log row, or the Runs board says `running` for ever while the front door says failed."""
+    from lab.platform import runlog
+
+    rid = _submit(r)
+    eid, fields = _events(r)[0]
+    trace = "b" * 32
+    workflows.mark(rid, WorkflowStatus.RUNNING, consumer="replica-that-died", trace_id=trace, client=r)
+    runlog.start(trace, input="x", process=PROCESS, trace_id=trace, client=r)
+
+    async def run(root, req, on_trace):
+        raise AssertionError("must not run")
+    base.handle(_root(r), eid, fields, process=PROCESS, run=run, group=GROUP)
+    closed = runlog.get(trace, client=r)
+    assert closed["status"] == "failed" and "lost mid-run" in closed.get("error", "")

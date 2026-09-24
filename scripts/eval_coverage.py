@@ -16,14 +16,19 @@ A CASE is a directory holding:
     expected.json   {"applicable": ["Capability A", ...], "notes": "..."} — the capabilities a
                     human says this use case genuinely exercises.
 
-**`expected.json` is the whole point and the only part that cannot be automated.** Precision and
-recall are meaningless against a denominator a model invented; the earlier ad-hoc comparison had to
-pool both matchers' outputs and adjudicate them, which can only ever measure which found more of
-what one of them found. A fixed, human-reviewed set measures what they MISS.
+**`expected.json` is the whole point, the only part that cannot be automated, and it is FROZEN.**
+Precision and recall are meaningless against a denominator a model invented. They are equally
+meaningless against one EDITED after reading a result: adding what the matcher returned raises both
+metrics arithmetically, and on 18 Sep 2026 exactly that happened here — a widening moved recall
++0.05 and precision +0.24 while measuring nothing at all. The rule, stated so it is not rediscovered:
+**a set is never reconciled against the output it exists to judge.** One that is wrong is re-derived
+BLIND, from `submission.md` alone with no results open, or by an architect.
 
-**Cases live outside the repository.** The capability labels come from a licensed reference model
-and this repository is public, so an expected set naming them is derived content that cannot be
-committed. `var/` is git-ignored; `--cases` points wherever the tenant keeps them.
+**Cases live IN the repository** (`docs/evals/cases`, the `--cases` default). They used to sit under
+git-ignored `var/` because the expected sets named a licensed reference model. They no longer do —
+the business capability maps are retired and the technology map is the framework's own, already
+committed as seed — so the bar is versioned, and a change to it shows up in a diff instead of
+happening quietly on one machine.
 
 Exempt from TDD as a script, but it decides what ships, so its scoring is deliberately dull
 arithmetic over sets and every number it prints can be recomputed from the JSON it writes.
@@ -37,13 +42,13 @@ import os
 import statistics
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab.platform import config
-from lab.core.semantic.service import SemanticService          # noqa: E402
-from lab.platform.contracts import VectorStores                # noqa: E402
+from lab.core.usecase import capabilities, seed                 # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
 from lab.workloads.usecase import agents as A                  # noqa: E402
 from lab.workloads.usecase import coverage, reference          # noqa: E402
@@ -52,9 +57,50 @@ from lab.workloads.usecase.gates import GateFailed             # noqa: E402
 from lab.workloads.usecase.steps import step_for               # noqa: E402
 
 
-def corpus_for(scheme: str, reference_dir: str) -> list[dict]:
-    svc = SemanticService(reference_dir=reference_dir)
-    return svc.concepts(scheme, None, None)
+#: The recorded bar. NAMED rather than spelled at the flag, because it was spelled there and the
+#: file was renamed out from under it: `--baseline` defaulted to `coverage-baseline.json` while the
+#: file on disk was `technology-baseline.json`, so `base_path.exists()` was False and every run
+#: compared against nothing, silently. A test asserts this path is a file that exists.
+BASELINE = "docs/evals/technology-baseline.json"
+
+#: The capabilities a human says this use case genuinely exercises. One map now, so one file.
+EXPECTED = "expected.json"
+
+
+def expected_for(case: Path) -> set:
+    """Refuses by name rather than scoring against an absent file: recall against an empty expected
+    set is 0.0 for every matcher, which reads as a total failure and is in fact a missing input."""
+    path = case / EXPECTED
+    if not path.is_file():
+        raise SystemExit(f"{case.name}: no {EXPECTED} — a case with no expected set cannot be "
+                         f"scored, and scoring it at zero would read as a matcher that found "
+                         f"nothing")
+    return set(json.loads(path.read_text())["applicable"])
+
+
+def technology_map() -> list[dict]:
+    """The TECHNOLOGY capability map, projected exactly as the screening run projects it.
+
+    Same artifacts, same mapper (`capabilities.concepts`), same grain — so what the harness scores
+    is what a run is shown. The rows come from the committed SEED rather than the corpus: the seed
+    is the publish-time master, so scoring it measures the map that is ABOUT to be published, which
+    is the version a baseline should gate on. A published corpus behind the seed would otherwise
+    make an eval pass on content no run will ever see.
+    """
+    return capabilities.concepts(seed.artifact("ai_capability_map")["capabilities"],
+                                 seed.artifact("capability_domains")["domains"])
+
+
+def corpus_from_file(path: str) -> list[dict]:
+    """A corpus read from a JSON file rather than the licensed scheme — how a DIFFERENT map is
+    scored on the same cases. Same row shape the SKOS service emits (`id, label, level, parent,
+    path, definition`), so every matcher and every seam below is unchanged. The `vector` matcher
+    is the exception and says so: its candidates come from a published store, and a file has none."""
+    rows = json.loads(Path(path).read_text())
+    missing = [k for k in ("id", "label", "level") if any(k not in r for r in rows)]
+    if missing:
+        raise SystemExit(f"{path}: every row needs {missing} — this is a corpus, not a table")
+    return rows
 
 
 def agents_for(gateway_url: str, model: str, credential: str, *steps) -> dict:
@@ -73,62 +119,174 @@ async def derive_elements(cfg, submission: str) -> dict:
     return d.derived["elements"]
 
 
-def children_of(corpus: list[dict]):
-    """The drill's `children` seam over the LOCAL tree — the same rows the corpus would serve."""
+def identity_of(match: Mapping, corpus: list[dict]) -> str:
+    """What a match IS, scored the way the rest of the framework joins on it.
+
+    The technology map's id is its natural key, and that key is what a guardrail and the component
+    catalogue resolve against — so scoring a LABEL would measure something no downstream consumer
+    uses. But a reasoning model writes the label where the key belongs often enough to have been
+    measured (12 Sep 2026), and refusing those would score the model's field discipline rather than
+    its judgement. So: the id when the map knows it, otherwise the label resolved back to its id,
+    otherwise the raw string — which then matches nothing and is a visible wrong answer.
+
+    `bad_ids` still counts the ones that needed resolving, because a match a RUN could not join on
+    is a defect even when the harness can charitably read it.
+    """
+    by_id = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
+    by_label = {str(c.get("label", "")).strip(): str(c.get("id"))
+                for c in corpus if isinstance(c, dict) and c.get("label")}
+    ident = str(match.get("capability_id") or "").strip()
+    if ident in by_id:
+        return ident
+    return by_label.get(str(match.get("capability_label") or "").strip(), ident)
+
+
+async def _no_store(query, k):
+    """The `search` seam, for a map that has none.
+
+    The technology capability map is a register read whole — 74 rows in one prompt — so there is
+    nothing to search. It RAISES rather than returning an empty list, because an empty relevance
+    result is indistinguishable from a map that knows nothing about the query, and a store-backed
+    matcher would then score zero for a reason that has nothing to do with matching.
+    """
+    raise RuntimeError("the technology capability map has no relevance store — it is read whole; "
+                       "score `leaves` or `drill`")
+
+
+def children_of(corpus: list[dict], seen: set | None = None):
+    """The drill's `children` seam over the LOCAL tree — the same rows the corpus would serve.
+
+    `seen` collects every label this seam ever handed the matcher: that is the `offered` set the
+    stage metrics need, and a seam is the only honest place to take it. Counting the corpus
+    instead would credit the drill with candidates it closed a branch on and never showed."""
     by_parent: dict = {}
     for c in corpus:
         by_parent.setdefault(c.get("parent"), []).append(c)
 
     async def children(ids, level):
-        return [c for i in ids for c in by_parent.get(i, [])]
+        rows = [c for i in ids for c in by_parent.get(i, [])]
+        if seen is not None:
+            seen.update(str(r.get("id") or "").strip() for r in rows)
+        return rows
     return children
 
 
-def search_of(cfg, scheme: str):
-    """The `vector` seam: the map's store THROUGH THE GATEWAY under a pin — the same path a run
-    takes, so what the harness scores is what a run gets."""
-    store = VectorStores.for_scheme(scheme)
-    pinned: dict = {}
+def present(corpus: list[dict], definitions: str, budget: int, deepest: int) -> list[dict]:
+    """The candidate rows AS THE MATCHER WILL SEE THEM — the experiment's real variable.
 
-    async def search(query, k):
-        if not pinned:
-            pinned.update(await reference.pin(cfg, [store]))
-        return await gateway.vector_search(
-            cfg["gateway_url"], cfg["headers"], store, query, k=k,
-            filters={"pin_id": pinned["pin_id"], **reference.attribution(cfg, "coverage_map")})
-    return search
+    Every downstream derivation rests on this match, and for months the only thing varied was which
+    matcher ran, while the thing that decides whether a match is a lookup or a guess — whether the
+    candidate carries its DEFINITION — was fixed by a constant nobody re-measured after the model
+    changed. `none` is what production sent (labels and path), `full` is every definition whatever
+    it costs, `fit` is as much as the byte budget allows.
+    """
+    if definitions == "full":
+        return corpus
+    if definitions == "none":
+        return [{k: v for k, v in c.items() if k != "definition"} for c in corpus]
+    trimmed = coverage.leaves_for(corpus, deepest=deepest, budget=budget)   # budget-aware trim
+    keep = {t["id"]: t.get("definition") for t in trimmed}
+    # Built explicitly, because the dict-merge this used to be did not do what it read as:
+    # `{**c, **{k: v for k, v in c.items() if k != "definition"}}` spreads `c` INCLUDING its
+    # definition and then merges a copy without that key, which removes nothing. So `fit` never
+    # dropped a definition the budget could not afford — it only ever truncated one — and every
+    # `--definitions fit` measurement was of a prompt larger than the flag claimed.
+    out: list[dict] = []
+    for concept in corpus:
+        ident = concept.get("id")
+        if ident not in keep:
+            out.append(concept)
+            continue
+        row = {k: v for k, v in concept.items() if k != "definition"}
+        if keep.get(ident):
+            row["definition"] = keep[ident]
+        out.append(row)
+    return out
 
 
-async def one_run(cfg, corpus, elements, matcher: str, scheme: str) -> tuple[set, float, str, list]:
-    """One matcher over one case: the capabilities it returned, the seconds it took, and why it
-    stopped if it did."""
+def payload_size(corpus: list[dict], matcher: str, budget: int, deepest: int) -> int:
+    """Roughly what one prompt will carry — printed so a recall number is read beside its cost."""
+    rows = coverage.leaves_for(corpus, deepest=deepest, budget=budget) if matcher == "leaves" \
+        else [c for c in corpus if c.get("level") == 1]
+    return len(json.dumps(rows, ensure_ascii=False, default=str))
+
+
+async def one_run(cfg, corpus, elements, matcher: str, deepest: int, samples: int | None = None,
+                  threshold: int | None = None) -> tuple[set, float, str, list, set]:
+    """One matcher over one case: the capabilities it returned, the seconds it took, why it
+    stopped if it did, and WHAT IT WAS SHOWN.
+
+    The last of those is what separates a retrieval failure from a choosing failure, and the two
+    have opposite fixes. `leaves` shows the whole leaf set and is computed directly; every other
+    matcher decides what to show as it goes, so its offered set is collected at the seams."""
     d = Derivation(available={"elements": elements, "capabilities": corpus})
+    offered: set = set()
+    if matcher == "leaves":
+        offered = {str(c.get("id") or "").strip()
+                   for c in coverage.leaves_for(corpus, deepest=deepest)}
     started = time.time()
     note = ""
     try:
-        await coverage.MATCHERS[matcher](cfg, d, corpus, children=children_of(corpus),
-                                         search=search_of(cfg, scheme), project=lambda r: r)
+        await coverage.MATCHERS[matcher](cfg, d, corpus,
+                                         children=children_of(corpus, offered),
+                                         search=_no_store, project=lambda r: r, deepest=deepest,
+                                         samples=samples, threshold=threshold)
     except GateFailed as refused:
         note = f"gate: {refused}"
     except Exception as exc:                       # noqa: BLE001 — a failed run is a DATA POINT
         note = f"{type(exc).__name__}: {exc}"
     matched = (d.derived.get("coverage_map") or {}).get("matched") or []
-    got = {str(m.get("capability_label") or "").strip() for m in matched}
+    # The whole tally, so `report` can score this ONE sampled pass at every threshold.
+    trail = (d.derived.get("coverage_trail") or [{}])[-1] if d.derived.get("coverage_trail") else {}
+    tally = {"matched": matched, "excluded": list(trail.get("excluded") or [])}
+    got = {identity_of(m, corpus) for m in matched}
     # What recall cannot see: an id that is not in the map. A reasoning model writes the label
     # where the key belongs (measured 12 Sep 2026); the label scores, the id would not join.
     ids = {str(c.get("id")) for c in corpus if isinstance(c, dict) and c.get("id")}
     bad_ids = sorted({str(m.get("capability_id")) for m in matched
                       if str(m.get("capability_id", "")).strip() not in ids})
-    return {g for g in got if g}, time.time() - started, note or d.pending.get("5", ""), bad_ids
+    return ({g for g in got if g}, time.time() - started, note or d.pending.get("5", ""),
+            bad_ids, {o for o in offered if o}, tally)
 
 
-def score(got: set, expected: set) -> dict:
+def at_threshold(trail: Mapping, k: int) -> list[dict]:
+    """The matches a sampled run would have kept at threshold `k`.
+
+    A sampled run holds the WHOLE tally: `matched` is everything at or above the threshold it ran
+    at, `excluded` everything below it, and both carry `votes`. So one sampling pass scores at
+    every k, instead of one pass per k — which costs twice the tokens AND compares two different
+    draws, leaving the difference partly threshold and partly luck with nothing to separate them.
+
+    A match with no `votes` is a single UNSAMPLED pass and counts once, not zero: scoring an
+    ordinary run as having matched nothing would be the worst possible reading of it.
+    """
+    rows = list(trail.get("matched") or []) + list(trail.get("excluded") or [])
+    return [m for m in rows if int(m.get("votes", 1)) >= k]
+
+
+def score(got: set, expected: set, offered: set | None = None) -> dict:
+    """The outcome, and WHERE it was lost.
+
+    A pipeline scored only end to end cannot tell a retrieval problem from a chooser problem, and
+    they have opposite fixes. So two more numbers, both standard for a retrieve-then-rerank stack:
+    `reachable` is recall@k of the candidate set — the ceiling, since a chooser cannot return what
+    it was never shown — and `chose` is what the chooser took OF what was reachable. A low
+    `reachable` says fix retrieval (or the translation feeding it); a high `reachable` with a low
+    `chose` says fix the choosing prompt.
+    """
     tp = len(got & expected)
     precision = tp / len(got) if got else 0.0
     recall = tp / len(expected) if expected else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    return {"returned": len(got), "correct": tp, "precision": precision, "recall": recall,
-            "f1": f1, "wrong": sorted(got - expected), "missed": sorted(expected - got)}
+    out = {"returned": len(got), "correct": tp, "precision": precision, "recall": recall,
+           "f1": f1, "wrong": sorted(got - expected), "missed": sorted(expected - got)}
+    if offered is not None:
+        present = expected & offered
+        out |= {"candidates": len(offered),
+                "reachable": len(present) / len(expected) if expected else 0.0,
+                "chose": len(got & present) / len(present) if present else 0.0,
+                "unreachable": sorted(expected - offered)}
+    return out
 
 
 def means(results: dict) -> dict:
@@ -143,6 +301,50 @@ def means(results: dict) -> dict:
                     k: round(statistics.fmean(s[k] for s in ok), 3)
                     for k in ("precision", "recall", "f1")} | {"n": len(ok)}
     return out
+
+
+def cases_missing(results: Mapping, on_disk: list[str]) -> list[str]:
+    """Cases the repository HAS that these results do not cover.
+
+    `unscored` cannot catch this: it compares the scored means against the results it was handed,
+    and `--record-from` is handed only the files that happen to exist. Two result files therefore
+    looked complete and recorded a two-case bar over a six-case one — the same defect the harness
+    had just been fixed for, through the door the fix opened. The authority for what a full bar
+    covers is the cases DIRECTORY, so that is what it is checked against.
+    """
+    covered = {case for cases in results.values() for case in cases}
+    return sorted(c for c in on_disk if c not in covered)
+
+
+def merge(sets: list[Mapping]) -> dict:
+    """Several result sets into one, samples concatenated per matcher/case.
+
+    A full baseline is one long invocation, and on an 8 GB box a long invocation is one the OS can
+    kill — measured twice on 21 Sep 2026, at 17 of 30 runs and again after. So the bar can be built
+    from SAVED results instead: score a case at a time with `--out`, then `--record-from` them all.
+    The guard in `unscored` still applies to the merged whole, so resumability cannot become a way
+    to record a partial bar by accident.
+    """
+    out: dict = {}
+    for one in sets:
+        for matcher, cases in (one or {}).items():
+            for case, samples in cases.items():
+                out.setdefault(matcher, {}).setdefault(case, []).extend(samples)
+    return out
+
+
+def unscored(current: dict, results: dict) -> list[str]:
+    """matcher/case pairs the run ATTEMPTED but could not score — the ones a baseline would omit.
+
+    A baseline is a bar, and a bar with holes in it is the most dangerous kind: `regressions` only
+    checks pairs the BASELINE holds, so a case missing from it is a case that has silently stopped
+    being gated, and the next run reports "no recall regression" while measuring a fraction of the
+    suite. Measured 21 Sep 2026 — the eval key hit its budget mid-run, four of six cases scored
+    nothing, and a two-case baseline was written over a six-case one with no complaint.
+    """
+    return sorted(f"{matcher}/{case}"
+                  for matcher, cases in results.items() for case in cases
+                  if case not in (current.get(matcher) or {}))
 
 
 def regressions(current: dict, baseline: dict, tolerance: float = 0.05,
@@ -177,17 +379,34 @@ def report(results: dict, runs: int) -> int:
     recall target G18 asks for, so this can gate a deploy rather than merely inform one.
     """
     target = float(os.environ.get("COVERAGE_RECALL_TARGET", "0.6"))
-    print(f"\n{'matcher':10} {'case':22} {'prec':>6} {'recall':>7} {'F1':>6} {'sec':>6}   n={runs}")
+    print(f"\n{'matcher':10} {'case':22} {'prec':>6} {'recall':>7} {'F1':>6} "
+          f"{'reach':>6} {'chose':>6} {'sec':>6}   n={runs}")
     failed = []
     for matcher, cases in sorted(results.items()):
         for case, samples in sorted(cases.items()):
             mean = lambda k: statistics.fmean(s[k] for s in samples)
             spread = (f" ±{statistics.stdev(s['recall'] for s in samples):.2f}"
                       if len(samples) > 1 else "")
+            stage = (f"{mean('reachable'):6.2f} {mean('chose'):6.2f}"
+                     if all("reachable" in s for s in samples) else f"{'—':>6} {'—':>6}")
             print(f"  {matcher:8} {case:22} {mean('precision'):6.2f} {mean('recall'):7.2f}"
-                  f"{spread} {mean('f1'):6.2f} {mean('seconds'):6.0f}")
+                  f"{spread} {mean('f1'):6.2f} {stage} {mean('seconds'):6.0f}")
             if mean("recall") < target:
                 failed.append(f"{matcher}/{case} recall {mean('recall'):.2f}")
+
+    by_k: dict = {}
+    for matcher, cases in results.items():
+        for samples in cases.values():
+            for row in samples:
+                for k, scored in (row.get("by_k") or {}).items():
+                    by_k.setdefault(int(k), []).append(scored)
+    if by_k:
+        print(f"\nthreshold sweep — the SAME samples scored at every k (n={sum(len(v) for v in by_k.values()) // len(by_k)} runs):")
+        print(f"  {'k':>3} {'prec':>6} {'recall':>7} {'F1':>6}")
+        for k in sorted(by_k):
+            rows = by_k[k]
+            mean = lambda f: statistics.fmean(r[f] for r in rows)
+            print(f"  {k:>3} {mean('precision'):6.2f} {mean('recall'):7.2f} {mean('f1'):6.2f}")
 
     print("\nwhat the best-scoring matcher still MISSES (the comprehensiveness gap):")
     for matcher, cases in sorted(results.items()):
@@ -203,19 +422,78 @@ def report(results: dict, runs: int) -> int:
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cases", default="var/eval/coverage", help="directory of case directories")
+    ap.add_argument("--cases", default="docs/evals/cases",
+                    help="directory of case directories; the default is the versioned bar")
     ap.add_argument("--matcher", action="append", choices=sorted(coverage.MATCHERS),
                     help="repeatable; default is every matcher")
     ap.add_argument("--runs", type=int, default=3, help="repeats per matcher per case")
-    ap.add_argument("--scheme", default="healthcare-provider-v2.0")
+    ap.add_argument("--case", action="append",
+                    help="repeatable; run only these case directories (the tight loop is one case)")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="cases in flight at once. 5 turns a four-minute arm into one, at the cost "
+                         "of sharing the upstream's rate limit — keep it 1 beside a cloud run")
+    ap.add_argument("--show", action="store_true",
+                    help="print what a matcher WOULD send and stop — no model call, no cost. The "
+                         "loop for tuning presentation: change a field, see the candidates")
+    ap.add_argument("--deepest", type=int, default=0,
+                    help="the map's matching GRAIN — the level candidates are drawn from. Default "
+                         "is the published map's (3); with --corpus-file, the deepest level present")
+    ap.add_argument("--corpus-file",
+                    help="score against THIS capability map (JSON rows) instead of the "
+                         "published technology map. The "
+                         "`vector` matcher is unavailable: it reads a published store, not a file")
+    ap.add_argument("--definitions", choices=("none", "fit", "full"), default="fit",
+                    help="how a candidate is PRESENTED: labels only (what production sent until "
+                         "17 Sep 2026), as much definition as the byte budget allows, or all of it")
+    ap.add_argument("--budget", type=int, default=200_000,
+                    help="the prompt byte budget `fit` trims to; the production constant is "
+                         "MAX_CORPUS_BYTES and it was sized on a different upstream")
     ap.add_argument("--derive", action="store_true",
                     help="derive each case's elements.json and stop — run once per case")
+    ap.add_argument("--samples", type=int, default=None,
+                    help="ask step 5 this many times and keep what the answers AGREE on. The "
+                         "default is COVERAGE_SAMPLES (1). Measured 20 Sep 2026: temperature 0 "
+                         "with a seed still returns three distinct answers out of three on this "
+                         "step's real payload, so the spread is bought down here or not at all")
+    ap.add_argument("--votes", type=int, default=None,
+                    help="how many samples must agree before a match is kept; 0 (the default) is "
+                         "a majority of those that answered. This is the k to tune")
+    ap.add_argument("--model", default=config.USECASE_AGENT_MODEL,
+                    help="the model the matcher's agents run on. The default is what production "
+                         "runs; naming another is how a model change is MEASURED against the "
+                         "frozen bar before it ships, rather than argued about")
     ap.add_argument("--out", default="var/eval/coverage-results.json")
-    ap.add_argument("--baseline", default="docs/evals/coverage-baseline.json",
+    ap.add_argument("--baseline", default=BASELINE,
                     help="recorded means to refuse a regression against (recall, per matcher/case)")
+    ap.add_argument("--record-from", nargs="*", metavar="RESULTS.json",
+                    help="record the baseline from saved --out files instead of running anything. "
+                         "The resumable path: score a case at a time, then record once")
     ap.add_argument("--record-baseline", action="store_true",
                     help="write this run's means AS the baseline (after a reviewed improvement)")
     args = ap.parse_args()
+
+    if args.record_from:
+        # No model calls, no gateway, no key: arithmetic over what earlier runs already paid for.
+        loaded = [json.loads(Path(f).read_text()) for f in args.record_from]
+        results = merge(loaded)
+        current = means(results)
+        on_disk = sorted(p.name for p in Path(args.cases).glob("*")
+                         if (p / EXPECTED).is_file())
+        missing = unscored(current, results) + cases_missing(results, on_disk)
+        if missing:
+            print(f"NOT RECORDED — these are not covered: {sorted(set(missing))}. "
+                  f"{args.baseline} is unchanged.")
+            return 2
+        Path(args.baseline).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.baseline).write_text(json.dumps(
+            {"recorded": time.strftime("%Y-%m-%d"), "map": "technology", "model": args.model,
+             "samples": args.samples if args.samples is not None else coverage.SAMPLES,
+             "means": current}, indent=2) + "\n")
+        print(f"baseline recorded from {len(loaded)} result file(s): {args.baseline}")
+        for matcher, cases in current.items():
+            for case, v in sorted(cases.items()):
+                print(f"  {matcher}/{case:28} recall {v['recall']:.2f}  n={v['n']}")
+        return 0
 
     gateway_url = os.environ.get("EVAL_GATEWAY") or os.environ.get("GATEWAY_URL",
                                                                    "http://127.0.0.1:4000")
@@ -223,20 +501,68 @@ async def main() -> int:
     if not credential:
         raise SystemExit("EVAL_AGENT_KEY is not set — evals run on their OWN identity, never on a "
                          "production agent's key (scripts/provision_usecase_agents.py mints it)")
-    cfg = {"agents": agents_for(gateway_url, config.USECASE_AGENT_MODEL,
-                                credential, step_for("3"), step_for("4"), step_for("5")),
+    cfg = {"agents": agents_for(gateway_url, args.model, credential,
+                                step_for("3"), step_for("4"), step_for("5"),
+                                coverage.CAPABILITY_QUERY),   # the `translate` matcher's own stage
            # what the `vector` matcher needs to reach the store the way a run does
            "headers": gateway.auth_headers(credential), "gateway_url": gateway_url,
            "mcp_url": gateway_url.rstrip("/") + "/mcp/", "run_id": "eval", "process": "eval"}
-    corpus = corpus_for(args.scheme, os.environ.get(
-        "REFERENCE_MODELS_DIR", str(Path.home() / "Development/local-agent-lab/var/reference-sources")))
-    print(f"corpus: {len(corpus)} concepts | gateway: {gateway_url}")
+    if args.corpus_file:
+        corpus = corpus_from_file(args.corpus_file)
+        # A file's grain is the file's, not the published map's: the constant is 3 and a two-level
+        # map would yield zero candidates, which reads downstream as "nothing is relevant".
+        args.deepest = args.deepest or max(int(c.get("level") or 0) for c in corpus)
+    else:
+        corpus = technology_map()
+        args.deepest = args.deepest or capabilities.LEVEL
+    # Neither source has a relevance store, so a store-backed matcher cannot be scored at all.
+    # Refusing beats scoring it at zero, which would read as a matcher that finds nothing.
+    asked = set(args.matcher or []) & set(coverage.STORE_BACKED)
+    if asked:
+        raise SystemExit(f"{sorted(asked)} search a published relevance store, and this map has "
+                         f"none — it is a register read whole. Score `leaves` or `drill`.")
+    args.matcher = args.matcher or [m for m in sorted(coverage.MATCHERS)
+                                    if m not in coverage.STORE_BACKED]
+    with_def = sum(1 for c in corpus if str(c.get("definition") or "").strip())
+    corpus = present(corpus, args.definitions, args.budget, args.deepest)
+    per_case = args.samples if args.samples is not None else coverage.SAMPLES
+    print(f"corpus: {len(corpus)} concepts ({with_def} carry a definition) | "
+          f"definitions={args.definitions} | model: {args.model} | samples={per_case} "
+          f"votes={'majority' if not args.votes else args.votes} | gateway: {gateway_url}")
 
-    cases = sorted(p for p in Path(args.cases).glob("*") if (p / "submission.md").exists())
+    cases = sorted(p for p in Path(args.cases).glob("*")
+                   if (p / "submission.md").exists() and (p / EXPECTED).is_file())
+    if args.case:
+        wanted = {c.strip() for c in args.case}
+        cases = [c for c in cases if c.name in wanted]
+        if not cases:
+            print(f"no case named {sorted(wanted)} under {args.cases}")
+            return 2
     if not cases:
         print(f"no cases under {args.cases} — a case is a directory with submission.md, "
               f"elements.json and expected.json")
         return 2
+
+    if args.show:
+        # Zero calls: what the matcher would be handed, and what it costs. Tuning the presentation
+        # is the tightest loop there is, and paying a model to see a prompt is absurd.
+        for matcher in (args.matcher or sorted(coverage.MATCHERS)):
+            rows = (coverage.leaves_for(corpus, deepest=args.deepest, budget=args.budget)
+                    if matcher == "leaves" else [c for c in corpus if c.get("level") == 1])
+            size = len(json.dumps(rows, ensure_ascii=False, default=str))
+            carry = sum(1 for r in rows if str(r.get("definition") or "").strip())
+            print(f"\n{matcher}: {len(rows)} candidates, {size:,} bytes (~{size // 4:,} tokens), "
+                  f"{carry} with a definition")
+            for row in rows[:3]:
+                print("   ", json.dumps(row, ensure_ascii=False)[:300])
+        for case in cases:
+            elements = json.loads((case / "elements.json").read_text())
+            expected = sorted(expected_for(case))
+            behavioural = [b.get("name") for b in elements.get("behavioural") or []]
+            print(f"\n{case.name}: {len(behavioural)} functions to match, {len(expected)} expected")
+            print(f"    functions: {behavioural[:6]}")
+            print(f"    expected:  {expected[:6]}")
+        return 0
 
     if args.derive:
         for case in cases:
@@ -250,19 +576,37 @@ async def main() -> int:
         return 0
 
     results: dict = {}
+    gate = asyncio.Semaphore(max(1, args.concurrency))
+
+    async def scored(matcher: str, case, run: int) -> tuple:
+        expected = expected_for(case)
+        elements = json.loads((case / "elements.json").read_text())
+        async with gate:
+            got, seconds, note, bad_ids, offered, tally = await one_run(
+                cfg, corpus, elements, matcher, args.deepest, args.samples, args.votes)
+        row = score(got, expected, offered) | {"seconds": seconds, "note": note, "run": run,
+                                               "invalid_ids": bad_ids}
+        # Every threshold, from the ONE sampling pass just paid for. `at_threshold` reads the
+        # tally that `matched` + `excluded` already carry, so this costs nothing and compares
+        # thresholds over the SAME draw rather than over two different ones.
+        asked_for = args.samples if args.samples is not None else coverage.SAMPLES
+        if asked_for > 1:
+            row["by_k"] = {k: score({identity_of(m, corpus) for m in at_threshold(tally, k)},
+                                    expected)
+                           for k in range(1, asked_for + 1)}
+        print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
+              f"P {row['precision']:.2f} R {row['recall']:.2f}  "
+              f"[reachable {row.get('reachable', 0):.2f} of {row.get('candidates', 0)} shown, "
+              f"chose {row.get('chose', 0):.2f}]  {seconds:4.0f}s"
+              f"{'  bad-ids ' + str(len(bad_ids)) if bad_ids else ''}"
+              f"{'  ' + note[:50] if note else ''}", flush=True)
+        return matcher, case.name, row
+
     for matcher in (args.matcher or sorted(coverage.MATCHERS)):
-        for case in cases:
-            expected = set(json.loads((case / "expected.json").read_text())["applicable"])
-            elements = json.loads((case / "elements.json").read_text())
-            for run in range(args.runs):
-                got, seconds, note, bad_ids = await one_run(cfg, corpus, elements, matcher, args.scheme)
-                row = score(got, expected) | {"seconds": seconds, "note": note, "run": run,
-                                              "invalid_ids": bad_ids}
-                results.setdefault(matcher, {}).setdefault(case.name, []).append(row)
-                print(f"  {matcher:8} {case.name:22} run {run + 1}/{args.runs}  "
-                      f"P {row['precision']:.2f} R {row['recall']:.2f}  {seconds:4.0f}s"
-                      f"{'  bad-ids ' + str(len(bad_ids)) if bad_ids else ''}"
-                      f"{'  ' + note[:50] if note else ''}", flush=True)
+        print(f"    candidates ≈ {payload_size(corpus, matcher, args.budget, args.deepest):,} bytes")
+        todo = [scored(matcher, case, run) for case in cases for run in range(args.runs)]
+        for matcher_, name, row in await asyncio.gather(*todo):
+            results.setdefault(matcher_, {}).setdefault(name, []).append(row)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(results, indent=2))
@@ -270,14 +614,39 @@ async def main() -> int:
     rc = report(results, args.runs)
     current = means(results)
     base_path = Path(args.baseline)
-    if args.record_baseline:
+    if args.record_baseline and unscored(current, results):
+        # Refused, not warned: a half-recorded bar looks exactly like a full one on every run after
+        # it, and the thing it stops gating is invisible.
+        print(f"\nNOT RECORDED — these were attempted and scored nothing: "
+              f"{unscored(current, results)}. Fix the cause and re-run; "
+              f"{base_path} is unchanged.")
+        rc = 2
+    elif args.record_baseline:
         base_path.parent.mkdir(parents=True, exist_ok=True)
         base_path.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"),
-                                         "scheme": args.scheme, "means": current}, indent=2) + "\n")
+                                         "map": "technology", "model": args.model,
+                                         "samples": per_case,
+                                         "means": current}, indent=2) + "\n")
         print(f"baseline recorded: {base_path}")
-    elif base_path.exists():
-        fell = regressions(current, json.loads(base_path.read_text()).get("means") or {},
-                           results_cases=results)
+    elif not base_path.exists():
+        # Loudly: the gate's whole value is refusing a regression, and a missing file used to mean
+        # it quietly did not run.
+        print(f"\nNO BASELINE at {base_path} — nothing was gated. "
+              f"`--record-baseline` writes one from this run.")
+    else:
+        recorded = json.loads(base_path.read_text())
+        # A baseline scored on ANOTHER model is not the same bar. Comparing across them is exactly
+        # what this flag is for, so it is reported rather than refused — but never silently, or a
+        # model swap reads as a regression in the matcher.
+        if recorded.get("model", args.model) != args.model:
+            print(f"\nNOTE: baseline was recorded on {recorded['model']}, this run is "
+                  f"{args.model} — the comparison below is across MODELS, not matchers.")
+        if recorded.get("samples", per_case) != per_case:
+            # Sampling moved mean recall 0.715 -> 0.79. Compared blind, that reads as a spectacular
+            # improvement or, reversed, a spectacular regression — and neither is about the matcher.
+            print(f"\nNOTE: baseline was recorded at samples={recorded['samples']}, this run is "
+                  f"samples={per_case} — the comparison below is across SAMPLING, not matchers.")
+        fell = regressions(current, recorded.get("means") or {}, results_cases=results)
         if fell:
             print(f"\nREGRESSION against {base_path}: {fell}")
             rc = 2

@@ -10,7 +10,7 @@ from lab.platform import redis_client, runlog
 
 
 def test_node_tolerates_corrupt_nodes_and_missing_start():
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()          # a window per client, not a single flag
     r = FakeRedis()
     r.hset("run:r1", mapping={"nodes": "{not json", "t0": "x"})
     _, out, _ = capture(runlog.node, "r1", "ba", "done", client=r)      # no start entry -> no elapsed
@@ -24,7 +24,7 @@ def test_node_tolerates_corrupt_nodes_and_missing_start():
 
 
 def test_span_node_success_records_done_with_elapsed():
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()          # a window per client, not a single flag
     r = FakeRedis()
     capture(runlog.start, "r-ok", process="visio_to_archimate", input="x", client=r)
     with redirect_stdout(io.StringIO()):
@@ -42,7 +42,7 @@ def test_update_without_fields_is_a_noop():
 
 
 def test_finish_without_t0_and_readers():
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()          # a window per client, not a single flag
     r = FakeRedis()
     _, out, _ = capture(runlog.finish, "r3", "failed", error="bad", client=r)      # never started
     assert out.strip() == "[run r3] FAILED — bad" and "elapsed" not in r.h["run:r3"]
@@ -61,7 +61,7 @@ def test_finish_without_t0_and_readers():
 
 
 def test_cli():
-    runlog._RETRY_AT = 0.0
+    runlog._RETRY_AT.clear()          # a window per client, not a single flag
     fake = FakeRedis()
     with patched_client(fake):
         capture(runlog.start, "cli-1", process="visio_to_archimate", input="d.vsdx", client=fake)

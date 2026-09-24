@@ -496,7 +496,9 @@ def test_but_an_unnamed_owner_must_actually_REACH_a_human():
 # ------------------------------------------------- a capability id is a lookup, not a paraphrase
 SHOWN = {"capabilities": [{"id": "cap-a1", "label": "Referral Triage", "path": "Care > Referral Triage"},
                           {"id": "cap-b2", "label": "Slot Booking", "path": "Care > Slot Booking"}]}
-HEAT = {"commodity": False, "mature": True, "meets_target": False, "source": "capability map v0.29"}
+#: An HONEST position: the rows these tests show carry no heat-map column, so a lookup finds nothing.
+HEAT = {"commodity": False, "mature": False, "meets_target": False,
+        "source": "the published map carries no heat-map position"}
 
 
 def test_a_matched_capability_id_must_be_one_the_step_was_shown():
@@ -550,3 +552,117 @@ def test_the_model_is_told_where_a_capability_id_comes_from():
     desc = schema("coverage_map")["properties"]["matched"]["items"]["properties"]["capability_id"]["description"]
     assert "id" in desc and "shown" in desc and "refused" in desc
     assert "`capability_id` is COPIED" in prompt("coverage_map")
+
+
+CANDIDATES = {"capabilities": [{"id": "cap-1", "label": "Submission Validation", "level": 3,
+                                "parent": "cap-0", "path": ["Work Management", "Submission Validation"]}]}
+
+
+def test_a_true_heat_position_over_rows_with_no_heat_column_is_refused_as_a_fabricated_lookup():
+    """14 Sep 2026: a model wrote "lookup from published capability map" over commodity/mature/
+    meets-target for a map that carries none, and the feasibility rule rejected the case on a
+    position nobody had assessed. The rows say what can be looked up; the gate holds the answer to it."""
+    out = {"matched": [{"function": "assess", "capability_id": "cap-1", "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": {"commodity": True, "mature": True, "meets_target": True,
+                        "source": "lookup from published capability map: Work Management > Submission Validation"}}
+    bad = gated("5", out, context=CANDIDATES)
+    assert any("no heat-map column" in p for p in bad), bad
+
+
+def test_an_honest_false_heat_position_over_the_same_rows_is_accepted():
+    out = {"matched": [{"function": "assess", "capability_id": "cap-1", "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": {"commodity": False, "mature": False, "meets_target": False,
+                        "source": "the published map carries no heat-map position"}}
+    assert gated("5", out, context=CANDIDATES) == []
+
+
+def test_a_true_heat_position_is_accepted_when_the_rows_carry_one():
+    rows = {"capabilities": [dict(CANDIDATES["capabilities"][0], commodity=True, mature=True, meets_target=True)]}
+    out = {"matched": [{"function": "assess", "capability_id": "cap-1", "confidence": "lookup"}],
+           "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": {"commodity": True, "mature": True, "meets_target": True, "source": "row cap-1"}}
+    assert gated("5", out, context=rows) == []
+
+
+# ------------------------------------------------- step 17: every facet's values are the published ones
+
+def test_the_facet_schema_carries_every_published_vocabulary_as_an_enum():
+    """14 Sep 2026: a facet vector with activity "assess AI use case" passed the gate and failed
+    the exposure derivation twenty minutes into the design run. The values are the domain's, declared
+    once; the schema the model reads carries them, so the refusal happens where the answer is written."""
+    from lab.core.usecase.model import ACTIVITIES, EFFECTS, VOCABULARY
+    from lab.workloads.usecase.steps import schema
+    facets = schema("facet_vectors")["properties"]["steps"]["items"]["properties"]
+    assert facets["activity"]["enum"] == list(ACTIVITIES)
+    assert facets["effect"]["enum"] == list(EFFECTS)
+    for facet in VOCABULARY:
+        if facet in facets:
+            assert facets[facet]["enum"] == list(VOCABULARY[facet]), facet
+
+
+def test_a_free_text_activity_is_refused_by_name_and_a_near_miss_spelling_is_canonicalised():
+    from fixtures.usecase_answers import ANSWERED
+    from lab.workloads.usecase.steps import step_for
+    from lab.workloads.gates import gate
+    step = step_for("17")
+    out = {"steps": [{"id": "n1", "activity": "assess AI use case", "determinism": "D2",
+                      "effect": "none", "conditions": ANSWERED}]}
+    problems = gate(out, validator=step.validator(), normalise=step.normalise, complete=step.complete)
+    assert any("activity" in p and "assess AI use case" in p for p in problems), problems
+    near = {"steps": [{"id": "n1", "activity": "Interpret", "determinism": "d2",
+                       "effect": "Record Write", "conditions": ANSWERED}]}
+    assert gate(near, validator=step.validator(), normalise=step.normalise, complete=step.complete) == []
+    assert near["steps"][0]["activity"] == "interpret" and near["steps"][0]["effect"] == "record write"
+    assert near["steps"][0]["determinism"] == "D2"
+
+
+def test_a_coverage_map_that_is_entirely_inferred_must_say_so():
+    """Run 5: ten matches, every one an `assumption`, no flag — which reads exactly like ten
+    lookups. The confidence is never forced up; the map is made to say what it is."""
+    matched = [{"function": f"f{i}", "capability_id": "cap-1", "confidence": "assumption"} for i in range(3)]
+    out = {"matched": matched, "functions_without_capability": [], "capabilities_without_function": [],
+           "heat_map": HEAT}
+    assert any("none of the 3 matches is a `lookup`" in p for p in gated("5", out, CANDIDATES))
+    flagged = dict(out, gap_flags=[{"what": "every match is inferred from labels",
+                                    "owning_body": "the capability map owner"}])
+    assert gated("5", flagged, CANDIDATES) == []
+    one_lookup = dict(out, matched=[dict(matched[0], confidence="lookup")] + matched[1:])
+    assert gated("5", one_lookup, CANDIDATES) == []
+
+
+# ------------------------------------------------- step 10: a graph is a decomposition, not a rename
+
+FUNCTIONS = {"elements": {"behavioural": [{"name": "assess referral"}, {"name": "classify risk"},
+                                          {"name": "produce recommendation"}]}}
+
+
+def _graph(*activities):
+    nodes = [{"id": f"n{i}", "activity": a, "performed_by": "nurse"} for i, a in enumerate(activities, 1)]
+    return {"nodes": nodes, "edges": []}
+
+
+def test_a_node_per_function_named_after_it_is_refused_as_a_rename():
+    """Run 8: ten functions in, ten nodes out, each the function's own words — and the determinism
+    tier, facet vector, exposure and control set are all per node, so the whole risk chain came out
+    exactly as coarse as the inventory it copied."""
+    bad = gated("10", _graph("assess referral", "classify risk", "produce recommendation"), FUNCTIONS)
+    assert any("restates the function list" in p for p in bad), bad
+
+
+def test_a_real_decomposition_passes():
+    out = _graph("fetch the referral", "read the referral", "classify risk", "record the band",
+                 "produce recommendation")
+    assert gated("10", out, FUNCTIONS) == []
+
+
+def test_one_function_kept_whole_beside_decomposed_ones_is_not_a_rename():
+    out = _graph("fetch the referral", "assess referral", "classify risk", "produce recommendation")
+    assert gated("10", out, FUNCTIONS) == []
+
+
+def test_without_the_function_list_or_below_three_functions_the_rule_says_nothing():
+    assert gated("10", _graph("assess referral", "classify risk", "produce recommendation")) == []
+    two = {"elements": {"behavioural": [{"name": "assess referral"}, {"name": "classify risk"}]}}
+    assert gated("10", _graph("assess referral", "classify risk"), two) == []

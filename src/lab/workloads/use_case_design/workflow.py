@@ -26,6 +26,9 @@ from typing import Any, Mapping
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.core.usecase import cost
+# Aliased: `enforcement` is already the local name for the composition's family -> guardrail map,
+# and two different things called `enforcement` in one file is how the wrong one gets passed.
+from lab.core.usecase import enforcement as enforcement_binding
 from lab.core.usecase.model import canonical_criticality
 from lab.platform import config, contracts, runlog
 from lab.platform.contracts import (
@@ -35,14 +38,17 @@ from lab.platform.contracts import (
     ApprovalTools,
     Continuation,
     DecisionTools,
+    EATools,
     SemanticTools,
     StorageTools,
     ValuationTools,
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import reference
+from lab.workloads.usecase import families, mappers, modeltrace, modelling, owed
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.steps import step_for
+from lab.workloads.usecase.steps import derived_for
+from lab.workloads.usecase.steps import NUMBER_OF, step_for
 
 #: Declared on every approval this workload raises — see the screening workflow.
 PROCESS = USE_CASE_DESIGN.name
@@ -69,6 +75,13 @@ CORPORA = {
     "surface_enforceability": ("surface-enforceability", "obligation"),
     "ai_capability_map": ("ai-capability-map", "capability"),
     "component_catalogue": ("reference-architecture-components", "component"),
+    # The published guardrails, for the ONE thing the workload derives from them: which capability
+    # (and so which component) enforces each — the chain that tells step 21 whether the selection
+    # carries the families the composition requires. The control set itself is decision-mcp's.
+    "guardrails": ("guardrails", "guardrail"),
+    # Which archetype a topology composes to — read for the model, so the draw.io projection knows
+    # its base without reaching the corpus from the substrate.
+    "topology_archetypes": ("reference-architecture-topology-archetypes", "topology-archetype"),
 }
 
 #: Everything this run pins: what its own steps read, plus what the governed derivations read on
@@ -102,6 +115,18 @@ FINDING_PROMPT = (
     "submitter is told: a wrong rejection kills a valuable use case and produces no observable "
     "event afterwards, so this is the only place it can be caught.")
 
+#: An ESCALATE is not a finding to overturn — it is a question nobody could answer from the corpus,
+#: so asking a person to "confirm or overturn" would frame a decision they must MAKE as a machine
+#: judgement they may correct. Different verdict, different sentence.
+ESCALATED_PROMPT = (
+    "This use case could not be ruled on automatically — the evidence the feasibility rule needs is "
+    "not published in this tenant. Decide it: does this use case serve a named capability with "
+    "headroom? Nothing was rejected and nothing was approved; the rule is waiting on you.")
+
+
+def finding_prompt(verdict: str) -> str:
+    return ESCALATED_PROMPT if str(verdict).strip().lower() == "escalate" else FINDING_PROMPT
+
 
 def make_cfg(*, credential="", mcp_url="", traceparent="", agents=None, tracer=None,
              root_ctx=None, run_id=""):
@@ -129,11 +154,19 @@ def feasibility_evidence(screening: dict) -> dict:
     Every one is FALSE until the step that derives it exists — and false is not a guess here: "no
     capability match" is the reject rule, so an undeciable use case would reject rather than
     proceed. The readiness gate stops the run before that can happen, which is why it comes first.
+
+    `capability_matched` has a THIRD state. When step 5 was DEFAULTED — this tenant publishes no
+    business capability map — false would say "the use case serves no capability on the map", a
+    finding about a map nobody wrote, and it would reject every use case identically. `None` says
+    "not known" and the verdict escalates to an architect instead. Read off `defaulted_steps`
+    rather than from an empty `matched`, because a map that IS published and genuinely matches
+    nothing is the reject rule doing its job.
     """
     coverage = screening.get("coverage_map") or {}
     realisations = screening.get("realisation_match") or {}
     heat = coverage.get("heat_map") or {}
-    return {"capability_matched": bool(coverage.get("matched")),
+    defaulted = NUMBER_OF.get("coverage_map", "") in (screening.get("defaulted_steps") or {})
+    return {"capability_matched": None if defaulted else bool(coverage.get("matched")),
             "existing_realisation": bool(realisations.get("existing")),
             "capability_is_commodity": bool(heat.get("commodity")),
             "capability_is_mature": bool(heat.get("mature")),
@@ -190,8 +223,41 @@ async def _corpora(cfg, pin_id: str) -> dict:
 
 
 async def _agent_step(cfg, number: str, d: Derivation) -> None:
-    """One design exercise, through the shared runner."""
-    await d.run_step(cfg, step_for(number))
+    """One design exercise, through the shared runner — then onto the model."""
+    step = step_for(number)
+    await d.run_step(cfg, step)
+    await modelling.grow(cfg, d, step.key)
+
+
+def determines_from(graph: Mapping[str, Any]) -> dict:
+    """`{step id: the steps it determines}` — DERIVED from step 10's data-flow edges.
+
+    Influence walks forward to every effect a step determines, and until 23 Sep 2026 nothing ever
+    told the domain what a step determined: the facet schema had no such field, so `influence_of`
+    returned 0 for every step of every run and G13, G18 and G19 could not fire.
+
+    Derived rather than asked. Step 10 already produces the edges and `_workflow_graph` already
+    gates them — every endpoint is a declared node — so asking step 17 to restate them would add a
+    second opinion that can disagree with the first, which is the defect step 15 and step 17
+    already have over determinism. An edge to a node nobody declared is not a determination: it is
+    the gate's business, and silently honouring it here would put a phantom step in the chain.
+    """
+    # The screening record sometimes carries the graph as SHAPE — `nodes: 6` — rather than as a
+    # list. That is the evidence form, and raising on it would kill a design run over a summary.
+    # A count names no edges, so a count derives nothing.
+    raw_nodes = (graph or {}).get("nodes")
+    raw_edges = (graph or {}).get("edges")
+    if not isinstance(raw_nodes, (list, tuple)) or not isinstance(raw_edges, (list, tuple)):
+        return {}
+    nodes = {str(n.get("id", "")).strip() for n in raw_nodes if isinstance(n, Mapping)}
+    out: dict[str, list] = {}
+    for edge in raw_edges:
+        if not isinstance(edge, Mapping):
+            continue
+        src, dst = str(edge.get("from", "")).strip(), str(edge.get("to", "")).strip()
+        if src in nodes and dst in nodes and dst not in out.get(src, ()):
+            out.setdefault(src, []).append(dst)
+    return {k: tuple(v) for k, v in out.items()}
 
 
 def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
@@ -206,7 +272,8 @@ def _workflow_payload(state: dict, derived: Mapping[str, Any]) -> dict:
     tool"), the domain refuses to read an unanswered one as false, and a workflow-wide default
     would answer for every step at once — which is the same as not answering at all.
     """
-    steps = [_domain_step(v) for v in (derived.get("facet_vectors") or {}).get("steps") or []
+    determines = determines_from((state.get("screening") or {}).get("workflow_graph") or {})
+    steps = [_domain_step(v, determines) for v in (derived.get("facet_vectors") or {}).get("steps") or []
              if str(v.get("id", "")).strip()]
     return {"steps": steps, "criticality": _criticality(state)}
 
@@ -220,14 +287,36 @@ _STEP_FIELDS = ("id", "activity", "determinism", "effect", "reversibility", "bla
                 "determines_externally", "gate_permits", "predicate_inputs", "conditions")
 
 
-def _domain_step(vector: Mapping[str, Any]) -> dict:
+#: Facets an override may not touch: `id` and `activity` are identity, `conditions` are answers
+#: rather than a facet, and `determines` is DERIVED from the gated graph — an override of it would
+#: be an agent editing the data-flow.
+_NOT_OVERRIDABLE = ("id", "activity", "conditions", "determines")
+
+
+def _domain_step(vector: Mapping[str, Any], determines: Mapping[str, tuple] = ()) -> dict:
     """One facet vector as the domain reads it: an override is APPLIED to its facet (that is what
-    an override is — the justified value replaces the default), and only the domain's fields go."""
+    an override is — the justified value replaces the default), and only the domain's fields go.
+
+    `determines` arrives from the GRAPH, not from the vector — see `determines_from`.
+
+    An override naming a facet the domain does not recognise is REFUSED, not dropped. It used to be
+    skipped in silence while its justification stayed in the recorded output, so a reader saw a
+    written argument for a value the derivation never used. The schema now closes the set, and this
+    raises if one gets past it, because the two ways to be wrong here are not equal: refusing is
+    visible and a silent drop is not.
+    """
     step = {k: vector[k] for k in _STEP_FIELDS if k in vector}
+    if determines and (mine := dict(determines).get(str(vector.get("id", "")).strip())):
+        step["determines"] = mine
     for override in vector.get("overrides") or []:
         facet, to = str(override.get("facet", "")).strip(), override.get("to")
-        if facet in _STEP_FIELDS and facet not in ("id", "activity", "conditions") and to not in (None, ""):
-            step[facet] = to
+        if to in (None, "") or facet in _NOT_OVERRIDABLE:
+            continue
+        if facet not in _STEP_FIELDS:
+            raise ValueError(
+                f"facet vector {vector.get('id')!r}: override names {facet!r}, which is not a "
+                f"facet — the justified value would be discarded and its justification kept")
+        step[facet] = to
     return step
 
 
@@ -240,9 +329,12 @@ async def _risk_and_obligations(cfg, payload: dict, d: Derivation, pin_id: str) 
         d.defer("18", "derive exposure and influence — needs a facet vector per step")
         d.defer("19", "evaluate obligations — needs a facet vector per step")
         return
-    d.record("risk", await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
-    d.record("obligations", await gateway.call(cfg, DecisionTools.obligations, {
+    await d.derive(cfg, derived_for("18"),
+                   await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
+    await modelling.grow(cfg, d, "risk")
+    await d.derive(cfg, derived_for("19"), await gateway.call(cfg, DecisionTools.obligations, {
         "workflow": payload, "pin_id": pin_id, **reference.attribution(cfg, "obligations")}))
+    await modelling.grow(cfg, d, "obligations")
 
 
 async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
@@ -252,10 +344,71 @@ async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
     if not (payload["steps"] and topology):
         d.defer("22", "compose architecture — needs a topology from step 20")
         return
-    d.record("composition", await gateway.call(cfg, DecisionTools.composition, {
+    await d.derive(cfg, derived_for("22"), await gateway.call(cfg, DecisionTools.composition, {
         "workflow": payload, "topology": topology,
         "obligations_required": list((d.derived.get("obligations") or {}).get("guardrails") or ()),
-        "pin_id": pin_id, **reference.attribution(cfg, "composition")}), "22")
+        "pin_id": pin_id, **reference.attribution(cfg, "composition")}))
+    # Which component carries which of THIS design's families, followed through the published chain
+    # (family -> guardrail -> capability -> component) rather than read off a catalogue column the
+    # reference architecture does not have. Recorded before step 21 so the architect selecting
+    # components can see what each one would satisfy, and the gate can hold it to that.
+    enforcement = (d.derived.get("composition") or {}).get("enforcement") or {}
+    # NOT `or []`. `_corpora` OMITS an artifact it could not read, so absent is None — and `or []`
+    # would turn "we never read the map" into "the map binds nothing", which reports every
+    # obligation as a gap in the FRAMEWORK when in fact nothing was read. `candidates()` refuses a
+    # None outright; `families` tolerates it, because a family join over an absent corpus is the
+    # silence it is designed to report.
+    guardrails = d.available.get("guardrails")
+    capability_map = d.available.get("ai_capability_map")
+    d.record("component_families", {
+        "by_component": families.by_component(enforcement, guardrails, capability_map),
+        # Families whose guardrails name no capability in the published map: the corpus is silent,
+        # which is not the same as the design failing to cover them.
+        "unclaimed": families.unclaimed(enforcement, guardrails, capability_map)})
+    # Move 5's input: which catalogue component COULD enforce each guardrail. Recorded before step
+    # 21 so the architect selects an enforcing component deliberately rather than being failed for
+    # having missed one, and so the gate binds against exactly what the prompt was shown.
+    try:
+        d.record("enforcement_points", enforcement_binding.candidates(guardrails, capability_map))
+    except enforcement_binding.EnforcementError as absent:
+        d.defer("21", f"bind obligations to enforcement points: {absent}")
+    await modelling.grow(cfg, d, "composition")
+
+
+async def _bind_obligations(d: Derivation) -> None:
+    """Composition move 5, after step 21 — every obligation on a component this design SELECTED.
+
+    Runs here and not inside `_compose` because it needs the selection. The gate on step 21 refuses
+    an `unbound` obligation already; this records the whole binding so the conformance reviewer sees
+    what enforces what, rather than only what does not.
+    """
+    points = d.derived.get("enforcement_points")
+    if points is None:
+        return                       # `_compose` already deferred by name; do not defer twice
+    selection = d.derived.get("component_selection") or {}
+    binding = enforcement_binding.bind(
+        list((d.derived.get("obligations") or {}).get("guardrails") or ()),
+        candidates=points,
+        selected=[str(c.get("component_id", "")) for c in selection.get("selected") or []])
+    d.record("enforcement", {"bound": {g: list(c) for g, c in binding.bound.items()},
+                             "unbound": list(binding.unbound),
+                             "unenforceable": list(binding.unenforceable),
+                             "complete": binding.complete})
+
+
+def effort_rows(state: Mapping[str, Any], evidence: Mapping[str, Any]) -> list:
+    """The effort table driver 1 is computed from: what a person CAPTURED, else what step 24 inferred.
+
+    Not because the agent is bad at reading an effort table, but because one of these is evidence
+    and the other is a reconstruction — and step 24 is not even shown the intake, so its prompt
+    tells it to cite "the intake field it came from", a source it structurally cannot see.
+
+    A captured table is typed at the door (`InputKind.TABLE`), so the rows arrive as numbers rather
+    than as prose for the formula to parse. An empty capture is not a capture: the agent's answer
+    stands, and a run with neither still reports `requires_input` by name.
+    """
+    captured = list(state.get("effort") or ())
+    return captured or list((evidence or {}).get("effort") or ())
 
 
 def design_version(derived: Mapping[str, Any]) -> str:
@@ -303,6 +456,7 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
             "build_provenance": inputs.get("build_provenance") or "",
             "design_version": design_version(d.derived),
             "pin_id": state["pin_id"], **reference.attribution(cfg, "cost")}), "23")
+        await modelling.grow(cfg, d, "cost")
 
     evidence = d.derived.get("benefit_inputs")
     cost_model = d.derived.get("cost")
@@ -311,18 +465,90 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
                       "cost it has to repay from step 23")
         return
     d.record("benefit", await gateway.call(cfg, ValuationTools.benefit, {
-        "effort": list(evidence.get("effort") or ()),
+        # What a person captured at intake beats what step 24 reconstructed from prose.
+        "effort": effort_rows(state, evidence),
         "quality_baseline": dict(evidence.get("quality_baseline") or {}),
         "sensitivity_flags": list(evidence.get("sensitivity_flags") or ()),
         "cited_avoided_cost": evidence.get("cited_avoided_cost"),
         "citation": evidence.get("citation") or "",
         "data_fully_digital": bool(evidence.get("data_fully_digital", True)),
-        "build_cost": float((cost_model.get("build") or {}).get("amount") or 0.0),
+        # None, not 0.0: an uncaptured build cost must stay UNKNOWN so `authority.route`
+        # escalates to the top band instead of routing a real spend under a small one.
+        "build_cost": (None if (cost_model.get("build") or {}).get("amount") is None
+                       else float((cost_model["build"] or {})["amount"])),
+        "capex": float(cost_model.get("capex") or 0.0),
         "monthly_run_cost": float((cost_model.get("monthly") or {}).get("expected") or 0.0),
         # Everything still open on either side reaches the verdict as a gate condition. A
         # recommendation that did not carry them would read as settled.
         "open_conditions": (list(cost_model.get("requires_input") or ())
                             + list(evidence.get("unsupplied") or ()))}), "24")
+    await modelling.grow(cfg, d, "benefit")
+
+
+async def _views(cfg, model: Mapping[str, Any]) -> dict:
+    """Project the model: `model_ref` (the spec, by ref), the ArchiMate XML + one SVG per standard
+    view, the CAFÉ draw.io view + its SVG. `architecture_ref` is the drawing a person opens — the
+    draw.io file, else the model. Every failure is a named warning, never an exception: a design
+    that cannot draw is still a design."""
+    out: dict[str, Any] = {"model_ref": "", "archimate_xml_ref": "", "architecture_ref": "",
+                           "svg_refs": {}, "warnings": []}
+    if not model.get("elements"):
+        out["warnings"].append("no model: nothing to render")
+        return out
+    try:
+        stored = await gateway.call(cfg, SemanticTools.store_spec,
+                                    {"spec": model, "name": "design.model.json"})
+        out["model_ref"] = out["architecture_ref"] = gateway.ref_from(stored)
+    except Exception as exc:                       # noqa: BLE001 — recorded, never raised
+        out["warnings"].append(f"store model: {exc!r}"[:200])
+        return out
+    root = next((e for e in model.get("elements") or [] if e.get("id") == mappers.ROOT), {})
+    admitted = mappers.as_list((root.get("props") or {}).get("cafe.archetypes"))
+    if len(admitted) > 1:
+        # The corpus admits several archetypes for this topology; the drawing has to stand on one.
+        # Recorded beside the drawing, where the reviewer sees the assumption.
+        out["warnings"].append(f'cafe: drawn on {(root.get("props") or {}).get("cafe.archetype")}; '
+                               f'the pinned corpus admits {", ".join(admitted)} for this topology')
+    for tool, args, take in (
+            (EATools.render, {"spec_ref": out["model_ref"], "basename": "design", "strict": False},
+             lambda r: {"archimate_xml_ref": r.get("xml_ref", ""), "svg_refs": dict(r.get("svg_refs") or {})}),
+            (SemanticTools.render_cafe, {"spec_ref": out["model_ref"], "basename": "design"},
+             lambda r: {"architecture_ref": r.get("drawio_ref") or out["architecture_ref"],
+                        "svg_refs": {**out["svg_refs"], **({"cafe": r["svg_ref"]} if r.get("svg_ref") else {})},
+                        "cafe_unplaced": list(r.get("unplaced") or ()),
+                        # Counts a reviewer can read without opening the drawing: how many of the
+                        # selected components the reference architecture carries, and how many
+                        # connections it therefore drew. A view of tiles with no lines is a parts
+                        # list, and this is what says so on the record.
+                        "cafe_catalogued": r.get("catalogued"), "cafe_edges": r.get("edges")})):
+        try:
+            res = await gateway.call(cfg, tool, args)
+            res = res if isinstance(res, dict) else json.loads(res or "{}")
+            out.update(take(res))
+            out["warnings"].extend(f"{tool}: {w}" for w in (res.get("warnings") or ())[:5])
+        except Exception as exc:                   # noqa: BLE001
+            out["warnings"].append(f"{tool}: {type(exc).__name__}: {str(exc)[:120]}")
+    if cfg.get("run_id") and out["warnings"]:
+        runlog.update(cfg["run_id"], render_warnings="; ".join(out["warnings"])[:400])
+    return out
+
+
+#: What each executor DOES, declared beside the graph that declares the executors. A node id is an
+#: address — `derive` says where a run is, not what it is doing — and the live page must not be
+#: where a human name for somebody else's step is invented. Stamped on the node by `_node` below,
+#: so the SSE frame carries the label and the page renders whatever arrived.
+#: Held honest by `tests/unit/workloads/test_node_titles.py`, which reads the `@executor(id=...)`
+#: declarations themselves rather than a list kept in step with them.
+NODES = {"readiness": "check readiness gates",
+         "feasibility": "judge feasibility",
+         "derive_design": "run the design steps",
+         "render_views": "render the views",
+         "route": "route for approval"}
+
+
+def _node(cfg, name: str):
+    """A run-log span for one executor, labelled from `NODES`."""
+    return gateway.node_span(cfg, name, title=NODES.get(name, ""))
 
 
 def build_workflow(cfg):
@@ -338,7 +564,7 @@ def build_workflow(cfg):
         A FAIL halts the run and returns the use case with the failed gates named (FR-19). It is
         not an exception: "return to CAM phase 2 or 3" is a correct outcome, and the record that
         says which gates failed is the whole point of producing it."""
-        with gateway.node_span(cfg, "readiness"):
+        with _node(cfg, "readiness"):
             raw = await gateway.call(cfg, StorageTools.read_artifact, {"ref": state["screening_ref"]})
             screening = raw if isinstance(raw, dict) else json.loads(raw or "{}")
             # The canonical submission record, for what a person captured at INTAKE: the volume
@@ -361,6 +587,7 @@ def build_workflow(cfg):
                 "criticality": _criticality(state)})
             state = state | {"screening": screening, "readiness": verdict["verdict"],
                              "intake": dict(record.get("intake") or {}),
+                             "effort": list(record.get("effort") or ()),
                              "pin_id": pinned["pin_id"],
                              "pinned_versions": pinned["versions"],
                              "version_drift": pinned["drift"],
@@ -373,7 +600,7 @@ def build_workflow(cfg):
     @executor(id="feasibility")
     async def feasibility(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Steps 15-16 — classify determinism, then rule on feasibility. The switch FR-11 turns on."""
-        with gateway.node_span(cfg, "feasibility"):
+        with _node(cfg, "feasibility"):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
@@ -401,12 +628,15 @@ def build_workflow(cfg):
 
         The order is the derivation's own and cannot be rearranged: facets (17) are assigned before
         exposure and influence are DERIVED from them (18); the obligations (19) follow from those
-        classes; the build surface (20) is tested against those obligations; components (21) are
-        selected against them; and the composition (22) is the union of what the facets call for.
-        Every deterministic link is a governed tool, so the rule a run obeyed is the released one
-        rather than a copy living here.
+        classes; the build surface (20) is tested against those obligations; the composition (22)
+        is the union of what the facets call for, given that surface's topology; and components
+        (21) are selected against those obligations AND the families the composition requires —
+        which is why 22 runs before 21 here: its inputs are 17, 19 and 20, and a selection made
+        before the families are known cannot be held to them (step 21's soft rule). Every
+        deterministic link is a governed tool, so the rule a run obeyed is the released one rather
+        than a copy living here.
         """
-        with gateway.node_span(cfg, "derive_design"):
+        with _node(cfg, "derive_design"):
             if state.get("halted"):
                 await ctx.send_message(state)
                 return
@@ -427,13 +657,35 @@ def build_workflow(cfg):
             pin_id = state["pin_id"]
             await _risk_and_obligations(cfg, payload, d, pin_id)  # 18 exposure/influence, 19 controls
             await _agent_step(cfg, "20", d)              # the build surface, against those controls
+            await _compose(cfg, payload, d, pin_id)      # 22 the composition — its families...
+            modelling.ensure(d)                          # ...on the model step 21 is shown
             await _agent_step(cfg, "21", d)              # the components, against those controls
-            await _compose(cfg, payload, d, pin_id)      # 22 the composition
+            await _bind_obligations(d)                   # 22 move 5 — obligation -> selected component
             await _agent_step(cfg, "23", d)              # what the design costs
             await _agent_step(cfg, "24", d)              # what evidences the benefit
             await _valuation(cfg, d, state)              # 23/24 arithmetic, by the governed service
             await _agent_step(cfg, "25", d)              # write down what was decided
 
+            state = state | {"derived": d.derived, "pending": d.pending,
+                             "defaulted": dict(d.defaulted)}
+        await ctx.send_message(state)
+
+    @executor(id="render_views")
+    async def render_views(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """The views, then the package. The model the run grew is stored by ref and projected
+        twice — the ArchiMate views by the engine, the CAFÉ solution view by the draw.io projector —
+        and the refs go INTO the package, because the investment run reads the package. Each render
+        is best-effort in its own right: a run that produced a model but no picture is still a run,
+        and the warning it records is the visible degradation (neither render tool is REQUIRED).
+        """
+        with _node(cfg, "render_views"):
+            if state.get("halted"):
+                await ctx.send_message(state)
+                return
+            d = Derivation(derived=dict(state.get("derived") or {}),
+                           pending=dict(state.get("pending") or {}))
+            d.defaulted = dict(state.get("defaulted") or {})
+            d.record("views", await _views(cfg, d.derived.get("model") or {}))
             package = d.package(submission_ref=state["submission_ref"],
                                 screening_ref=state["screening_ref"],
                                 criticality=dict(state.get("criticality") or {}),
@@ -457,7 +709,7 @@ def build_workflow(cfg):
     @executor(id="route")
     async def route(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Step 26a, the FR-12 finding, or a readiness return. Terminal in every case."""
-        with gateway.node_span(cfg, "route"):
+        with _node(cfg, "route"):
             if state.get("readiness") == "fail":
                 out = _not_ready(state)
             elif state.get("halted"):
@@ -467,7 +719,7 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=readiness)
-            .add_chain([readiness, feasibility, derive_design, route]).build())
+            .add_chain([readiness, feasibility, derive_design, render_views, route]).build())
 
 
 def _not_ready(state: dict) -> dict:
@@ -487,7 +739,7 @@ async def _finding(cfg, state: dict) -> dict:
     not start the next process."""
     asked = await gateway.call(cfg, ApprovalTools.ask, {
         "subject": f'Feasibility finding: {state["verdict"]}',
-        "prompt": FINDING_PROMPT,
+        "prompt": finding_prompt(state.get("verdict", "")),
         "items": [{"label": "decision", "samples": ["confirm", "overturn"]},
                   {"label": "reason", "samples": []}],
         "artifacts": {"submission": state["submission_ref"],
@@ -498,6 +750,22 @@ async def _finding(cfg, state: dict) -> dict:
             "verdict": state["verdict"], "halted": True,
             "summary": {"verdict": state["verdict"], "design_attempted": False,
                         "rule": state.get("verdict_rule", "")}}
+
+
+def _view_artifacts(state: dict) -> dict:
+    """What the conformance reviewer can OPEN: the refs the views produced (each a download) and the
+    SVGs (rendered inline as tabs) — the final views first, then the per-step trace while it is on."""
+    design = state.get("design") or {}
+    views = design.get("views") or {}
+    # One key per DISTINCT ref: when nothing drew, `architecture_ref` IS the model ref, and two
+    # downloads of one file is what the review app refuses (`contracts.import_artifacts` dedupes
+    # too — belt and braces, because this payload is read by more than the review app).
+    refs: dict[str, str] = {}
+    for k in ("model_ref", "archimate_xml_ref", "architecture_ref"):
+        if views.get(k) and views[k] not in refs.values():
+            refs[k] = views[k]
+    svgs = {**(views.get("svg_refs") or {}), **modeltrace.tabs(design)}
+    return {**refs, **({"svg_refs": svgs} if svgs else {})}
 
 
 async def _conformance(cfg, state: dict) -> dict:
@@ -515,12 +783,22 @@ async def _conformance(cfg, state: dict) -> dict:
                   {"label": "conditions", "samples": []}],
         "continuation": cont.to_dict(),
         "fields": ["value"],                   # one thing to say per label, not a voice
-        "artifacts": {"design": state["design_ref"], "screening": state["screening_ref"]},
+        # What is still OPEN, before the reviewer opens anything. Run 8 (15 Sep 2026) proceeded with
+        # four obligations bound to no enforcement point, eleven components nobody could price and a
+        # benefit nobody could compute — all recorded in the package, none of it in front of the
+        # person being asked to approve, whose summary was empty.
+        "summary": {**owed.counts(state.get("design") or {}),
+                    "screening_defaulted_steps": sorted(
+                        (state.get("screening") or {}).get("defaulted_steps") or {})},
+        "artifacts": {"design": state["design_ref"], "screening": state["screening_ref"],
+                      **_view_artifacts(state)},
         "requester": state.get("submitter", ""),
                 "process": PROCESS})
+    views = (state.get("design") or {}).get("views") or {}
     return {"approval_id": asked["request_id"], "review_app": asked.get("review_app", ""),
             "verdict": "proceed", "halted": False,
-            "architecture_ref": state["design_ref"],
+            # The drawing a person opens; the model when nothing drew; the package as a last resort.
+            "architecture_ref": views.get("architecture_ref") or views.get("model_ref") or state["design_ref"],
             "risk_ref": state["design_ref"] if (state.get("design") or {}).get("risk") else "",
             "obligations_ref": (state["design_ref"]
                                 if (state.get("design") or {}).get("obligations") else ""),

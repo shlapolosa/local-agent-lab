@@ -34,6 +34,8 @@ from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
 from lab.platform import config
 from lab.platform.fabric_events import METRICS_KEY
+from lab.platform.filetypes import content_type_for
+from lab.substrate.mcp.semantic import cafe
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
 
@@ -221,6 +223,31 @@ def semantic_store_spec(spec: dict | str, name: str = "model.spec.json") -> dict
                            "semantic.relations": len(spec.get("relations", []))})
     return {"spec_ref": ref, "name": name, "elements": len(spec.get("elements", [])),
             "relations": len(spec.get("relations", [])), "views": len(spec.get("views", []))}
+
+
+@server.tool()
+def semantic_render_cafe(spec: dict | str | None = None, basename: str = "solution",
+                         spec_ref: str | None = None) -> dict:
+    """Project a model spec to the CAFÉ solution view — a draw.io file a person opens and an SVG
+    the review app shows — and store both. Draws OUR components only, each in the CAFÉ zone its
+    `cafe.zone` property names, on the archetype the composition put on the model
+    (`cafe.archetype`); a component with no zone is named under `unplaced`, never guessed. Returns
+    `{drawio_ref, svg_ref, placed, unplaced, violations, warnings}`. Writes only to the artifact
+    store, so it needs no approval."""
+    spec = server.spec(spec, spec_ref=spec_ref)
+    out = cafe.render(spec)
+    store = server.artifacts()
+    drawio_ref = store.put(f"{basename}.drawio", out["drawio"].encode("utf-8"),
+                           content_type_for(f"{basename}.drawio"))
+    svg_ref = store.put(f"{basename}.cafe.svg", out["svg"].encode("utf-8"), content_type_for("x.svg"))
+    span().set_attributes({"semantic.cafe.placed": len(out["placed"]),
+                           "semantic.cafe.unplaced": len(out["unplaced"]),
+                           "semantic.cafe.violations": out["violations"]})
+    # `catalogued` and `edges` travel too: they are how a reader tells a drawn architecture from a
+    # parts list without opening the file, and the design records them on its views block.
+    return {"drawio_ref": drawio_ref, "svg_ref": svg_ref, "placed": out["placed"],
+            "unplaced": out["unplaced"], "catalogued": out["catalogued"], "edges": out["edges"],
+            "violations": out["violations"], "warnings": out["warnings"]}
 
 
 @server.tool()

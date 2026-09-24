@@ -40,7 +40,7 @@ from pydantic import Field
 from lab.platform import config, workflows
 from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, InputKind, ProcessSpec,
                                     WorkflowStatus, WorkflowTools)
-from lab.substrate.mcp.workflow import approval_tools
+from lab.substrate.mcp.workflow import approval_tools, listing
 from lab.substrate.mcp.workflow import rest
 from lab.substrate.mcpserver import LabServer, span
 
@@ -58,7 +58,28 @@ ANNOTATION: dict[InputKind, Any] = {InputKind.REF: str, InputKind.REF_LIST: list
                                     InputKind.CHOICE: str,
                                     # the fabric's kinds: a pointer is a small object, the rest are opaque ids
                                     InputKind.POINTER: dict[str, str], InputKind.EVENT: str,
-                                    InputKind.CONTEXT: str, InputKind.ARTIFACT: str, InputKind.APPROVAL: str}
+                                    InputKind.CONTEXT: str, InputKind.ARTIFACT: str, InputKind.APPROVAL: str,
+                                    # NUMBER is a figure, not prose for a formula to parse. TABLE's
+                                    # annotation is BUILT per field from its declared columns —
+                                    # `list[dict]` would teach an agent no more than the opaque bag
+                                    # it replaces — so the entry here is only the fallback shape.
+                                    InputKind.NUMBER: float, InputKind.TABLE: list[dict]}
+
+
+def _row_model(field) -> Any:
+    """A pydantic model for ONE row of a TABLE, built from the field's declared columns.
+
+    So the generated JSON schema carries named, typed columns with the required ones marked, and an
+    agent can fill the table instead of guessing its shape — the same reason a CHOICE becomes a
+    `Literal` rather than a bare string.
+    """
+    import pydantic
+    fields: dict[str, Any] = {}
+    for column in field.columns:
+        ann = (Literal[tuple(column.choices)] if column.kind is InputKind.CHOICE
+               else ANNOTATION[column.kind])
+        fields[column.name] = ((ann, ...) if column.required else (ann | None, None))
+    return pydantic.create_model(f"{field.name}_row", **fields)
 
 
 def annotation_of(field) -> Any:
@@ -69,7 +90,12 @@ def annotation_of(field) -> Any:
     can SEE what it may pass. Declaring it as a bare string would leave the closed set discoverable
     only by guessing wrong and reading the error — which is how a lane gets picked at random.
     """
-    ann = Literal[tuple(field.choices)] if field.kind is InputKind.CHOICE else ANNOTATION[field.kind]
+    if field.kind is InputKind.TABLE:
+        ann: Any = list[_row_model(field)]          # type: ignore[valid-type]
+    elif field.kind is InputKind.CHOICE:
+        ann = Literal[tuple(field.choices)]
+    else:
+        ann = ANNOTATION[field.kind]
     return ann if field.required or field.kind is InputKind.REF_LIST else ann | None
 
 
@@ -208,17 +234,72 @@ def result_tool(server: LabServer, spec: ProcessSpec):
                lambda request_id: _result(server, spec, request_id))
 
 
+def runs_tool(server: LabServer, spec: ProcessSpec):
+    doc = (f"FIND a {spec.name} run somebody already started — newest first, with what each one "
+           f"says about itself ({', '.join(k for k in spec.outputs if k not in listing.SKIP)}). "
+           f"`q` filters those fields as text, so a caller who remembers the subject rather than "
+           f"the id can still find the run; omit it to list the most recent. Reading only: it "
+           f"opens no record and starts nothing.")
+    params = [
+        _param("q", str, "Text to look for in the runs' own fields — a word from the subject, a "
+                         "verdict, a status. Empty lists the most recent.", ""),
+        _param("limit", int, f"How many to return, 1-{listing.MAX_LIMIT}.", 20),
+    ]
+    return _fn(spec.tool("runs"), doc, params,
+               lambda q="", limit=20: listing.search(spec, q=q, limit=limit,
+                                                     client=server.container.redis()))
+
+
+#: What a published question record calls its own columns. Read as DATA rather than re-typed, so a
+#: column the corpus adds travels to the agent without a change here.
+_QUESTION_KEYS = ("Field", "Group", "Label", "Type", "Required", "Order", "Used by", "Choices")
+
+
+def fields_tool(server: LabServer, spec: ProcessSpec):
+    """`<process>_fields` — the published questions this process's questionnaire asks.
+
+    An agent told only that a process takes "structured intake fields" invents its own labels, and
+    a label nothing published matches is carried into the record and reported by nothing. So the
+    questions are served, from the corpus artifact the FIELD declares, at the released version —
+    which means adding or removing a question is a publish, and the agent's interview, the review
+    app's form and the CSV template all change together and none of them is edited.
+    """
+    name = spec.questionnaire
+    artifact = spec.field(name).questions
+    doc = (f"The questions {spec.name} expects in `{name}` — label, group, type, whether it is "
+           f"required, and any closed set of allowed values. Read them BEFORE submitting and use "
+           f"the published labels verbatim: a label nothing published matches is accepted, stored "
+           f"and read by nothing. Answers go back as "
+           f"{{\"<label>\": {{\"value\": \"<answer>\"}}}}. Reading only; starts nothing.")
+
+    def body() -> dict:
+        from lab.core.reference.model import RunRef
+        library = server.container.reference()
+        pin = library.pin([artifact])
+        rows = library.lookup(pin, record_type="intake-field", key={},
+                              run=RunRef(run_id="fields", process=spec.name, field=name),
+                              artifact_id=artifact).records
+        questions = [{k: str(r.body.get(k) or "") for k in _QUESTION_KEYS if r.body.get(k)}
+                     for r in rows]
+        return {"process": spec.name, "field": name, "artifact": artifact,
+                "version": pin.versions.get(artifact, "") if hasattr(pin, "versions") else "",
+                "questions": questions, "count": len(questions)}
+
+    return _fn(spec.tool("fields"), doc, [], body)
+
+
 def register(server: LabServer, spec: ProcessSpec) -> None:
     """The governed tools of one business process, on `server`.
 
-    THREE tools for a process an outside caller may start; TWO for a CONTINUATION-ONLY one
+    FOUR tools for a process an outside caller may start; THREE for a CONTINUATION-ONLY one
     (`ProcessSpec.external` false), whose submit tool is not generated at all. Not exposing it is
     stronger than refusing it at call time and cheaper than either: a tool that does not exist cannot
     be granted by mistake, cannot be discovered, and cannot be described to an agent as something it
     might try. Status and result stay, because a caller may legitimately observe a run that its own
     approval started.
     """
-    makers = {"submit": submit_tool, "status": status_tool, "result": result_tool}
+    makers = {"submit": submit_tool, "status": status_tool, "result": result_tool,
+              "runs": runs_tool, "fields": fields_tool}
     for verb in WorkflowTools.verbs_for(spec):          # the catalogue decides; this only obeys
         server.tool()(makers[verb](server, spec))
 
