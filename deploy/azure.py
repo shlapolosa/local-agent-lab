@@ -47,6 +47,14 @@ REDIS_IMAGE = "redis:7-alpine"
 # /data is the replica's own disk — see the decision record.
 REDIS_CMD = "redis-server --bind 0.0.0.0 --protected-mode no --appendonly no --save 60 1 --dir /data"
 
+# Where production starts a role differently from the topology's command. The gateway serves the ONE base
+# config through the production model overlay (lab.substrate.gateway.models_overlay): same names, Foundry
+# deployments behind them. Railway keeps the topology's command.
+AZURE_CMD = {
+    "gateway": ("python -m lab.substrate.gateway.models_overlay --config config/litellm-config.yaml "
+                "--overlay config/litellm-models.azure.yaml -- litellm --host 0.0.0.0 --port 4000 --num_workers 1"),
+}
+
 # A copied value shorter than this is not treated as a secret it happens to equal ("1", "true", a port).
 MIN_SECRET_LEN = 16
 
@@ -158,7 +166,7 @@ def substrate_app(name: str, spec: dict, profile: dict, target: Target) -> dict:
     one replica."""
     env = topology.substrate_env(name, spec, profile, AZURE_NET)
     entries, secrets = _env_and_secrets(env, profile, target)
-    return _app(target, name=name, command=spec["cmd"], env_entries=entries, secrets=secrets,
+    return _app(target, name=name, command=AZURE_CMD.get(name, spec["cmd"]), env_entries=entries, secrets=secrets,
                 ingress=_ingress(name, spec), scale=dict(ONE),
                 resources=RESOURCES.get(name, DEFAULT_RESOURCES))
 

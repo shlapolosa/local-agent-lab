@@ -98,7 +98,7 @@ def test_every_app_runs_the_one_image_through_a_shell():
     """A start command with `&&` or quotes needs a shell; the image's own CMD is never relied on."""
     for name, spec in topology.SUBSTRATE.items():
         c = az.substrate_app(name, spec, PROFILE, TARGET)["properties"]["template"]["containers"][0]
-        assert c["image"] == TARGET.image and c["command"] == ["sh", "-c", spec["cmd"]], name
+        assert c["image"] == TARGET.image and c["command"] == ["sh", "-c", az.AZURE_CMD.get(name, spec["cmd"])], name
 
 
 def test_every_app_is_single_revision_on_the_consumption_profile_with_the_apps_identity():
@@ -163,3 +163,14 @@ def test_each_replica_consumes_under_its_own_name():
     assert c["command"][:2] == ["sh", "-c"]
     assert c["command"][2].startswith('WF_CONSUMER="$CONTAINER_APP_REPLICA_NAME" exec ')
     assert c["command"][2].endswith(topology.WORKLOADS["meeting"]["cmd"])
+
+
+def test_the_production_gateway_serves_the_same_config_through_the_azure_model_overlay():
+    body = az.substrate_app("gateway", topology.SUBSTRATE["gateway"], {**PROFILE, "AZURE_FOUNDRY_API_KEY": "k" * 32,
+                                                                      "AZURE_FOUNDRY_API_BASE": "https://aif.example/"}, TARGET)
+    cmd = body["properties"]["template"]["containers"][0]["command"][2]
+    assert "lab.substrate.gateway.models_overlay" in cmd and "config/litellm-models.azure.yaml" in cmd
+    assert "config/litellm-config.yaml" in cmd, "one base config for every target"
+    env = _env(body)
+    assert env["AZURE_FOUNDRY_API_KEY"] == {"name": "AZURE_FOUNDRY_API_KEY", "secretRef": "azure-foundry-api-key"}
+    assert env["AZURE_FOUNDRY_API_BASE"]["secretRef"] == "azure-foundry-api-base"

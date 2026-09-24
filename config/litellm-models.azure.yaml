@@ -1,0 +1,40 @@
+# PRODUCTION model overlay (Azure). Applied to config/litellm-config.yaml by
+# lab.substrate.gateway.models_overlay: every name the base config serves is answered here — what
+# serves it in production, or null to drop it. Names are the gateway's contract and never change.
+#
+# Production is GPT-5.x on Foundry in UAE North (decision record 2026-09-24). Only gpt-5-mini had
+# GlobalStandard quota when this was written, so every chat name is served by it for now; when quota
+# for gpt-5.5 / gpt-5.3-codex / gpt-5.4-mini / gpt-5.4-nano is granted, point the name at that
+# deployment here — a config change, no workload change.
+# GlobalStandard = the resource is in UAE North, inference may run in any Azure region (the stated
+# exception). Embeddings are a Standard deployment: in-region.
+# Verified 24 Sep 2026 with litellm 1.98: chat, the Responses API (store=false) and embeddings, api_version 2025-04-01-preview.
+
+kimi-k3: &gpt5mini
+  model: azure/gpt-5-mini
+  api_base: os.environ/AZURE_FOUNDRY_API_BASE
+  api_key: os.environ/AZURE_FOUNDRY_API_KEY
+  api_version: "2025-04-01-preview"
+  input_cost_per_token: 2.5e-07
+  output_cost_per_token: 2.0e-06
+
+kimi-k2.7-code: *gpt5mini            # target: gpt-5.3-codex
+gpt-5.4-mini: *gpt5mini              # target: gpt-5.4-mini
+gpt-5.4-mini-think:
+  <<: *gpt5mini
+  reasoning_effort: medium
+gpt-4.1: *gpt5mini
+gpt-oss-120b: *gpt5mini
+glm-flash: *gpt5mini                 # target: gpt-5.4-nano
+auto: *gpt5mini                      # the intent router rewrites the model; this is its default
+claude-sonnet-5: *gpt5mini           # Claude is not offered in UAE North; target: gpt-5.5
+claude-haiku-4-5: *gpt5mini
+
+text-embedding-3-large:
+  model: azure/text-embedding-3-large
+  api_base: os.environ/AZURE_FOUNDRY_API_BASE
+  api_key: os.environ/AZURE_FOUNDRY_API_KEY
+  api_version: "2025-04-01-preview"
+  input_cost_per_token: 1.3e-07
+
+nomic-embed-text: null               # the substrate's own embedder is not deployed in production
