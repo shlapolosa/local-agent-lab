@@ -74,3 +74,34 @@ def test_each_operation_policy_requires_its_role_on_the_prod_audience():
 def test_operation_ids_are_valid_apim_names():
     for o in apim.frontdoor_operations():
         assert re.fullmatch(r"[A-Za-z0-9-]+", o["name"]), o["name"]
+
+
+# ------------------------------------------------------------------ MCP servers
+def test_every_gateway_mcp_alias_has_a_service_behind_it():
+    servers = apim.mcp_servers()
+    assert servers["collab_mcp"] == "graph-mcp" and servers["ea_mcp"] == "adoit-mcp"
+    assert set(servers.values()) <= set(apim.topology.SERVICE_PORTS)
+
+
+def test_every_granted_server_is_one_the_gateway_serves():
+    served = set(apim.mcp_servers())
+    for team, tools in apim.grants.TEAMS.items():
+        assert set(tools) <= served, team
+
+
+def test_a_team_reaches_only_what_its_grant_names():
+    g = apim.mcp_grants("workflow_mcp")
+    assert "approvals_decide" in g["usecase-submitter"]
+    assert "approvals_decide" not in g["usecase-intake"], "a workload's own agents never answer an approval"
+    assert apim.mcp_grants("ea_mcp")["visio-conversion"] == "*", "a whole-server grant stays whole"
+    assert "visio-conversion" not in apim.mcp_grants("workflow_mcp")
+
+
+def test_the_mcp_policy_checks_the_tool_and_hands_the_backend_only_the_substrate_bearer():
+    xml = apim.mcp_policy("workflow_mcp", TENANT, AUD)
+    code = " ".join(v for e in ET.fromstring(xml).iter() for v in e.attrib.values())   # expressions, decoded
+    assert "tools/call" in code and '\\"usecase-submitter\\"' in code
+    assert "Grant." in code, "a token's teams are its Grant.<team> roles"
+    assert "context.Product" in code, "a subscription's team is its product"
+    assert "{{mcp-shared-secret}}" in xml and 'buffer-response="false"' in xml
+    assert AUD in xml

@@ -254,6 +254,13 @@ SERVICE_PORTS = {
     "valuation-mcp": 9900, "gateway": 4000, "review": 8501, "live": 10000,
 }
 EMBED_PORT = 11434
+#: Which service answers each MCP server URL the gateway config names (`mcp_servers.<alias>.url:
+#: os.environ/<KEY>`). The gateway alias is the config's; the service behind it is this table's.
+MCP_URL_ENV = {
+    "ADOIT_MCP_URL": "adoit-mcp", "SEMANTIC_MCP_URL": "semantic-mcp", "STORAGE_MCP_URL": "storage-mcp",
+    "WORKFLOW_MCP_URL": "workflow-frontdoor", "GRAPH_MCP_URL": "graph-mcp", "SPEECH_MCP_URL": "speech-mcp",
+    "REFERENCE_MCP_URL": "reference-mcp", "DECISION_MCP_URL": "decision-mcp", "VALUATION_MCP_URL": "valuation-mcp",
+}
 
 
 @dataclass(frozen=True)
@@ -302,15 +309,8 @@ def substrate_env(name, spec, base_env, net: Network) -> dict:
     at = lambda svc, path="": net.address(svc, SERVICE_PORTS.get(svc, EMBED_PORT)) + path   # noqa: E731
     env = dict(base_env)
     env["BIND_HOST"] = net.bind_host
-    env["ADOIT_MCP_URL"] = at("adoit-mcp", "/mcp")
-    env["SEMANTIC_MCP_URL"] = at("semantic-mcp", "/mcp")
-    env["STORAGE_MCP_URL"] = at("storage-mcp", "/mcp")
-    env["WORKFLOW_MCP_URL"] = at("workflow-frontdoor", "/mcp")
-    env["GRAPH_MCP_URL"] = at("graph-mcp", "/mcp")
-    env["SPEECH_MCP_URL"] = at("speech-mcp", "/mcp")
-    env["REFERENCE_MCP_URL"] = at("reference-mcp", "/mcp")
-    env["DECISION_MCP_URL"] = at("decision-mcp", "/mcp")
-    env["VALUATION_MCP_URL"] = at("valuation-mcp", "/mcp")
+    for key, svc in MCP_URL_ENV.items():
+        env[key] = at(svc, "/mcp")
     env["WORKFLOW_API_URL"] = at("workflow-frontdoor", "/api")
     env["GATEWAY_URL"] = at("gateway")
     # The relevance stores' provider (litellm-config.yaml vector_store_registry): an ORIGIN — the

@@ -24,7 +24,10 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from lab.platform.contracts import SemanticTools
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy"))
+from grants import VISIO_TOOLS  # noqa: E402
 
 TENANT = os.environ["ENTRA_TENANT_ID"]
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -135,10 +138,10 @@ def main():
         team = litellm("/team/new", {
             "team_alias": "visio-conversion", "max_budget": 5.0, "budget_duration": "30d",
             "models": ["kimi-k3", "gpt-oss-120b", "glm-flash"],
-            "object_permission": {"mcp_servers": ["ea_mcp", "semantic_mcp", "storage_mcp"],
-                                  # semantic-mcp now carries the fabric's WRITE tools: a modelling agent
-                                  # gets the read side only (the ratchet in tests/governance insists)
-                                  "mcp_tool_permissions": {"semantic_mcp": list(SemanticTools.READ)}},
+            # the grant is declared in deploy/grants.py (production's APIM renders the same table);
+            # a server whose tools are None is granted whole, which LiteLLM spells as no tool list
+            "object_permission": {"mcp_servers": sorted(VISIO_TOOLS),
+                                  "mcp_tool_permissions": {s: t for s, t in VISIO_TOOLS.items() if t is not None}},
         })
         team_id = team["team_id"]
         print("created team visio-conversion:", team_id)

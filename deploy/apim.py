@@ -33,6 +33,10 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import grants  # noqa: E402
+import topology  # noqa: E402
 from lab.substrate import apipolicy  # noqa: E402
 
 BASE_CONFIG = ROOT / "config" / "litellm-config.yaml"
@@ -180,6 +184,85 @@ def frontdoor_operation_policy(role: str, tenant: str, audience: str, *, stream:
             '<set-header name="Authorization" exists-action="override">'
             '<value>Bearer {{mcp-shared-secret}}</value></set-header></inbound>'
             f'<backend>{backend}</backend><outbound><base /></outbound><on-error><base /></on-error></policies>')
+
+
+# ------------------------------------------------------------------ MCP servers
+#: How long APIM waits for an MCP backend's response headers. Above the lab's own bound on a whole
+#: exchange (config.TOOL_CALL_TIMEOUT_S) would be pointless; the stream itself is not buffered.
+MCP_TIMEOUT_S = 1000
+#: The team a SUBSCRIPTION caller belongs to is its APIM product's id (one product per team).
+ROLE_PREFIX = grants.role("")
+
+
+def mcp_servers(config_path: Path = BASE_CONFIG) -> dict[str, str]:
+    """Gateway alias -> the Container App serving it: the alias and its URL variable are the gateway
+    config's, the service behind the variable is the topology's."""
+    servers = yaml.safe_load(open(config_path))["mcp_servers"]
+    out = {}
+    for alias, spec in servers.items():
+        key = str(spec["url"]).removeprefix("os.environ/")
+        out[alias] = topology.MCP_URL_ENV[key]
+    return out
+
+
+def mcp_grants(server: str) -> dict[str, list[str] | str]:
+    """team -> tools it may call on `server`, "*" for the whole server — the shape the policy reads."""
+    return {team: "*" if tools is None else sorted(tools) for team, tools in grants.for_server(server).items()}
+
+
+def mcp_policy(server: str, tenant: str, audience: str) -> str:
+    """One MCP server's API. A caller is a TEAM — by the `Grant.<team>` roles on its production token, or
+    by its subscription's product — and a team may reach this server only if it holds a grant on it, and
+    call a tool only if that grant names it. The backend sees the substrate's bearer, never the caller's."""
+    teams = (
+        'if (context.Subscription != null) { return context.Product != null ? context.Product.Id : ""; } '
+        'var jwt = (Jwt)context.Variables["jwt"]; '
+        'var roles = jwt.Claims.ContainsKey("roles") ? jwt.Claims["roles"] : new string[0]; '
+        f'return string.Join(",", roles.Where(r => r.StartsWith("{ROLE_PREFIX}"))'
+        f'.Select(r => r.Substring({len(ROLE_PREFIX)})));')
+    decide = (
+        f'var grants = JObject.Parse({_cs(mcp_grants(server))}); '
+        'var teams = ((string)context.Variables["mcp-teams"]).Split(\',\').Where(t => grants[t] != null).ToArray(); '
+        'if (teams.Length == 0) { return "no-grant"; } '
+        'if (context.Request.Method != "POST") { return "ok"; } '
+        'var token = JToken.Parse(context.Request.Body.As<string>(preserveContent: true)); '
+        'if (token.Type != JTokenType.Object) { return "batch"; } '
+        'if ((string)token["method"] != "tools/call") { return "ok"; } '
+        'var tool = (string)token["params"]["name"]; '
+        'foreach (var t in teams) { var g = grants[t]; '
+        '  if (g.Type == JTokenType.String || g.Any(x => (string)x == tool)) { return "ok"; } } '
+        'return "denied";')
+    refuse = lambda code, reason, msg: (  # noqa: E731
+        f'<return-response><set-status code="{code}" reason="{reason}" />'
+        '<set-header name="Content-Type" exists-action="override"><value>application/json</value></set-header>'
+        f'<set-body>{escape(json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": msg}}))}'
+        '</set-body></return-response>')
+    return (
+        '<policies><inbound><base />'
+        '<choose><when condition="' + escape('@(context.Subscription == null)') + '">'
+        '<validate-jwt header-name="Authorization" failed-validation-httpcode="401" '
+        'failed-validation-error-message="a token for this gateway is required" output-token-variable-name="jwt">'
+        f'<openid-config url="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration" />'
+        f'<audiences><audience>{escape(audience)}</audience></audiences>'
+        f'<issuers><issuer>https://sts.windows.net/{tenant}/</issuer>'
+        f'<issuer>https://login.microsoftonline.com/{tenant}/v2.0</issuer></issuers>'
+        '</validate-jwt></when></choose>'
+        f'<set-variable name="mcp-teams" value="{_expr(teams)}" />'
+        f'<set-variable name="mcp-decision" value="{_expr(decide)}" />'
+        '<choose>'
+        '<when condition="' + escape('@((string)context.Variables["mcp-decision"] == "no-grant")') + '">'
+        + refuse(403, "Forbidden", f"no grant on {server}") + '</when>'
+        '<when condition="' + escape('@((string)context.Variables["mcp-decision"] == "batch")') + '">'
+        + refuse(400, "Bad Request", "JSON-RPC batches are not accepted") + '</when>'
+        '<when condition="' + escape('@((string)context.Variables["mcp-decision"] == "denied")') + '">'
+        + refuse(403, "Forbidden", f"that tool is not granted on {server}") + '</when>'
+        '</choose>'
+        '<set-header name="Authorization" exists-action="override">'
+        '<value>Bearer {{mcp-shared-secret}}</value></set-header>'
+        '<set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />'
+        '</inbound>'
+        f'<backend><forward-request timeout="{MCP_TIMEOUT_S}" buffer-response="false" /></backend>'
+        '<outbound><base /></outbound><on-error><base /></on-error></policies>')
 
 
 # ------------------------------------------------------------------ apply
