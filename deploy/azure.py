@@ -377,12 +377,25 @@ def _ours(image: str) -> bool:
     return image.startswith(f"ghcr.io/{topology.REPO}:")
 
 
+def _gate_key(arm, target: Target) -> str:
+    """The key the quiet gate asks the front door with. CD holds no production secret, so it is read
+    from Key Vault by the deploy identity (granted that ONE secret); unreadable means the gate says it
+    cannot ask and the release proceeds — a gate must not block the repair of what it cannot reach."""
+    if os.environ.get("LAB_GATE_KEY"):
+        return os.environ["LAB_GATE_KEY"]
+    try:
+        return arm.request("GET", f"{target.vault_uri}secrets/{secret_name('LITELLM_MASTER_KEY')}"
+                                  f"?api-version={VAULT_API}").get("value", "")
+    except SystemExit as e:
+        print(f"  quiet gate: cannot read the gate key from the vault ({str(e)[:80]})", file=sys.stderr)
+        return ""
+
+
 def release(arm, target: Target, wait_s: int = 600) -> bool:
     """Roll every EXISTING app that runs this repo's image onto `target.image`. Changes the image and
     nothing else — env, secrets, scale and ingress are configuration, shipped by `substrate up`.
     Returns True on any problem."""
-    _require_quiet({"PUBLIC_GATEWAY_URL": target.gateway_public,
-                    "LITELLM_MASTER_KEY": os.environ.get("LAB_GATE_KEY", "")})
+    _require_quiet({"PUBLIC_GATEWAY_URL": target.gateway_public, "LITELLM_MASTER_KEY": _gate_key(arm, target)})
     rolled = []
     for app in _list(arm, target):
         if not _ours(_image(app)):

@@ -35,7 +35,10 @@ class FakeArm:
         if url.startswith(f"{BASE}?"):
             return {"location": "uaenorth"}
         if "/secrets/" in url:
-            self.vault[url.split("/secrets/")[1].split("?")[0]] = body["value"]
+            name = url.split("/secrets/")[1].split("?")[0]
+            if method == "GET":
+                return {"value": self.vault.get(name, "")}
+            self.vault[name] = body["value"]
             return {}
         if url.startswith(f"{BASE}/providers/Microsoft.App/containerApps?"):
             return {"value": [{"name": n, **a} for n, a in self.apps.items()]}
@@ -106,3 +109,37 @@ def test_images_reports_a_mismatch_of_this_repos_image_only(capsys):
     assert "MISMATCH" in capsys.readouterr().out
     fake = FakeArm({"gateway": _app(f"{OURS}:sha-aaa"), "redis": _app("redis:7-alpine")})
     assert az.image_report(fake, _target(fake)) is False
+
+
+def test_release_asks_the_gate_with_the_master_key_read_from_the_vault(monkeypatch):
+    """CD holds no production secret: the one key the quiet gate needs is read from Key Vault by the
+    deploy identity, which may read that secret and no other."""
+    seen = {}
+    monkeypatch.delenv("LAB_GATE_KEY", raising=False)
+    monkeypatch.setattr(az, "_require_quiet", lambda profile: seen.update(profile))
+    fake = FakeArm()
+    fake.vault["litellm-master-key"] = "sk-prod-master"
+    orig = fake.request
+    def request(method, url, body=None):
+        if method == "GET" and "/secrets/litellm-master-key" in url:
+            return {"value": fake.vault["litellm-master-key"]}
+        return orig(method, url, body)
+    fake.request = request
+    az.release(fake, _target(fake), wait_s=0)
+    assert seen == {"PUBLIC_GATEWAY_URL": "https://gateway.icybay.uaenorth.azurecontainerapps.io",
+                    "LITELLM_MASTER_KEY": "sk-prod-master"}
+
+
+def test_release_proceeds_unasked_when_the_vault_will_not_say(monkeypatch):
+    seen = {}
+    monkeypatch.delenv("LAB_GATE_KEY", raising=False)
+    monkeypatch.setattr(az, "_require_quiet", lambda profile: seen.update(profile))
+    fake = FakeArm()
+    orig = fake.request
+    def request(method, url, body=None):
+        if method == "GET" and "/secrets/" in url:
+            raise SystemExit("azure GET -> 403")
+        return orig(method, url, body)
+    fake.request = request
+    az.release(fake, _target(fake), wait_s=0)
+    assert seen["LITELLM_MASTER_KEY"] == "", "no key: the gate reports it cannot ask, and the release goes on"

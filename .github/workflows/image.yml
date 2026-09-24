@@ -112,7 +112,8 @@ jobs:
           import importlib
           for m in ('lab.substrate.mcp.adoit.server', 'lab.substrate.mcp.semantic.server',
                     'lab.substrate.mcp.storage.server', 'lab.substrate.channels.telegram',
-                    'lab.workloads.visio_to_archimate.consumer', 'lab.substrate.gateway.custom_auth'):
+                    'lab.workloads.visio_to_archimate.consumer', 'lab.substrate.gateway.custom_auth',
+                    'lab.substrate.gateway.models_overlay'):
               importlib.import_module(m); print('ok', m)
           "
 
@@ -221,3 +222,45 @@ jobs:
           if [ ! -s .env ]; then echo "::notice::no deploy profile — agent cards not published"; exit 0; fi
           set -a && . ./.env && set +a
           python scripts/register_agents.py --public
+
+  # ---------------------------------------------------------------------------------------------
+  # PRODUCTION (Azure Container Apps). Runs only after dev (Railway) deployed the SAME commit, and
+  # only after a person approves it: `environment: production` requires a reviewer. It PROMOTES the
+  # image dev just ran — never a rebuild — so what reaches production is exactly what ran on dev.
+  #
+  # No production secret lives in GitHub. The job signs in with OIDC as `lab-deployer` (federated to
+  # this environment only; Contributor on rg-lab-prod only), and `release` changes each app's IMAGE
+  # and nothing else. Configuration — secrets, a new app, a grant — is `azure.py secrets sync` /
+  # `substrate up` by a person holding `.env.azure` (docs/decisions/2026-09-24-azure-production.md).
+  # The quiet gate's key is read from Key Vault by the deploy identity, which may read that ONE secret.
+  deploy-prod:
+    needs: deploy
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write            # the OIDC token lab-deployer's federated credential accepts
+      contents: read
+    concurrency:
+      group: azure-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4      # azure.py derives the image tag from HEAD
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: release — every existing production app onto this commit's image
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: python deploy/azure.py release     # stdlib only: no pip install needed
+
+      - name: verify — one build everywhere
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: python deploy/azure.py substrate images
