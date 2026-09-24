@@ -8,6 +8,8 @@ import fnmatch
 import os
 import re
 import sys
+from dataclasses import dataclass
+from typing import Callable
 
 REPO = "shlapolosa/local-agent-lab"
 BRANCH = "main"
@@ -42,7 +44,7 @@ def _head_tag():
         why = (out.stderr or "").strip() or f"git exited {out.returncode}"
     except Exception as e:                                  # noqa: BLE001 — deploy must not die on git
         why = f"{type(e).__name__}: {e}"
-    print(f"[railway] cannot pin an immutable image tag ({why}) — falling back to the MUTABLE "
+    print(f"[deploy] cannot pin an immutable image tag ({why}) — falling back to the MUTABLE "
           f"'{BRANCH}'. What each service runs is then whatever it last pulled.",
           file=sys.stderr, flush=True)
     return BRANCH
@@ -179,6 +181,56 @@ def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
     chans = [n for n in CHANNELS if n in table or n in (ids or {})]
     embed = [EMBED_NAME] if embedder_enabled(base_env) or EMBED_NAME in (ids or {}) else []
     return [REDIS_NAME] + embed + list(SUBSTRATE) + chans + [JAEGER_NAME]
+
+# --- how a service is ADDRESSED: the one thing that differs between deploy targets -------------------
+# Every server's listen port. A target turns (service, port) into a URL its own network routes: Railway
+# private DNS names the port; a Container Apps ingress listens on 80 and forwards to the port.
+SERVICE_PORTS = {
+    "adoit-mcp": 9100, "semantic-mcp": 9200, "storage-mcp": 9300, "workflow-frontdoor": 9400,
+    "graph-mcp": 9500, "speech-mcp": 9600, "reference-mcp": 9700, "decision-mcp": 9800,
+    "valuation-mcp": 9900, "gateway": 4000, "review": 8501,
+}
+EMBED_PORT = 11434
+
+
+@dataclass(frozen=True)
+class Network:
+    """A deploy target's private network: where a server binds, and the base URL of (service, port)."""
+    bind_host: str
+    address: Callable[[str, int], str]
+
+
+# IPv6 for Railway private networking; *.railway.internal resolves only there.
+RAILWAY_NET = Network(bind_host="::", address=lambda svc, port: f"http://{svc}.railway.internal:{port}")
+
+
+def substrate_env(name, spec, base_env, net: Network) -> dict:
+    """The exact variables substrate service `name` receives: the substrate coordinates (addressed on
+    `net`) layered on the profile pool, then the role allowlist (S3_KEYS only for services flagged
+    "s3"), then the service's own fixed overrides. Pure — used by `up` (to upsert) and `env` (to audit)."""
+    at = lambda svc, path="": net.address(svc, SERVICE_PORTS.get(svc, EMBED_PORT)) + path   # noqa: E731
+    env = dict(base_env)
+    env["BIND_HOST"] = net.bind_host
+    env["ADOIT_MCP_URL"] = at("adoit-mcp", "/mcp")
+    env["SEMANTIC_MCP_URL"] = at("semantic-mcp", "/mcp")
+    env["STORAGE_MCP_URL"] = at("storage-mcp", "/mcp")
+    env["WORKFLOW_MCP_URL"] = at("workflow-frontdoor", "/mcp")
+    env["GRAPH_MCP_URL"] = at("graph-mcp", "/mcp")
+    env["SPEECH_MCP_URL"] = at("speech-mcp", "/mcp")
+    env["REFERENCE_MCP_URL"] = at("reference-mcp", "/mcp")
+    env["DECISION_MCP_URL"] = at("decision-mcp", "/mcp")
+    env["VALUATION_MCP_URL"] = at("valuation-mcp", "/mcp")
+    env["WORKFLOW_API_URL"] = at("workflow-frontdoor", "/api")
+    env["GATEWAY_URL"] = at("gateway")
+    # The relevance stores' provider (litellm-config.yaml vector_store_registry): an ORIGIN — the
+    # client appends /v1/vector_stores/<id>/search — and the bearer reference-mcp expects.
+    env["PG_VECTOR_API_BASE"] = at("reference-mcp")
+    env["PG_VECTOR_API_KEY"] = env.get("MCP_SHARED_SECRET", "")
+    env["EMBED_URL"] = at(EMBED_NAME)                       # the gateway's embedding model
+    env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
+    env.update(spec.get("env", {}))
+    return env
+
 
 # --- per-role environment ALLOWLIST (least privilege; review B-H2) ---
 # A service receives ONLY the `.env` keys (after `# CLOUD:` override + $VAR expansion, plus the
@@ -460,7 +512,7 @@ def _value(v: str) -> str:
     return re.sub(r"\s+#.*$", "", v).strip()
 
 
-def parse_env(path: str | None = None, cloud: bool = True) -> dict:
+def parse_env(path: str | None = None, cloud: bool = True, overlay: str | None = None) -> dict:
     """KEY=value from .env. `cloud=True` (the deploy profile) lets `# CLOUD: KEY=value` comment
     lines WIN over the active machine-local ones; `cloud=False` reads the active lines only (what
     `source .env` gives a local process). Either way `$VAR` / `${VAR}` refs are expanded against
@@ -484,6 +536,18 @@ def parse_env(path: str | None = None, cloud: bool = True) -> dict:
             active[k] = _value(v)
     if cloud:
         active.update(overrides)                           # cloud values override local
+    if overlay:
+        # A TARGET's own profile (production's `.env.azure`): plain KEY=value lines that win over the
+        # cloud profile. Merged BEFORE expansion, so `ARTIFACTS_URL=$DATABASE_URL` follows an overridden
+        # DATABASE_URL; an empty value survives here and is dropped by load_env_for_cloud, which is how
+        # an overlay takes a dev-only credential (the Railway bucket) OUT of the pool.
+        for raw in open(overlay):
+            line = raw.rstrip("\n")
+            if line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if re.match(r"^[A-Z0-9_]+$", k.strip()):
+                active[k.strip()] = _value(v)
 
     def expand(v):
         return re.sub(r"\$\{?([A-Z_][A-Z0-9_]*)\}?", lambda m: active.get(m.group(1), m.group(0)), v)
@@ -492,11 +556,11 @@ def parse_env(path: str | None = None, cloud: bool = True) -> dict:
     return active
 
 
-def load_env_for_cloud(path: str | None = None) -> dict:
+def load_env_for_cloud(path: str | None = None, overlay: str | None = None) -> dict:
     """The deploy profile of .env (`# CLOUD:` wins, $VAR expanded, empty values dropped). This is
     the POOL a service is selected from — env_for_role() decides what each one actually gets, so
     management keys (RAILWAY_*, NEON_*, OCI_*, provisioning ids) never ship without a drop-list."""
-    return {k: v for k, v in parse_env(path, cloud=True).items() if v != ""}
+    return {k: v for k, v in parse_env(path, cloud=True, overlay=overlay).items() if v != ""}
 
 
 # --- workloads: each business process is its OWN service, deployed independently ON the substrate ---
@@ -598,6 +662,18 @@ WORKLOADS = {
         "env": {"AGENT_RESPONSES_STORE": "false"},
     },
 }
+
+
+# The stream every workload consumes, and the consumer group a host reads it under. Literal here, not
+# imported: the deploy job does not install the lab package. tests/governance/
+# test_deploy_streams_match_workflows.py holds both equal to lab.platform.workflows.
+REQUEST_STREAM = "workflow:requests"
+
+
+def workload_group(spec) -> str:
+    """The consumer group a workload host reads REQUEST_STREAM under — its service name, which is what
+    ProcessSpec.group declares for the process it runs."""
+    return spec["service"]
 
 
 MAX_REPLICAS = 6      # a lab overlaps a handful of lanes; every replica is a metered container

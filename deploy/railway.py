@@ -276,30 +276,8 @@ def bucket_status():
 
 
 def substrate_env(name, spec, base_env) -> dict:
-    """The exact variables substrate service `name` receives: the substrate coordinates layered on
-    the .env pool, then the role allowlist (S3_KEYS only for services flagged "s3"), then the
-    service's own fixed overrides. Pure — used by `up` (to upsert) and `env` (to audit offline)."""
-    env = dict(base_env)
-    env["BIND_HOST"] = "::"                                 # IPv6 for Railway private networking
-    env["ADOIT_MCP_URL"] = "http://adoit-mcp.railway.internal:9100/mcp"
-    env["SEMANTIC_MCP_URL"] = "http://semantic-mcp.railway.internal:9200/mcp"
-    env["STORAGE_MCP_URL"] = "http://storage-mcp.railway.internal:9300/mcp"
-    env["WORKFLOW_MCP_URL"] = "http://workflow-frontdoor.railway.internal:9400/mcp"
-    env["GRAPH_MCP_URL"] = "http://graph-mcp.railway.internal:9500/mcp"
-    env["SPEECH_MCP_URL"] = "http://speech-mcp.railway.internal:9600/mcp"
-    env["REFERENCE_MCP_URL"] = "http://reference-mcp.railway.internal:9700/mcp"
-    env["DECISION_MCP_URL"] = "http://decision-mcp.railway.internal:9800/mcp"
-    env["VALUATION_MCP_URL"] = "http://valuation-mcp.railway.internal:9900/mcp"
-    env["WORKFLOW_API_URL"] = "http://workflow-frontdoor.railway.internal:9400/api"
-    env["GATEWAY_URL"] = "http://gateway.railway.internal:4000"
-    # The relevance stores' provider (litellm-config.yaml vector_store_registry): an ORIGIN — the
-    # client appends /v1/vector_stores/<id>/search — and the bearer reference-mcp expects.
-    env["PG_VECTOR_API_BASE"] = "http://reference-mcp.railway.internal:9700"
-    env["PG_VECTOR_API_KEY"] = env.get("MCP_SHARED_SECRET", "")
-    env["EMBED_URL"] = f"http://{EMBED_NAME}.railway.internal:11434"   # the gateway's embedding model
-    env = env_for_role(name, env, s3=bool(spec.get("s3")))  # bucket credentials: only services flagged "s3"
-    env.update(spec.get("env", {}))
-    return env
+    """The exact variables substrate service `name` receives on Railway (topology.substrate_env)."""
+    return topology.substrate_env(name, spec, base_env, topology.RAILWAY_NET)
 
 
 def configure(sid, name, spec, base_env):
