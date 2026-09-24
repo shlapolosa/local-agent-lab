@@ -61,16 +61,20 @@ AZURE_CMD = {
                 f"--overlay config/litellm-models.azure.yaml -- litellm {topology.GATEWAY_ARGS}"),
 }
 
-# Per-app compute. The default fits an MCP server or a stream consumer; the rest are measured hogs.
+# Per-app compute, from MEASURED peaks (Railway metrics for the same roles, 24 Sep 2026): everything but
+# the two below peaks at or under 0.26 GB, which the smallest Consumption size holds.
 DEFAULT_RESOURCES = {"cpu": 0.25, "memory": "0.5Gi"}
 RESOURCES = {
-    "gateway": {"cpu": 1.0, "memory": "2Gi"},          # litellm + prisma + two redis pools
-    "review": {"cpu": 0.5, "memory": "1Gi"},           # streamlit
-    "semantic-mcp": {"cpu": 0.5, "memory": "1Gi"},     # rdflib holds every vocabulary in memory
-    "storage-mcp": {"cpu": 0.5, "memory": "1Gi"},      # document parsing, figure extraction
-    "speech-mcp": {"cpu": 0.5, "memory": "1Gi"},       # audio extraction
+    # litellm + prisma + two redis pools. MEASURED: the dev gateway peaks at 2.52 GB (Railway metrics,
+    # 24 Sep 2026), and at 2 GiB production's was killed 16 s into every boot. 3 GiB is the smallest
+    # Consumption size above that peak.
+    "gateway": {"cpu": 1.5, "memory": "3Gi"},
+    "semantic-mcp": {"cpu": 0.5, "memory": "1Gi"},     # rdflib holds every vocabulary; measured peak 0.50 GB
 }
-WORKLOAD_RESOURCES = {"cpu": 0.5, "memory": "1Gi"}     # agent_framework + litellm client ~250 MB floor
+# Measured peaks of every workload host on dev: 0.08-0.36 GB (use-case screening highest).
+WORKLOAD_RESOURCES = {"cpu": 0.25, "memory": "0.5Gi"}
+# A substrate consumer woken from zero is idle again within seconds of its entry; five minutes absorbs a burst.
+CONSUMER_COOLDOWN_S = 300
 # A chain (screening -> approval -> design) arrives in bursts minutes apart; ten idle minutes costs less
 # than a second ~70 s cold start in the middle of one.
 WORKLOAD_COOLDOWN_S = 600
@@ -169,16 +173,32 @@ def _ingress(name: str) -> dict | None:
             "allowInsecure": not external}
 
 
+# How long a server may take to START listening before it is killed. With no probes declared,
+# Container Apps probes the ingress port every second and killed the gateway (exit 137) 17 s into a
+# boot that takes about a minute — a restart loop `status` reported as Running (measured 24 Sep 2026).
+STARTUP_PERIOD_S, STARTUP_FAILURES = 10, 30          # up to 300 s to come up
+
+
+def _probes(port: int) -> list[dict]:
+    """TCP probes on the server's own port: a patient startup, then a liveness check that tolerates a
+    busy minute (a long tool call must not get the gateway restarted under it)."""
+    return [{"type": "Startup", "tcpSocket": {"port": port}, "initialDelaySeconds": 5,
+             "periodSeconds": STARTUP_PERIOD_S, "failureThreshold": STARTUP_FAILURES},
+            {"type": "Liveness", "tcpSocket": {"port": port}, "periodSeconds": 30, "failureThreshold": 4}]
+
+
 def _app(target: Target, *, name: str, command: str | list, env_entries: list, secrets: list,
          ingress: dict | None, scale: dict, resources: dict, image: str | None = None,
          grace_s: int | None = None) -> dict:
     configuration = {"activeRevisionsMode": "Single", "secrets": secrets}
     if ingress:
         configuration["ingress"] = ingress
-    template = {"containers": [{"name": name, "image": image or target.image,
-                                "command": ["sh", "-c", command] if isinstance(command, str) else command,
-                                "env": env_entries, "resources": resources}],
-                "scale": scale}
+    container = {"name": name, "image": image or target.image,
+                 "command": ["sh", "-c", command] if isinstance(command, str) else command,
+                 "env": env_entries, "resources": resources}
+    if ingress and ingress.get("targetPort"):
+        container["probes"] = _probes(ingress["targetPort"])
+    template = {"containers": [container], "scale": scale}
     if grace_s:
         template["terminationGracePeriodSeconds"] = grace_s
     return {
@@ -193,35 +213,37 @@ ONE = {"minReplicas": 1, "maxReplicas": 1}
 
 
 def substrate_app(name: str, spec: dict, profile: dict, target: Target) -> dict:
-    """One substrate role as a Container App: its allowlisted env (secrets by reference), its ingress,
-    one replica."""
+    """One substrate role as a Container App: its allowlisted env (secrets by reference), its ingress.
+    A pure stream consumer (`wakes_on`) scales from zero on what it reads; a server or a timer runs one."""
     env = topology.substrate_env(name, spec, profile, network(target))
     entries, secrets = _env_and_secrets(env, profile, target)
+    scale = stream_scale(spec["wakes_on"], 1, CONSUMER_COOLDOWN_S) if spec.get("wakes_on") else dict(ONE)
     return _app(target, name=name, command=AZURE_CMD.get(name, spec["cmd"]), env_entries=entries,
-                secrets=secrets, ingress=_ingress(name), scale=dict(ONE),
+                secrets=secrets, ingress=_ingress(name), scale=scale,
                 resources=RESOURCES.get(name, DEFAULT_RESOURCES))
 
 
+def stream_scale(reads, max_replicas: int, cooldown_s: int) -> dict:
+    """From ZERO, woken by KEDA's redis-streams scaler on every (stream, group) the app reads: `lagCount`
+    (undelivered entries) wakes it, `pendingEntriesCount` (delivered, not yet acked) keeps it up while
+    it works — without the second, a cool-down can scale it in mid-run."""
+    rules = []
+    for i, (stream, group) in enumerate(reads):
+        on = {"address": REDIS_ADDRESS, "stream": stream, "consumerGroup": group}
+        # ONE undelivered entry wakes it: a higher threshold would leave a lone entry at zero.
+        rules.append({"name": f"s{i}-waiting", "custom": {"type": "redis-streams",
+                                                          "metadata": {**on, "lagCount": "1", "activationLagCount": "0"}}})
+        rules.append({"name": f"s{i}-running", "custom": {"type": "redis-streams",
+                                                          "metadata": {**on, "pendingEntriesCount": "1"}}})
+    return {"minReplicas": 0, "maxReplicas": max_replicas, "cooldownPeriod": cooldown_s,
+            "pollingInterval": WORKLOAD_POLL_S, "rules": rules}
+
+
 def workload_scale(spec: dict) -> dict:
-    """From ZERO, woken by KEDA's redis-streams scaler on the group the host consumes: `lagCount`
-    (undelivered entries) wakes it, `pendingEntriesCount` (delivered, not yet acked) keeps it up
-    through a 10-20 minute run. As many replicas as the topology declares — replica_services
-    validates the count, so `replicas: 0` is an error, not one."""
-    on = {"address": REDIS_ADDRESS, "stream": topology.REQUEST_STREAM, "consumerGroup": topology.workload_group(spec)}
-    return {
-        "minReplicas": 0,
-        "maxReplicas": len(topology.replica_services(spec)),
-        "cooldownPeriod": WORKLOAD_COOLDOWN_S,
-        "pollingInterval": WORKLOAD_POLL_S,
-        "rules": [
-            # ONE undelivered request wakes a host: a higher threshold would leave a lone request at zero.
-            {"name": "requests-waiting", "custom": {"type": "redis-streams",
-                                                    "metadata": {**on, "lagCount": "1", "activationLagCount": "0"}}},
-            # ...and a run in progress keeps it up, however long the run takes.
-            {"name": "requests-running", "custom": {"type": "redis-streams",
-                                                    "metadata": {**on, "pendingEntriesCount": "1"}}},
-        ],
-    }
+    """A workload host scales on its group of the request stream, with as many replicas as the topology
+    declares — replica_services validates the count, so `replicas: 0` is an error, not one."""
+    return stream_scale([(topology.REQUEST_STREAM, topology.workload_group(spec))],
+                        len(topology.replica_services(spec)), WORKLOAD_COOLDOWN_S)
 
 
 def _workload_env(name: str, spec: dict, profile: dict, target: Target) -> dict:
@@ -527,7 +549,8 @@ def versions(arm, target: Target) -> bool:
 def status(arm, target: Target) -> None:
     for app in sorted(_list(arm, target), key=lambda a: a["name"]):
         p = app["properties"]
-        fqdn = (p.get("configuration") or {}).get("ingress", {}).get("fqdn") or "(no ingress)"
+        # Azure answers `"ingress": null` for an app without one, not a missing key.
+        fqdn = ((p.get("configuration") or {}).get("ingress") or {}).get("fqdn") or "(no ingress)"
         print(f"  {app['name']:24} {p.get('provisioningState', '?'):10} {p.get('runningStatus', '?'):9} {fqdn}")
 
 

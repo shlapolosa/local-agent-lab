@@ -110,7 +110,7 @@ def test_every_app_is_single_revision_on_the_consumption_profile_with_the_apps_i
 
 
 def test_servers_and_substrate_consumers_run_exactly_one_replica():
-    for name in ("gateway", "semantic-mcp", "continuations", "fabric-projector"):
+    for name in ("gateway", "semantic-mcp", "fabric-reconciler"):
         scale = az.substrate_app(name, topology.SUBSTRATE[name], PROFILE, TARGET)["properties"]["template"]["scale"]
         assert scale == {"minReplicas": 1, "maxReplicas": 1}, name
 
@@ -229,3 +229,22 @@ def test_a_workload_gets_time_to_finish_and_as_many_replicas_as_the_topology_dec
 def test_an_invalid_replica_count_is_refused_not_rounded_up():
     with pytest.raises(ValueError):
         az.workload_scale({**topology.WORKLOADS["meeting"], "replicas": 0})
+
+
+def test_a_substrate_stream_consumer_scales_from_zero_on_every_stream_it_reads():
+    t = az.substrate_app("fabric-ingress", topology.SUBSTRATE["fabric-ingress"], PROFILE, TARGET)["properties"]["template"]
+    assert t["scale"]["minReplicas"] == 0 and t["scale"]["maxReplicas"] == 1
+    watched = {(r["custom"]["metadata"]["stream"], r["custom"]["metadata"]["consumerGroup"]) for r in t["scale"]["rules"]}
+    assert watched == set(topology.SUBSTRATE["fabric-ingress"]["wakes_on"])
+    kinds = {k for r in t["scale"]["rules"] for k in r["custom"]["metadata"] if k in ("lagCount", "pendingEntriesCount")}
+    assert kinds == {"lagCount", "pendingEntriesCount"}
+
+
+def test_sizes_follow_the_measured_peaks():
+    """Measured on dev, 24 Sep 2026: everything but the gateway (2.52 GB) and semantic-mcp (0.50 GB)
+    peaks at or under 0.36 GB, which the smallest size (0.5 GiB) holds."""
+    for name in ("review", "storage-mcp", "speech-mcp", "continuations"):
+        res = az.substrate_app(name, topology.SUBSTRATE[name], PROFILE, TARGET)["properties"]["template"]["containers"][0]["resources"]
+        assert res == {"cpu": 0.25, "memory": "0.5Gi"}, name
+    wl = az.workload_app("usecase-screening", topology.WORKLOADS["usecase-screening"], PROFILE, TARGET)
+    assert wl["properties"]["template"]["containers"][0]["resources"] == {"cpu": 0.25, "memory": "0.5Gi"}

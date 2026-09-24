@@ -65,6 +65,13 @@ GATEWAY_CONFIG = "config/litellm-config.yaml"
 GATEWAY_ARGS = "--host 0.0.0.0 --port 4000 --num_workers 1"
 REDIS_IMAGE = "redis:7-alpine"
 
+# The streams substrate consumers read, for `wakes_on` below. Literal, not imported (the deploy job does
+# not install the lab package); tests/governance/test_deploy_streams_match_workflows.py holds them equal
+# to the constants each consumer reads.
+DECISIONS = "approvals:decisions"
+FINISHED = "workflow:finished"
+FABRIC_EVENTS = "fabric:events"
+
 # --- substrate services: name -> role command, ingress, health ---
 # ADDING A SERVICE HERE? Five things are learned, written down, and still walked into — twice in
 # one day (19 Sep 2026: Postgres ran as root, the live view 502'd). Nothing in this table prompts
@@ -124,18 +131,26 @@ SUBSTRATE = {
                       "env": {"REFERENCE_PROVIDER": "mcp"}},
     # What makes FR-12 structural: the architect's decision is the EVENT that releases the
     # submitter's message, so there is no code path where the submitter hears first.
-    "usecase-notifier": {"cmd": "python -m lab.substrate.usecase_notifier", "port": None},
+    # `wakes_on` = the (stream, group) pairs a pure stream consumer reads. A target that scales from zero
+    # (production) wakes it on exactly these; a consumer with none (a timer, a server) stays up.
+    "usecase-notifier": {"cmd": "python -m lab.substrate.usecase_notifier", "port": None,
+                         "wakes_on": ((DECISIONS, "usecase-notifier"),)},
     # what turns "a human approved" into "the next run started". Redis ONLY: it reads the decisions
     # stream and publishes a workflow request, holds no credential of any kind, and has no ingress.
-    "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None},
+    "continuations": {"cmd": "python -m lab.substrate.continuations", "port": None,
+                      "wakes_on": ((DECISIONS, "continuations"),)},
     # what tells a meeting its minutes exist — Redis and one webhook, nothing else
-    "meeting-notifier": {"cmd": "python -m lab.substrate.meeting_notifier", "port": None},
+    "meeting-notifier": {"cmd": "python -m lab.substrate.meeting_notifier", "port": None,
+                         "wakes_on": ((FINISHED, "meeting-notifier"),)},
     # The Documentation Fabric's three substrate consumers (docs/fabric/POC.md). Ingress: finished runs and
     # change events -> artifact_intake requests (Redis only). Projector: a published record -> one wiki page,
     # through the gateway with the fabric's substrate identity. Reconciler: a timer sweep of the allow-listed
     # drives against the catalog -> change events, so a missed notification is said later.
-    "fabric-ingress":    {"cmd": "python -m lab.substrate.fabric_ingress", "port": None},
-    "fabric-projector":  {"cmd": "python -m lab.substrate.fabric_projector", "port": None},
+    "fabric-ingress":    {"cmd": "python -m lab.substrate.fabric_ingress", "port": None,
+                          "wakes_on": ((FINISHED, "fabric-ingress"), (FABRIC_EVENTS, "fabric-ingress"))},
+    "fabric-projector":  {"cmd": "python -m lab.substrate.fabric_projector", "port": None,
+                          "wakes_on": ((FINISHED, "fabric-projector"),)},
+    # A TIMER (a sweep every FABRIC_SWEEP_S), not a stream reader: nothing can wake it, so no `wakes_on`.
     "fabric-reconciler": {"cmd": "python -m lab.substrate.fabric_reconciler", "port": None},
     "gateway":      {"cmd": f"litellm --config {GATEWAY_CONFIG} {GATEWAY_ARGS}",
                      "port": 4000,   # NOTE: deliberately NO "health" key — see below.

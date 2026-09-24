@@ -204,3 +204,37 @@ def test_versions_reads_the_build_each_app_says_it_runs(capsys):
     out = capsys.readouterr().out
     assert "review" in out and "MISMATCH" in out
     assert az.version_report(rows[:1], "sha-abc1234") is False
+
+
+def test_a_server_gets_a_startup_probe_patient_enough_for_the_gateways_boot():
+    """Measured 24 Sep 2026: with no probes declared, Container Apps probed the gateway's port every
+    second and killed it (exit 137) 17 s in — LiteLLM takes about a minute to come up — so it
+    restart-looped for ever while `status` said Running. Every app with ingress declares its own."""
+    t = _target(FakeArm())
+    for name in ("gateway", "semantic-mcp", "review"):
+        c = az.substrate_app(name, az.topology.SUBSTRATE[name], {}, t)["properties"]["template"]["containers"][0]
+        probes = {p["type"]: p for p in c["probes"]}
+        port = az.topology.SERVICE_PORTS[name]
+        assert probes["Startup"]["tcpSocket"]["port"] == port
+        assert probes["Startup"]["periodSeconds"] * probes["Startup"]["failureThreshold"] >= 300
+        assert probes["Liveness"]["tcpSocket"]["port"] == port
+    consumer = az.substrate_app("continuations", az.topology.SUBSTRATE["continuations"], {}, t)
+    assert "probes" not in consumer["properties"]["template"]["containers"][0], "nothing to probe without a port"
+
+
+def test_the_gateway_has_room_for_its_measured_peak():
+    """Measured 24 Sep 2026: the dev gateway peaks at 2.52 GB (Railway metrics, 1,442 samples), and the
+    first production gateway at 2 GiB was killed 16 s into every boot (exit 137) — a restart loop."""
+    res = az.RESOURCES["gateway"]
+    gib = float(res["memory"].removesuffix("Gi"))
+    assert gib * 1024**3 / 1e9 >= 2.52 * 1.2, "at least 20 % above the measured peak"
+    assert res["cpu"] * 2 == gib, "Consumption sizes pair 0.5 vCPU with 1 GiB"
+
+
+def test_status_reads_an_app_whose_ingress_is_null(capsys):
+    """Azure answers `"ingress": null` for an app with no ingress (a stream consumer), not a missing key."""
+    app = _app(f"{OURS}:sha-abc1234")
+    app["properties"]["configuration"] = {"ingress": None}
+    fake = FakeArm({"continuations": app})
+    az.status(fake, _target(fake))
+    assert "(no ingress)" in capsys.readouterr().out

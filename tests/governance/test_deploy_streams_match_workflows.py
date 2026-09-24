@@ -20,3 +20,20 @@ def test_the_request_stream_is_the_one_workflows_publishes_to():
 def test_every_consumer_group_a_workload_is_scaled_on_is_a_registered_process_group():
     deployed = {topology.workload_group(s) for s in topology.WORKLOADS.values() if s.get("restart") == "ALWAYS"}
     assert deployed == set(workflows.GROUPS), "a process with no host, or a host scaled on no process"
+
+
+def test_every_stream_a_substrate_consumer_is_woken_on_is_one_it_reads():
+    """A consumer scaled to zero wakes ONLY on the stream and group its scale rule names. Name the
+    wrong one and it never wakes — a notification that silently never goes out."""
+    from lab.platform import fabric_events
+    from lab.substrate import approvals, continuations, fabric_projector, meeting_notifier, usecase_notifier
+
+    reads = {
+        "usecase-notifier": {(approvals.DEC, usecase_notifier.GROUP)},
+        "continuations": {(approvals.DEC, continuations.GROUP)},
+        "meeting-notifier": {(workflows.DONE, meeting_notifier.GROUP)},
+        "fabric-projector": {(workflows.DONE, fabric_projector.GROUP)},
+        "fabric-ingress": {(workflows.DONE, "fabric-ingress"), (fabric_events.STREAM, fabric_events.GROUP)},
+    }
+    woken = {n: set(s["wakes_on"]) for n, s in topology.SUBSTRATE.items() if s.get("wakes_on")}
+    assert woken == reads, "a scaled-to-zero consumer must wake on exactly what it reads"
