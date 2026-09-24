@@ -420,15 +420,36 @@ def secrets_sync(arm, profile: dict, target: Target) -> None:
     print(f"published {len(keys)} secret(s) to {target.vault_uri}")
 
 
+def image_exists(image: str) -> bool:
+    """Whether the registry HAS this image — asked anonymously (the package is public). A new app is
+    created on it, and the tag comes from the local checkout: measured 24 Sep 2026, nine workloads
+    were created on the tag of a commit not yet pushed, so on an image that did not exist."""
+    repo, _, tag = image.removeprefix("ghcr.io/").partition(":")
+    try:
+        with urllib.request.urlopen(f"https://ghcr.io/token?scope=repository:{repo}:pull", timeout=30) as r:
+            token = json.load(r)["token"]
+        req = urllib.request.Request(f"https://ghcr.io/v2/{repo}/manifests/{tag}", method="HEAD", headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status == 200
+    except urllib.error.HTTPError:
+        return False
+
+
 def _apply(arm, target: Target, name: str, body: dict) -> None:
     """Create or update one app. An EXISTING app keeps the image it runs: configuration is not a code
     release, and the operator's local HEAD is a commit no reviewer approved. A new app starts on
-    `target.image`."""
+    `target.image` — refused if the registry does not have it."""
     current = arm.request("GET", _apps_url(target, name), missing_ok=True)
-    if current and topology.is_ours(_image(current)):
-        for c in body["properties"]["template"]["containers"]:
-            if topology.is_ours(c["image"]):
-                c["image"] = _image(current)
+    for c in body["properties"]["template"]["containers"]:
+        if not topology.is_ours(c["image"]):
+            continue                                   # a pinned third-party image (redis, the collector)
+        if current and topology.is_ours(_image(current)):
+            c["image"] = _image(current)
+        elif not image_exists(c["image"]):
+            raise SystemExit(f"{name}: the registry has no {c['image'].split(':')[-1]} — push the commit and let CI "
+                             f"build it, or set LAB_IMAGE_TAG to a built one")
     arm.request("PUT", _apps_url(target, name), body)
     print(f"  {name:24} {'updated' if current else 'created'}  {_image(body).split(':')[-1]}")
 
@@ -453,7 +474,14 @@ def workload_up(arm, name: str, profile: dict, target: Target) -> None:
 
 
 def _list(arm, target: Target) -> list[dict]:
-    return arm.request("GET", _apps_url(target))["value"]
+    """Every app in the resource group — ALL pages. ARM returns 20 to a page; reading only the first
+    once made `release` skip every workload and report success."""
+    page = arm.request("GET", _apps_url(target))
+    apps = list(page["value"])
+    while page.get("nextLink"):
+        page = arm.request("GET", page["nextLink"])
+        apps += page["value"]
+    return apps
 
 
 def _image(app: dict) -> str:

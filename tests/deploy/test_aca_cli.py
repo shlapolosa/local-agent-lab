@@ -11,6 +11,8 @@ import copy
 import importlib.util
 import os
 
+import pytest
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _spec = importlib.util.spec_from_file_location("lab_deploy_azure_cli", os.path.join(ROOT, "deploy", "aca.py"))
 az = importlib.util.module_from_spec(_spec)
@@ -24,6 +26,13 @@ OUTPUTS = {"environmentId": {"value": "/env/cae"}, "appsIdentityId": {"value": "
            "environmentDomain": {"value": "icybay.uaenorth.azurecontainerapps.io"},
            "appInsightsConnectionString": {"value": "InstrumentationKey=00000000-0000-0000-0000-000000000000"},
            "logsWorkspaceId": {"value": "ws-1"}}
+
+
+@pytest.fixture(autouse=True)
+def _registry_has_every_image(monkeypatch):
+    """Offline: the registry is asked for real only in production. A test that wants a MISSING image
+    overrides this with its own monkeypatch."""
+    monkeypatch.setattr(az, "image_exists", lambda image: True)
 
 
 class FakeArm:
@@ -229,6 +238,40 @@ def test_the_gateway_has_room_for_its_measured_peak():
     gib = float(res["memory"].removesuffix("Gi"))
     assert gib * 1024**3 / 1e9 >= 2.52 * 1.2, "at least 20 % above the measured peak"
     assert res["cpu"] * 2 == gib, "Consumption sizes pair 0.5 vCPU with 1 GiB"
+
+
+def test_a_new_app_is_never_created_on_an_image_the_registry_does_not_have(monkeypatch):
+    """Measured 24 Sep 2026: nine workloads were created on the local HEAD's tag — a commit not yet
+    pushed, so an image that did not exist. Refused before anything is written, naming the tag."""
+    monkeypatch.setattr(az, "image_exists", lambda image: False)
+    fake = FakeArm()
+    with pytest.raises(SystemExit, match="sha-abc1234"):
+        az.workload_up(fake, "visio", {"MCP_SHARED_SECRET": "x" * 40}, _target(fake))
+    assert not [c for c in fake.calls if c[0] == "PUT"]
+
+
+def test_an_existing_app_keeps_its_image_so_the_registry_is_not_asked(monkeypatch):
+    asked = []
+    monkeypatch.setattr(az, "image_exists", lambda image: asked.append(image) or False)
+    fake = FakeArm({"wf-visio": _app(f"{OURS}:sha-approved")})
+    az.workload_up(fake, "visio", {"MCP_SHARED_SECRET": "x" * 40}, _target(fake))
+    assert asked == [] and _image_of(fake, "wf-visio") == f"{OURS}:sha-approved"
+
+
+def _image_of(fake, name):
+    return fake.apps[name]["properties"]["template"]["containers"][0]["image"]
+
+
+def test_listing_follows_every_page():
+    """Measured 24 Sep 2026: ARM returns container apps 20 to a page, and a `release` that read only
+    the first page skipped all nine workloads — green, with a third of production on another image."""
+    class Paged:
+        def request(self, method, url, body=None, missing_ok=False):
+            if "page=2" in url:
+                return {"value": [{"name": "wf-visio"}]}
+            return {"value": [{"name": f"app-{i}"} for i in range(20)], "nextLink": "https://management.azure.com/x?page=2"}
+    names = [a["name"] for a in az._list(Paged(), _target(FakeArm()))]
+    assert len(names) == 21 and names[-1] == "wf-visio"
 
 
 def test_status_reads_an_app_whose_ingress_is_null(capsys):
