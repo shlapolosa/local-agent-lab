@@ -125,6 +125,16 @@ to its target when the quota request is granted — a gateway-config change, no 
   role and asks `/api/runs/open` with an Entra token. It still needs a virtual-key mapping in the prod
   registry (custom_auth maps app -> key) — minted with the prod identities (separation item 1). Until
   then the gate reports it cannot ask and proceeds.
+- **The deploy identity's federated subject is GitHub's IMMUTABLE-ID form** —
+  `repo:shlapolosa@6398826/local-agent-lab@1351618494:environment:production` — not the name-only
+  `repo:shlapolosa/local-agent-lab:environment:production` the Microsoft docs still show. GitHub presents the
+  id form, and the first CD run failed `AADSTS700213` against a name-only credential (24 Sep 2026). The id
+  form is also the safer one: a deleted-and-recreated repo of the same name cannot present it.
+- **First deploy, measured** (24 Sep 2026): the gateway restart-looped at 2 GiB (exit 137, 16 s into every
+  boot) — the dev gateway peaks at 2.52 GB, so it runs at 3 GiB; every size comes from Railway's measured
+  peaks; ARM lists apps 20 to a page (a one-page `release` skipped every workload and reported success); a
+  new app is refused on an image tag the registry lacks. Smoke through the public gateway: `kimi-k3` answered
+  from Foundry gpt-5-mini, embeddings 3072-d in-region, 117 MCP tools from 9 servers.
 - **Known and accepted for now**: Redis persists to the replica's own disk (the Azure Files RDB spike is
   open — approvals do not survive a Redis restart until it lands); every submit wakes every workload host
   (each group has lag on the shared request stream — ~$0.08 per submit, per-process streams later);

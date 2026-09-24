@@ -94,6 +94,18 @@ def test_a_bearer_token_is_used_in_place_of_the_master_key(monkeypatch):
     assert seen["auth"] == "Bearer eyJ.token.sig"
 
 
+def test_a_refused_credential_proceeds_at_once_instead_of_waiting_out_a_restart(monkeypatch, capsys):
+    """Measured on the first production CD run, 24 Sep 2026: the deploy identity's token was REFUSED
+    (401 — no key mapping yet) and the gate waited five minutes for a door that would never open to it.
+    A 401/403 is an answer, not an absence: waiting cannot change it."""
+    def refused(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+    monkeypatch.setattr(gate.urllib.request, "urlopen", refused)
+    monkeypatch.setattr(gate.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("waited")))
+    assert gate.quiet_board({"PUBLIC_GATEWAY_URL": "https://gw", "GATE_BEARER": "eyJ.t.s"}, wait_s=600) is True
+    assert "refused" in capsys.readouterr().out
+
+
 def test_no_credential_proceeds_at_once_instead_of_waiting_for_a_door_it_could_never_open(monkeypatch, capsys):
     monkeypatch.setattr(gate.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("waited")))
     assert gate.quiet_board({"PUBLIC_GATEWAY_URL": "https://gw"}, wait_s=600) is True

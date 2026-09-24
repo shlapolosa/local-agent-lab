@@ -26,6 +26,12 @@ QUIET_POLL_S = 30
 QUIET_UNREACHABLE_WAIT_S = 300
 
 
+#: The front door answered, and refused the credential (401/403). Measured on the first production CD
+#: run: treated as "unreachable", it made every release wait five minutes for a door that would never
+#: open to that caller. Waiting cannot change a refusal, so the gate says so and proceeds.
+REFUSED = "refused"
+
+
 def open_runs(profile: dict):
     """The runs the front door says are still pending or running, or None when it cannot be asked."""
     # GATE_BEARER: an Entra token for a caller holding the Workflow.Submit role (what CD uses — it holds
@@ -39,6 +45,11 @@ def open_runs(profile: dict):
                                      headers={"Authorization": f"Bearer {key}"})
         with urllib.request.urlopen(req, timeout=30) as r:
             return list(json.load(r).get("runs") or [])
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return REFUSED                              # an ANSWER about the credential, not an absence
+        print(f"  quiet gate: front door unreachable (HTTP {e.code})", file=sys.stderr, flush=True)
+        return None
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as e:
         print(f"  quiet gate: front door unreachable ({type(e).__name__}: {str(e)[:80]})",
               file=sys.stderr, flush=True)
@@ -62,6 +73,10 @@ def quiet_board(profile: dict, wait_s: int | None = None) -> bool:
     waited = unreachable = 0
     while True:
         runs = open_runs(profile)
+        if runs == REFUSED:
+            print("  quiet gate: the front door refused this credential (no role or key mapping) — "
+                  "proceeding unasked", flush=True)
+            return True
         if runs is None:                                   # cannot ask (yet): a restart in progress?
             if unreachable >= QUIET_UNREACHABLE_WAIT_S:
                 print(f"  quiet gate: front door unreachable for {unreachable}s — proceeding "
