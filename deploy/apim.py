@@ -311,9 +311,11 @@ def mcp_policy(server: str, tenant: str, audience: str) -> str:
         'var roles = jwt.Claims.ContainsKey("roles") ? jwt.Claims["roles"] : new string[0]; '
         f'return string.Join(",", roles.Where(r => r.StartsWith("{ROLE_PREFIX}"))'
         f'.Select(r => r.Substring({len(ROLE_PREFIX)})));')
-    decide = (
+    granted = (  # the caller's teams that hold a grant on this server, and those grants
         f'var grants = JObject.Parse({_cs(mcp_grants(server))}); '
-        'var teams = ((string)context.Variables["mcp-teams"]).Split(\',\').Where(t => grants[t] != null).ToArray(); '
+        'var teams = ((string)context.Variables["mcp-teams"]).Split(\',\').Where(t => grants[t] != null).ToArray(); ')
+    decide = (
+        granted +
         'if (teams.Length == 0) { return "no-grant"; } '
         'if (context.Request.Method != "POST") { return "ok"; } '
         'var token = JToken.Parse(context.Request.Body.As<string>(preserveContent: true)); '
@@ -323,6 +325,32 @@ def mcp_policy(server: str, tenant: str, audience: str) -> str:
         'foreach (var t in teams) { var g = grants[t]; '
         '  if (g.Type == JTokenType.String || g.Any(x => (string)x == tool)) { return "ok"; } } '
         'return "denied";')
+    # A listing shows the caller only what it may call — as LiteLLM's did. The server lists everything,
+    # and an agent that chooses from the listing would otherwise pick tools the call check refuses.
+    # "" = no filter: not a listing, or a team holds the whole server.
+    visible = (
+        'if (context.Request.Method != "POST") { return ""; } '
+        'var token = JToken.Parse(context.Request.Body.As<string>(preserveContent: true)); '
+        'if (token.Type != JTokenType.Object || (string)token["method"] != "tools/list") { return ""; } '
+        + granted +
+        'var names = new JArray(); '
+        'foreach (var t in teams) { var g = grants[t]; if (g.Type == JTokenType.String) { return ""; } '
+        '  foreach (var x in g) { if (!names.Any(n => (string)n == (string)x)) { names.Add(x); } } } '
+        'return names.ToString(Newtonsoft.Json.Formatting.None);')
+    # SSE (`data: {...}` lines) or a plain JSON body; each JSON-RPC result carrying tools is filtered.
+    keep = (
+        'var allowed = JArray.Parse((string)context.Variables["mcp-visible"]); '
+        'var lines = context.Response.Body.As<string>().Split(\'\\n\'); '
+        'for (var i = 0; i < lines.Length; i++) { '
+        '  var sse = lines[i].StartsWith("data:"); var text = (sse ? lines[i].Substring(5) : lines[i]).Trim(); '
+        '  if (!text.StartsWith("{")) { continue; } '
+        '  var msg = JObject.Parse(text); '
+        '  var tools = msg["result"] == null ? null : msg["result"]["tools"] as JArray; '
+        '  if (tools == null) { continue; } '
+        '  msg["result"]["tools"] = new JArray(tools.Where(t => allowed.Any(a => (string)a == (string)t["name"]))); '
+        '  lines[i] = (sse ? "data: " : "") + msg.ToString(Newtonsoft.Json.Formatting.None); } '
+        'return string.Join("\\n", lines);')
+    filtering = escape('@((string)context.Variables["mcp-visible"] != "")')
     refuse = lambda code, reason, msg: (  # noqa: E731
         f'<return-response><set-status code="{code}" reason="{reason}" />'
         '<set-header name="Content-Type" exists-action="override"><value>application/json</value></set-header>'
@@ -348,12 +376,19 @@ def mcp_policy(server: str, tenant: str, audience: str) -> str:
         '<when condition="' + escape('@((string)context.Variables["mcp-decision"] == "denied")') + '">'
         + refuse(403, "Forbidden", f"that tool is not granted on {server}") + '</when>'
         '</choose>'
+        f'<set-variable name="mcp-visible" value="{_expr(visible)}" />'
         '<set-header name="Authorization" exists-action="override">'
         '<value>Bearer {{mcp-shared-secret}}</value></set-header>'
         '<set-header name="api-key" exists-action="delete" />'
         '</inbound>'
-        f'<backend><forward-request timeout="{MCP_TIMEOUT_S}" buffer-response="false" /></backend>'
-        '<outbound><base /></outbound><on-error><base /></on-error></policies>')
+        # a filtered listing is one short event and must be read whole; everything else streams
+        f'<backend><choose><when condition="{filtering}">'
+        f'<forward-request timeout="{MCP_TIMEOUT_S}" buffer-response="true" /></when>'
+        f'<otherwise><forward-request timeout="{MCP_TIMEOUT_S}" buffer-response="false" /></otherwise>'
+        '</choose></backend>'
+        f'<outbound><base /><choose><when condition="{filtering}">'
+        f'<set-body>{_expr(keep)}</set-body></when></choose></outbound>'
+        '<on-error><base /></on-error></policies>')
 
 
 # ------------------------------------------------------------------ apply

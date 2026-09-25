@@ -141,6 +141,36 @@ def test_the_mcp_policy_checks_the_tool_and_hands_the_backend_only_the_substrate
     assert AUD in xml
 
 
+def _expressions(xml: str) -> str:
+    return " ".join(v for e in ET.fromstring(xml).iter() for v in e.attrib.values()) + \
+        " ".join(e.text or "" for e in ET.fromstring(xml).iter())
+
+
+def test_a_listing_shows_a_caller_only_the_tools_its_grant_names():
+    # LiteLLM listed only granted tools; APIM forwards the server's own listing. A Copilot agent chooses
+    # from the listing, so an ungranted tool in it is a 403 waiting to happen in front of a person.
+    xml = apim.mcp_policy("workflow_mcp", TENANT, AUD)
+    code = _expressions(xml)
+    assert "tools/list" in code and "mcp-visible" in code
+    assert '\\"approvals_decide\\"' in code, "the visible set is rendered from the same grants the call check reads"
+    root = ET.fromstring(xml)
+    # only a filtered listing is buffered: everything else keeps streaming
+    forwards = root.findall(".//backend//forward-request")
+    assert {f.get("buffer-response") for f in forwards} == {"true", "false"}
+    buffered = root.find(".//backend/choose/when")
+    assert "mcp-visible" in buffered.get("condition") and buffered.find("forward-request").get("buffer-response") == "true"
+    rewrite = root.find(".//outbound/choose/when")
+    assert "mcp-visible" in rewrite.get("condition") and rewrite.find("set-body") is not None
+
+
+def test_a_whole_server_grant_is_never_filtered():
+    root = ET.fromstring(apim.mcp_policy("ea_mcp", TENANT, AUD))
+    visible = next(e.get("value") for e in root.iter("set-variable") if e.get("name") == "mcp-visible")
+    assert '\\"visio-conversion\\": \\"*\\"' in visible
+    assert 'if (g.Type == JTokenType.String) { return ""; }' in visible, \
+        "a team holding the whole server sees the whole listing"
+
+
 class Recorder:
     def __init__(self):
         self.puts = {}
