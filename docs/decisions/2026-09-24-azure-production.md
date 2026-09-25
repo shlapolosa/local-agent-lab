@@ -1,6 +1,6 @@
 # Azure as production, Railway as development (24 Sep 2026)
 
-Status: ACCEPTED 24 Sep 2026 — Phase 0 in progress.
+Status: ACCEPTED 24 Sep 2026 — Phases 0 and 1 live; Phase 2 (APIM) cut over 25 Sep 2026.
 
 ## Decisions taken (user, 24 Sep 2026)
 
@@ -221,6 +221,40 @@ cutover (workloads' GATEWAY_URL to APIM, the LiteLLM app removed from prod, CI's
   store. Screening reads the technology map whole and REFUSES a store-backed matcher at preflight, and
   no team holds a store grant (every `vector_stores` is `[]`/`["-"]`). The façade stays a dev
   exploration surface behind LiteLLM; a store-backed consumer in production would add the route then.
+
+### Cutover (25 Sep 2026) — production's traffic goes through APIM
+
+Order, each step verified before the next: `apply products` rewrote `.env.azure` so every key caller's
+own variable holds its APIM subscription key (the LiteLLM keys kept in the git-ignored
+`.env.azure.pre-apim` for rollback); `aca.py substrate up` (20 apps) and `workload <n> up` (9 hosts) set
+`GATEWAY_URL` to APIM and `GATEWAY_MCP_SERVERS`; then the two Copilot connectors. Evidence: every
+workload's OWN preflight, run as its own identity against APIM, passes (all nine); the connectors,
+probed through the Power Platform API hub with their stored connections, list exactly their grants.
+The prod LiteLLM app still runs, carrying nothing — retiring it is its own deliberate step.
+
+- **`substrate up` does not touch workloads.** The substrate moved and the nine `wf-*` hosts stayed on
+  LiteLLM until each `workload <n> up`. Nothing failed, which is the hazard: a half-cut production
+  looks healthy. Read the rendered `GATEWAY_URL` off every app after a cutover, not the command's exit.
+- **A listing is filtered to the caller's grant** (`mcp_policy`, `mcp-visible`). APIM forwarded each
+  server's whole `tools/list` and enforced grants only on the call; LiteLLM listed only granted tools.
+  Workloads call by name and never noticed; a Copilot agent CHOOSES from the listing, so the Use Case
+  Desk would have seen 37 tools and been able to call 11. The union of the caller's teams' grants is
+  rendered from the same registry the call check reads; a whole-server grant disables the filter; only
+  a filtered listing is forwarded buffered (one short SSE event) — the GET stream and every call stream.
+  Spiked on `workflow_mcp` alone first, then applied to all nine.
+- **A connector carries one MCP operation PER SERVER** — the answer to "APIM cannot aggregate" on the
+  low-code side. The fabric connector holds `InvokeServer` (`/mcp/semantic_mcp/mcp`) and
+  `InvokeApprovals` (`/mcp/workflow_mcp/mcp`), and the agent one MCP tool component per operation, both
+  on the SAME connection reference (bound through `botcomponent_connectionreference`). Two operations in
+  one custom connector are accepted and each is served (verified through the API hub).
+- **Connector update gotchas**: `PATCH apis/{id}` (paconn's shape, swagger inline as `openApiDefinition`)
+  refuses `displayName` (`CannotUpdateApiDisplayName`); the key is the BARE subscription key in
+  `api-key` — no `Bearer`; probing a connection through `<primaryRuntimeUrl>/<connectionId>/…` needs a
+  token for `https://apihub.azure.com`, and a Power Apps token fails as `IDX10214` at the hub's token
+  exchange, which reads like a broken connection and is not.
+- **Still open**: the operator's quiet gate sends a credential APIM rightly refuses, so a local
+  `substrate up`/`workload up` proceeds unasked — it should ask with `lab-deployer`'s Entra token, as
+  CI does; retire the prod LiteLLM app; one use-case chain end to end through APIM.
 
 ## Phase 2 as first planned (superseded above): APIM as the governance plane
 
