@@ -10,7 +10,7 @@ import pytest
 from fixtures.graph import FakeSleep, FakeTokens, FakeTransport
 from lab.core.collab import (CAPABILITIES, ChangeType, CollabNotConfigured, CollabRepository,
                              CollabThrottled, CollabUnavailable, ContentHandle, MediaKind)
-from lab.substrate.mcp.graph import graph_map, graph_repository
+from lab.substrate.mcp.graph import graph_map, graph_probe, graph_repository
 from lab.substrate.mcp.graph.graph_rest import GraphClient
 
 BASE = "https://graph.microsoft.com/v1.0"
@@ -38,6 +38,14 @@ def repo(transport=None, roles=ROLES, tokens=None, **kw):
     return graph_repository.GraphCollabRepository(client, tokens, **kw), t
 
 
+def writer(roles=("Files.ReadWrite.All",), transport=None):
+    """A SECOND credential, the way `build()` makes one: same tenant and transport, different app
+    registration — which is the only thing that differs, and therefore the only thing that decides
+    what Microsoft will let it do."""
+    return GraphClient(FakeTokens("wtok", roles), transport=transport or FakeTransport(),
+                       sleep=FakeSleep(), now=lambda: 0.0)
+
+
 def test_the_adapter_satisfies_the_domain_port():
     made, _ = repo()
     assert isinstance(made, CollabRepository)
@@ -56,6 +64,35 @@ def test_the_shallow_probe_reads_the_tokens_own_roles_without_calling_graph():
 def test_a_capability_the_token_does_not_declare_is_reported_with_its_remedy():
     made, _ = repo(roles=("Sites.Read.All",))
     assert made.capabilities()["recordings"].remedy.startswith("grant the application permission")
+
+
+def test_uploads_is_judged_by_the_writers_token_not_the_readers():
+    """The one capability performed by a DIFFERENT app registration must be probed against THAT
+    registration. Judging it by the reading token reported it unavailable however well the writer was
+    configured — a healthy deployment that looked broken, which is worse than a broken one that
+    looks broken, because the remedy it printed had already been applied."""
+    made, _ = repo(write_client=writer())
+    assert made.capabilities()["uploads"] is None
+
+
+def test_a_writer_that_lacks_the_write_permission_is_refused_for_its_own_roles():
+    """The refusal must name what the WRITER holds. Naming the reader's roles would send someone to
+    grant a permission on an app registration that is not the one doing the writing."""
+    made, _ = repo(write_client=writer(roles=("Files.Read.All",)))
+    refused = made.capabilities()["uploads"]
+    assert refused is not None
+    assert "Files.Read.All" in refused.reason and "Files.ReadWrite.All" in refused.remedy
+
+
+def test_without_a_second_credential_uploads_still_refuses_and_names_the_permission():
+    """No writer configured is not a bug to paper over: the write really is refused, and the reading
+    token's roles are then the honest thing to answer with."""
+    refused = repo()[0].capabilities()["uploads"]
+    assert refused is not None and "Files.ReadWrite.All" in refused.remedy
+
+
+def test_every_writer_capability_is_a_capability_the_port_declares():
+    assert set(graph_probe.WRITER_CAPABILITIES) <= set(CAPABILITIES)
 
 
 def test_an_unconfigured_credential_reports_the_whole_table_rather_than_raising():

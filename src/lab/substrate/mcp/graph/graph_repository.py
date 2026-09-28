@@ -128,6 +128,17 @@ class GraphCollabRepository:
             table = graph_probe.capabilities_from_roles(self.tokens.roles())
         except CollabUnavailable as e:                # no credential at all: one story, every row
             return {c: CollabUnavailable(c, e.reason, e.remedy) for c in CAPABILITIES}
+        # The WRITE capabilities run under their own app registration, so the reading token cannot
+        # answer for them — see graph_probe.WRITER_CAPABILITIES. A deployment with no second
+        # credential keeps the reader's verdict, which is the honest one there: without a writer the
+        # upload really is refused, for exactly the reason given.
+        if self.write_client is not self.client:
+            try:
+                writer = graph_probe.capabilities_from_roles(self.write_client.tokens.roles())
+            except CollabUnavailable as e:           # the writer credential itself cannot authenticate
+                writer = {c: CollabUnavailable(c, e.reason, e.remedy)
+                          for c in graph_probe.WRITER_CAPABILITIES}
+            table.update({c: writer[c] for c in graph_probe.WRITER_CAPABILITIES})
         if deep:
             for capability, already in list(table.items()):
                 if already is None:                  # only probe what the roles claim allows
@@ -139,7 +150,10 @@ class GraphCollabRepository:
         application access policy, a tenant switch, a per-site grant that reaches nothing."""
         try:
             path, params = self._probe_call(capability)
-            self.client.get(path, params)
+            # Probe as the identity that PERFORMS the capability, or a deep probe would undo what
+            # the roles table just got right and report the writer's reachability as the reader's.
+            client = self.write_client if capability in graph_probe.WRITER_CAPABILITIES else self.client
+            client.get(path, params)
             return None
         except GraphError as e:
             if e.status in _PROBE_REACHED:

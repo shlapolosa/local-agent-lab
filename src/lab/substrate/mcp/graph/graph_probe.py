@@ -31,8 +31,9 @@ from __future__ import annotations
 
 from lab.core.collab import CAPABILITIES, CollabThrottled, CollabUnavailable
 
-__all__ = ["PERMISSIONS", "POLICY_CAPABILITIES", "METERED_MARKERS", "SECRET_REMEDY",
-           "capabilities_from_roles", "explain", "refusal", "is_metered", "metered_refusal"]
+__all__ = ["PERMISSIONS", "POLICY_CAPABILITIES", "WRITER_CAPABILITIES", "METERED_MARKERS",
+           "SECRET_REMEDY", "capabilities_from_roles", "explain", "refusal", "is_metered",
+           "metered_refusal"]
 
 _FILES = ("Files.Read.All", "Files.ReadWrite.All", "Sites.Read.All", "Sites.ReadWrite.All",
           "Sites.Selected", "Sites.FullControl.All")
@@ -64,6 +65,15 @@ PERMISSIONS: dict[str, tuple[str, ...]] = {
 
 # Reading these on behalf of a user needs the Teams application access policy as well as the grant.
 POLICY_CAPABILITIES = ("meetings", "recordings", "transcripts")
+
+# Capabilities performed by the WRITING identity (`GraphCollabRepository.write_client`) rather than
+# the reading one, and therefore judged by ITS roles. The read identity deliberately holds no write
+# permission — that separation is the point of a second app registration — so probing these against
+# the reading token reports a perfectly configured writer as unavailable, and prints a remedy that
+# has already been applied. Measured: a live deployment whose writer held Files.ReadWrite.All and
+# could reach the drive still answered "uploads is unavailable". Kept beside PERMISSIONS so the two
+# cannot drift, and a test pins every entry to a capability the port actually declares.
+WRITER_CAPABILITIES: tuple[str, ...] = ("uploads",)
 # Endpoints kept behind GRAPH_ALLOW_METERED: the tenant-wide beta feeds, and the one API that is
 # still billed per call.
 METERED_MARKERS = ("getallrecordings", "getalltranscripts", "assignsensitivitylabel")
