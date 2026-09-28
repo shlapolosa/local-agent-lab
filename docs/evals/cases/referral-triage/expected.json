@@ -1,18 +1,19 @@
 {
   "status": "FROZEN — the pre-registered bar, plus one reviewed widening on 18 Sep 2026 applied by the rule below and recorded per label",
-  "map": "technology",
+  "map": "technology-capability-l3",
   "applicable": [
-    "Application · Action invocation surface",
-    "Application · Business app fabric",
-    "Application · Output templating and provenance",
-    "Business · Business process automation",
-    "Cognitive · Custom-engine agent runtime",
-    "Cognitive · Structured-output enforcement",
-    "Data · Operational data store",
-    "Knowledge · Agentic retrieval",
-    "Knowledge · Document corpora (static)",
-    "Semantic · Master / reference data",
-    "Semantic · Ontology (entities, rules)"
+    "APP.01",
+    "APP.02",
+    "APP.06",
+    "BUS.02",
+    "COG.02",
+    "COG.29",
+    "DAT.01",
+    "KNW.01",
+    "KNW.04",
+    "SEM.01",
+    "SEM.03",
+    "XCT.12"
   ],
   "notes": "PROPOSED, drafted 18 Sep 2026 — NOT yet reviewed by an architect. Scope: the technology capabilities the use case's own FUNCTIONS demand. Cross-cutting capabilities every solution needs (identity, observability, the gateway, evaluation, evidence retention) are deliberately excluded: they are derived by the composition as unconditional families, not matched from a behavioural element, and including them would make every case's expected set largely identical and inflate recall for free.",
   "lock": "FROZEN 18 Sep 2026. This set is the BAR and is never edited after reading a result — adding what the matcher returned raises precision and recall arithmetically, which is the textbook way to inflate a score, and it happened here: a widening on 18 Sep moved recall +0.05 and precision +0.24 while measuring nothing. A set that is wrong is re-derived BLIND from submission.md alone, with no results open, or by an architect — never reconciled against the output it exists to judge.",
@@ -22,5 +23,78 @@
     "Application · Business app fabric": "submit referral (the referral form)",
     "Semantic · Master / reference data": "assign specialty (the specialty list)",
     "Application · Output templating and provenance": "record urgency rationale"
+  },
+  "remapped": {
+    "on": "2026-09-28",
+    "why": "The CAFÉ workbook re-keyed the technology map to L3 ids; each frozen label was carried to its L3 by the corpus's OWN published links (in order: the realisation view's label, the L3's previous_label, the retired realisation rows, the retired capability ids). Mechanical, not re-judged: L3s the 155-row map makes applicable that the 74-row map had no row for are NOT added, so precision against this gold is understated until a person reviews it.",
+    "labels": {
+      "Application · Action invocation surface": {
+        "to": [
+          "APP.01"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Application · Business app fabric": {
+        "to": [
+          "APP.02"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Application · Output templating and provenance": {
+        "to": [
+          "XCT.12",
+          "APP.06"
+        ],
+        "by": "retired-realisation-rows resolves_to"
+      },
+      "Business · Business process automation": {
+        "to": [
+          "BUS.02"
+        ],
+        "by": "ai-capability-map label"
+      },
+      "Cognitive · Custom-engine agent runtime": {
+        "to": [
+          "COG.02"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Cognitive · Structured-output enforcement": {
+        "to": [
+          "COG.29"
+        ],
+        "by": "ai-capability-map label"
+      },
+      "Data · Operational data store": {
+        "to": [
+          "DAT.01"
+        ],
+        "by": "ai-capability-map label"
+      },
+      "Knowledge · Agentic retrieval": {
+        "to": [
+          "KNW.01"
+        ],
+        "by": "ai-capability-map label"
+      },
+      "Knowledge · Document corpora (static)": {
+        "to": [
+          "KNW.04"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Semantic · Master / reference data": {
+        "to": [
+          "SEM.03"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Semantic · Ontology (entities, rules)": {
+        "to": [
+          "SEM.01"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      }
+    }
   }
 }

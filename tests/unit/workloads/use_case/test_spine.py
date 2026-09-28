@@ -1094,22 +1094,28 @@ def test_a_corpus_over_the_prompt_budget_is_unavailable_rather_than_partial():
 
 def test_the_map_is_fetched_whole_because_it_is_small_enough_to_be():
     """The business map was fetched a level at a time, because 1,042 leaves could not go in a
-    prompt and the drill decided which branches were worth the next read. The technology map is 74
-    rows and ~5,700 tokens, so the whole thing goes up front and no branch is ever closed on a
-    decision made without evidence — which was the drill's structural weakness.
+    prompt and the drill decided which branches were worth the next read. The technology map is
+    155 L3s — about three times the 74-row map it replaced (28 Sep 2026), still well inside the
+    corpus budget — so the whole thing goes up front and no branch is ever closed on a decision
+    made without evidence, which was the drill's structural weakness.
 
-    The grain is the MAP's, not the module constant: that constant is 3 and this map is two deep,
-    which would yield no candidates at all."""
-    from lab.core.usecase import capabilities, seed
+    The grain is the MAP's own L3, and since that workbook it equals the matcher's default depth:
+    the old two-level map needed the grain passed explicitly or it yielded no candidates at all."""
+    from pathlib import Path
+    from lab.core.reference import master
+    from lab.core.usecase import capabilities
     from lab.workloads.usecase import coverage
-    rows = seed.artifact("ai_capability_map")["capabilities"]
-    made = capabilities.concepts(rows, seed.artifact("capability_domains")["domains"])
-    assert capabilities.LEVEL == 2 != coverage.DEEPEST_LEVEL
-    assert coverage.leaves_for(made, deepest=coverage.DEEPEST_LEVEL) == [], "the constant finds none"
-    assert len(coverage.leaves_for(made, deepest=capabilities.LEVEL)) == len(rows)
+    masters = Path(__file__).resolve().parents[4] / "src/lab/core/usecase/seed/masters"
+
+    def rows(stem):
+        parsed = master.parse((masters / f"{stem}.md").read_text())
+        return [dict(zip(parsed.headers, r)) for r in parsed.rows]
+    l3 = rows("technology_capability_l3")
+    made = capabilities.concepts(l3, rows("technology_capability_l1") + rows("technology_capability_l2"))
+    assert capabilities.LEVEL == coverage.DEEPEST_LEVEL == 3
+    assert len(coverage.leaves_for(made, deepest=capabilities.LEVEL)) == len(l3)
     assert coverage.resolve("leaves", made, budget=200_000,
                             deepest=capabilities.LEVEL) is coverage.leaves
-
 
 # ------------------------------------------------- L3 capability matching, without embeddings
 
@@ -1408,25 +1414,27 @@ def test_the_screening_run_reads_the_TECHNOLOGY_map_whole_under_its_pin():
     """Step 5's candidates are the technology capability map, read from the corpus — not from a
     prompt, not from the image, and not "the relevant rows" of it.
 
-    Whole, because it is a 74-row complete register and a pre-selection would decide relevance
-    before the step whose job that is. Under the pin and attributed to `coverage_map`, so which
-    version a run matched against is on the record."""
+    Whole, because it is a complete register (155 L3s, with its L1/L2 headings) and a
+    pre-selection would decide relevance before the step whose job that is. Under the pin and
+    attributed to `coverage_map`, so which version a run matched against is on the record."""
     from lab.workloads.use_case_screening import workflow as W
     with spine(W, _screening_router()) as h:
         run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
     reads = h.router.called("reference_lookup")
-    mapped = [r for r in reads if r["artifact_id"] in (W.CAPABILITY_ARTIFACT, W.DOMAIN_ARTIFACT)]
-    assert {r["artifact_id"] for r in mapped} == {W.CAPABILITY_ARTIFACT, W.DOMAIN_ARTIFACT}
+    wanted = {W.CAPABILITY_ARTIFACT, *W.PARENT_ARTIFACTS}
+    mapped = [r for r in reads if r["artifact_id"] in wanted]
+    assert {r["artifact_id"] for r in mapped} == wanted
+    assert W.CAPABILITY_ARTIFACT == "technology-capability-l3", "the workbook places it at step 5"
     assert all(r["key"] == {} for r in mapped), "whole: no key narrows it before step 5 sees it"
     assert all(r["pin_id"] == "pin-test" and r["field"] == "coverage_map" for r in mapped)
     assert not h.router.called(SemanticTools.concepts), "the map is corpus rows, not a semantic tool"
 
 
 def test_a_matched_capability_is_named_by_the_key_the_rest_of_the_framework_joins_on():
-    """Why the technology map can be matched at all. `capability_id` comes back as
-    "Domain · Capability" — the exact string `guardrails.cap` and `ai-capability-map.components`
-    resolve against — so a match reaches its obligations and its components with no further
-    resolution. A business-map match reached nothing this framework catalogues."""
+    """Why the technology map can be matched at all. A candidate's id — and so a match's
+    `capability_id` — is the L3 id, the exact key `guardrails.cap` and the realisation view
+    (`ai-capability-map.l3_id` -> `components`) resolve against, so a match reaches its obligations
+    and its components with no further resolution."""
     from lab.core.usecase import capabilities as C
     from lab.workloads.use_case_screening import workflow as W
     with spine(W, _screening_router()) as h:
@@ -1434,7 +1442,10 @@ def test_a_matched_capability_is_named_by_the_key_the_rest_of_the_framework_join
     shown = [c[1] for c in h.router.calls if c[0] == "reference_lookup"
              and c[1]["artifact_id"] == W.CAPABILITY_ARTIFACT]
     assert shown, "the map was read"
-    assert C.SEP in C.key({"domain": "Knowledge", "capability": "Agentic retrieval"})
+    from fixtures.usecase_corpus import corpus
+    served = corpus()[W.CAPABILITY_ARTIFACT]
+    assert len(served) > 100, "the published map, not an empty read that makes `all` vacuous"
+    assert all(C.is_key(C.key(r)) for r in served)
 
 
 def test_a_map_the_corpus_cannot_serve_is_named_as_unavailable_not_silently_absent():

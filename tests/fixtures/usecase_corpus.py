@@ -10,11 +10,10 @@ corpus never returns (the last such gap sent a nested `variant` to `compose` as 
 from __future__ import annotations
 
 import importlib.util
-import json
 from functools import lru_cache
 from pathlib import Path
 
-from lab.core.reference import cells
+from lab.core.reference import master
 from lab.core.reference.model import ArtifactKind
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,23 +22,19 @@ VERSION = "v0.27"
 
 
 @lru_cache(maxsize=1)
-def _generator():
-    spec = importlib.util.spec_from_file_location("extract_cafe_seed", ROOT / "scripts" / "extract_cafe_seed.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-@lru_cache(maxsize=1)
 def corpus() -> dict[str, list[dict]]:
-    """artifact_id -> rows (cells encoded), for every seed table, named as the publisher names it."""
+    """artifact_id -> rows, for every committed MASTER, named as the publisher names it.
+
+    The masters ARE what is published — the publisher derives records from exactly these tables —
+    so their cells are already encoded the way the corpus serves them. This read the seed JSON
+    until the CAFÉ workbook (28 Sep 2026) replaced it as the corpus's source; after that the JSON
+    was an HTML-era fixture, and a workload test served from it would pass against a corpus that
+    no longer exists. The PRIVATE masters are not in this repository, so they are not served here:
+    a test that needs one supplies its own rows."""
     out: dict[str, list[dict]] = {}
-    for path in sorted(SEED.glob("*.json")):
-        payload = json.loads(path.read_text())
-        for index, (section, headers, rows) in enumerate(_generator()._tabular(payload)):
-            stem = path.stem if index == 0 else f"{path.stem}_{section}"
-            out[stem.replace("_", "-")] = [
-                {h: cells.encode(c) for h, c in zip(headers, row)} for row in rows]
+    for path in sorted((SEED / "masters").glob("*.md")):
+        parsed = master.parse(path.read_text())
+        out[path.stem.replace("_", "-")] = [dict(zip(parsed.headers, row)) for row in parsed.rows]
     return out
 
 

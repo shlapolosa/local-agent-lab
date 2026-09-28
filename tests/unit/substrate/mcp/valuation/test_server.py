@@ -64,9 +64,9 @@ def test_the_rules_table_reads_exactly_what_the_contract_says_it_reads():
 # ---------------------------------------------------------------- step 23
 
 def test_a_cost_model_joins_the_selected_components_onto_the_pinned_catalogue():
-    out = S.valuation_cost(component_ids=[_component("Key Vault"), _component("Compute hosts")],
+    out = S.valuation_cost(component_ids=[_component("Secrets & keys"), _component("Compute")],
                            criticality="business-critical", volume={"runs_per_month": 6000}, **pinned())
-    assert {l["component_name"] for l in out["lines"]} == {"Key Vault", "Compute hosts"}
+    assert {l["component_name"] for l in out["lines"]} == {"Secrets & keys", "Compute"}
     assert out["monthly"]["expected"] > 0 and out["year_one"]["expected"] >= out["monthly"]["expected"]
     assert out["rules_source"]["kind"] == "governed corpus"
     assert out["sheet_version"] == "v0.27", "the catalogue version the join read, from the pin"
@@ -79,39 +79,41 @@ def test_a_component_with_no_catalogue_line_is_a_gap_flag_and_never_a_proxy_pric
 
 
 def test_a_driven_line_with_no_captured_volume_is_excluded_and_named_not_guessed():
-    out = S.valuation_cost(component_ids=[_component("App Insights")],
+    out = S.valuation_cost(component_ids=[_component("Observability & cost")],
                            criticality="business-critical", volume={}, **pinned())
     assert out["lines"] == [] and any("runs_per_month" in r for r in out["requires_input"])
 
 
 def test_a_derivation_with_no_pin_refuses_and_says_how_to_get_one():
     with pytest.raises(ToolError) as e:
-        S.valuation_cost(component_ids=[_component("Key Vault")])
+        S.valuation_cost(component_ids=[_component("Secrets & keys")])
     assert "reference_pin" in str(e.value) and "component-prices" in str(e.value)
 
 
 def test_a_build_cost_must_say_whether_it_is_a_quote_or_an_estimate():
-    quoted = S.valuation_cost(component_ids=[_component("Key Vault")], build_amount=50000,
+    quoted = S.valuation_cost(component_ids=[_component("Secrets & keys")], build_amount=50000,
                               build_provenance="vendor quote", **pinned())
     assert quoted["build"]["provenance"] == "vendor quote"
     with pytest.raises(ToolError) as e:
-        S.valuation_cost(component_ids=[_component("Key Vault")], build_amount=50000,
+        S.valuation_cost(component_ids=[_component("Secrets & keys")], build_amount=50000,
                          build_provenance="a number somebody mentioned", **pinned())
     assert "vendor quote" in str(e.value)
 
 
 def test_a_missing_build_cost_is_declared_rather_than_read_as_zero():
-    out = S.valuation_cost(component_ids=[_component("Key Vault")], **pinned())
+    out = S.valuation_cost(component_ids=[_component("Secrets & keys")], **pinned())
     assert out["build"] is None and any("build cost" in r for r in out["requires_input"])
     assert out["year_one"]["expected"] == out["monthly"]["expected"] * 12
 
 
 def test_the_envelope_is_the_service_s_rule_of_the_confirmed_class_and_an_unknown_class_refuses():
-    high = S.valuation_cost(component_ids=[_component("Foundry model catalog")],
+    # The high-only provisioned line: its own component since the CAFÉ workbook (28 Sep 2026), where
+    # it was one of three lines on "Foundry model catalog" before.
+    high = S.valuation_cost(component_ids=[_component("Regional Provisioned models")],
                             criticality="safety-of-life", **pinned())
     assert high["envelope"] == "high" and any(l["variant"] == "frontier-provisioned" for l in high["lines"])
     with pytest.raises(ToolError):
-        S.valuation_cost(component_ids=[_component("Key Vault")], criticality="huge", **pinned())
+        S.valuation_cost(component_ids=[_component("Secrets & keys")], criticality="huge", **pinned())
 
 
 # ---------------------------------------------------------------- step 24

@@ -11,16 +11,18 @@ import pytest
 
 from lab.core.usecase import enforcement
 
+# The corpus's own shapes since the CAFÉ workbook (28 Sep 2026): a guardrail's `cap` names technology
+# L3s as "id name", and the realisation view carries one row per L3 by `l3_id`.
 GUARDRAILS = [
-    {"id": "G02", "cap": "Cognitive · Tool surface / MCP registry", "rule": "tools are registered"},
-    {"id": "G09", "cap": "Application · Approval action", "rule": "a human confirms"},
-    {"id": "G24", "cap": "Technology · Rate limiting", "rule": "blast radius is bounded"},
-    {"id": "G99", "cap": "Nowhere · Missing", "rule": "cannot be bound by this corpus"},
+    {"id": "G02", "cap": "TEC.16 Tool registry & vetting", "rule": "tools are registered"},
+    {"id": "G09", "cap": "XCT.22 Approval & gate evidence", "rule": "a human confirms"},
+    {"id": "G24", "cap": "TEC.09 Rate limiting", "rule": "blast radius is bounded"},
+    {"id": "G99", "cap": "ZZZ.99 Missing", "rule": "cannot be bound by this corpus"},
 ]
 MAP = [
-    {"domain": "Cognitive", "capability": "Tool surface / MCP registry", "components": ["cmp-reg"]},
-    {"domain": "Application", "capability": "Approval action", "components": ["cmp-appr", "cmp-pa"]},
-    {"domain": "Technology", "capability": "Rate limiting", "components": ["cmp-apim"]},
+    {"l3_id": "TEC.16", "capability": "Tool registry & vetting", "components": ["cmp-reg"]},
+    {"l3_id": "XCT.22", "capability": "Approval & gate evidence", "components": ["cmp-appr", "cmp-pa"]},
+    {"l3_id": "TEC.09", "capability": "Rate limiting", "components": ["cmp-apim"]},
 ]
 
 

@@ -14,8 +14,8 @@ M4 states the test this module implements:
 
 The chain is the corpus's own, followed rather than summarised:
 
-    obligation --(guardrails.cap)--> "Domain · Capability"
-               --(ai-capability-map.components)--> component ids
+    obligation --(guardrails.cap)--> technology L3 id ("COG.11")
+               --(ai-capability-map, by l3_id .components)--> component ids
                ∩ what this design selected
 
 **Two ways to fail, deliberately kept apart.** `unbound` means the corpus can enforce this and the

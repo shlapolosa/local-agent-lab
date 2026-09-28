@@ -127,9 +127,10 @@ def test_the_technology_map_projects_at_its_own_grain_and_is_not_empty():
     projection cannot improve the score without changing the run."""
     from lab.core.usecase import capabilities
     made = ev.technology_map()
-    assert len(made) > 50
-    assert {c["level"] for c in made} == {1, capabilities.LEVEL}
-    assert all(capabilities.SEP in c["id"] for c in made if c["level"] == capabilities.LEVEL)
+    leaves = [c for c in made if c["level"] == capabilities.LEVEL]
+    assert len(leaves) > 100, "the 155-row technology map, not the 74-row map it replaced"
+    assert {c["level"] for c in made} == {1, 2, capabilities.LEVEL}
+    assert all(capabilities.is_key(c["id"]) for c in leaves)
 
 
 def test_the_default_baseline_is_a_file_that_exists():

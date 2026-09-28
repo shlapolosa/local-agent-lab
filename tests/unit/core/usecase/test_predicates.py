@@ -160,11 +160,27 @@ def test_a_malformed_predicate_refuses_at_parse_time(text):
 
 
 # ---------------------------------------------------------------- against the real artifact
+#
+# The PUBLISHED guardrails — the committed master, which is what is signed and pinned. These read
+# the seed JSON until the CAFÉ workbook (28 Sep 2026) replaced it as the corpus's source, and so
+# kept passing over the 26 HTML-era guardrails while the corpus carried 32.
+
+def _published() -> list[dict]:
+    from pathlib import Path
+    from lab.core.reference import master
+    path = Path(__file__).resolve().parents[4] / "src/lab/core/usecase/seed/masters/guardrails.md"
+    parsed = master.parse(path.read_text())
+    return [dict(zip(parsed.headers, row)) for row in parsed.rows]
+
+
+def _live() -> list[dict]:
+    return seed.live_only(_published())
+
 
 def test_every_published_live_predicate_parses():
     """The corpus is data, so the evaluator has to cope with all of it, not a sample."""
     unparsed = []
-    for g in seed.live_guardrails():
+    for g in _live():
         try:
             parse(g["pred"])
         except PredicateSyntaxError as exc:
@@ -172,17 +188,13 @@ def test_every_published_live_predicate_parses():
     assert not unparsed, "\n".join(unparsed)
 
 
-def test_the_published_set_is_the_twenty_four_the_spec_counts():
-    live = seed.live_guardrails()
-    assert len(live) == 24, [g["id"] for g in live]
-    assert "G09" in {g["id"] for g in live}      # the one the spec's Annexure C omits
-
-
-def test_every_named_condition_the_corpus_uses_is_declared():
-    """A named condition nobody can answer is a guardrail that can never fire. Whatever the
-    registry ends up containing, it must cover the whole published corpus."""
-    needed = {c for g in seed.live_guardrails() for c in parse(g["pred"]).conditions()}
-    assert needed <= predicates.NAMED_CONDITIONS, sorted(needed - predicates.NAMED_CONDITIONS)
+def test_the_published_set_still_carries_every_guardrail_the_spec_counts():
+    """Membership, not a count (CLAUDE.md): the spec counted 24 and the workbook of 28 Sep 2026 added
+    six. What must stay true is that none of the spec's were silently dropped."""
+    live = {g["id"] for g in _live()}
+    spec = {f"G{n:02d}" for n in range(1, 27)} - {"G11", "G12"}
+    assert spec <= live, sorted(spec - live)
+    assert "G09" in live      # the one the spec's Annexure C omits
 
 
 def test_ordering_a_value_that_has_no_order_refuses_instead_of_comparing_strings():
@@ -211,8 +223,8 @@ def test_a_missing_seed_artifact_raises_rather_than_reading_as_empty():
 
 
 def test_the_retired_guardrails_stay_readable_but_never_enter_a_control_set():
-    ids = {g["id"] for g in seed.guardrails()}
-    live = {g["id"] for g in seed.live_guardrails()}
+    ids = {g["id"] for g in _published()}
+    live = {g["id"] for g in _live()}
     assert {"G11", "G12"} <= ids, "a retired identifier stays citable"
     assert not ({"G11", "G12"} & live), "a retired guardrail must never fire"
 

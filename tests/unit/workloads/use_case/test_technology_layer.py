@@ -16,9 +16,9 @@ from lab.workloads.usecase.model import Model
 ELEMENTS = {"active": [{"name": "Triage nurse", "kind": "role"}],
             "behavioural": [{"name": "assess urgency", "verb": "assess", "object": "Referral"}],
             "passive": [{"name": "Referral"}]}
-MATCH = {"matched": [{"function": "assess urgency", "capability_id": "Knowledge · Agentic retrieval",
+MATCH = {"matched": [{"function": "assess urgency", "capability_id": "KNW.11",
                       "capability_label": "Agentic retrieval", "confidence": "lookup",
-                      "level": 2, "path": ["Knowledge", "Agentic retrieval"]}]}
+                      "level": 3, "path": ["Knowledge", "Retrieval", "Agentic retrieval"]}]}
 
 
 def built() -> Model:
@@ -54,8 +54,8 @@ def test_the_service_carries_the_key_the_rest_of_the_framework_joins_on():
     """So a reader of the repository — or a later run — can get from a drawn box back to the
     guardrails it must satisfy and the components that could provide it."""
     svc = next(e for e in built().elements.values() if e["type"] == "ApplicationService")
-    assert svc["props"]["cafe.capability"] == "Knowledge · Agentic retrieval"
-    assert svc["props"]["cafe.domain"] == "Knowledge"
+    assert svc["props"]["cafe.capability"] == "KNW.11"
+    assert svc["props"]["cafe.domain"] == "KNW"          # the L1's code — the id, not its name
 
 
 def test_a_business_map_match_still_lands_on_the_strategy_layer():
@@ -87,7 +87,7 @@ def test_applying_the_mapper_twice_changes_nothing():
     assert set(once.relations) == set(twice.relations)
 
 
-SELECTION = {"selected": [{"capability": "Knowledge · Agentic retrieval",
+SELECTION = {"selected": [{"capability": "KNW.11",
                            "component_id": "cmp-foundryiq", "component": "Foundry IQ"}],
              "tradeoffs": [], "unresolved": []}
 
@@ -110,7 +110,7 @@ def test_a_selection_naming_a_capability_no_match_asked_for_is_still_modelled():
     no function named. Dropping it would make the drawing quieter than the design."""
     model = built()
     mappers.apply("component_selection", {"selected": [
-        {"capability": "Technology · Observability", "component_id": "cmp-obs",
+        {"capability": "TEC.12", "component_id": "cmp-obs",
          "component": "App Insights"}], "tradeoffs": [], "unresolved": []}, model, {})
     assert any(e["name"] == "App Insights" for e in model.elements.values())
 
@@ -142,9 +142,9 @@ def test_a_selection_naming_a_capability_no_match_offered_is_recorded_not_silent
     disconnected clouds of boxes with no warning anywhere."""
     model = built()
     mappers.apply("component_selection", {"selected": [
-        {"capability": "Cognitive · Never matched", "component_id": "cmp-q", "component": "A thing"}],
+        {"capability": "COG.99", "component_id": "cmp-q", "component": "A thing"}],
         "tradeoffs": [], "unresolved": []}, model, {})
-    assert any(d.get("capability") == "Cognitive · Never matched" for d in model.gaps)
+    assert any(d.get("capability") == "COG.99" for d in model.gaps)
 
 
 # ---------------------------------------------- the join, as the first live run actually found it
@@ -197,14 +197,14 @@ def test_a_capability_no_service_exists_for_is_recorded_when_others_did_join():
 
 
 def test_the_service_is_named_by_its_label_not_its_key():
-    """A drawing reads "Agentic retrieval", not "Knowledge · Agentic retrieval". The key is the id
+    """A drawing reads "Agentic retrieval", not "KNW.11 Agentic retrieval". The key is the id
     and lives in props; the name is for a person. The live run put the key in both because the agent
     wrote it into `capability_label`."""
     model = Model(name="t", id="usecase-model")
     mappers.apply("elements", ELEMENTS, model, {})
     mappers.apply("coverage_map", {"matched": [
-        {"function": "assess urgency", "capability_id": "Knowledge · Agentic retrieval",
-         "capability_label": "Knowledge · Agentic retrieval", "confidence": "lookup"}]}, model, {})
+        {"function": "assess urgency", "capability_id": "KNW.11",
+         "capability_label": "KNW.11 Agentic retrieval", "confidence": "lookup"}]}, model, {})
     svc = next(e for e in model.elements.values() if e["type"] == "ApplicationService")
     assert svc["name"] == "Agentic retrieval"
-    assert svc["props"]["cafe.capability"] == "Knowledge · Agentic retrieval"
+    assert svc["props"]["cafe.capability"] == "KNW.11"

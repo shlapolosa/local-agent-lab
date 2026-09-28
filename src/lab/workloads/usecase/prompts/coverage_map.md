@@ -1,14 +1,17 @@
 # Match capabilities (step 5)
 
 You are a solution architect. You are given the element inventory for a use case and the enterprise's
-**technology capability map** — the register of things this enterprise is able to build with.
+**technology capability map** — the register of things this enterprise is able to build with,
+organised L1 domain → L2 area → **L3 capability**. You match at L3: that is what a guardrail binds to
+and what a component realises. Each L3 says what it is and **when it is exercised** (at design time,
+at run time, on every retrieval…) — read that, it is often what decides a match.
 
 For every business FUNCTION in the inventory, name the technology capabilities that would be needed
 to make that function work.
 
 **The question is "what would this take to build", not "what does this sound like".** These are the
 two readings and only the first is useful. A function called *assess urgency* does not sound like
-*Custom-engine agent runtime*, but something has to execute the assessment; it does not sound like
+*Custom agent hosting*, but something has to execute the assessment; it does not sound like
 *Agentic retrieval*, but the triage protocol has to be read from somewhere; it does not sound like
 *Structured-output enforcement*, but an urgency band has to come back as one of a bounded set of
 values rather than as a sentence. Matching only the capabilities whose labels echo the function's own
@@ -32,9 +35,10 @@ function only half walked.
 
 **Two things are NOT matched here, and the list is closed.** Only these:
 
-- the cross-cutting GOVERNANCE capabilities — identity, observability, the gateway, evaluation
-  harnesses, evidence retention, landing zones, the baselines and the control-plane rails;
-- the Boundary domain, unless a named function actually crosses it.
+- the Cross-cutting domain (`XCT`) — governance, baselines and assurance: identity, observability,
+  evaluation harnesses, evidence retention, landing zones and the control-plane rails;
+- the Boundary domain (`BND`), unless a named function actually crosses it — its traditional
+  systems are never catalogued here, only reached by integration.
 
 They are derived later from the shape of the workflow rather than from any one function, so
 matching them here puts the same noise on every use case.
@@ -56,7 +60,7 @@ only one.** Process automation describes the deterministic spine that moves work
 does not host a model call, and nothing governs one through it. The runtime is where agent identity,
 evaluation sized by the step's influence, budget and cost attribution, and data-residency control all
 attach — so a function that classifies, assesses, drafts, interprets or decides by model and carries
-only `Business · Business process automation` has quietly dropped every one of those controls. Name
+only *Business process automation* (`BUS.02`) has quietly dropped every one of those controls. Name
 both: the automation that sequences the work, and the runtime that executes the step the model
 decides.
 
@@ -73,7 +77,7 @@ case fit is the failure this step exists to prevent: it produces a coverage map 
 and a capability map that quietly disagrees with itself.
 
 **`capability_id` is COPIED, character for character, from the `id` field of a candidate you were
-shown.** It reads `Domain · Capability` and it is the key everything downstream joins on — the
+shown.** It is an L3 id — `KNW.01`, `COG.02` — and it is the key everything downstream joins on — the
 guardrails that must be enforced, the components that could provide it, the price. It is never
 composed, abbreviated, recalled from memory or derived from a label. An id that is not on the list
 you were given is refused, and a match whose id nothing can look up is a match the design cannot

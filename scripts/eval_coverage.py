@@ -45,10 +45,12 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 from lab.platform import config
-from lab.core.usecase import capabilities, seed                 # noqa: E402
+from lab.core.reference import master                          # noqa: E402
+from lab.core.usecase import capabilities                       # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
 from lab.workloads.usecase import agents as A                  # noqa: E402
 from lab.workloads.usecase import coverage, reference          # noqa: E402
@@ -82,13 +84,16 @@ def technology_map() -> list[dict]:
     """The TECHNOLOGY capability map, projected exactly as the screening run projects it.
 
     Same artifacts, same mapper (`capabilities.concepts`), same grain — so what the harness scores
-    is what a run is shown. The rows come from the committed SEED rather than the corpus: the seed
-    is the publish-time master, so scoring it measures the map that is ABOUT to be published, which
-    is the version a baseline should gate on. A published corpus behind the seed would otherwise
-    make an eval pass on content no run will ever see.
+    is what a run is shown. The rows come from the committed MASTERS rather than the corpus: they
+    are what is about to be published, which is the version a baseline should gate on. (They came
+    from the seed JSON until the CAFÉ workbook of 28 Sep 2026 made the masters the source; the JSON
+    still held the 74-row HTML-era map.)
     """
-    return capabilities.concepts(seed.artifact("ai_capability_map")["capabilities"],
-                                 seed.artifact("capability_domains")["domains"])
+    def rows(stem: str) -> list[dict]:
+        parsed = master.parse((ROOT / "src/lab/core/usecase/seed/masters" / f"{stem}.md").read_text())
+        return [dict(zip(parsed.headers, row)) for row in parsed.rows]
+    return capabilities.concepts(rows("technology_capability_l3"),
+                                 rows("technology_capability_l1") + rows("technology_capability_l2"))
 
 
 def corpus_from_file(path: str) -> list[dict]:

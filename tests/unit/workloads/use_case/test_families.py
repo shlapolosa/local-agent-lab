@@ -1,13 +1,15 @@
 """Component to family, derived from what the corpus publishes — and silent where it does not."""
 from lab.workloads.usecase import families
 
-GUARDRAILS = [{"id": "G06", "cap": "Knowledge · Grounding source registry"},
-              {"id": "G13", "cap": "Knowledge · Federated retrieval"},
-              {"id": "G01", "cap": "Cognitive · Agent runtime; Cross-cutting · Gate decision"},
+# The corpus's shapes since the CAFÉ workbook (28 Sep 2026): `cap` names technology L3s as "id name",
+# and the realisation view carries one row per L3 by `l3_id`.
+GUARDRAILS = [{"id": "G06", "cap": "KNW.13 Grounding source registry"},
+              {"id": "G13", "cap": "KNW.12 Federated retrieval"},
+              {"id": "G01", "cap": "COG.02 Agent runtime; XCT.22 Gate decision"},
               {"id": "G99", "cap": ""}]
-MAP = [{"domain": "Knowledge", "capability": "Grounding source registry", "components": "cmp-search"},
-       {"domain": "Cognitive", "capability": "Agent runtime", "components": "cmp-runtime; cmp-hosts"},
-       {"domain": "Cross-cutting", "capability": "Gate decision", "components": "cmp-approval"}]
+MAP = [{"l3_id": "KNW.13", "capability": "Grounding source registry", "components": "cmp-search"},
+       {"l3_id": "COG.02", "capability": "Agent runtime", "components": "cmp-runtime; cmp-hosts"},
+       {"l3_id": "XCT.22", "capability": "Gate decision", "components": "cmp-approval"}]
 ENFORCEMENT = {"F1": ["G06", "G13"], "F2": ["G01"], "F9": ["G99"]}
 
 
@@ -28,9 +30,9 @@ def test_a_family_the_corpus_says_nothing_about_is_named_rather_than_counted_as_
 
 
 def test_a_cell_may_arrive_joined_or_already_decoded():
-    joined = [{"domain": "Knowledge", "capability": "Grounding source registry",
+    joined = [{"l3_id": "KNW.13", "capability": "Grounding source registry",
                "components": "cmp-a; cmp-b"}]
-    decoded = [{"domain": "Knowledge", "capability": "Grounding source registry",
+    decoded = [{"l3_id": "KNW.13", "capability": "Grounding source registry",
                 "components": ["cmp-a", "cmp-b"]}]
     for rows in (joined, decoded):
         got = families.by_component({"F1": "G06"}, GUARDRAILS, rows)

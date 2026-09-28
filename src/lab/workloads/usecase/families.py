@@ -9,7 +9,7 @@ architecture's.
 The corpus does assert a chain, in two published hops:
 
     family --(family-triggers.guardrails)--> guardrail
-           --(guardrails.cap)--> "Domain · Capability"
+           --(guardrails.cap)--> technology L3 id ("COG.11")
            --(ai-capability-map.capability)--> component ids
 
 So a component carries family F when it realises a capability that enforces one of F's guardrails.

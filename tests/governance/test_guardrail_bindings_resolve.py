@@ -21,22 +21,40 @@ That is the general lesson this file exists to hold: **a join whose failure mode
 needs a check that the operands exist, because an empty result is what success looks like when the
 data is genuinely silent.**
 
-These assertions read the COMMITTED SEED, which is the publish-time master. A corpus published from
-a seed that fails here would carry the same dangling references under a signature.
+These assertions read the committed MASTERS — what is actually published, signed and pinned. They
+used to read the seed JSON, which was the publish-time source until the CAFÉ workbook of 28 Sep
+2026 replaced it; after that the seed JSON was an HTML-era fixture, and a check reading it would
+have passed on a corpus that no longer existed. Since that workbook the join key is the technology
+L3 id ("COG.11"), and the chain is: guardrail `cap` -> L3 -> realisation view row (`l3_id`) ->
+`components`.
 """
 import re
 
 import pytest
 
+from pathlib import Path
+
+from lab.core.reference import master
 from lab.core.usecase import capabilities, seed
+
+MASTERS = Path(__file__).resolve().parents[2] / "src/lab/core/usecase/seed/masters"
+
+
+def _rows(stem: str) -> list[dict]:
+    parsed = master.parse((MASTERS / f"{stem}.md").read_text())
+    return [dict(zip(parsed.headers, row)) for row in parsed.rows]
 
 
 def _capability_keys() -> set[str]:
-    return {capabilities.key(row) for row in seed.artifact("ai_capability_map")["capabilities"]}
+    return {capabilities.key(row) for row in _rows("technology_capability_l3")}
+
+
+def _realisations() -> list[dict]:
+    return _rows("ai_capability_map")
 
 
 def _live_guardrails() -> list[dict]:
-    return seed.live_guardrails()
+    return seed.live_only(_rows("guardrails"))
 
 
 def test_every_guardrail_names_an_enforcement_point_that_exists():
@@ -65,26 +83,41 @@ def test_every_live_guardrail_names_some_enforcement_point():
     assert not naked, f"guardrails with no enforcement point at all: {naked}"
 
 
-def test_every_enforcing_capability_reaches_at_least_one_component():
-    """The hop after the one above. A capability that names no component stops the chain one link
-    further along, where it looks like a component-selection problem rather than a corpus one."""
-    named = {ref for g in _live_guardrails() for ref in capabilities.refs(g.get("cap"))}
-    barren = sorted(
-        capabilities.key(row)
-        for row in seed.artifact("ai_capability_map")["capabilities"]
-        if capabilities.key(row) in named and not (row.get("components") or []))
-    assert not barren, (
-        f"capabilities that enforce a guardrail but name no component, so the guardrail can never "
-        f"be bound to anything a design selects: {barren}")
+def test_every_live_guardrail_can_be_bound_to_SOME_component():
+    """The hop after the one above, stated the way M4 states it: an obligation is bound when ANY of
+    its enforcement points is a selected component. So the invariant is per GUARDRAIL — at least
+    one of its capabilities reaches a component. A guardrail none of whose capabilities does can
+    never be bound, and would read as an architect who selected nothing.
+
+    It was per REFERENCE until 28 Sep 2026. The workbook then named people and assurance
+    capabilities as secondary enforcement points — "PPL.03 Human oversight competence" beside G09's
+    approval components, "RCV.05 Vendor agent assurance" beside G31's — which legitimately realise
+    no product, and a per-reference rule would have demanded a component for a competence.
+    """
+    components = {capabilities.key(r): capabilities.refs(r.get("components"))
+                  for r in _realisations()}
+    never = sorted(g["id"] for g in _live_guardrails()
+                   if not any(components.get(ref) for ref in capabilities.refs(g.get("cap"))))
+    assert not never, (
+        f"guardrails none of whose enforcement points reaches a component, so they can never be "
+        f"bound to anything a design selects: {never}")
+
+
+def test_every_realisation_row_realises_an_L3_the_map_has():
+    """The second hop's own operand check: a realisation row for an L3 the map lacks is a row no
+    match can ever reach."""
+    orphan = sorted(r.get("l3_id", "?") for r in _realisations()
+                    if capabilities.key(r) not in _capability_keys())
+    assert not orphan, f"realisation rows for L3s the technology map does not have: {orphan}"
 
 
 def test_every_family_trigger_names_a_guardrail_that_exists():
     """`family-triggers` is hand-translated from the framework's component-family table and the
     extractor cannot regenerate it, so it is the artifact most able to drift unnoticed."""
-    known = {str(g["id"]) for g in seed.guardrails()}        # retired ids stay resolvable
+    known = {str(g["id"]) for g in _rows("guardrails")}      # retired ids stay resolvable
     unknown = sorted(
         f"{f['id']} -> {gid}"
-        for f in seed.artifact("family_triggers")["families"]
+        for f in _rows("family_triggers")
         for gid in capabilities.refs(f.get("guardrails"))
         if gid not in known)
     assert not unknown, f"family triggers naming a guardrail that does not exist: {unknown}"
@@ -100,49 +133,42 @@ def test_every_facet_is_read_by_a_guardrail_that_still_fires():
     have all been retired reads as covered in the published table and is not.
     """
     live = {str(g["id"]) for g in _live_guardrails()}
-    readers = seed.artifact("facet_schema")["readers"]
-    facet, read_by = (readers["headers"].index("Facet"), readers["headers"].index("Read by"))
     unread = sorted(
-        row[facet] for row in readers["rows"]
-        if not (set(re.findall(r"G\d+", str(row[read_by]))) & live))
+        row["Facet"] for row in _rows("facet_schema_readers")
+        if not (set(re.findall(r"G\d+", str(row["Read by"]))) & live))
     assert not unread, (
         f"facets no live guardrail reads — collected, reviewed, and governing nothing: {unread}")
 
 
 def test_every_capability_row_yields_a_whole_key():
-    """A half key is no key, and `capabilities.concepts` drops such a row — correctly, and silently.
-
-    A 74-row register that publishes 71 candidates looks exactly like a 71-row register: the three
-    missing capabilities are unmatched, unbound and unpriced for the life of that version, and
-    nothing says so. Worse, a row missing its `domain` yields the bare label, which a guardrail
-    could legitimately reference — so the dangling check above would pass on it.
-    """
-    half = sorted(f"{r.get('domain', '?')} / {r.get('capability', '?')}"
-                  for r in seed.artifact("ai_capability_map")["capabilities"]
-                  if capabilities.SEP not in capabilities.key(r))
+    """A row with no L3 id is no key, and `capabilities.concepts` drops such a row — correctly, and
+    silently. A 155-row map that publishes 152 candidates looks exactly like a 152-row map: the
+    three missing capabilities are unmatched, unbound and unpriced for the life of that version."""
+    half = sorted(str(r.get("name", "?")) for r in _rows("technology_capability_l3")
+                  if not capabilities.key(r))
     assert not half, f"capability rows that cannot be addressed, and so cannot be matched: {half}"
 
 
 def test_no_two_capability_rows_share_a_key():
     """The key is the join. Two rows sharing one means a guardrail binds to whichever the reader
     saw last, and the matcher offers one candidate where the map holds two."""
-    keys = [capabilities.key(r) for r in seed.artifact("ai_capability_map")["capabilities"]]
-    dupes = sorted({k for k in keys if keys.count(k) > 1})
-    assert not dupes, f"duplicate capability keys: {dupes}"
+    for stem in ("technology_capability_l3", "ai_capability_map"):
+        keys = [capabilities.key(r) for r in _rows(stem)]
+        dupes = sorted({k for k in keys if keys.count(k) > 1})
+        assert not dupes, f"{stem}: duplicate capability keys: {dupes}"
 
 
 def test_the_map_projects_to_exactly_as_many_candidates_as_it_has_rows():
-    """The end-to-end version of the two above: whatever the map publishes is what step 5 is shown.
-    A projection that quietly loses rows is the same defect one layer along."""
-    rows = seed.artifact("ai_capability_map")["capabilities"]
-    made = capabilities.concepts(rows, seed.artifact("capability_domains")["domains"])
+    """Whatever the map publishes is what step 5 is shown. A projection that quietly loses rows is
+    the same defect one layer along."""
+    rows = _rows("technology_capability_l3")
+    made = capabilities.concepts(rows, _rows("technology_capability_l1")
+                                 + _rows("technology_capability_l2"))
     assert len([c for c in made if c["level"] == capabilities.LEVEL]) == len(rows)
 
 
-@pytest.mark.parametrize("artifact,section", [("ai_capability_map", "capabilities"),
-                                              ("guardrails", "guardrails"),
-                                              ("family_triggers", "families")])
-def test_the_artifact_is_not_silently_empty(artifact, section):
-    """Every assertion above passes vacuously over an empty list. The seed is generated, and a
-    generator that changes shape fails open unless something insists there is content."""
-    assert len(seed.artifact(artifact)[section]) > 10
+@pytest.mark.parametrize("stem", ["technology_capability_l3", "ai_capability_map", "guardrails",
+                                  "family_triggers"])
+def test_the_artifact_is_not_silently_empty(stem):
+    """Every assertion above passes vacuously over an empty list."""
+    assert len(_rows(stem)) > 10

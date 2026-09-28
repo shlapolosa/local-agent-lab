@@ -1,13 +1,14 @@
 {
   "status": "FROZEN — drafted from the submission alone, before any matcher was run on it",
-  "map": "technology",
+  "map": "technology-capability-l3",
   "applicable": [
-    "Application · Output templating and provenance",
-    "Cognitive · Custom-engine agent runtime",
-    "Cognitive · Multi-channel conversational SDK",
-    "Cross-cutting · Confidence-threshold escalation",
-    "Knowledge · Agentic retrieval",
-    "Knowledge · Document corpora (static)"
+    "APP.06",
+    "COG.02",
+    "COG.05",
+    "KNW.01",
+    "KNW.04",
+    "XCT.12",
+    "XCT.19"
   ],
   "widening_rule": "A capability belongs here if a NAMED FUNCTION in this case's own element inventory cannot be delivered without it.",
   "justification": {
@@ -19,5 +20,48 @@
     "Cross-cutting · Confidence-threshold escalation": "hand an uncovered question to HR"
   },
   "lock": "FROZEN. Never edited after reading a result — adding what the matcher returned raises precision and recall arithmetically and measures nothing. A set that is wrong is re-derived BLIND from submission.md alone, or by an architect.",
-  "notes": "Replaces clock-chat. That was a synthetic negative control built for the BUSINESS map, where the right answer was an empty match; against the technology map it became a toy use case with three labels, so each miss cost 0.33 and it distorted both means while telling us little. This is a genuinely SMALL real use case — four functions, CAFE archetype A1, no side effects — so it still checks that a small case does not attract half the map, but it does so with an expected set somebody can argue with."
+  "notes": "Replaces clock-chat. That was a synthetic negative control built for the BUSINESS map, where the right answer was an empty match; against the technology map it became a toy use case with three labels, so each miss cost 0.33 and it distorted both means while telling us little. This is a genuinely SMALL real use case — four functions, CAFE archetype A1, no side effects — so it still checks that a small case does not attract half the map, but it does so with an expected set somebody can argue with.",
+  "remapped": {
+    "on": "2026-09-28",
+    "why": "The CAFÉ workbook re-keyed the technology map to L3 ids; each frozen label was carried to its L3 by the corpus's OWN published links (in order: the realisation view's label, the L3's previous_label, the retired realisation rows, the retired capability ids). Mechanical, not re-judged: L3s the 155-row map makes applicable that the 74-row map had no row for are NOT added, so precision against this gold is understated until a person reviews it.",
+    "labels": {
+      "Application · Output templating and provenance": {
+        "to": [
+          "XCT.12",
+          "APP.06"
+        ],
+        "by": "retired-realisation-rows resolves_to"
+      },
+      "Cognitive · Custom-engine agent runtime": {
+        "to": [
+          "COG.02"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Cognitive · Multi-channel conversational SDK": {
+        "to": [
+          "COG.05"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Cross-cutting · Confidence-threshold escalation": {
+        "to": [
+          "XCT.19"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      },
+      "Knowledge · Agentic retrieval": {
+        "to": [
+          "KNW.01"
+        ],
+        "by": "ai-capability-map label"
+      },
+      "Knowledge · Document corpora (static)": {
+        "to": [
+          "KNW.04"
+        ],
+        "by": "technology-capability-l3 previous_label"
+      }
+    }
+  }
 }

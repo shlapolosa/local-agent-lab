@@ -27,7 +27,7 @@ from lab.core.usecase.predicates import PredicateError, parse
 
 __all__ = [
     "ControlRequirementSet", "Obligation", "ObligationError", "Violation",
-    "commit_invariant", "derive", "mandatory_for", "triggered_for",
+    "commit_invariant", "derive", "estate_guardrails", "mandatory_for", "triggered_for",
 ]
 
 _GUARDRAIL = re.compile(r"\bG\d{2}\b")
@@ -261,15 +261,30 @@ def mandatory_for(exposure: int, influence: int, *, mapping_rows=None,
     return _supersede(out)
 
 
+def estate_guardrails(mapping_rows) -> set[str]:
+    """The guardrails the mapping's ESTATE row names — evaluated at registration and as standing
+    estate checks, "not from facet vectors". `derive` never evaluates their predicates per step:
+    G28's asks whether "a managed device can reach an AI provider", which no step can answer, and
+    evaluating it refused every step of every run (measured, 28 Sep 2026)."""
+    cell = _mapping_rows(mapping_rows).get("ESTATE") or ""
+    return set(_GUARDRAIL.findall(cell))
+
+
 # ---------------------------------------------------------------- the predicates
 
 def triggered_for(workflow: Workflow, step_id: str, *,
                   conditions: dict[str, bool] | None = None,
-                  guardrails: list[dict] | None = None) -> set[str]:
+                  guardrails: list[dict] | None = None,
+                  skip: frozenset[str] | set[str] = frozenset()) -> set[str]:
     """The guardrails whose trigger predicate fires for this step.
 
     Refuses the whole step rather than skipping a predicate it cannot answer: a short control set
     is indistinguishable from a correct one at review, which is exactly why this cannot be lenient.
+
+    `skip` names guardrails whose predicate is NOT this step's to evaluate — those its classes
+    already mandate (evaluating one can add nothing, and refusing over a control the step carries
+    anyway refuses for nothing) and the estate-level ones (`estate_guardrails`). The refusal stands
+    for every guardrail that might or might not fire, which is the only place it protects anything.
     """
     step = workflow[step_id]
     facts = step.facets(exposure=exposure_of(step),
@@ -283,6 +298,8 @@ def triggered_for(workflow: Workflow, step_id: str, *,
         raise ObligationError("the guardrail set must be supplied — read `guardrails` under the "
                               "run's pin; there is no packaged copy")
     for guardrail in seed.live_only(guardrails):
+        if guardrail["id"] in skip:
+            continue
         try:
             if parse(guardrail["pred"]).evaluate(facts, workflow=vectors, conditions=answers):
                 fired.add(guardrail["id"])
@@ -353,6 +370,7 @@ def derive(workflow: Workflow, *,
     # `live_only` on the rows: a governed corpus serves the retired guardrails as well, because
     # their identifiers must stay resolvable for citations already written down.
     live = seed.live_only(guardrails)
+    estate = estate_guardrails(mapping_rows)
     by_step: dict[str, list[Obligation]] = {}
     for step in workflow:
         exposure, influence = exposure_of(step), influence_of(workflow, step.id)
@@ -361,7 +379,7 @@ def derive(workflow: Workflow, *,
         claimed = {o.guardrail for o in obligations if o.guardrail}
         catalogue = {g["id"]: g for g in live}
         for gid in sorted(triggered_for(workflow, step.id, conditions=conditions,
-                                        guardrails=live) - claimed):
+                                        guardrails=live, skip=claimed | estate)):
             obligations.append(Obligation(text=catalogue[gid]["rule"],
                                           source=f"predicate {catalogue[gid]['pred']}",
                                           guardrail=gid))

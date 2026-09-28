@@ -62,23 +62,21 @@ CORPORA = {
 #: scheme names the artifact (= the gateway's relevance store), and what is fetched up front is
 #: the top level (the drill's first candidates) and the leaves (what `leaves` reads whole, and
 #: what the drill fallback measures) — `id, parent, level, label, path`, a version cited.
-#: **Step 5 matches against the TECHNOLOGY capability map** (user decision, 18 Sep 2026), read from
-#: the governed corpus under the run's pin like any other artifact — nothing about it is in this
-#: file or in a prompt, so the map changes by publishing a new version and no code moves.
+#: **Step 5 matches against the TECHNOLOGY capability map** — since the CAFÉ workbook (28 Sep
+#: 2026) its own artifact, `technology-capability-l3`, 155 capabilities addressed by L3 id
+#: (`KNW.11`), with `-l1`/`-l2` as the headings a drill walks down and a path names. The workbook
+#: is the source of truth for which step reads which artifact, and it places this map at step 5
+#: and the AI capability map — the REALISATION view, one row per L3 — at steps 6, 16 and 21.
 #:
-#: It replaced the business map, which is retired until this enterprise publishes its own (see
-#: `docs/decisions/2026-09-18-two-capability-maps.md`; reinstating it means building the read path
-#: for THAT map — its record type, its levels and its store are its own, so a dormant setting here
-#: would have promised a switch that does not exist). The technology map answers a different
-#: question — *how would we do this* rather than *what ability does this exercise* — and it is the
-#: one the rest of the framework actually joins on: a match returns `"Domain · Capability"`, which
-#: IS the key `guardrails.cap` and `ai-capability-map.components` resolve against. So a matched
-#: capability reaches its obligations and its components with no further resolution, where a
-#: business-map match reached nothing this framework catalogues.
-CAPABILITY_ARTIFACT = "ai-capability-map"
-DOMAIN_ARTIFACT = "capability-domains"
-MAP_RECORD_TYPE = "capability"
-DOMAIN_RECORD_TYPE = "domain"
+#: Until that workbook the two were one artifact: `ai-capability-map` served as the map, keyed
+#: "Domain · Capability". The corpus has since re-keyed every reference to the L3 id — a
+#: guardrail's `cap` reads "COG.11 Agent definition integrity" — so a match must return the L3 id
+#: or it reaches no guardrail and no component. It does: `capabilities.concepts` makes the L3 id
+#: the candidate id. The business capability map stays with the EARLY steps (3, 5, 14), where it is
+#: an enterprise-architecture concern rather than the solution's join key.
+CAPABILITY_ARTIFACT = "technology-capability-l3"
+PARENT_ARTIFACTS = ("technology-capability-l1", "technology-capability-l2")
+MAP_RECORD_TYPE = "technology-capability-l3"
 
 #: Fields a corpus record contributes to a PROMPT, by corpus. Everything else is dropped before the
 #: message is built.
@@ -116,7 +114,7 @@ MAX_CORPUS_BYTES = 200_000
 #: labels reach no step — and a pin carries exactly what its run reads and nothing else.
 INTAKE_ARTIFACT = "intake-field-specs"
 
-REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, DOMAIN_ARTIFACT, INTAKE_ARTIFACT)
+REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT)
 
 
 async def intake_problems(cfg, pin_id: str, answered) -> list[dict]:
@@ -146,7 +144,7 @@ def required_stores() -> tuple[str, ...]:
     """The relevance stores this run must be granted — none, and it REFUSES rather than returning
     an empty tuple when the configured matcher needs one.
 
-    The technology capability map is 74 rows read whole; it has no store. A deployment configured
+    The technology capability map is 155 rows read whole; it has no store. A deployment configured
     for `vector` or `translate` therefore preflighted clean, ran for ten minutes, and then deferred
     step 5 because the search seam raised — leaving readiness gate A unevidenced and the reason
     buried in `pending_steps`, all for a configuration typo. Preflight is where that costs zero
@@ -230,19 +228,22 @@ def make_cfg(*, credential="", mcp_url="", gateway_url="", traceparent="", agent
 async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
     """The technology capability map, whole, under the pin, attributed to the coverage map.
 
-    WHOLE and not by key: it is a small complete register (74 rows), and CAFÉ's own rule for such an
-    artifact is to read every record rather than "the relevant rows" — a selection would decide
-    relevance before the step whose job that is. `reference.records` with an empty key returns every
-    record of a `whole` artifact whatever the limit.
+    WHOLE and not by key: 155 capabilities is a complete register, and CAFÉ's own rule — the
+    workbook declares it `whole` — is to read every record rather than "the relevant rows": a
+    selection would decide relevance before the step whose job that is. The L1 and L2 headings are
+    read in full beside it, as the parents a path names and a drill walks down; a read that hit
+    the limit is refused by `reference.records`, so a heading is never silently missing.
 
     An empty read is NOT an error: step 5 then takes its declared default and the gap is stated on
     the record, rather than a corpus outage being presented as a use case that matched nothing.
     """
     rows = await reference.records(cfg, pin_id, CAPABILITY_ARTIFACT, record_type=MAP_RECORD_TYPE,
                                    key={}, field="coverage_map", limit=MAP_LIMIT)
-    domains = await reference.records(cfg, pin_id, DOMAIN_ARTIFACT, record_type=DOMAIN_RECORD_TYPE,
-                                      key={}, field="coverage_map", limit=MAP_LIMIT)
-    return capabilities.concepts(rows, domains)
+    parents: list[dict] = []
+    for artifact in PARENT_ARTIFACTS:
+        parents += await reference.records(cfg, pin_id, artifact, record_type=artifact, key={},
+                                           field="coverage_map", limit=MAP_LIMIT)
+    return capabilities.concepts(rows, parents)
 
 
 async def match_capabilities(cfg, d, pin_id: str) -> dict:
@@ -253,10 +254,9 @@ async def match_capabilities(cfg, d, pin_id: str) -> dict:
     reads it under this pin attributed to this field, is the workload's decision; how the map is
     matched is not.
 
-    The grain is `capabilities.LEVEL`, the map's own: CAFÉ's M4 is domain -> capability -> product
-    and only the first two are rows. It is passed rather than left to the default, which is 3 and
-    would yield NO candidates over a two-level map — indistinguishable downstream from "nothing is
-    relevant".
+    The grain is `capabilities.LEVEL`, the map's own L3. It is passed rather than left to the
+    matcher's default, so a map that one day grows a level cannot silently move the match off the
+    capability a guardrail binds to.
 
     The technology map has no relevance store, so a store-backed matcher has nothing to search and
     `search` says so by name instead of returning an empty result.

@@ -141,8 +141,8 @@ def _service_for(model, capability: str) -> str:
         if el.get("type") != "ApplicationService":
             continue
         key = str((el.get("props") or {}).get("cafe.capability") or "")
-        if want in (str(el.get("name", "")).strip().lower(), key.strip().lower()) or \
-                (capabilities.SEP in key and key.split(capabilities.SEP, 1)[1].strip().lower() == want):
+        if want in (str(el.get("name", "")).strip().lower(), key.strip().lower(),
+                    capabilities.label(key).lower()):
             return eid
     return ""
 
@@ -169,25 +169,21 @@ def _coverage_map(out, model, pool):
     function does not realize Microsoft Foundry, and the enterprise does not possess "Agentic
     retrieval".
 
-    Which one a match came from is told by the id (`capabilities.is_key`): the technology map is
-    keyed "Domain · Capability", the business map by a synthetic content id. The business branch is
-    dormant today — that map is retired until this enterprise publishes its own — and stays here so
-    reinstating it is a setting rather than a rewrite.
+    Which one a match came from is told by the id (`capabilities.is_key`): a technology L3 is
+    `KNW.11`, a business L3 `B1.1.2`.
     """
     for m in out.get("matched") or []:
         cap_id = _s(m.get("capability_id"))
         if not cap_id:
             continue
-        label = _s(m.get("capability_label")) or cap_id
-        # A drawing reads "Agentic retrieval", not "Knowledge · Agentic retrieval" — the key is the
-        # id and rides in props. The live run put the key in both, so trim it back to the label.
-        if capabilities.SEP in label:
-            label = label.split(capabilities.SEP, 1)[1].strip() or label
+        # A drawing reads "Agentic retrieval", not "KNW.11 Agentic retrieval" — the key is the id
+        # and rides in props. Live runs put the key in both, so trim it back to the label.
+        label = capabilities.label(_s(m.get("capability_label")) or cap_id)
         shared = {"level": m.get("level"), "confidence": _s(m.get("confidence")),
                   "path": " / ".join(as_list(m.get("path")))}
         bf = _bf(model, _s(m.get("function")))
         if capabilities.is_key(cap_id):
-            domain = cap_id.split(capabilities.SEP)[0]
+            domain = capabilities.domain(cap_id)
             cap = model.el(_service_id(cap_id), "ApplicationService", label,
                            props={**shared, "cafe.capability": cap_id, "cafe.domain": domain})
             if bf:

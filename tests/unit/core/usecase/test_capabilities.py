@@ -1,48 +1,52 @@
-"""The technology map's join key, in one place.
+"""The technology capability map's join key, in one place.
 
-`families.py` held it privately, and the enforcement binding and the governance check both need the
-identical key — a second spelling of "Domain · Capability" would resolve a reference the first
-rejects, which is the failure mode the check exists to catch.
+Since the CAFÉ workbook of 28 Sep 2026 the map is its own artifact — `technology-capability-l1/l2/
+l3` — and every reference INTO it is an L3 ID: a guardrail's `cap` reads "COG.11 Agent definition
+integrity", a component's `l3` reads "TEC.06; COG.05", and the realisation view
+(`ai-capability-map`) carries exactly one row per L3 by `l3_id`. The old key, "Domain · Capability",
+resolves against nothing in that corpus — 0 of 81 guardrail references did — so a second spelling
+anywhere is a silently unenforced guardrail.
 """
 import pytest
 
 from lab.core.usecase import capabilities
 
 
-def test_the_key_is_domain_middle_dot_capability():
-    assert capabilities.key({"domain": "Semantic", "capability": "Ontology (entities, rules)"}) == \
-        "Semantic · Ontology (entities, rules)"
+def test_the_key_of_a_technology_L3_row_is_its_id():
+    assert capabilities.key({"id": "KNW.11", "name": "Agentic retrieval"}) == "KNW.11"
 
 
-def test_the_key_tolerates_the_whitespace_a_hand_edited_row_carries():
-    assert capabilities.key({"domain": " Knowledge ", "capability": " Agentic retrieval "}) == \
-        "Knowledge · Agentic retrieval"
+def test_the_key_of_a_realisation_view_row_is_the_L3_it_realises():
+    """One row per L3 in `ai-capability-map`, joined by `l3_id` — so the second hop of the chain
+    (capability -> components) is keyed identically to the first."""
+    assert capabilities.key({"l3_id": " COG.02 ", "domain": "Cognitive",
+                             "capability": "Custom agent hosting"}) == "COG.02"
 
 
-@pytest.mark.parametrize("row", [{"domain": "Knowledge"}, {"capability": "Agentic retrieval"}, {}])
-def test_a_half_row_never_produces_a_key_that_looks_whole(row):
-    """A missing half must not yield "Knowledge · " — that would resolve against nothing and read
-    as a typo in the guardrail rather than an incomplete row in the map."""
-    assert "·" not in capabilities.key(row)
+@pytest.mark.parametrize("row", [{"domain": "Knowledge", "capability": "Agentic retrieval"},
+                                 {"id": "B1.1.2"}, {"id": "BUS-A"}, {}])
+def test_a_row_that_is_not_a_technology_L3_has_no_key(row):
+    """A business L3 (B1.1.2), an L2 (BUS-A) and an old-style labelled row must not produce a key
+    that looks whole — it would resolve against nothing and read as a typo in the guardrail."""
+    assert capabilities.key(row) == ""
 
 
-def test_refs_splits_a_guardrails_cap_column():
-    """`cap` is not in cells.LIST_COLUMNS — G04's rule text carries a semicolon, so the corpus keeps
-    the column joined and the split happens here, at the one place that knows it is a list."""
-    assert capabilities.refs("Cognitive · Agent identity; Knowledge · Agentic retrieval") == [
-        "Cognitive · Agent identity", "Knowledge · Agentic retrieval"]
+def test_refs_reads_the_L3_ids_out_of_a_guardrails_cap_column():
+    assert capabilities.refs("COG.11 Agent definition integrity; XCT.22 Approval & gate evidence") \
+        == ["COG.11", "XCT.22"]
+
+
+def test_refs_reads_a_components_bare_l3_list():
+    assert capabilities.refs("TEC.06; COG.05") == ["TEC.06", "COG.05"]
 
 
 def test_a_comma_inside_a_label_is_not_a_separator():
-    """Regression, 18 Sep 2026. The inherited split also treated `,` as a separator, and the moment
-    a capability carrying one became an enforcement point it was cut in half — reported as a
-    guardrail pointing at nothing, in a map that carried the row."""
-    assert capabilities.refs("Semantic · Ontology (entities, rules); Cross-cutting · Foo") == [
-        "Semantic · Ontology (entities, rules)", "Cross-cutting · Foo"]
+    """Regression, 18 Sep 2026: splitting on `,` cut a label in half."""
+    assert capabilities.refs("SEM.03 Ontology (entities, rules); XCT.01 Foo") == ["SEM.03", "XCT.01"]
 
 
 def test_refs_accepts_an_already_decoded_list():
-    assert capabilities.refs(["A · b", " C · d "]) == ["A · b", "C · d"]
+    assert capabilities.refs(["COG.11 Agent", " TEC.06 "]) == ["COG.11", "TEC.06"]
 
 
 @pytest.mark.parametrize("value", ["", None, "   ", ";  ;"])
@@ -50,74 +54,87 @@ def test_refs_of_nothing_is_no_references(value):
     assert capabilities.refs(value) == []
 
 
-def test_a_reference_naming_no_domain_is_returned_and_left_for_the_caller_to_refuse():
-    """Two guardrails cite prose ("the capability map itself"). `refs` does not silently drop them:
-    a dropped reference is an unenforced guardrail nobody is told about."""
+def test_a_reference_that_is_prose_is_returned_for_the_caller_to_refuse():
+    """A dropped reference is an unenforced guardrail nobody is told about."""
     assert capabilities.refs("the capability map itself") == ["the capability map itself"]
+
+
+def test_component_ids_pass_through_refs_untouched():
+    """`refs` also splits the realisation view's `components` column — catalogue ids, not L3s."""
+    assert capabilities.refs("cmp-34dd73a433; cmp-4c70d67472") == ["cmp-34dd73a433",
+                                                                  "cmp-4c70d67472"]
 
 
 # ------------------------------------------------- the map, as candidates a matcher can be shown
 
-DOMAINS = [{"domain": "Knowledge", "covers": "grounding sources, agentic retrieval, citations"},
-           {"domain": "Cognitive", "covers": "agents, orchestration, models, identity, evaluation"}]
-ROWS = [{"domain": "Knowledge", "capability": "Agentic retrieval", "primary": "Foundry IQ",
-         "rationale": "federated retrieval over declared sources", "alternative": "Azure AI Search",
-         "components": ["cmp-foundryiq"]},
-        {"domain": "Cognitive", "capability": "Agent identity", "primary": "Entra Agent ID",
-         "rationale": "lifecycle and Conditional Access for agent principals", "alternative": ""}]
+L1 = [{"id": "KNW", "name": "Knowledge", "description": "Finding and supplying grounding content."},
+      {"id": "COG", "name": "Cognitive", "description": "Agents, models, identity."}]
+L2 = [{"id": "KNW-B", "l1": "KNW", "name": "Retrieval", "description": "Getting the right content."},
+      {"id": "COG-A", "l1": "COG", "name": "Agent runtime", "description": "Hosting agents."}]
+L3 = [{"id": "KNW.11", "l1": "KNW", "l2": "KNW-B", "name": "Agentic retrieval",
+       "description": "Federated retrieval over declared sources.",
+       "when_exercised": "Runtime · on every retrieval"},
+      {"id": "COG.02", "l1": "COG", "l2": "COG-A", "name": "Custom agent hosting",
+       "description": "Runs agents the organisation builds.", "when_exercised": "Run"}]
 
 
-def test_the_map_becomes_two_levels_of_concepts():
-    out = capabilities.concepts(ROWS, DOMAINS)
-    assert [c["level"] for c in out if c["label"] == "Knowledge"] == [1]
-    assert [c["level"] for c in out if c["label"] == "Agentic retrieval"] == [2]
+def _concepts():
+    return capabilities.concepts(L3, L1 + L2)
+
+
+def test_the_map_becomes_three_levels_of_concepts():
+    by = {c["label"]: c["level"] for c in _concepts()}
+    assert (by["Knowledge"], by["Retrieval"], by["Agentic retrieval"]) == (1, 2, 3)
 
 
 def test_a_capabilitys_id_IS_its_join_key_so_a_match_reaches_the_guardrails():
-    """The whole reason this map can be matched against at all: what a match returns is the string
-    the guardrail chain and the component catalogue already join on. A synthetic id would make the
-    match a dead end one hop later."""
-    hit = next(c for c in capabilities.concepts(ROWS, DOMAINS) if c["label"] == "Agentic retrieval")
-    assert hit["id"] == "Knowledge · Agentic retrieval" == capabilities.key(ROWS[0])
-    assert hit["parent"] == "Knowledge"
+    hit = next(c for c in _concepts() if c["label"] == "Agentic retrieval")
+    assert hit["id"] == "KNW.11" == capabilities.key(L3[0])
+    assert hit["parent"] == "KNW-B"
+    assert hit["path"] == "Knowledge · Retrieval · Agentic retrieval"
 
 
-def test_a_capability_carries_a_definition_built_from_what_the_map_actually_says():
-    """A label alone is the least informative field the map has. The rationale is why this row
-    exists; the products say what it is. Both travel, so a match is a reading rather than a guess."""
-    hit = next(c for c in capabilities.concepts(ROWS, DOMAINS) if c["label"] == "Agentic retrieval")
-    assert "federated retrieval over declared sources" in hit["definition"]
-    assert "Foundry IQ" in hit["definition"]
+def test_a_capability_carries_what_the_map_says_about_it_and_WHEN_it_is_exercised():
+    hit = next(c for c in _concepts() if c["label"] == "Agentic retrieval")
+    assert "Federated retrieval" in hit["definition"] and "every retrieval" in hit["definition"]
 
 
-def test_a_domain_carries_what_it_covers_as_its_definition():
-    hit = next(c for c in capabilities.concepts(ROWS, DOMAINS) if c["label"] == "Knowledge")
-    assert "grounding sources" in hit["definition"]
+def test_a_capability_whose_parents_were_not_published_still_becomes_a_concept():
+    """Separate reads, either can be stale: dropping the L3 would silently shrink the candidates."""
+    out = capabilities.concepts([dict(L3[0], l2="ZZZ-Q")], L1 + L2)
+    assert [c["id"] for c in out if c["level"] == 3] == ["KNW.11"]
 
 
-def test_a_capability_whose_domain_was_not_published_still_becomes_a_concept():
-    """The two artifacts are separate reads and either can be stale. Dropping the capability would
-    silently shrink the candidate set; keeping it, parentless, is visible."""
-    out = capabilities.concepts([{"domain": "Nowhere", "capability": "Orphan"}], DOMAINS)
-    assert [c["label"] for c in out if c["level"] == 2] == ["Orphan"]
+def test_a_row_without_an_L3_id_is_dropped_rather_than_given_a_broken_one():
+    assert capabilities.concepts([{"name": "no id"}], L1 + L2) == []
 
 
-def test_a_row_missing_either_half_of_its_key_is_dropped_rather_than_given_a_broken_id():
-    assert capabilities.concepts([{"domain": "Knowledge"}, {"capability": "No domain"}], DOMAINS) \
-        == capabilities.concepts([], DOMAINS)
+def test_no_rows_is_no_concepts_rather_than_a_skeleton_of_parents():
+    assert capabilities.concepts([], L1 + L2) == []
 
 
-def test_no_rows_is_no_concepts_rather_than_a_skeleton_of_domains():
-    """An empty map must read as "no candidates" downstream, which is what makes step 5 default
-    rather than match every function to a domain."""
-    assert capabilities.concepts([], DOMAINS) == []
+def test_only_the_parents_actually_used_are_offered():
+    ids = {c["id"] for c in capabilities.concepts(L3[:1], L1 + L2)}
+    assert {"KNW", "KNW-B", "KNW.11"} == ids
 
 
-def test_a_technology_map_id_is_recognisable_as_one():
-    """The mapper has to know which map a match came from, and the ID ITSELF says: a technology
-    capability is addressed by its natural key, a business one by a synthetic content id. They
-    belong at different ArchiMate layers, so putting a solution ability on the Strategy layer
-    beside business abilities would make the repository answer the wrong question."""
-    assert capabilities.is_key("Knowledge · Agentic retrieval")
-    assert not capabilities.is_key("cap-7f3a91")
+def test_a_technology_L3_id_is_recognisable_as_one():
+    """Which map a match came from decides its ArchiMate layer — and the id alone says: a technology
+    L3 is `KNW.11`, a business one `B1.1.2`."""
+    assert capabilities.is_key("KNW.11")
+    assert not capabilities.is_key("B1.1.2")
+    assert not capabilities.is_key("Knowledge · Agentic retrieval")
     assert not capabilities.is_key("")
+
+
+def test_a_capabilitys_domain_is_its_L1():
+    assert capabilities.domain("KNW.11") == "KNW"
+    assert capabilities.domain("B1.1.2") == ""
+
+
+def test_a_label_written_WITH_its_id_is_trimmed_back_to_the_label():
+    """A drawing reads "Agentic retrieval". Models put the key into the label field (measured), so
+    the label is trimmed of a leading id — and only a leading id."""
+    assert capabilities.label("KNW.11 Agentic retrieval") == "Agentic retrieval"
+    assert capabilities.label("Agentic retrieval") == "Agentic retrieval"
+    assert capabilities.label("KNW.11") == "KNW.11"
