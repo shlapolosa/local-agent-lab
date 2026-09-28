@@ -216,6 +216,12 @@ def main(argv: list[str] | None = None) -> int:
         (SEED / f"{name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
                                            encoding="utf-8")
         for stem, text in gen.masters_for(name, payload).items():
+            # The same guard the extractor has: since the CAFÉ workbook (28 Sep 2026) owns these
+            # tables, rewriting them from the HTML-era seed would put 74 capability rows back over
+            # 155 and 59 components over 92 — still parsing, publishing and signing.
+            if not gen.writes(SEED / "masters", stem):
+                print(f"  {stem}.md  left alone — another source owns it")
+                continue
             (SEED / "masters" / f"{stem}.md").write_text(text, encoding="utf-8")
     print(f"{len(ra['components'])} components with ids; {len(lines)} price lines over "
           f"{len({l['component'] for l in lines})} components; "

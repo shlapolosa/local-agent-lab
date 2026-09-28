@@ -138,3 +138,11 @@ def test_a_label_written_WITH_its_id_is_trimmed_back_to_the_label():
     assert capabilities.label("KNW.11 Agentic retrieval") == "Agentic retrieval"
     assert capabilities.label("Agentic retrieval") == "Agentic retrieval"
     assert capabilities.label("KNW.11") == "KNW.11"
+
+
+@pytest.mark.parametrize("cell", ["COG.11, COG.12 Agent integrity", "XCT.22/XCT.23 gates"])
+def test_an_item_naming_TWO_ids_is_returned_whole_so_it_dangles_loudly(cell):
+    """Review F6, 28 Sep 2026: "COG.11, COG.12 Agent integrity" was trimmed to COG.11 and the second
+    id vanished — a guardrail nobody is told is unenforced, invisible to the governance check that
+    resolves through this same function. Trimmed only when exactly one id leads it."""
+    assert capabilities.refs(cell) == [cell]

@@ -49,8 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from lab.platform import config
-from lab.core.reference import master                          # noqa: E402
-from lab.core.usecase import capabilities                       # noqa: E402
+from lab.core.usecase import capabilities, seed                 # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
 from lab.workloads.usecase import agents as A                  # noqa: E402
 from lab.workloads.usecase import coverage, reference          # noqa: E402
@@ -89,9 +88,7 @@ def technology_map() -> list[dict]:
     from the seed JSON until the CAFÉ workbook of 28 Sep 2026 made the masters the source; the JSON
     still held the 74-row HTML-era map.)
     """
-    def rows(stem: str) -> list[dict]:
-        parsed = master.parse((ROOT / "src/lab/core/usecase/seed/masters" / f"{stem}.md").read_text())
-        return [dict(zip(parsed.headers, row)) for row in parsed.rows]
+    rows = seed.master_rows
     return capabilities.concepts(rows("technology_capability_l3"),
                                  rows("technology_capability_l1") + rows("technology_capability_l2"))
 
@@ -149,7 +146,7 @@ def identity_of(match: Mapping, corpus: list[dict]) -> str:
 async def _no_store(query, k):
     """The `search` seam, for a map that has none.
 
-    The technology capability map is a register read whole — 74 rows in one prompt — so there is
+    The technology capability map is a register read whole — 155 L3s in one prompt — so there is
     nothing to search. It RAISES rather than returning an empty list, because an empty relevance
     result is indistinguishable from a map that knows nothing about the query, and a store-backed
     matcher would then score zero for a reason that has nothing to do with matching.

@@ -502,7 +502,12 @@ def main(argv: list[str]) -> int:
                           f"publish_usecase_corpus.ARTIFACTS (and PRIVATE if its source may not "
                           f"be public) before importing it")
             back.pop(artifact_id)
+        derived = getattr(_publisher(), "DERIVED_FROM_CODE", {})
         for artifact_id, parsed in back.items():
+            if artifact_id in derived:
+                # The workbook's copy of a code-derived table is an export, and the stale one.
+                print(f"  {artifact_id}: left alone — derived from code by {derived[artifact_id]}")
+                continue
             target = master_path(artifact_id)
             before = master.parse(target.read_text()) if target.is_file() else None
             if before and before.rows == parsed.rows and before.headers == parsed.headers:

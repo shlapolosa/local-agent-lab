@@ -16,13 +16,11 @@ row supersedes the inherited one.
 import json
 from pathlib import Path
 
-from lab.core.reference import master
-from lab.core.usecase import obligations
+from lab.core.usecase import obligations, seed
 
 ROOT = Path(__file__).resolve().parents[4]
 #: The PUBLISHED mapping, so this measures the rules the runs actually read.
-_M = master.parse((ROOT / "src/lab/core/usecase/seed/masters/guardrail_mapping.md").read_text())
-MAPPING = [dict(zip(_M.headers, row)) for row in _M.rows]
+MAPPING = seed.master_rows("guardrail_mapping")
 
 
 def _texts(exposure, influence=0):

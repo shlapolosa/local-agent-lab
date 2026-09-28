@@ -58,3 +58,19 @@ def test_step_23_refuses_fte_days_with_no_basis():
     assert any("basis" in p for p in problems), problems
     assert not step_for("23").complete({"build_provenance": "", "notes": [], "build_fte_days": 40,
                                         "build_basis": "4 building blocks x 10 days"}, {})
+
+
+def test_two_day_rates_are_refused_rather_than_one_picked_by_row_order():
+    """Review F2, 28 Sep 2026: the first row whose assumption said "day rate" won, and lookup rows
+    come back in content-hash order — with an internal rate listed first, 4 days priced at the
+    wrong rate. Two candidates is an ambiguity a person resolves, not a coin toss."""
+    rates = RATES + [{"assumption": "Internal delivery FTE day rate", "value": "AED 1,000 per FTE-day"}]
+    with pytest.raises(cost.CostError, match="more than one"):
+        cost.build_from_rate({"build_fte_days": 4, "build_basis": "x"}, rates)
+
+
+@pytest.mark.parametrize("value", ["AED 3,670 / FTE-day", "3,670 AED per FTE-day", ", per FTE-day"])
+def test_a_rate_in_another_shape_is_a_CostError_never_a_raw_crash(value):
+    with pytest.raises(cost.CostError):
+        cost.build_from_rate({"build_fte_days": 4, "build_basis": "x"},
+                             [{"assumption": "External delivery FTE day rate", "value": value}])

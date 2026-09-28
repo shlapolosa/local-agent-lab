@@ -170,7 +170,8 @@ def test_a_step_reports_what_it_was_actually_SHOWN_not_the_published_prose():
     record = {"frame": {"problem": "referrals take too long"},
               "elements": {"functions": ["triage"]}}
     step = {s.id: s for s in _build(record=record)}["E0.2"]     # E0.2 reads `frame`
-    assert step.reads == ("frame",)
+    from lab.workloads.usecase.agents import CONTEXT_FOR     # a TEST may cross the tier line
+    assert step.reads == CONTEXT_FOR["elements"]
     assert step.input == {"frame": {"problem": "referrals take too long"}}
 
 
@@ -179,7 +180,8 @@ def test_a_section_the_record_does_not_carry_is_simply_absent_not_invented():
     lands in the record. Showing it as empty would imply the agent saw nothing; omitting it is
     honest about what the record can account for."""
     step = {s.id: s for s in _build(record={"elements": {"a": 1}})}["E0.3"]
-    assert step.reads == ("elements", "capabilities")
+    from lab.workloads.usecase.agents import CONTEXT_FOR
+    assert step.reads == CONTEXT_FOR["coverage_map"]
     assert step.input == {"elements": {"a": 1}}
 
 

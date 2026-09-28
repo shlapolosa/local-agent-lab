@@ -1116,15 +1116,9 @@ def test_the_map_is_fetched_whole_because_it_is_small_enough_to_be():
 
     The grain is the MAP's own L3, and since that workbook it equals the matcher's default depth:
     the old two-level map needed the grain passed explicitly or it yielded no candidates at all."""
-    from pathlib import Path
-    from lab.core.reference import master
-    from lab.core.usecase import capabilities
+    from lab.core.usecase import capabilities, seed
     from lab.workloads.usecase import coverage
-    masters = Path(__file__).resolve().parents[4] / "src/lab/core/usecase/seed/masters"
-
-    def rows(stem):
-        parsed = master.parse((masters / f"{stem}.md").read_text())
-        return [dict(zip(parsed.headers, r)) for r in parsed.rows]
+    rows = seed.master_rows
     l3 = rows("technology_capability_l3")
     made = capabilities.concepts(l3, rows("technology_capability_l1") + rows("technology_capability_l2"))
     assert capabilities.LEVEL == coverage.DEEPEST_LEVEL == 3
@@ -1382,10 +1376,15 @@ def test_the_screening_run_pins_its_map_and_the_record_carries_the_versions_it_c
     with spine(W, _screening_router()) as h:
         run_spine(W, h, {"submission": "art://s/sub.md", "submitter": "ba@x.ae"})
     pinned = h.router.called("reference_pin")
-    assert pinned == [{"artifact_ids": list(W.REFERENCE_ARTIFACTS)}], "exactly the map, once"
+    # The required set strictly, plus whichever OPTIONAL artifacts are published — the private
+    # masters are not in this public fixture, so they are left out rather than failing the pin.
+    from fixtures.usecase_corpus import corpus
+    expected = list(W.REQUIRED_ARTIFACTS) + [a for a in W.OPTIONAL_ARTIFACTS if a in corpus()]
+    assert pinned == [{"artifact_ids": expected}], "exactly the map, once"
     record = h.router.called(SemanticTools.store_spec)[-1]["spec"]
     assert record["pin_id"] == "pin-test"
-    assert {v["artifact_id"] for v in record["pinned_versions"]} == set(W.REFERENCE_ARTIFACTS)
+    # It cites exactly what the run FROZE — never an artifact the pin left out as unpublished.
+    assert {v["artifact_id"] for v in record["pinned_versions"]} == set(expected)
 
 
 def test_the_design_run_pins_first_and_derives_every_obligation_under_that_pin():
@@ -1394,7 +1393,9 @@ def test_the_design_run_pins_first_and_derives_every_obligation_under_that_pin()
         run_spine(W, h, _design_inputs())
     calls = [c[0] for c in h.router.calls]
     assert calls.index("reference_pin") < calls.index(DecisionTools.readiness)
-    assert h.router.called("reference_pin") == [{"artifact_ids": list(W.REFERENCE_ARTIFACTS)}]
+    from fixtures.usecase_corpus import corpus
+    expected = list(W.REQUIRED_ARTIFACTS) + [a for a in W.OPTIONAL_ARTIFACTS if a in corpus()]
+    assert h.router.called("reference_pin") == [{"artifact_ids": expected}]
     for tool in (DecisionTools.obligations, DecisionTools.composition):
         for call in h.router.called(tool):
             assert call["pin_id"] == "pin-test" and call["process"] == W.PROCESS
@@ -1772,3 +1773,24 @@ def test_the_run_board_learns_what_the_use_case_IS_as_soon_as_step_3_frames_it()
     assert "subject" in seen, "the board is told what this run is about"
     assert seen["subject"], "and it is not empty"
     assert len(seen["subject"]) <= 160, "one line, not the whole submission"
+
+
+def test_an_unreadable_day_rate_costs_the_BUILD_line_never_the_design_run():
+    """Review F2, 28 Sep 2026: `build_from_rate` raising at step 23 failed a ~20-minute design run
+    at its last step, where every other unreadable corpus defers. Two published rates is such a
+    case: the run completes, the run cost is still joined, and the build is declared missing with
+    the reason on the record."""
+    from lab.workloads.use_case_design import workflow as W
+    rates = {"delivery-rate-assumptions": [
+        {"assumption": "External delivery FTE day rate", "value": "AED 3,670 per FTE-day"},
+        {"assumption": "Internal delivery FTE day rate", "value": "AED 1,000 per FTE-day"}]}
+    with spine(W, _design_chain_router(**corpus_tools(extra=rates))) as h:
+        _with_design_agents(h, cost_inputs={"build_provenance": "", "notes": [],
+                                            "build_fte_days": 40, "build_basis": "4 blocks x 10"})
+        out = run_spine(W, h, _design_inputs())
+    assert out["verdict"] == "proceed"
+    sent = [c[1] for c in h.router.calls if c[0] == ValuationTools.cost][0]
+    assert sent["build_amount"] == 0.0 and sent["build_provenance"] == ""
+    stored = [c[1]["spec"] for c in h.router.calls if c[0] == SemanticTools.store_spec
+              and isinstance(c[1].get("spec"), dict) and "build_line" in c[1]["spec"]]
+    assert stored and "more than one" in stored[-1]["build_line"]["refused"]

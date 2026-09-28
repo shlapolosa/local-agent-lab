@@ -86,7 +86,13 @@ def refs(value: Any) -> list[str]:
     for item in (str(v).strip() for v in items):
         if item:
             leading = _LEADING_ID.match(item)
-            out.append(leading.group(1) if leading else item)
+            # Reduced to the id only when exactly ONE id is in the item: "COG.11, COG.12 X" trimmed
+            # to COG.11 would silently lose COG.12 (review, 28 Sep 2026). Returned whole instead, it
+            # resolves to nothing and the governance check fails loudly on it.
+            if leading and len(_L3_ID.findall(item)) == 1:
+                out.append(leading.group(1))
+            else:
+                out.append(item)
     return out
 
 

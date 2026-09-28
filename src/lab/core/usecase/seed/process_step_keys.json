@@ -19,7 +19,7 @@
     "agent",
     "01",
     "screening",
-    "submission"
+    "submission; business_capabilities"
    ],
    [
     "E0.2",
@@ -29,7 +29,7 @@
     "agent",
     "02",
     "screening",
-    "frame"
+    "frame; ontology"
    ],
    [
     "E0.3",
@@ -39,7 +39,7 @@
     "agent",
     "03",
     "screening",
-    "elements; capabilities"
+    "elements; capabilities; business_context"
    ],
    [
     "E0.4",
@@ -49,7 +49,7 @@
     "agent",
     "04",
     "screening",
-    "elements; landscape"
+    "elements; coverage_map; realisations; landscape"
    ],
    [
     "E0.5",
@@ -59,7 +59,7 @@
     "agent",
     "05",
     "screening",
-    "coverage_map; service_levels"
+    "coverage_map; service_levels; quality_patterns"
    ],
    [
     "E0.6",
@@ -99,7 +99,7 @@
     "agent",
     "09",
     "screening",
-    "frame"
+    "frame; criticality_taxonomy"
    ],
    [
     "E0.10",
@@ -209,7 +209,7 @@
     "agent",
     "19",
     "design",
-    "intake; component_selection; composition"
+    "intake; component_selection; composition; delivery_rates"
    ],
    [
     "Q7.2–Q7.3",

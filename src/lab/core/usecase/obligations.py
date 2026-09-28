@@ -75,6 +75,9 @@ class Violation:
 class ControlRequirementSet:
     by_step: dict[str, list[Obligation]] = field(default_factory=dict)
     violations: tuple[Violation, ...] = ()
+    #: The guardrails the mapping's estate row owns — evaluated at registration, never per step —
+    #: NAMED here so "owned elsewhere" is readable rather than indistinguishable from "forgotten".
+    estate: tuple[str, ...] = ()
 
     @property
     def commit_invariant_holds(self) -> bool:
@@ -263,11 +266,15 @@ def mandatory_for(exposure: int, influence: int, *, mapping_rows=None,
 
 def estate_guardrails(mapping_rows) -> set[str]:
     """The guardrails the mapping's ESTATE row names — evaluated at registration and as standing
-    estate checks, "not from facet vectors". `derive` never evaluates their predicates per step:
-    G28's asks whether "a managed device can reach an AI provider", which no step can answer, and
-    evaluating it refused every step of every run (measured, 28 Sep 2026)."""
+    estate checks, "not from facet vectors" — so `derive` never evaluates their predicates per
+    step. (G27, G30, G31 and G32 are why this exists: prose about registries, the HR lifecycle and
+    vendor releases that no step can answer. G28 is estate-level too, but the baseline already
+    mandates it, and a mandated guardrail's predicate is skipped for that reason.) Taken per
+    CLAUSE, and only from a clause that LEADS with its id, so an id mentioned in passing ("unlike
+    G09") is not skipped."""
     cell = _mapping_rows(mapping_rows).get("ESTATE") or ""
-    return set(_GUARDRAIL.findall(cell))
+    return {o.guardrail for _, o in _obligations_from(cell, "estate level", "estate")
+            if o.guardrail and o.text.startswith(o.guardrail)}
 
 
 # ---------------------------------------------------------------- the predicates
@@ -384,4 +391,5 @@ def derive(workflow: Workflow, *,
                                           source=f"predicate {catalogue[gid]['pred']}",
                                           guardrail=gid))
         by_step[step.id] = obligations
-    return ControlRequirementSet(by_step=by_step, violations=tuple(commit_invariant(workflow)))
+    return ControlRequirementSet(by_step=by_step, violations=tuple(commit_invariant(workflow)),
+                                 estate=tuple(sorted(estate)))

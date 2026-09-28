@@ -106,7 +106,7 @@ NO_STORES = ("-",)
 
 #: The relevance stores each team may search — a GRANT unit, like a tool (see `_grants`).
 #:
-#: NONE, since 18 Sep 2026. Step 5 matches the TECHNOLOGY capability map, which is a 74-row register
+#: NONE, since 18 Sep 2026. Step 5 matches the TECHNOLOGY capability map, which is a 155-row register
 #: read WHOLE from the corpus under the run's pin — it has no relevance store and nothing searches
 #: one. The two BA Guild workbook stores granted here until then were a standing permission for a
 #: search no code makes, which is the kind of grant that is only ever noticed by an audit.

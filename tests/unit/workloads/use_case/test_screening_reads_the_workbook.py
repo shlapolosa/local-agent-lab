@@ -154,3 +154,49 @@ def test_step_6_accepts_a_shortlist_of_rows_it_was_shown_and_needs_none_at_all()
     ok = _six([{"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42"}])
     assert not step_for("6").complete(ok, {"realisations": REALISATIONS})
     assert not step_for("6").complete(_six([]), {"realisations": REALISATIONS})
+
+
+# ------------------------------------------------ a step told what it was NOT shown (review F3)
+
+def test_a_step_given_a_PARTLY_read_corpus_says_so_in_its_own_gap_flags():
+    """Step 6 handed only the AI half of the landscape answered `estate_touched: []` — read as
+    "touches nothing" when the truth was "could not be checked". The gap is stated on the step's
+    own output, deterministically, rather than hoped for from a prompt."""
+    out = {"matched": [], "unrealised": [], "existing": False, "gap_flags": []}
+    missing = {"landscape (partly)": "traditional-as-is-architecture: not published on this ring"}
+    W.note_corpus_gaps("realisation_match", out, missing)
+    assert any("landscape" in g["what"] and "traditional-as-is" in g["what"]
+               for g in out["gap_flags"]), out["gap_flags"]
+
+
+def test_an_absent_OPTIONAL_input_is_noted_too_but_a_hard_one_never_reaches_here():
+    out = {"gap_flags": []}
+    W.note_corpus_gaps("quality_attributes", out, {"quality_patterns": "not published"})
+    assert any("quality_patterns" in g["what"] for g in out["gap_flags"])
+
+
+def test_a_step_whose_schema_has_no_gap_flags_is_left_alone():
+    out = {"active": []}
+    W.note_corpus_gaps("elements", out, {"ontology": "not published"})
+    assert out == {"active": []}
+
+
+def test_nothing_missing_adds_nothing():
+    out = {"gap_flags": []}
+    W.note_corpus_gaps("realisation_match", out, {"source_classification": "unpublished"})
+    assert out["gap_flags"] == []
+
+
+def test_no_optional_input_can_mask_a_declared_default():
+    """Review F8: a step defaults exactly when its corpus is its ONLY missing input
+    (`needs == [corpus]`). Were that corpus declared optional it would never be missing, and the
+    default — the honest "we do not know" — would silently stop being recorded."""
+    from lab.workloads.usecase import fallbacks
+    from lab.workloads.usecase.agents import OPTIONAL_CONTEXT
+    for step, corpus in fallbacks.CORPUS_FOR.items():
+        assert corpus not in OPTIONAL_CONTEXT.get(step, ()), (step, corpus)
+
+
+def test_matched_capabilities_with_no_realisation_row_are_named():
+    coverage = {"matched": [{"capability_id": "KNW.01"}, {"capability_id": "ZZZ.99"}]}
+    assert W.unrealised_matches(coverage, REALISATIONS) == ["ZZZ.99"]

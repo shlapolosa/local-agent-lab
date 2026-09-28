@@ -435,7 +435,7 @@ def cost_model(component_ids: Sequence[str], lines: Iterable[PriceLine], *, enve
 
 
 #: A published delivery day rate: a currency, a figure, "per FTE-day" — "AED 3,670 per FTE-day".
-_DAY_RATE = re.compile(r"^\s*([A-Z]{3})?\s*([\d,]+(?:\.\d+)?)\s*per\s*FTE-day", re.I)
+_DAY_RATE = re.compile(r"^\s*([A-Z]{3})?\s*(\d[\d,]*(?:\.\d+)?)\s*per\s*FTE-day", re.I)
 
 
 def build_from_rate(inputs: Mapping[str, Any], rates) -> dict:
@@ -458,9 +458,16 @@ def build_from_rate(inputs: Mapping[str, Any], rates) -> dict:
     days, basis = inputs.get("build_fte_days"), str(inputs.get("build_basis") or "").strip()
     if not isinstance(days, (int, float)) or days <= 0 or not basis:
         return none
-    row = next((r for r in rates or () if "day rate" in str(r.get("assumption", "")).lower()), None)
-    if row is None:
+    candidates = [r for r in rates or () if "day rate" in str(r.get("assumption", "")).lower()]
+    if not candidates:
         return none
+    if len(candidates) > 1:
+        # Rows arrive in content-hash order, so "the first" is arbitrary — and an internal and an
+        # external rate differ several-fold (review, 28 Sep 2026).
+        raise CostError(f"more than one published day rate "
+                        f"({', '.join(str(r.get('assumption')) for r in candidates)}) — which one "
+                        f"prices this build is Finance's to state, not the first row's")
+    row = candidates[0]
     parsed = _DAY_RATE.match(str(row.get("value", "")))
     if not parsed:
         raise CostError(f"the published delivery day rate {row.get('value')!r} is not "

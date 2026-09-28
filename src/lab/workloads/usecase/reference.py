@@ -51,15 +51,33 @@ def drift(previous: Iterable[Mapping[str, Any]], current: Iterable[Mapping[str, 
 
 
 async def pin(cfg: Mapping[str, Any], artifact_ids: Sequence[str], *,
+              optional: Sequence[str] = (),
               previous: Iterable[Mapping[str, Any]] = ()) -> dict:
-    """Freeze this run's versions of exactly `artifact_ids`; annotate the run board; note drift
-    against the versions an earlier run of the same case cited (`previous`)."""
-    out = _payload(await gateway.call(cfg, ReferenceTools.pin,
-                                      {"artifact_ids": list(artifact_ids)}))
+    """Freeze this run's versions of `artifact_ids` — strictly — plus whichever of `optional` are
+    published; annotate the run board; note drift against the versions an earlier run of the same
+    case cited (`previous`).
+
+    The server fails a WHOLE pin on one artifact with no release, so an optional artifact is checked
+    against the catalogue first: a private master nobody has uploaded must leave its steps without
+    that enrichment, not fail every run at the pin (review, 28 Sep 2026). What was left out comes
+    back as `unpublished`. A catalogue that cannot be read degrades toward RUNNING — the optional
+    set is unavailable, the required set is pinned as ever."""
+    wanted = list(dict.fromkeys(artifact_ids))
+    unpublished: list[str] = []
+    extra = [a for a in dict.fromkeys(optional) if a not in wanted]
+    if extra:
+        try:
+            listed = _payload(await gateway.call(cfg, ReferenceTools.catalogue, {}))
+            published = {str(a.get("artifact_id")) for a in listed.get("artifacts") or []}
+        except Exception:                                   # noqa: BLE001 — degrade to running
+            published = set()
+        wanted += [a for a in extra if a in published]
+        unpublished = [a for a in extra if a not in published]
+    out = _payload(await gateway.call(cfg, ReferenceTools.pin, {"artifact_ids": wanted}))
     versions = [{"artifact_id": v["artifact_id"], "version": v["version"],
                  "retrieval": v.get("retrieval", "key")} for v in out.get("versions") or []]
     pinned = {"pin_id": out["pin_id"], "versions": versions,
-              "drift": drift(previous, versions)}
+              "drift": drift(previous, versions), "unpublished": unpublished}
     if cfg.get("run_id"):
         runlog.update(cfg["run_id"], pin_id=pinned["pin_id"],
                       pinned_versions=versions)

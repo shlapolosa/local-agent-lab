@@ -32,17 +32,10 @@ import re
 
 import pytest
 
-from pathlib import Path
-
-from lab.core.reference import master
 from lab.core.usecase import capabilities, seed
 
-MASTERS = Path(__file__).resolve().parents[2] / "src/lab/core/usecase/seed/masters"
 
-
-def _rows(stem: str) -> list[dict]:
-    parsed = master.parse((MASTERS / f"{stem}.md").read_text())
-    return [dict(zip(parsed.headers, row)) for row in parsed.rows]
+_rows = seed.master_rows
 
 
 def _capability_keys() -> set[str]:

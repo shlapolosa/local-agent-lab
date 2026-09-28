@@ -17,7 +17,7 @@
     },
     "build_basis": {
       "type": "string",
-      "description": "Where in the intake the figure came from."
+      "description": "Where the build figure rests: for a captured figure, where in the intake it came from; for `build_fte_days`, what the effort is estimated from (the building blocks, the integrations) — the basis a reviewer checks."
     },
     "notes": {
       "type": "array",

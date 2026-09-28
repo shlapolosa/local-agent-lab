@@ -14,22 +14,12 @@ Two rules, both the mapping's own:
   and refusing a step over a control it was going to carry anyway is refusing for nothing (G29 is
   in the baseline, and its prose is not a facet expression).
 """
-from pathlib import Path
-
-from lab.core.reference import master
-from lab.core.usecase import obligations as O, predicates
+from lab.core.usecase import obligations as O, predicates, seed
 from lab.core.usecase.model import Step, Workflow
 from lab.core.usecase.predicates import parse
 
-MASTERS = Path(__file__).resolve().parents[4] / "src/lab/core/usecase/seed/masters"
 
-
-def _rows(stem):
-    parsed = master.parse((MASTERS / f"{stem}.md").read_text())
-    return [dict(zip(parsed.headers, row)) for row in parsed.rows]
-
-
-GUARDRAILS, MAPPING = _rows("guardrails"), _rows("guardrail_mapping")
+GUARDRAILS, MAPPING = seed.master_rows("guardrails"), seed.master_rows("guardrail_mapping")
 ANSWERS = {c: False for c in predicates.NAMED_CONDITIONS}
 
 
@@ -88,3 +78,23 @@ def test_an_UNMANDATED_guardrail_whose_predicate_cannot_be_answered_still_refuse
     with pytest.raises(O.ObligationError, match="G77"):
         O.derive(Workflow(steps=(_step(),)), conditions=ANSWERS, guardrails=guardrails,
                  mapping_rows=MAPPING)
+
+
+def test_the_estate_guardrails_are_NAMED_on_the_set_not_silently_absent():
+    """Review F7: skipping them per step is right; dropping them from the output without trace is
+    not — a reviewer could not tell "owned at registration" from "forgotten"."""
+    out = O.derive(Workflow(steps=(_step(),)), conditions=ANSWERS, guardrails=GUARDRAILS,
+                   mapping_rows=MAPPING)
+    assert {"G27", "G30", "G31", "G32"} <= set(out.estate)
+
+
+def test_an_estate_guardrail_is_taken_per_CLAUSE_not_from_anywhere_in_the_cell():
+    """A G-id the estate row mentions only in passing must not be skipped: only a clause that LEADS
+    with a guardrail names one, as `_obligations_from` reads every other row."""
+    def aside(row):
+        label, cell = list(row.values())[:2]
+        if not str(label).lower().startswith("estate level"):
+            return row
+        return {"Class": label, "Mandatory": f"{cell} · (not step-derived, unlike G09)"}
+    assert "G09" not in O.estate_guardrails([aside(r) for r in MAPPING])
+    assert {"G27", "G30"} <= O.estate_guardrails([aside(r) for r in MAPPING])

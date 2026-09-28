@@ -153,6 +153,8 @@ def decision_obligations(workflow: dict, conditions: dict | None = None, pin_id:
         "guardrails": sorted(out.guardrails()),
         "commit_invariant_holds": out.commit_invariant_holds,
         "violations": [{"step": v.step, "reason": v.reason} for v in out.violations],
+        # Owned at registration, not by any step — named so a reviewer can tell it from forgotten.
+        "estate_guardrails": list(out.estate),
         "rules_source": provenance,
     }
 

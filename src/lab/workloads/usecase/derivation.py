@@ -283,10 +283,6 @@ class Derivation:
         lacking a field is indistinguishable from one whose step found nothing."""
         self.pending[number] = why
 
-    def missing(self, step: Step) -> list[str]:
-        """What this step needs and does not have."""
-        return sorted(set(A.CONTEXT_FOR.get(step.key, ())) - set(self.available))
-
     async def run_step(self, cfg: Mapping[str, Any], step: Step, *, label: str = "",
                        context: Mapping[str, Any] | None = None) -> bool:
         """Run one exercise if its agent and its whole context are both there; report whether it ran.

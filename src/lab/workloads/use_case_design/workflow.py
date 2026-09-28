@@ -94,6 +94,13 @@ REFERENCE_ARTIFACTS = tuple(dict.fromkeys(
     [artifact for artifact, _ in CORPORA.values()] + list(DecisionTools.READS)
     + list(ValuationTools.READS)))
 
+#: What this run pins only IF published — PRIVATE masters it can run without (the delivery day rate
+#: prices a build; with none, the build cost is declared missing, as it always was). The server
+#: fails a WHOLE pin on one unpublished artifact, so pinning these strictly failed every design run
+#: whenever one upload had not been made (review, 28 Sep 2026).
+OPTIONAL_ARTIFACTS = ("delivery-rate-assumptions",)
+REQUIRED_ARTIFACTS = tuple(a for a in REFERENCE_ARTIFACTS if a not in OPTIONAL_ARTIFACTS)
+
 #: Everything steps 17-25 would produce. Named here because "no partial design package" is only
 #: checkable against a list of what a package HAS — a test that guessed would pass on a typo.
 DESIGN_OUTPUTS = ("risk_ref", "obligations_ref", "architecture_ref", "cost_ref",
@@ -449,8 +456,16 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
         d.defer("23", "estimate cost — needs the components step 21 selected, by catalogue id")
     else:
         # A captured figure, else FTE-days with a basis at the PUBLISHED rate, else nothing.
-        build = cost.build_from_rate(d.derived.get("cost_inputs") or {},
-                                     d.available.get("delivery_rates") or [])
+        try:
+            build = cost.build_from_rate(d.derived.get("cost_inputs") or {},
+                                         d.available.get("delivery_rates") or [])
+        except cost.CostError as exc:
+            # A published rate that cannot be read (or two that disagree) costs the BUILD line, not
+            # the run: the run cost is still a join, and the build is declared missing with the
+            # reason on the record — never a 20-minute design failed at its last step.
+            build = {"amount": 0.0, "provenance": "", "basis": "", "currency": "",
+                     "refused": str(exc)}
+            d.record("build_line", build, "23")
         if build["provenance"]:
             # On the record beside the cost, because the tool carries amount and provenance only:
             # the basis and the currency are what let a reader check the figure.
@@ -586,7 +601,7 @@ def build_workflow(cfg):
             # is best-effort: the step that needs it defers by name. The versions the pin froze
             # are compared with the ones the screening run cited — recorded, not blocked on,
             # because a routine corpus release must not stall every in-flight case.
-            pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS,
+            pinned = await reference.pin(cfg, REQUIRED_ARTIFACTS, optional=OPTIONAL_ARTIFACTS,
                                          previous=screening.get("pinned_versions") or ())
             d = Derivation(available={**{k: v for k, v in screening.items() if v},
                                       "criticality": _criticality_context(state)})

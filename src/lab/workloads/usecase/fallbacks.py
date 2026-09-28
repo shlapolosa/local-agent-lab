@@ -1,7 +1,9 @@
 """Declared defaults for a step whose corpus this tenant has not published.
 
-Three exercises read a corpus the tenant does not have — the as-is application landscape (step 6),
-the business service levels (step 8) and the source classification (step 11) — and a run used to
+Three exercises read a corpus a tenant may not have published — the as-is application landscape
+(step 6), the business service levels (step 8) and the source classification (step 11). Since the
+CAFÉ workbook of 28 Sep 2026 the first two ARE published here, so only step 11 still defaults; the
+defaults stand for any tenant that lacks them. Without them a run used to
 stop at readiness gate C because of it, with the whole design half never exercised. The decision
 (13 Sep 2026) is to reach the end and SAY what was assumed: a defaulted step records a simple value
 that validates against the step's own schema and passes its own gate, carries a gap flag naming the

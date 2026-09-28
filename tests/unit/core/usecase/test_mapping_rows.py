@@ -11,16 +11,11 @@ holds a current, role-specific authorisation" — two requirements under one gua
 guardrail alone the second erased the first, and at E3 the authorisation clause was dropped when
 E3 restated G09's confirmation mode.
 """
-from pathlib import Path
-
 import pytest
 
-from lab.core.reference import master
-from lab.core.usecase import obligations as O
+from lab.core.usecase import obligations as O, seed
 
-ROOT = Path(__file__).resolve().parents[4]
-_M = master.parse((ROOT / "src/lab/core/usecase/seed/masters/guardrail_mapping.md").read_text())
-MAPPING = [dict(zip(_M.headers, row)) for row in _M.rows]
+MAPPING = seed.master_rows("guardrail_mapping")
 
 
 def _ids(exposure=0, influence=0, domain="general"):

@@ -16,9 +16,31 @@ from functools import lru_cache
 from typing import Any, Iterable, Mapping
 from pathlib import Path
 
-__all__ = ["SEED_DIR", "artifact", "guardrails", "live_guardrails", "names"]
+__all__ = ["MASTERS_DIR", "SEED_DIR", "artifact", "guardrails", "live_guardrails", "master_rows",
+           "names"]
 
 SEED_DIR = Path(__file__).parent / "seed"
+#: The committed MASTERS — what is published and signed. Since the CAFÉ workbook (28 Sep 2026) these,
+#: not the seed JSON, are the corpus's source; the JSON is an HTML-era fixture for the algorithms.
+MASTERS_DIR = SEED_DIR / "masters"
+
+
+@lru_cache(maxsize=None)
+def _master_rows(stem: str) -> tuple:
+    from lab.core.reference import master
+    path = MASTERS_DIR / f"{stem}.md"
+    if not path.is_file():
+        raise FileNotFoundError(f"no committed master {stem!r} in {MASTERS_DIR} — a PRIVATE one is "
+                                f"published by reference and never in this repository")
+    parsed = master.parse(path.read_text(encoding="utf-8"))
+    return tuple(dict(zip(parsed.headers, row)) for row in parsed.rows)
+
+
+def master_rows(stem: str) -> list[dict]:
+    """A committed master as rows keyed by its headers — the published table, cells as published.
+    Raises rather than returning [] for a master that is not here: an absent artifact must never
+    read as an empty one."""
+    return [dict(r) for r in _master_rows(stem)]
 
 @lru_cache(maxsize=None)
 def artifact(name: str) -> dict:

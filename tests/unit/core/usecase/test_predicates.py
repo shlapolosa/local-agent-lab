@@ -166,11 +166,7 @@ def test_a_malformed_predicate_refuses_at_parse_time(text):
 # kept passing over the 26 HTML-era guardrails while the corpus carried 32.
 
 def _published() -> list[dict]:
-    from pathlib import Path
-    from lab.core.reference import master
-    path = Path(__file__).resolve().parents[4] / "src/lab/core/usecase/seed/masters/guardrails.md"
-    parsed = master.parse(path.read_text())
-    return [dict(zip(parsed.headers, row)) for row in parsed.rows]
+    return seed.master_rows("guardrails")
 
 
 def _live() -> list[dict]:

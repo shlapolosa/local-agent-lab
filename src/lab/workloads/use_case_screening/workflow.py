@@ -14,13 +14,13 @@ Nothing here reads the environment: `make_cfg` is the one config contract, and t
 from __future__ import annotations
 
 import json
+from typing import Any, Mapping
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
 from lab.platform import config
 from lab.platform.contracts import (
     ReferenceTools,
-    VectorStores,
     USE_CASE_DESIGN,
     USE_CASE_SCREENING,
     ApprovalTools,
@@ -30,6 +30,7 @@ from lab.platform.contracts import (
     StorageTools,
 )
 from lab.workloads import gateway
+from lab.workloads.usecase import agents as A
 from lab.workloads.usecase import coverage
 from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
@@ -147,9 +148,14 @@ MAX_CORPUS_BYTES = 200_000
 #: labels reach no step — and a pin carries exactly what its run reads and nothing else.
 INTAKE_ARTIFACT = "intake-field-specs"
 
-REFERENCE_ARTIFACTS = tuple(dict.fromkeys(
-    [CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT, REALISATION_ARTIFACT]
-    + [artifact for pairs in CORPUS.values() for artifact, _ in pairs]))
+#: Pinned STRICTLY — a run cannot work without them, and a missing one fails the pin, as it should.
+REQUIRED_ARTIFACTS = (CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT, REALISATION_ARTIFACT)
+#: Pinned only if published (`reference.pin(optional=)`): they enrich steps and several are PRIVATE
+#: masters published by reference. The server fails a whole pin on one unpublished artifact, so
+#: pinning these strictly failed every run whenever one upload had not been made.
+OPTIONAL_ARTIFACTS = tuple(dict.fromkeys(
+    a for pairs in CORPUS.values() for a, _ in pairs if a not in REQUIRED_ARTIFACTS))
+REFERENCE_ARTIFACTS = REQUIRED_ARTIFACTS + OPTIONAL_ARTIFACTS
 
 
 async def intake_problems(cfg, pin_id: str, answered) -> list[dict]:
@@ -275,33 +281,70 @@ async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
                                    key={}, field="coverage_map", limit=MAP_LIMIT)
     parents: list[dict] = []
     for artifact in PARENT_ARTIFACTS:
-        parents += await reference.records(cfg, pin_id, artifact, record_type=artifact, key={},
-                                           field="coverage_map", limit=MAP_LIMIT)
+        got = await reference.records(cfg, pin_id, artifact, record_type=artifact, key={},
+                                      field="coverage_map", limit=MAP_LIMIT)
+        if rows and not got:
+            # The drill starts from the L1 headings: with none, it matches NOTHING and reads as
+            # "nothing is relevant" instead of taking the declared default (review, 28 Sep 2026).
+            raise RuntimeError(f"{artifact}: the map's headings served no rows under the pin")
+        parents += got
     return capabilities.concepts(rows, parents)
 
 
 def _project(rows, fields) -> list[dict]:
+    """Every row, reduced to `fields` — and a row with NONE of them dropped: `[{}, {}]` is truthy,
+    so a table whose headers are spelled differently would otherwise hand a step a list of nothing
+    as its grounding."""
+    rows = [dict(r) for r in rows if isinstance(r, dict)]
     if fields is None:
-        return [dict(r) for r in rows if isinstance(r, dict)]
-    return [{f: r[f] for f in fields if f in r} for r in rows if isinstance(r, dict)]
+        return rows
+    return [p for p in ({f: r[f] for f in fields if f in r} for r in rows) if p]
 
 
-async def fetch_corpus(cfg, pin_id: str, key: str) -> tuple[dict, list[str]]:
+async def fetch_corpus(cfg, pin_id: str, key: str, *, unpinned=()) -> tuple[dict, list[str]]:
     """One context key's corpus: `{artifact: projected rows}`, and the artifacts that could not be
-    read — named, so a partial read never looks like a whole one."""
+    read — named, so a partial read never looks like a whole one. An artifact the pin left out
+    (unpublished) is named without being asked for."""
     got, failed = {}, []
     for artifact, record_type in CORPUS[key]:
+        if artifact in unpinned:
+            failed.append(f"{artifact}: not published on this ring")
+            continue
         try:
             rows = await reference.records(cfg, pin_id, artifact, record_type=record_type, key={},
                                            field=key, limit=MAP_LIMIT)
         except Exception as exc:                             # noqa: BLE001 — a corpus is optional
             failed.append(f"{artifact}: {type(exc).__name__}: {exc}"[:200])
             continue
-        if rows:
-            got[artifact] = _project(rows, CORPUS_FIELDS.get(key))
+        projected = _project(rows, CORPUS_FIELDS.get(key)) if rows else []
+        if projected:
+            got[artifact] = projected
+        elif rows:
+            failed.append(f"{artifact}: no row carries the fields {key} reads "
+                          f"({', '.join(CORPUS_FIELDS.get(key) or ())})")
         else:
             failed.append(f"{artifact}: the pinned artifact served no rows")
     return got, failed
+
+
+def note_corpus_gaps(step_key: str, out: dict, missing: dict) -> None:
+    """State on a step's OWN output which of its inputs it was not fully shown.
+
+    A step handed half a corpus answers from half a corpus, and its answer does not say so: step 6
+    given only the AI as-is returned `estate_touched: []`, which reads "touches nothing" when the
+    truth is "could not be checked" (review, 28 Sep 2026). So every input of this step that was
+    PARTLY read, or absent as optional, becomes a gap flag on its output — deterministically, not
+    hoped for from a prompt. Only where the step's schema carries `gap_flags`; a hard input that is
+    absent never reaches here, because the step was deferred instead."""
+    if not isinstance(out, dict) or "gap_flags" not in A.schema(step_key).get("properties", {}):
+        return
+    flags = out.setdefault("gap_flags", [])
+    for key in A.CONTEXT_FOR.get(step_key, ()):
+        for label in (f"{key} (partly)", key):
+            if label in missing:
+                flags.append({"what": f"{label}: {missing[label]} — this answer did not see it",
+                              "owning_body": "reference corpus owner"})
+                break
 
 
 def business_context(frame: dict, business_rows) -> list[dict]:
@@ -325,6 +368,15 @@ def realisations_for(coverage: dict, realisation_rows) -> list[dict]:
                for m in (coverage or {}).get("matched") or [] if isinstance(m, dict)}
     return [{f: r[f] for f in REALISATION_FIELDS if f in r} for r in realisation_rows or ()
             if isinstance(r, dict) and capabilities.key(r) in matched]
+
+
+def unrealised_matches(coverage: dict, realisation_rows) -> list[str]:
+    """The L3s step 5 matched that the realisation view has NO row for — named, so step 6 cannot be
+    shown an empty shortlist for them and read as though there were nothing to shortlist."""
+    have = {capabilities.key(r) for r in realisation_rows or () if isinstance(r, dict)}
+    return sorted({str(m.get("capability_id", "")).strip()
+                   for m in (coverage or {}).get("matched") or [] if isinstance(m, dict)}
+                  - have - {""})
 
 
 async def match_capabilities(cfg, d, pin_id: str) -> dict:
@@ -495,7 +547,7 @@ def build_workflow(cfg):
         indistinguishable from one grounded in a real map. What could not be read is named, and the
         steps that needed it stay pending."""
         with _node(cfg, "corpora"):
-            pinned = await reference.pin(cfg, REFERENCE_ARTIFACTS)
+            pinned = await reference.pin(cfg, REQUIRED_ARTIFACTS, optional=OPTIONAL_ARTIFACTS)
             # Which answered labels reach no step — the one check the contract cannot make.
             state = state | {"intake_problems": await intake_problems(
                 cfg, pinned["pin_id"], state.get("intake") or {})}
@@ -513,7 +565,8 @@ def build_workflow(cfg):
             except Exception as exc:                         # noqa: BLE001 — a corpus is optional
                 missing["capabilities"] = f"{type(exc).__name__}: {exc}"[:200]
             for name in CORPUS:
-                got, failed = await fetch_corpus(cfg, pinned["pin_id"], name)
+                got, failed = await fetch_corpus(cfg, pinned["pin_id"], name,
+                                                 unpinned=set(pinned.get("unpublished") or ()))
                 size = len(json.dumps(got, ensure_ascii=False, default=str))
                 if size > MAX_CORPUS_BYTES:
                     missing[name] = (f"{size} bytes after projection, over the "
@@ -575,12 +628,21 @@ def build_workflow(cfg):
                 if step.key == "realisation_match" and "coverage_map" in d.derived:
                     # Step 6 shortlists realisations for what step 5 MATCHED — joined here, by
                     # the L3 id, rather than asked of a prompt holding the whole view.
-                    d.available["realisations"] = realisations_for(
-                        d.derived["coverage_map"], state.get("realisation_view") or [])
-                await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
-                if step.key == "frame":
+                    view = state.get("realisation_view") or []
+                    d.available["realisations"] = realisations_for(d.derived["coverage_map"], view)
+                    unrealised = unrealised_matches(d.derived["coverage_map"], view)
+                    if unrealised:
+                        state = state | {"corpora_unavailable": {
+                            **(state.get("corpora_unavailable") or {}),
+                            "realisations (partly)": f"no realisation row for {unrealised}"}}
+                if await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key)):
+                    note_corpus_gaps(step.key, d.derived.get(step.key),
+                                     state.get("corpora_unavailable") or {})
+                if step.key == "frame" and "frame" in d.derived \
+                        and d.available.get("business_capabilities"):
                     # Step 5's business context: the business L3s step 3 chose, with the
-                    # technology the corpus says serves each.
+                    # technology the corpus says serves each. Only when step 3 RAN with the map:
+                    # `[]` then means "none fits"; unset means "never asked" — not the same.
                     d.available["business_context"] = business_context(
                         d.derived.get("frame") or {},
                         (d.available.get("business_capabilities") or {})

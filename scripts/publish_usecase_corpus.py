@@ -74,7 +74,11 @@ ARTIFACTS = {
     "reference-architecture-guardrail-origin": ("guardrail-origin", "id",
                                                 "architecture governance"),
     "surface-enforceability": ("obligation", "Obligation", "architecture governance"),
-    "ai-capability-map": ("capability", "domain,capability", "architecture governance"),
+    # The REALISATION view: one row per technology L3 since the CAFÉ workbook, so its key is the
+    # L3 it realises — the id every join and citation uses (it was "domain,capability").
+    "ai-capability-map": ("capability", "l3_id", "architecture governance"),
+    # The realisation view's headings. The workbook still carries it, so it is published; no step
+    # reads it since step 5 matches technology-capability-l3 (whose L1/L2 are the headings now).
     "capability-domains": ("domain", "domain", "architecture governance"),
     # The review app's roadmap: the published methodology joined to the implementation's step
     # numbers, record keys and AGENTS. Derived by scripts/derive_process_step_keys.py, because
@@ -196,9 +200,8 @@ RETRIEVAL = {
     # Both are small complete registers a form or a roadmap reads ENTIRELY — "the relevant rows" of
     # a process is not a process.
     "process-step-keys": "whole", "intake-field-specs": "whole",
-    # Step 5 matches every function against the WHOLE technology map (74 rows). "The relevant rows"
-    # would decide relevance before the step whose job that is — CAFÉ's own rule for a small
-    # complete register is to read every record.
+    # The realisation view, read whole and joined by step 5's matches (step 6) and by the guardrail
+    # chain (step 21). Step 5 itself matches `technology-capability-l3`, declared whole below.
     "ai-capability-map": "whole",
     "capability-domains": "whole", "criticality-taxonomy": "whole", "readiness-gates": "whole",
     # The CAFÉ bundle's own `Read as: whole` declarations. Every other table it carries says `key`,
@@ -321,6 +324,13 @@ PRIVATE: dict[str, str] = {
         "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
     "workload-placement-stages":
         "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+}
+
+#: Tables DERIVED FROM THIS CODE, which the team's workbook also carries as an exported copy. The
+#: importer never overwrites them from the workbook: that copy is the stale one, and importing it
+#: would silently undo the derivation (the roadmap showed every step's pre-workbook inputs).
+DERIVED_FROM_CODE: dict[str, str] = {
+    "process-step-keys": "scripts/derive_process_step_keys.py",
 }
 
 #: Where a private master is written by the importer, and read from before it is uploaded: inside
