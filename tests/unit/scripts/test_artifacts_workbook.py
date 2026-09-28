@@ -200,22 +200,6 @@ def test_the_read_mode_is_ours_and_never_becomes_part_of_the_master(tmp_path):
     assert "Read as" not in back.meta and back.meta == parsed.meta
 
 
-def test_the_index_shows_the_vector_artifacts_that_have_no_sheet(tmp_path):
-    """All 53 masters are RECORD artifacts — `whole` or `key`. The vector-mode artifacts are the
-    licensed capability workbooks, which are never files in this repository and so can have no
-    sheet. Leaving them out entirely would tell the team the corpus has no searchable artifacts,
-    which is false and is exactly the kind of silence this codebase keeps paying for. They appear
-    as rows with no sheet and a reason."""
-    path = tmp_path / "a.xlsx"
-    wb.export({"criticality-taxonomy": (master.parse(SAMPLE), ("class", "Class", "risk"))}, path)
-    import openpyxl
-    rows = list(openpyxl.load_workbook(path)[wb.INDEX].iter_rows(min_row=2, values_only=True))
-    vector = [r for r in rows if r[1] == "vector"]
-    assert vector, "no vector artifact is listed at all"
-    assert all(not r[-1] for r in vector), "a licensed workbook has no sheet to point at"
-    assert any("licen" in str(c).lower() for r in vector for c in r), "and it says why"
-
-
 # ------------------------------------------------------- which step reads it, and the tab name
 
 def test_a_sheet_is_named_for_the_step_that_reads_it():

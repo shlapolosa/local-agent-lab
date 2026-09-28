@@ -48,7 +48,7 @@ def test_a_leaf_carries_the_path_that_disambiguates_it():
 def test_a_corpus_that_is_not_a_concept_list_yields_no_leaves():
     """A deployment missing the scheme, or a different corpus wired by mistake, must degrade to
     "no candidates" and let the step defer — which is what every other absent corpus does."""
-    assert coverage.leaves_for(["healthcare-provider-v2.0", 42, None]) == []
+    assert coverage.leaves_for(["not-a-concept", 42, None]) == []
     assert coverage.leaves_for([]) == []
 
 

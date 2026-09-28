@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lab.platform import config
 from lab.platform.contracts import (ApprovalTools, DecisionTools, EATools, ReferenceTools,  # noqa: E402
                                     SemanticTools, StorageTools, USE_CASE_DESIGN, USE_CASE_SCREENING,
-                                    ValuationTools, VectorStores, WorkflowTools)
+                                    ValuationTools, WorkflowTools)
 from lab.workloads.usecase.identity import PREFIX_FOR  # noqa: E402
 
 
@@ -116,7 +116,7 @@ NO_STORES = ("-",)
 #: decision in two places, and the one that matters is the writer's.
 INTAKE_STORES: list[str] = []
 
-#: The EVALS identity: what `scripts/eval_coverage.py` and `scripts/adjudicate_coverage.py` run as.
+#: The EVALS identity: what `scripts/eval_coverage.py` runs as.
 #: Its own team and key, because a harness on the production agents' key competes with real runs
 #: for the same rpm/tpm and budget and is indistinguishable from them in the ledger (11 Sep 2026).
 #: Reads the corpus exactly as a run does; starts nothing, answers nothing. The second model family

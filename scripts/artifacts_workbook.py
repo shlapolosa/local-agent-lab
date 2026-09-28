@@ -95,10 +95,6 @@ def _publisher():
     return module
 
 
-def _licensed() -> dict:
-    """The vector-mode artifacts published from licensed workbooks — `store id -> workbook stem`."""
-    return {str(k): str(v) for k, v in getattr(_publisher(), "WORKBOOKS", {}).items()}
-
 
 def _retrieval_table() -> dict:
     return dict(getattr(_publisher(), "RETRIEVAL", {}))
@@ -233,12 +229,6 @@ def export(sheets: dict, out: Path) -> Path:
                 c.alignment = _WRAP
         index.append([artifact_id, retrieval_for(artifact_id, entry[0]),
                       entry[0], entry[1], entry[2], len(parsed.rows), name])
-    # The vector-mode artifacts have no sheet: they are licensed capability WORKBOOKS, never files
-    # in this repository. Omitting them would tell the team the corpus holds nothing searchable,
-    # which is false — so they are listed, with the reason, and no sheet to point at.
-    for store_id, stem in _licensed().items():
-        index.append([store_id, "vector", "capability", "id",
-                      "licensed reference model — not in this repository", "", ""])
     index.freeze_panes = "A2"
     book.save(out)
     return out

@@ -148,8 +148,8 @@ def test_a_team_s_store_grant_is_never_left_open(provisioning):
     none = provisioning._grants({"reference_mcp": ["reference_pin"]})
     assert none["vector_stores"] and none["vector_stores"] != []
     assert not (set(none["vector_stores"]) & VectorStores.names()), "the sentinel is not a store"
-    some = provisioning._grants({}, stores=[VectorStores.CAPABILITY_MAP_HEALTHCARE])
-    assert some["vector_stores"] == [VectorStores.CAPABILITY_MAP_HEALTHCARE]
+    some = provisioning._grants({}, stores=["a-store"])
+    assert some["vector_stores"] == ["a-store"]
 
 
 def test_every_store_a_team_is_granted_is_one_the_gateway_registers(provisioning):

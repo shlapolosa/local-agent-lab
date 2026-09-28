@@ -20,9 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lab.core.semantic.reference.baguild import KNOWN            # noqa: E402  stem -> (scheme, title)
 from lab.platform import config                                    # noqa: E402
-from lab.platform.contracts import VectorStores                    # noqa: E402
 MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: The corpus version this script publishes. BUMP IT whenever a master's bytes change — the
 #: masters are the signed input, and re-publishing changed content under an unchanged version is
@@ -219,17 +217,11 @@ RETRIEVAL = {
     "traditional-capabilities": "whole",
 }
 
-#: The licensed capability WORKBOOKS — never a file in this repository. The artifact id IS the
-#: gateway's store id (`contracts.VectorStores`, the one declaration) and the scheme name and title
-#: are the semantic layer's own (`baguild.KNOWN`), so a corpus row, a scheme concept and a store
-#: agree on identity. The `art://` ref comes from REFERENCE_MODELS_REFS — the same refs
-#: semantic-mcp materialises — so this table carries no store path.
-WORKBOOKS = {
-    VectorStores.CAPABILITY_MAP_HEALTHCARE: "healthcare-provider-v2.0",
-    VectorStores.CAPABILITY_MAP_INSURANCE: "insurance-v5.0",
-}
-assert set(WORKBOOKS) == VectorStores.names(), "a store the corpus does not publish, or the reverse"
-assert set(WORKBOOKS.values()) <= set(KNOWN), "a workbook stem the semantic layer does not know"
+#: The licensed BA Guild capability workbooks are NOT published by this script (user decision,
+#: 28 Sep 2026): the use-case pipeline has not read them since step 5 moved to the technology map,
+#: and the CAFÉ workbook does not carry them. Their existing corpus versions stay released — the
+#: semantic layer (and the Documentation Fabric, which owns it) still uses them — but a use-case
+#: release no longer re-embeds ~3,300 passages of content it never reads.
 
 
 #: Artifacts whose masters may NOT be committed: this repository is PUBLIC, and these tables come
@@ -448,26 +440,13 @@ def main() -> int:
     deferred: dict[str, str] = {}                         # artifact -> why it is not in this run
     failures: dict[str, str] = {}                         # artifact -> why it could not be published
     published = released = skipped = 0
-    refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_MODELS_REFS}
     by_name = private_refs(config.REFERENCE_PRIVATE_MASTERS_REFS)
-    everything = {**{a: ("markdown",) + spec for a, spec in ARTIFACTS.items()},
-                  **{a: ("workbook", "capability", "id,parent,level", "BA Guild") for a in WORKBOOKS}}
-    for artifact_id, (fmt, record_type, key, owner) in sorted(everything.items()):
+    for artifact_id, (record_type, key, owner) in sorted(ARTIFACTS.items()):
         if artifact_id in have:
             skipped += 1
         else:
             kind = "record" if record_type else "prose"
-            if fmt == "workbook":
-                stem = WORKBOOKS[artifact_id]
-                scheme, title = KNOWN[stem]
-                if f"{stem}.xlsx" not in refs:
-                    deferred[artifact_id] = f"REFERENCE_MODELS_REFS carries no {stem}.xlsx"
-                    print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
-                    continue
-                source = ["--master-ref", refs[f"{stem}.xlsx"], "--master-format", "workbook",
-                          "--scheme", scheme, "--title", title, "--retrieval", "vector",
-                          "--text-fields", "path,definition"]
-            elif artifact_id in PRIVATE:
+            if artifact_id in PRIVATE:
                 source, why = private_source(artifact_id, by_name, fetch=_store().get)
                 if source is None:
                     deferred[artifact_id] = why

@@ -158,14 +158,19 @@ def test_compose_points_the_gateway_at_the_facade_with_the_shared_secret():
 
 # ---------------------------------------------------------------- the workbooks
 
-def test_the_corpus_publishes_exactly_the_stores_the_gateway_registers():
-    """Three declarations collapse to one: the publish script's WORKBOOKS is keyed by the store
-    catalogue and asserts it at import, so a store with no artifact — or the reverse — cannot load."""
+def test_the_use_case_publisher_publishes_none_of_the_gateway_stores():
+    """User decision, 28 Sep 2026: the BA Guild capability maps behind these stores are the
+    SEMANTIC layer's (the Documentation Fabric owns it) and the use-case pipeline no longer reads or
+    republishes them — a use-case release was re-embedding ~3,300 passages of content it never
+    read. The stores stay registered against the maps' existing released versions. This used to
+    hold the use-case publish script EQUAL to the store catalogue; the boundary it now states is
+    the opposite: nothing the use-case publisher writes is one of them."""
     spec = importlib.util.spec_from_file_location(
         "publish_usecase_corpus", ROOT / "scripts" / "publish_usecase_corpus.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert set(module.WORKBOOKS) == VectorStores.names()
+    assert not set(module.ARTIFACTS) & VectorStores.names()
+    assert not hasattr(module, "WORKBOOKS")
 
 
 def test_no_licensed_workbook_is_tracked_by_git():

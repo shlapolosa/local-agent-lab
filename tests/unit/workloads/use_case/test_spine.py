@@ -18,7 +18,6 @@ from fixtures.usecase_corpus import tools as corpus_tools
 from fixtures.workflow import Router, run_spine, spine
 from lab.workloads.usecase import coverage
 
-SCHEME = "healthcare-provider-v2.0"
 _proj = lambda rows: rows
 
 
@@ -57,7 +56,6 @@ from lab.platform.contracts import (
     Continuation,
     ValuationTools,
     SemanticTools,
-    VectorStores,
     StorageTools,
     WorkflowTools,
     continuation_of,
@@ -220,7 +218,7 @@ ANSWERED = {c: False for c in _predicates.NAMED_CONDITIONS}
 
 READY = {"coverage_map": {"matched": True,
                           "heat_map": {"commodity": False, "mature": False, "meets_target": False,
-                                       "source": "healthcare-provider-v2.0"}},
+                                       "source": "technology-capability-l3"}},
          "workflow_graph": {"nodes": 4},
          "ontology_delta": {"concepts": []},
          "source_contracts": {"sources": 2},
@@ -628,7 +626,7 @@ ANSWERS = {
     "coverage_map": {"matched": [{"function": "assess referral", "capability_id": "c1",
                                   "confidence": "lookup"}],
                      "heat_map": {"commodity": False, "mature": False, "meets_target": False,
-                                  "source": "healthcare-provider-v2.0, capability c1"},
+                                  "source": "technology-capability-l3, capability c1"},
                      "functions_without_capability": [], "capabilities_without_function": []},
     "criticality_band": {"band": "business-critical", "provisional": True,
                          "dominant_failure_mode": "a referral is missed and a patient deteriorates"},
