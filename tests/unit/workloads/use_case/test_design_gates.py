@@ -217,14 +217,6 @@ def test_a_business_case_missing_any_one_section_is_refused(missing):
     rejects("25", dict(DELIVERY, business_case=sections), missing)
 
 
-def test_the_sections_this_rule_requires_are_the_ones_the_corpus_publishes():
-    """The tuple is a copy of a governed artifact and would drift silently the moment one was
-    corrected."""
-    published = {row[1].strip().lower()
-                 for row in seed.artifact("business_case_sections")["sections"]["rows"] if row[1]}
-    assert set(BUSINESS_CASE_SECTIONS) == published
-
-
 def test_a_decision_record_that_sacrificed_nothing_is_refused():
     """The field that makes the record worth keeping. A decision that cost nothing was a preference."""
     record = without(DELIVERY["decision_records"][0], "sacrificed")

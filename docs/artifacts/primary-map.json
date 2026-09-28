@@ -1,5 +1,5 @@
 {
- "_source": "cafe-artifacts.xlsx (CAF\u00c9 bundle, 28 Sep 2026) \u2014 the index sheet's 'Corpus tables' column",
+ "_source": "cafe-artifacts.xlsx (CAFÉ bundle, 28 Sep 2026) — the index sheet's 'Corpus tables' column",
  "_schema_sources": "declared = a field list this repository actually states. `html` = the contract prose of the HTML artifact register. `code` = a module that reads the table and names its fields, which is the strongest kind: the reader and the schema cannot drift.",
  "inputs": {
   "Business capability map": {
@@ -40,7 +40,7 @@
     "ai-as-is-architecture"
    ]
   },
-  "AI capability map \u2014 realisation view": {
+  "AI capability map — realisation view": {
    "corpus": [
     "ai-capability-map",
     "capability-domains",
@@ -78,7 +78,7 @@
   },
   "Grounding source classification": {
    "corpus": [],
-   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema — fill the rows.",
    "schema": [
     "source",
     "sensitivity",
@@ -206,7 +206,7 @@
   },
   "Role rate registry": {
    "corpus": [],
-   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema — fill the rows.",
    "schema": [
     "role",
     "headcount",
@@ -218,7 +218,7 @@
   },
   "Cost-per-error reference": {
    "corpus": [],
-   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema — fill the rows.",
    "schema": [
     "error_class",
     "current_volume",
@@ -241,7 +241,7 @@
   },
   "Delegation of authority matrix": {
    "corpus": [],
-   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema — fill the rows.",
    "schema": [
     "limit",
     "authority"
@@ -254,15 +254,11 @@
   }
  },
  "outputs": {
-  "_note": "Outputs are PRODUCED by a run, not supplied to it. They have no master to edit, so they appear in the index with the step that produces them and carry no sheet \u2014 the workbook is for artifacts the team provides."
+  "_note": "Outputs are PRODUCED by a run, not supplied to it. They have no master to edit, so they appear in the index with the step that produces them and carry no sheet — the workbook is for artifacts the team provides."
  },
  "framework": {
-  "_note": "Published corpus artifacts that are NOT primary artifacts of the process: they describe the framework rather than supply it. Listed so every published id is accounted for \u2014 an unaccounted artifact is one nobody decided about.",
-  "input-artifacts": "the register of input artifacts itself",
-  "output-artifacts": "the register of output artifacts itself",
+  "_note": "Published corpus artifacts that are NOT primary artifacts of the process: they describe the framework rather than supply it. Listed so every published id is accounted for — an unaccounted artifact is one nobody decided about.",
   "intake-fields": "the Submit form's field groups, read by the review app",
-  "intake-field-specs": "the typed field specification behind that form",
-  "business-case-sections": "the eight sections step 24's business case must fill",
-  "source-register": "the lab's own source inventory \u2014 adjacent to the grounding source classification, and not it"
+  "intake-field-specs": "the typed field specification behind that form"
  }
 }

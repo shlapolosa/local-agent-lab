@@ -683,6 +683,9 @@ SOFT_21_REMEDY = f"{FAMILY_REMEDY}; {OBLIGATION_REMEDY}; and {DELIVERY_REMEDY}"
 #: Steps 3-11 — the pre-work exercises, run by the SCREENING process before the criticality gate.
 #: The eight sections a business case has. Named here rather than counted, so a case missing
 #: "Risks and mitigations" fails on the name a person can go and write.
+#: The eight sections step 25's business case must fill. They were a copy of the governed
+#: `business-case-sections` table, held to it by a test; that legacy table (docx Annexure F, not in the
+#: CAFÉ workbook) was retired on 28 Sep 2026 (user decision), so the rule now lives here alone.
 BUSINESS_CASE_SECTIONS = ("executive summary", "current state", "proposed solution",
                           "value drivers", "financial summary", "roadmap",
                           "risks and mitigations", "approvals and recommendation")

@@ -216,8 +216,6 @@ SOURCE_ID = "CAFE_Artifacts_Visualisation_v0_25.html"
 # table index -> (filename, key). Several artifacts are more than one table.
 TABLE_FILES: dict[str, list[tuple[int, str]]] = {
     "process_steps":           [(2, "steps")],
-    "input_artifacts":         [(3, "artifacts")],
-    "output_artifacts":        [(4, "artifacts")],
     "domain_model":            [(5, "concepts")],
     "readiness_gates":         [(6, "gates"), (7, "verdicts")],
     "criticality_taxonomy":    [(8, "classes")],
@@ -243,7 +241,6 @@ TABLE_FILES: dict[str, list[tuple[int, str]]] = {
 JS_FILES: list[tuple[str, str, str]] = [
     ("guards",      "guardrails",         "guardrails"),
     ("capRows",     "ai_capability_map",  "capabilities"),
-    ("sources",     "source_register",    "sources"),
     ("archetypes",  "archetypes",         "archetypes"),
     ("cmDomains",   "capability_domains", "domains"),
 ]
@@ -271,7 +268,6 @@ SPEC_TABLE_FILES: dict[str, list[tuple[int, str]]] = {
     "cost_formulas":          [(59, "formulas")],
     "benefit_drivers":        [(60, "drivers")],
     "financial_formulas":     [(61, "formulas")],
-    "business_case_sections": [(62, "sections")],
     "intake_fields":          [(63, "field_groups")],
 }
 SPEC_SOURCE = "Intake_Agent_Requirements_v2_7.docx"
@@ -368,7 +364,7 @@ KNOWN_DIVERGENCE: dict[str, str] = {
 #: Everything else in the payload is metadata or a second table, rendered after it.
 TITLES: dict[str, str] = {
     "guardrails": "Guardrail set", "ai_capability_map": "AI capability map",
-    "source_register": "Source register", "archetypes": "Agent archetypes",
+    "archetypes": "Agent archetypes",
     "capability_domains": "Capability domains", "readiness_gates": "Readiness gates",
     "criticality_taxonomy": "Criticality taxonomy",
     "determinism_criteria": "Determinism criteria register", "facet_schema": "Step facet schema",
@@ -379,7 +375,6 @@ TITLES: dict[str, str] = {
     "component_prices": "Component price catalogue",
     "component_families": "Component families", "surface_enforceability": "Surface enforceability",
     "quality_attributes": "Quality attribute patterns", "process_steps": "Process steps",
-    "input_artifacts": "Input artifacts", "output_artifacts": "Output artifacts",
     "domain_model": "Domain model", "build_surface": "Build surface decisions",
     "composition_moves": "Composition moves", "retired_guardrails": "Retired identifiers",
     "opportunity_obligations": "Opportunity obligations",
@@ -389,7 +384,7 @@ TITLES: dict[str, str] = {
     "capability_map_rules": "Business capability map rules", "intake_fields": "Intake fields",
     "cost_formulas": "Cost formulas", "benefit_drivers": "Benefit drivers",
     "financial_formulas": "Financial summary formulas",
-    "business_case_sections": "Business case structure", "family_triggers": "Family triggers",
+    "family_triggers": "Family triggers",
 }
 
 

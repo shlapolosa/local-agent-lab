@@ -95,15 +95,11 @@ ARTIFACTS = {
     "decision-record-schema": ("decision-record-field", "Field", "architecture governance"),
     "domain-model": ("term", "Concept", "architecture governance"),
     "process-steps": ("process-step", "Step", "architecture governance"),
-    "input-artifacts": ("input-artifact", "Artifact", "architecture governance"),
-    "output-artifacts": ("output-artifact", "Artifact", "architecture governance"),
     "opportunity-obligations": ("opportunity-obligation", "ID", "architecture governance"),
-    "source-register": ("source", "id", "architecture governance"),
     "build-surface": ("build-surface-question", "Q", "architecture governance"),
     # Finance's half of the corpus — a different owner and a different release cadence, which is
     # the whole reason valuation-mcp is a separate server from decision-mcp.
     "intake-fields": ("field-group", "Field group", "finance"),
-    "business-case-sections": ("section", "#", "finance"),
     "benefit-drivers": ("driver", "Driver", "finance"),
     "cost-formulas": ("cost-formula", "Quantity", "finance"),
     "financial-formulas": ("financial-formula", "Quantity", "finance"),
