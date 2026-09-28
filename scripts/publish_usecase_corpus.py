@@ -12,6 +12,7 @@ rather than as a typo. The parity check at the bottom fails loudly instead.
     .venv/bin/python scripts/publish_usecase_corpus.py [--release]
 """
 import argparse
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -327,6 +328,39 @@ PRIVATE: dict[str, str] = {
 PRIVATE_DIR = Path(config.REFERENCE_MODELS_DIR) / "cafe-private"
 
 
+def private_refs(refs) -> dict[str, str]:
+    """`REFERENCE_PRIVATE_MASTERS_REFS` keyed by file name — refusing two refs that share one, which
+    would otherwise resolve last-wins to whichever the setting happened to list second."""
+    out: dict[str, str] = {}
+    for ref in (r.strip() for r in refs if r.strip()):
+        name = ref.rsplit("/", 1)[-1]
+        if name in out:
+            raise ValueError(f"two private refs share the same file name {name!r}: "
+                             f"{out[name]} and {ref}")
+        out[name] = ref
+    return out
+
+
+def private_source(artifact_id: str, refs: dict[str, str], fetch) -> tuple[list[str] | None, str]:
+    """The publish arguments for one PRIVATE master, or `None` and the reason it is deferred.
+
+    The master is published from its `art://` ref — and the ref must hold EXACTLY the file this
+    repository's importer last wrote, when that file is here to compare. Re-import, forget to
+    re-upload, publish: the ref still holds last release's rows, and they would go out signed under
+    the new version, silently, for content that may not be public (review F4, 28 Sep 2026).
+    `fetch(ref) -> bytes` is the artifact store's read — the same one the publisher makes."""
+    name = master_for(artifact_id).name
+    if name not in refs:
+        return None, (f"private ({PRIVATE[artifact_id].split(' — ')[0]}), and "
+                      f"REFERENCE_PRIVATE_MASTERS_REFS carries no {name}")
+    local = master_for(artifact_id)
+    if local.is_file() and hashlib.sha256(local.read_bytes()).digest() != hashlib.sha256(
+            fetch(refs[name])).digest():
+        return None, (f"the uploaded {refs[name]} is not the file imported at {local} — upload the "
+                      f"imported master again before publishing")
+    return ["--master-ref", refs[name], "--master-format", "markdown"], ""
+
+
 def master_for(artifact_id: str) -> Path:
     stem = f"{artifact_id.replace('-', '_')}.md"
     return (PRIVATE_DIR if artifact_id in PRIVATE else MASTERS) / stem
@@ -343,6 +377,13 @@ def already_published() -> set[str]:
     # case this exists for.
     return {parts[0] for parts in (line.split() for line in out.splitlines())
             if len(parts) > 2 and parts[1] == VERSION and parts[2] == "published"}
+
+
+def _store():
+    """The artifact store the publisher reads a `--master-ref` from — built lazily, because only a
+    run that publishes a private master needs it."""
+    from lab.substrate import container
+    return container.build("reference-publish").artifacts()
 
 
 def run(*args: str) -> tuple[int, str]:
@@ -380,7 +421,7 @@ def main() -> int:
     failures: dict[str, str] = {}                         # artifact -> why it could not be published
     published = released = skipped = 0
     refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_MODELS_REFS}
-    private_refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_PRIVATE_MASTERS_REFS}
+    by_name = private_refs(config.REFERENCE_PRIVATE_MASTERS_REFS)
     everything = {**{a: ("markdown",) + spec for a, spec in ARTIFACTS.items()},
                   **{a: ("workbook", "capability", "id,parent,level", "BA Guild") for a in WORKBOOKS}}
     for artifact_id, (fmt, record_type, key, owner) in sorted(everything.items()):
@@ -399,13 +440,11 @@ def main() -> int:
                           "--scheme", scheme, "--title", title, "--retrieval", "vector",
                           "--text-fields", "path,definition"]
             elif artifact_id in PRIVATE:
-                stem = master_for(artifact_id).name
-                if stem not in private_refs:
-                    deferred[artifact_id] = (f"private ({PRIVATE[artifact_id].split(' — ')[0]}), "
-                                             f"and REFERENCE_PRIVATE_MASTERS_REFS carries no {stem}")
-                    print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
+                source, why = private_source(artifact_id, by_name, fetch=_store().get)
+                if source is None:
+                    deferred[artifact_id] = why
+                    print(f"  {artifact_id:38} deferred — {why}")
                     continue
-                source = ["--master-ref", private_refs[stem], "--master-format", "markdown"]
                 if artifact_id in RETRIEVAL:
                     source += ["--retrieval", RETRIEVAL[artifact_id]]
             else:

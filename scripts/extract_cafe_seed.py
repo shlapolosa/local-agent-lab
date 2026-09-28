@@ -30,6 +30,7 @@ tests under tests/unit/core/usecase fail until it has run.
 from __future__ import annotations
 
 import argparse
+import functools
 import html as htmllib
 import json
 import re
@@ -598,6 +599,17 @@ def crosscheck(files: dict[str, dict], docx_path: Path) -> list[str]:
 _RENDERED_BY = "scripts/extract_cafe_seed.py"
 
 
+@functools.lru_cache(maxsize=1)
+def _publisher():
+    """The corpus's publication of record, loaded ONCE — `writes` asks it about every master."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_publish_corpus_x", Path(__file__).resolve().parent / "publish_usecase_corpus.py")
+    publisher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(publisher)
+    return publisher
+
+
 def writes(masters_dir: Path, stem: str) -> bool:
     """Whether this generator may write `<stem>.md`. Two sources now render masters, and the one
     that rendered a master says so on it: since 28 Sep 2026 the CAFÉ WORKBOOK owns every table it
@@ -605,12 +617,7 @@ def writes(masters_dir: Path, stem: str) -> bool:
     HTML-era seed would silently put the older content back — 32 guardrails to 26, 92 components to
     59 — in a master that still parses, publishes and signs. A PRIVATE master is never written here
     at all: this repository is public (`publish_usecase_corpus.PRIVATE`)."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_publish_corpus_x", Path(__file__).resolve().parent / "publish_usecase_corpus.py")
-    publisher = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(publisher)
-    if stem.replace("_", "-") in publisher.PRIVATE:
+    if stem.replace("_", "-") in _publisher().PRIVATE:
         return False
     path = masters_dir / f"{stem}.md"
     if not path.is_file():

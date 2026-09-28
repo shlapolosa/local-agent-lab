@@ -438,3 +438,20 @@ def test_a_NEW_master_takes_its_title_from_the_marker_not_its_id(tmp_path, monke
     assert written.title == "The ontology-concepts table"
     assert written.meta["Artifact"] == "ontology_concepts"
     assert written.meta["Source"] == "cafe-artifacts.xlsx"
+
+
+def test_a_table_nobody_CLASSIFIED_is_refused_never_written_into_the_public_tree(tmp_path,
+                                                                                 monkeypatch):
+    """Review finding F3, 28 Sep 2026: anything not listed PRIVATE was written under src/ — so the
+    next bundle's new restricted table would land in this public repository by default, caught only
+    if its text happened to name a source the tripwire knows. A table must be classified (public in
+    `ARTIFACTS`, or `PRIVATE`) before it can be imported at all."""
+    masters = tmp_path / "masters"
+    masters.mkdir()
+    monkeypatch.setattr(wb, "master_path", lambda a: masters / f"{a.replace('-', '_')}.md")
+    path = _book(tmp_path / "cafe-artifacts.xlsx", {
+        "0. index": [["#"]],
+        "s": _table("never-seen-before", ("id", "x"), ("A1", "restricted-looking content")),
+    })
+    assert wb.main(["import", str(path)]) == 1
+    assert not list(masters.iterdir()), "an unclassified table must not be written anywhere"

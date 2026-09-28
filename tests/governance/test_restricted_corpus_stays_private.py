@@ -33,7 +33,8 @@ workbook = _load("artifacts_workbook")
 #: sensitivity CLASS (public · internal · confidential · restricted), so the guardrails and the facet
 #: schema say it legitimately. The document MARKING is the uppercase word.
 RESTRICTED_SOURCE = re.compile(r"(?i:\bADHDS\b|\bCRMF\b|Cyber Risk Management Framework|"
-                               r"Target State Architecture)|\bRESTRICTED\b")
+                               r"Target State Architecture|use-case catalogue|\bAccenture\b|"
+                               r"M42_AI_Use_Cases)|\bRESTRICTED\b")
 
 
 def test_no_committed_master_names_a_restricted_or_unclassified_source():

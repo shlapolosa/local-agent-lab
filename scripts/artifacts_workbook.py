@@ -341,7 +341,12 @@ def read_primary_sheet(path: Path, title: str) -> dict:
     book = openpyxl.load_workbook(path, data_only=True)
     if title not in book.sheetnames:
         raise WorkbookError(f"no sheet {title!r} in {path.name}")
-    sheet = book[title]
+    return _tables_in(book[title])
+
+
+def _tables_in(sheet) -> dict:
+    """The tables on one open sheet, split by their markers — `read_primary_sheet`'s body, taking
+    the SHEET so a caller reading many sheets opens the workbook once."""
     out, current, name, headers, rows = {}, "", "", (), []
 
     def close():
@@ -386,12 +391,10 @@ def read_all_tables(path: Path) -> dict:
     library and the finance assumptions) is ONE table when the copies agree and a refusal when they
     do not — letting the later sheet win would publish whichever copy the workbook listed last.
     """
-    book = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    titles = [t for t in book.sheetnames if t != INDEX]
-    book.close()
+    book = openpyxl.load_workbook(path, data_only=True)       # once — not once per sheet
     out, seen_on = {}, {}
-    for title in titles:
-        for artifact_id, parsed in read_primary_sheet(path, title).items():
+    for title in (t for t in book.sheetnames if t != INDEX):
+        for artifact_id, parsed in _tables_in(book[title]).items():
             if artifact_id in out and (out[artifact_id].headers, out[artifact_id].rows) != (
                     parsed.headers, parsed.rows):
                 raise WorkbookError(f"{artifact_id} differs between sheets "
@@ -490,6 +493,15 @@ def main(argv: list[str]) -> int:
             back = read_all_tables(path)
         except WorkbookError as e:
             back, failed = {}, [str(e)]
+        # FAIL CLOSED: a table nobody has classified is refused, never written. This repository is
+        # public and `master_path` sends everything not PRIVATE into it — so without this, the next
+        # bundle's new restricted table would land here by default (review F3, 28 Sep 2026).
+        classified = set(_publisher().ARTIFACTS)
+        for artifact_id in sorted(set(back) - classified):
+            failed.append(f"{artifact_id}: not classified — declare it in "
+                          f"publish_usecase_corpus.ARTIFACTS (and PRIVATE if its source may not "
+                          f"be public) before importing it")
+            back.pop(artifact_id)
         for artifact_id, parsed in back.items():
             target = master_path(artifact_id)
             before = master.parse(target.read_text()) if target.is_file() else None
