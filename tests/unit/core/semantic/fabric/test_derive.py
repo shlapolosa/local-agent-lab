@@ -24,7 +24,8 @@ def test_the_two_rules_derive_a_related_context_and_an_inherited_delivery_contex
     out = D.derive(ds)
     d = ds.graph(graph_iri(DERIVED))
     assert (A, G.FAB.relatedTo, CTX) in d and (DR, G.FAB.deliveredUnder, CTX) in d
-    assert out == {"derived": 2, "rules": {"references-context": 1, "synthesised-context": 1}}
+    assert out["derived"] == 2 and out["rules"]["references-context"] == 1
+    assert out["rules"]["synthesised-context"] == 1        # membership, not the whole dict: rules are added
     prov = ds.graph(PROV_GRAPH)
     methods = {str(m) for m in prov.objects(None, G.FAB.method)}
     assert {"rule:references-context", "rule:synthesised-context"} <= methods
@@ -60,3 +61,46 @@ def test_impact_reaches_a_record_only_through_a_derived_edge():
     hits = {str(n) for n, _, _ in G.impact(ds, CTX)}
     assert str(DR) in hits                                 # the decision record, delivered under CTX only at D
     assert "D" in {r for _, _, r in G.impact(ds, CTX)}
+
+
+def test_two_documents_are_related_through_the_ontology_they_are_both_about():
+    """The payoff of owning a vocabulary with RELATIONSHIPS: a new document is connected to what already exists
+    because the concepts it is about are connected, not because someone linked the documents by hand."""
+    from rdflib import Namespace
+    from lab.core.semantic.fabric.vocabulary import build
+    REL = Namespace("urn:lab:semantic:domain:cafe/rel#")
+    ds = Dataset(default_union=True)
+    sc = build(name="cafe", title="t",
+               concepts=[{"id": "Referral", "name": "Referral"}, {"id": "Platform", "name": "Platform"}],
+               relationships=[{"subject": "Referral", "predicate": "raisedOn", "object": "Platform"}])
+    vocab = URIRef("urn:lab:semantic:vocab:cafe")
+    for t in sc.graph():
+        ds.graph(vocab).add(t)
+    G.assert_triple(ds, A, G.DCT.subject, sc.uri("Referral"), rung=EXTRACTED, method="label-match")
+    G.assert_triple(ds, B, G.DCT.subject, sc.uri("Platform"), rung=EXTRACTED, method="label-match")
+
+    assert D.derive(ds)["rules"]["concept-path"] == 0            # the vocabulary is not read unless it is given
+    out = D.derive(ds, vocabulary=(vocab,))
+    assert out["rules"]["concept-path"] == 2                     # both directions: each is related to the other
+    d = ds.graph(graph_iri(DERIVED))
+    assert (A, G.FAB.relatedTo, B) in d and (B, G.FAB.relatedTo, A) in d
+    prov = ds.graph(PROV_GRAPH)
+    aid = next(a for a in prov.subjects(G.FAB.method, Literal("rule:concept-path")))
+    assert prov.value(aid, G.PROV.wasDerivedFrom) in (sc.uri("Referral"), sc.uri("Platform"))
+
+
+def test_a_document_is_not_related_to_itself_and_a_plain_hierarchy_is_not_a_relationship():
+    from lab.core.semantic.fabric.vocabulary import build
+    ds = Dataset(default_union=True)
+    sc = build(name="cafe", title="t",
+               concepts=[{"id": "Referral", "name": "Referral"},
+                         {"id": "Urgent", "name": "Urgent", "parent": "Referral"}], relationships=[])
+    vocab = URIRef("urn:lab:semantic:vocab:cafe")
+    for t in sc.graph():
+        ds.graph(vocab).add(t)
+    G.assert_triple(ds, A, G.DCT.subject, sc.uri("Referral"), rung=EXTRACTED, method="m")
+    G.assert_triple(ds, A, G.DCT.subject, sc.uri("Urgent"), rung=EXTRACTED, method="m")
+    G.assert_triple(ds, B, G.DCT.subject, sc.uri("Urgent"), rung=EXTRACTED, method="m")
+    out = D.derive(ds, vocabulary=(vocab,))
+    assert out["rules"]["concept-path"] == 0        # broader/narrower is not a typed relationship
+    assert (A, G.FAB.relatedTo, A) not in ds.graph(graph_iri(DERIVED))

@@ -489,7 +489,11 @@ class FabricService:
         """Rebuild the derived rung D from the trusted rungs (two rules, `derive.RULES`) and persist it. Counts only.
         On a persist failure D is left EMPTY in memory (not restored to the previous derivation): D is recomputed,
         never asserted, so an empty D is honest until the next derivation, where a stale one would not be."""
-        out = DR.derive(self.ds)
+        # Only schemes that declare their own relationship types are context for a derivation: a capability map
+        # is a hierarchy, and unioning its 1,600 concepts in would cost the rule everything and tell it nothing.
+        vocab = [URIRef(f"urn:lab:semantic:vocab:{n}") for n, sc in (self._schemes() or {}).items()
+                 if getattr(sc, "relationships", None)]
+        out = DR.derive(self.ds, vocabulary=vocab)
         self._persist((DERIVED, "prov"), lambda: DR.clear(self.ds))
         return out
 

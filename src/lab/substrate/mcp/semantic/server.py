@@ -187,10 +187,11 @@ def semantic_schemes() -> list:
 @server.tool()
 def semantic_concepts(scheme: str, root_label: str | None = None, depth: int | None = None,
                       kind: str = "capability") -> list:
-    """Concepts of a reference scheme: the whole map, or the subtree under `root_label`
-    (e.g. 'Patient Management') to `depth` levels. kinds: capability, value-stream, org-unit,
-    stakeholder, information."""
-    return S.concepts(scheme, root_label, depth, kind)
+    """Concepts of a scheme: the whole vocabulary, or the subtree under `root_label` (e.g. 'Patient Management')
+    to `depth` levels. Kinds in a capability map: capability, value-stream, org-unit, stakeholder, information.
+    Pass an EMPTY kind for every kind at once, which is what a domain ontology needs — its concepts are entities,
+    references and events, and asking for one of them would silently return part of the vocabulary."""
+    return S.concepts(scheme, root_label, depth, kind or None)
 
 
 @server.tool()

@@ -122,7 +122,8 @@ def test_an_artifacts_life_through_the_tools():
     assert call("semantic_search", text="x", state="published") == []
     assert call("semantic_recommend", text="ADR-14 Event bus · decision record") == []      # nothing published yet
     # d references m and m is delivered under the meeting → rule 1 derives d relatedTo that context (rung D)
-    assert call("semantic_derive") == {"derived": 1, "rules": {"references-context": 1, "synthesised-context": 0}}
+    derived = call("semantic_derive")
+    assert derived["derived"] == 1 and derived["rules"]["references-context"] == 1
     assert ("relatedTo", "D") in {(l["predicate"], l["rung"]) for l in call("semantic_catalog_get", iri=d["iri"])["links"]}
     assert "not computed" in call("semantic_metrics")["note"]
     import json as _json

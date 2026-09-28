@@ -233,7 +233,8 @@ def test_schemes_and_concepts():
     allc = call("semantic_concepts", scheme="synthetic-v1")
     assert [c["label"] for c in allc] == ["Care Delivery", "Triage", "Discharge", "Discharge Letter", "Billing"]
     sub = call("semantic_concepts", scheme="synthetic-v1", root_label="Discharge", depth=0)
-    assert sub == [{"id": "c3", "label": "Discharge", "level": 2, "tier": 1, "parent": "c1", "definition": ""}]
+    assert [{k: v for k, v in c.items() if k in ("id", "label", "level", "tier", "parent")} for c in sub] == \
+        [{"id": "c3", "label": "Discharge", "level": 2, "tier": 1, "parent": "c1"}]
     assert [c["label"] for c in call("semantic_concepts", scheme="synthetic-v1", kind="value-stream")] == ["Admit Patient"]
     assert "unknown scheme" in call_error("semantic_concepts", scheme="nope")
     assert "no capability named 'Nope'" in call_error("semantic_concepts", scheme="synthetic-v1", root_label="Nope")

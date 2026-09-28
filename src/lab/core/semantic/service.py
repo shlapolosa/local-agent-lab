@@ -141,7 +141,11 @@ class SemanticService:
             if not hits:
                 raise KeyError(f"no {kind} named '{root_label}' in {scheme}")
             root = hits[0]["id"]
-        return [{k: c.get(k) for k in ("id", "label", "level", "tier", "parent", "definition")}
+        # The original six keys are ALWAYS present: callers index `c["parent"]` and test it for None, so a key
+        # dropped for being empty is a KeyError in somebody else's loop. `module` and `kind` place a DOMAIN
+        # concept and are added only where the scheme has them, so a capability map answers exactly as before.
+        return [{**{k: c.get(k) for k in ("id", "label", "level", "tier", "parent", "definition")},
+                 **{k: c[k] for k in ("module", "kind") if c.get(k)}}      # kind is always set; module is not
                 for c in sc.subtree(root, depth, kind)]
 
     def export_archimate(self, scheme, root_label=None, depth=None, kind="capability", views="overview,branches"):

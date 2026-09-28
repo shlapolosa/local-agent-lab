@@ -121,3 +121,14 @@ def test_columns_the_fabric_does_not_model_are_carried_not_dropped():
     assert "id" not in c["extra"] and "definition" not in c["extra"]      # what is modelled is not duplicated
     assert s.rows()[0]["fhir"] == "ServiceRequest" and s.rows()[0]["id"] == "Referral"
     assert set(s.rows()[0]) >= {"id", "name", "module", "kind", "parent", "definition", "fhir"}
+
+
+def test_find_matches_a_concept_id_exactly_and_prefers_it_over_a_label():
+    """The classifier is shown the concepts and answers with their IDS, so linking must accept one. An id wins
+    outright: were some other concept's label to equal this id, linking both would be a silent wrong answer."""
+    s = scheme(concepts=[CONCEPTS[0], {"id": "Other", "name": "Referral"}], relationships=[])
+    assert [c["id"] for c in s.find("Referral")] == ["Referral"]          # the id, not the namesake
+    assert [c["id"] for c in s.find("DigitalPlatform")] == []             # not in this two-concept scheme
+    s2 = scheme(relationships=[])
+    assert [c["id"] for c in s2.find("DigitalPlatform")] == ["DigitalPlatform"]
+    assert [c["id"] for c in s2.find("digital platform")] == ["DigitalPlatform"]

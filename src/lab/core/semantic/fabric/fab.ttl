@@ -41,8 +41,8 @@ fab:references      a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range
 # subject axis = dct:subject -> skos:Concept in a scheme (no fabric property needed)
 
 # --- governance and custody
-fab:relatedTo       a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:DeliveryContext ;
-    rdfs:comment "DERIVED (rung D): related to a context through something it references" .
+fab:relatedTo       a owl:ObjectProperty ; rdfs:domain fab:Artifact ;
+    rdfs:comment "DERIVED (rung D): related to a delivery context through something it references, or to another artifact through the vocabulary concepts both are about. No range is declared: the two derivations relate an artifact to different kinds of thing, and an intersection of both would be satisfiable by neither." .
 fab:synthesisedFrom a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Artifact ;
     rdfs:comment "a record the fabric drafted FROM another (a decision record from minutes) — a fact of the run (rung C)" .
 fab:duplicateOf     a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Artifact ;

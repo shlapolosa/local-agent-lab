@@ -84,7 +84,9 @@ def test_concepts_and_export_archimate_via_service():
     S = service()
     tree = S.concepts("healthcare-provider-v2.0", "care delivery")
     assert [c["label"] for c in tree] == ["Care Delivery", "Triage", "Urgent Triage", "Discharge"]
-    assert set(tree[0]) == {"id", "label", "level", "tier", "parent", "definition"}
+    # the six every caller indexes are always there (one tests `parent is None`); `module` places a DOMAIN
+    # concept and a capability map has none, so it is absent here rather than a null on a thousand rows
+    assert set(tree[0]) >= {"id", "label", "level", "tier", "parent", "definition"} and "module" not in tree[0]
     assert [c["label"] for c in S.concepts("healthcare-provider-v2.0", "Care Delivery", depth=1)] == ["Care Delivery", "Triage", "Discharge"]
     assert [c["label"] for c in S.concepts("healthcare-provider-v2.0", kind="value-stream")] == ["Admit Patient"]
     assert len(S.concepts("insurance-v5.0")) == 3

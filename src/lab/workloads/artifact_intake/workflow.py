@@ -48,7 +48,7 @@ PROMPT_REVIEW = ("Review this artifact's record before it is published: is the d
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
              schemas: dict | None = None, doc_types: dict | None = None, threshold: float = 0.75,
              default_label: str = "", owners: OwnerMap | None = None, overlap_threshold: float = 0.85,
-             tracer=None, root_ctx=None, run_id: str = ""):
+             vocabulary: str = "", tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment.
     `agents` and `schemas` are keyed `classifier` / `synthesis`; an absent agent makes its step a pass-through."""
     from lab.platform import config
@@ -56,7 +56,7 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", 
             "credential": credential, "agents": dict(agents or {}), "schemas": dict(schemas or {}),
             "doc_types": dict(doc_types or {}), "threshold": float(threshold), "default_label": default_label,
             "owners": owners or OwnerMap.empty(), "overlap_threshold": float(overlap_threshold),
-            "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
+            "vocabulary": vocabulary, "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
 
 
 # ------------------------------------------------------------------------------------------ helpers
@@ -64,6 +64,24 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", 
 def _label_of(pointer: dict) -> str:
     ident = pointer.get("ref") or pointer.get("handle") or pointer.get("itemId") or pointer.get("workItem") or ""
     return str(ident).rstrip("/").split("/")[-1]
+
+
+async def _vocabulary(cfg: dict) -> list[dict]:
+    """The concepts the classifier may CHOOSE from, read through the gateway at classification time.
+
+    Shown rather than remembered: a document's subjects used to be free text the agent invented, which then had
+    to match a concept's label exactly to become a link — so an honest synonym became a miss. A vocabulary small
+    enough to show (the domain ontology is ~130 concepts, where a capability map is thousands) turns the step
+    from guessing into choosing. A deployment with no vocabulary configured, or a read that fails, degrades to
+    the old behaviour rather than failing the run: an unclassified record is worse than an unlinked one."""
+    if not cfg.get("vocabulary"):
+        return []
+    try:
+        got = await gateway.call(cfg, SemanticTools.concepts, {"scheme": cfg["vocabulary"], "kind": ""})
+        return [{k: c.get(k) for k in ("id", "label", "definition", "module") if c.get(k)} for c in got or []]
+    except Exception as e:                      # noqa: BLE001 — a vocabulary that cannot be read is not a gate
+        print(f"[intake] vocabulary {cfg['vocabulary']} unreadable: {type(e).__name__}: {e}", flush=True)
+        return []
 
 
 def _describe(state: dict) -> str:
@@ -119,6 +137,7 @@ def build_workflow(cfg):
                          "path": (state.get("hints") or {}).get("path", ""),
                          "produced_by": state.get("produced_by") or "",
                          "document_types": [{"iri": k, **v} for k, v in cfg["doc_types"].items()],
+                         "concepts": await _vocabulary(cfg),
                          "hints": state.get("hints") or {}}
                 suggestion = await run_gated(cfg["agents"]["classifier"], json.dumps(brief, ensure_ascii=False),
                                              step="classification", validator=classify_gate)

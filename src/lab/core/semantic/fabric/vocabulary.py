@@ -114,9 +114,16 @@ class DomainScheme(SkosScheme):
         return Namespace(f"{self.base.rstrip('#')}/rel#")[name]
 
     def find(self, label):
-        """Concepts whose PREFERRED or ALTERNATIVE label matches, case-folded and trimmed. The reference schemes
-        match the preferred label alone, which is why an intake's honest synonym lands in `missed`."""
-        want = str(label).strip().casefold()
+        """Concepts matching an ID, a PREFERRED label or an ALTERNATIVE label, case-folded and trimmed.
+
+        An exact id wins outright and alone: the classifier is shown these concepts and answers with their ids,
+        and were another concept's label to equal this id, returning both would link a document to something it
+        was never about. The reference schemes match the preferred label only, which is why an intake's honest
+        synonym lands in `missed` rather than on a concept."""
+        text = str(label).strip()
+        if text in self.concepts:
+            return [self.concepts[text]]
+        want = text.casefold()
         return [c for c in self.concepts.values()
                 if want in {c["label"].strip().casefold(), *(a.strip().casefold() for a in c.get("alt") or [])}]
 

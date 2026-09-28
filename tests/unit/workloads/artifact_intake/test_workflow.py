@@ -84,7 +84,8 @@ class Fabric:
         return {k: v for k, v in t.items() if v is not None}
 
 
-def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, default_label="", tools=None, owners=None):
+def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, default_label="", tools=None,
+            owners=None, vocabulary=""):
     # `None` for a tool = the gateway does NOT expose it (a missing grant, a version skew): unlisted, not just unanswered
     hidden = {k for k, v in (tools or {}).items() if v is None}
     router = Router(fab.tools(**(tools or {})), hidden=hidden, full=True)
@@ -95,7 +96,7 @@ def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, def
                   "doc_types": DOC_TYPES, "threshold": threshold, "default_label": default_label,
                   # the shipped map's lab rule: a lab product's owner is the person who asked for the run
                   "owners": owners or OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}}),
-                  "overlap_threshold": 0.85})
+                  "overlap_threshold": 0.85, "vocabulary": vocabulary})
     h.close = lambda: ctx.__exit__(None, None, None)
     return h
 
@@ -362,3 +363,41 @@ def test_a_new_version_that_published_records_reference_tells_their_owners():
     finally:
         h.close()
     assert "impact-notice" not in [a["kind"] for a in h.router.called(ApprovalTools.ask)] and not out.get("notice_id")
+
+
+def test_the_classifier_is_shown_the_vocabulary_and_its_chosen_ids_become_links():
+    """The payoff of owning a vocabulary: subjects are CHOSEN from it and link by id, instead of being invented
+    and then having to match a label exactly. A vocabulary that cannot be read degrades to the old behaviour,
+    because an unclassified record is worse than an unlinked one."""
+    concepts = [{"id": "Referral", "label": "Referral", "definition": "A request to transfer care.",
+                 "module": "CARE"},
+                {"id": "DigitalPlatform", "label": "Digital platform", "module": "ENG"}]
+    fab = Fabric()
+    seen = {}
+
+    class Choosing(FakeAgent):
+        def __init__(self):
+            super().__init__({**CLASSIFICATION, "subjects": ["Referral", "Widget"]})
+
+        async def run(self, text, **kw):                      # the brief the agent is handed
+            seen["brief"] = json.loads(text)
+            return await super().run(text, **kw)
+
+    h = harness(fab, classifier=Choosing(), tools={"semantic_concepts": concepts}, vocabulary="cafe")
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert [c["id"] for c in seen["brief"]["concepts"]] == ["Referral", "DigitalPlatform"]
+    assert h.router.called(SemanticTools.concepts)[0] == {"scheme": "cafe", "kind": ""}
+    linked = h.router.called(SemanticTools.vocab_link)[0]["terms"]
+    assert linked == ["Referral", "Widget"]                   # ids go straight to the link, misses to a proposal
+
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), vocabulary="cafe",
+                tools={"semantic_concepts": RuntimeError("no grant")})
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert h.router.called(SemanticTools.vocab_link)          # the run still classifies and still links
