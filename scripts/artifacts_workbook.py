@@ -23,6 +23,7 @@ become the master it came from is a second source of truth, and that is the fail
 """
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import sys
@@ -82,21 +83,25 @@ def retrieval_for(artifact_id: str, record_type: str) -> str:
     return "key" if record_type else "vector"
 
 
-def _licensed() -> dict:
-    """The vector-mode artifacts published from licensed workbooks — `store id -> workbook stem`."""
+@functools.lru_cache(maxsize=1)
+def _publisher():
+    """The corpus's publication of record, loaded ONCE. Its tables — what is licensed, how each
+    artifact is read, which masters are private and where they live — are the only copies; this
+    script reads them rather than restating them."""
     spec = importlib.util.spec_from_file_location(
-        "_publish_corpus_w", ROOT / "scripts" / "publish_usecase_corpus.py")
+        "_publish_corpus", ROOT / "scripts" / "publish_usecase_corpus.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return {str(k): str(v) for k, v in getattr(module, "WORKBOOKS", {}).items()}
+    return module
+
+
+def _licensed() -> dict:
+    """The vector-mode artifacts published from licensed workbooks — `store id -> workbook stem`."""
+    return {str(k): str(v) for k, v in getattr(_publisher(), "WORKBOOKS", {}).items()}
 
 
 def _retrieval_table() -> dict:
-    spec = importlib.util.spec_from_file_location(
-        "_publish_corpus_r", ROOT / "scripts" / "publish_usecase_corpus.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return dict(getattr(module, "RETRIEVAL", {}))
+    return dict(getattr(_publisher(), "RETRIEVAL", {}))
 
 
 #: The docx register (what is PRIMARY) and the map from a primary artifact to the corpus tables
@@ -156,7 +161,9 @@ def catalogue() -> dict:
 
 
 def master_path(artifact_id: str) -> Path:
-    return ROOT / "src/lab/core/usecase/seed/masters" / f"{artifact_id.replace('-', '_')}.md"
+    """Where this artifact's master lives — the PUBLISHER's answer, so a private artifact is written
+    outside the repository by the same rule that later publishes it by reference."""
+    return _publisher().master_for(artifact_id)
 
 
 def sheet_rows(artifact_id: str, parsed: master.Master, entry) -> list[list]:
@@ -335,11 +342,11 @@ def read_primary_sheet(path: Path, title: str) -> dict:
     if title not in book.sheetnames:
         raise WorkbookError(f"no sheet {title!r} in {path.name}")
     sheet = book[title]
-    out, current, headers, rows = {}, "", (), []
+    out, current, name, headers, rows = {}, "", "", (), []
 
     def close():
         if current and headers and rows:
-            out[current] = master.Master(title=current, headers=headers, rows=tuple(rows),
+            out[current] = master.Master(title=name or current, headers=headers, rows=tuple(rows),
                                          meta={"Artifact": current.replace("-", "_")})
 
     for row in sheet.iter_rows():
@@ -348,6 +355,9 @@ def read_primary_sheet(path: Path, title: str) -> dict:
         if first.startswith(_TABLE_MARKER):
             close()
             current, headers, rows = first[len(_TABLE_MARKER):].strip(), (), []
+            # The marker is `— <id> | <title>`: the id says WHICH artifact, the title is what a
+            # citation opens. Keeping only the id headed every new master with its slug.
+            name = cells[1] if len(cells) > 1 and cells[1] else current
             continue
         if not current or first in ("Read as",) or not any(cells):
             continue
@@ -361,6 +371,33 @@ def read_primary_sheet(path: Path, title: str) -> dict:
             # and trimming it returns a row one column short that still looks like a table.
             rows.append(tuple((cells + [""] * len(headers))[:len(headers)]))
     close()
+    return out
+
+
+def read_all_tables(path: Path) -> dict:
+    """Every table in the workbook, `{artifact_id: Master}`, found by its MARKER on any sheet.
+
+    The marker names the table; the sheet title is presentation, and the team reorganises
+    presentation. Measured 28 Sep 2026: their CAFÉ bundle moved the business capability map to
+    step 3 and the AI capability map to step 6, and an importer that COMPUTED the title from this
+    repository's register refused both while each table still said exactly which artifact it was.
+
+    One table shown on two sheets (the bundle offers `financial-formulas` under both the benefit
+    library and the finance assumptions) is ONE table when the copies agree and a refusal when they
+    do not — letting the later sheet win would publish whichever copy the workbook listed last.
+    """
+    book = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    titles = [t for t in book.sheetnames if t != INDEX]
+    book.close()
+    out, seen_on = {}, {}
+    for title in titles:
+        for artifact_id, parsed in read_primary_sheet(path, title).items():
+            if artifact_id in out and (out[artifact_id].headers, out[artifact_id].rows) != (
+                    parsed.headers, parsed.rows):
+                raise WorkbookError(f"{artifact_id} differs between sheets "
+                                    f"{seen_on[artifact_id]!r} and {title!r} — resolve it there")
+            out.setdefault(artifact_id, parsed)
+            seen_on.setdefault(artifact_id, title)
     return out
 
 
@@ -444,29 +481,37 @@ def main(argv: list[str]) -> int:
     if command in ("import", "check"):
         if not rest:
             raise SystemExit("which workbook?")
-        path, reg = Path(rest[0]), register()
-        mapping = primary_map()["inputs"]
+        path = Path(rest[0])
         changed, failed = [], []
-        for name, row in ((r[0], dict(zip(reg["inputs"]["headers"], r)))
-                          for r in reg["inputs"]["rows"]):
-            title = sheet_name(name, row.get("Consumed at step", ""))
-            try:
-                back = read_primary_sheet(path, title)
-            except WorkbookError as e:
-                failed.append(f"{name}: {e}")
+        try:
+            # By MARKER, on any sheet — see `read_all_tables`. A table this repository has no
+            # master for yet is written as a new one; a master the workbook does not carry is left
+            # exactly as it is, because a table missing from an exchange file is not a deletion.
+            back = read_all_tables(path)
+        except WorkbookError as e:
+            back, failed = {}, [str(e)]
+        for artifact_id, parsed in back.items():
+            target = master_path(artifact_id)
+            before = master.parse(target.read_text()) if target.is_file() else None
+            if before and before.rows == parsed.rows and before.headers == parsed.headers:
                 continue
-            for artifact_id, parsed in back.items():
-                target = master_path(artifact_id)
-                before = master.parse(target.read_text()) if target.is_file() else None
-                if before and before.rows == parsed.rows and before.headers == parsed.headers:
-                    continue
-                changed.append(f"{artifact_id}: "
-                               f"{len(before.rows) if before else 0} -> {len(parsed.rows)} rows")
-                if command == "import":
-                    # Rendered from the PARSED workbook: derived, never transcribed.
-                    keep = before.meta if before else parsed.meta
-                    target.write_text(master.render(master.Master(
-                        title=parsed.title, headers=parsed.headers, rows=parsed.rows, meta=keep)))
+            changed.append(f"{artifact_id}: "
+                           f"{len(before.rows) if before else 0} -> {len(parsed.rows)} rows")
+            if command == "import":
+                # Rendered from the PARSED workbook: derived, never transcribed. The master's own
+                # meta survives (a `Section` is the artifact's), but SOURCE is restated: the rows
+                # now come from this workbook, and a master misstating its provenance defeats the
+                # one link DR-02's derivation exists to make checkable. `Rendered` goes with it —
+                # it described the old source's generator.
+                meta = {**(before.meta if before else parsed.meta), "Source": path.name,
+                        "Rendered": "imported from the source above by "
+                                    "scripts/artifacts_workbook.py"}
+                # A private master's directory lives under git-ignored var/ and does not exist
+                # in a fresh checkout or worktree.
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(master.render(
+                    title=before.title if before else parsed.title, headers=parsed.headers,
+                    rows=parsed.rows, meta=meta))
         for line in changed + [f"REFUSED {f}" for f in failed]:
             print(f"  {line}")
         print(f"{'written' if command == 'import' else 'checked'}: "

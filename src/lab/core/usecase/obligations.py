@@ -106,33 +106,64 @@ def _mapping_rows(rows=None) -> dict[str, str]:
             values = list(row)
         if len(values) < 2:
             raise ObligationError(f"a mapping row needs a class and what it mandates; got {row!r}")
-        label, cell = values[0], values[1]
-        match = _CLASS_ROW.match(str(label).strip())
-        out[match.group(1).upper() if match else "BASELINE"] = str(cell)
+        label, cell = str(values[0]).strip(), str(values[1])
+        out[_row_kind(label)] = cell
     return out
 
 
-def _obligations_from(cell: str, source: str) -> list[Obligation]:
-    """Split a mapping cell into obligations, following "All of E1" rather than reading it as one.
+def _row_kind(label: str) -> str:
+    """Which KIND of row this is, from its label — and a refusal for a label nobody wrote a rule for.
 
-    Cells are `·`-separated clauses; a clause may name a guardrail or may be pure prose. Every
-    clause is emitted; supersession is settled once, in `_supersede`, because it cannot be decided
-    from inside one cell.
+    It used to be "an E/I class, else the baseline", so every other row was filed as BASELINE and
+    the LAST one won. Measured 28 Sep 2026: the CAFÉ bundle added a domain floor and an estate-level
+    row after the baseline, and every step's baseline became the estate row — prompt integrity,
+    agent identity, component admission, registration and ontology conformance gone from every
+    control set, with nothing failing. A row whose meaning is unknown is refused, never guessed.
     """
-    out: list[Obligation] = []
+    match = _CLASS_ROW.match(label)
+    if match:
+        return match.group(1).upper()
+    low = label.lower()
+    if low.startswith("baseline"):
+        return "BASELINE"
+    if low.startswith("domain floor"):
+        return f"DOMAIN FLOOR:{low}"
+    if low.startswith("estate level"):
+        return "ESTATE"
+    raise ObligationError(f"the guardrail mapping has a row {label!r} this derivation has no rule "
+                          f"for — a control set cannot be derived from a row it does not "
+                          f"understand, and guessing filed a whole row under the wrong class once")
+
+
+#: One clause of the mapping, keyed for supersession: `(guardrail, n)` for the n-th clause naming
+#: that guardrail within ITS class row, or the prose itself for a clause naming none.
+_Clause = tuple[tuple[str, int], Obligation]
+
+
+def _obligations_from(cell: str, source: str) -> list[_Clause]:
+    """Split a mapping cell into keyed clauses, following "All of E1" rather than reading it as one.
+
+    Cells are `·`-separated clauses; a clause may name a guardrail or may be pure prose. The key is
+    `(guardrail, n)`, n counting that guardrail's clauses WITHIN this cell, because a class may
+    state two requirements under one guardrail — E2's G09 is both "human confirmation, or a
+    policy-bounded gate" and "approver holds a current, role-specific authorisation". Keyed by
+    guardrail alone the second erased the first. Supersession is settled once, in `_supersede`.
+    """
+    out: list[_Clause] = []
+    seen: dict[str, int] = {}
     for clause in (c.strip() for c in cell.split("·")):
         if not clause or _INHERITS.match(clause):
             continue
         ids = _GUARDRAIL.findall(clause)
-        out.append(Obligation(text=clause, source=source, guardrail=ids[0] if ids else ""))
+        gid = ids[0] if ids else ""
+        n = seen.get(gid, 0)
+        seen[gid] = n + 1
+        out.append(((gid, n) if gid else (clause, 0),
+                    Obligation(text=clause, source=source, guardrail=gid)))
     return out
 
 
-def _key(obligation: Obligation) -> str:
-    return obligation.guardrail or obligation.text
-
-
-def _supersede(found: list[Obligation]) -> list[Obligation]:
+def _supersede(found: list[_Clause]) -> list[Obligation]:
     """One obligation per guardrail: the HIGHEST class's wording, in first-seen order.
 
     `_resolve` recurses into the inherited class first, so the inherited clause arrives before the
@@ -143,38 +174,63 @@ def _supersede(found: list[Obligation]) -> list[Obligation]:
 
     A higher class re-stating a guardrail is OVERRIDING it, so the later wording wins — while the
     position is the first one, because the order a control set is read in is its own information.
+
+    A clause overrides the clause at the SAME position for its guardrail — E3's single G09 clause
+    restates E2's first (the confirmation mode) and leaves E2's second (the approver's
+    authorisation) inherited. The clauses of one guardrail are then read back as ONE obligation, in
+    order, naming every class they came from: a reviewer reads one line per control.
     """
-    order: dict[str, int] = {}
+    by_key: dict = {}
+    for key, obligation in found:
+        by_key[key] = obligation           # insertion order kept; a later class's wording wins
     out: list[Obligation] = []
-    for obligation in found:
-        key = _key(obligation)
-        if key in order:
-            out[order[key]] = obligation
-        else:
-            order[key] = len(out)
-            out.append(obligation)
+    merged: dict[str, int] = {}
+    for (name, _), obligation in by_key.items():
+        gid = obligation.guardrail
+        if gid and gid in merged:
+            prior = out[merged[gid]]
+            sources = list(dict.fromkeys([*prior.source.split(" + "), obligation.source]))
+            out[merged[gid]] = Obligation(text=f"{prior.text} · {obligation.text}",
+                                          source=" + ".join(sources), guardrail=gid)
+            continue
+        if gid:
+            merged[gid] = len(out)
+        out.append(obligation)
     return out
 
 
-def _resolve(label: str, rows: dict[str, str]) -> list[Obligation]:
+def _resolve(label: str, rows: dict[str, str]) -> list[_Clause]:
     """Everything this class mandates, inherited rows FIRST so a re-statement can supersede them."""
     cell = rows.get(label)
     if cell is None:
         raise ObligationError(f"the mapping has no row for {label!r}; have {sorted(rows)}")
-    out: list[Obligation] = []
+    out: list[_Clause] = []
     inherits = _INHERITS.search(cell)
     if inherits:
         out += _resolve(inherits.group(1).upper(), rows)
     return out + _obligations_from(cell, label)
 
 
-def mandatory_for(exposure: int, influence: int, *, mapping_rows=None) -> list[Obligation]:
-    """What these two classes mandate, baseline included and inheritance resolved."""
+def mandatory_for(exposure: int, influence: int, *, mapping_rows=None,
+                  domain: str = "general") -> list[Obligation]:
+    """What these two classes mandate for a step in this `domain`, baseline included and
+    inheritance resolved.
+
+    A DOMAIN FLOOR row applies when its label names the step's domain ("Domain floor — clinical or
+    health data" names `clinical`): the exposure floor itself is `exposure.DOMAIN_FLOOR`, and this
+    row adds the controls that come with it. The ESTATE row never applies to a step — it says so —
+    and is read by `estate_level` instead.
+    """
     for name, value in (("exposure", exposure), ("influence", influence)):
         if not isinstance(value, int) or not 0 <= value <= 3:
             raise ObligationError(f"{name}: {value!r} is not a published class (0-3)")
     rows = _mapping_rows(mapping_rows)
+    if "BASELINE" not in rows:
+        raise ObligationError(f"the guardrail mapping has no baseline row; have {sorted(rows)}")
     out = _obligations_from(rows["BASELINE"], "baseline")
+    for kind, cell in rows.items():
+        if kind.startswith("DOMAIN FLOOR:") and re.search(rf"\b{re.escape(domain)}\b", kind):
+            out += _obligations_from(cell, "domain floor")
     if exposure:
         out += _resolve(f"E{exposure}", rows)
     if influence:
@@ -182,6 +238,14 @@ def mandatory_for(exposure: int, influence: int, *, mapping_rows=None) -> list[O
     # Once, over the whole set: a class that re-states a guardrail is strengthening it, and the
     # baseline/inherited wording must not shadow the stronger one.
     return _supersede(out)
+
+
+def estate_level(mapping_rows) -> list[Obligation]:
+    """The estate-level guardrails — evaluated at registration and as standing estate checks, never
+    from a step's facets. Kept readable rather than dropped: not applying a row is not discarding it.
+    Empty when the mapping has no estate row."""
+    cell = _mapping_rows(mapping_rows).get("ESTATE")
+    return [o for _, o in _obligations_from(cell, "estate level")] if cell else []
 
 
 # ---------------------------------------------------------------- the predicates
@@ -279,7 +343,8 @@ def derive(workflow: Workflow, *,
     by_step: dict[str, list[Obligation]] = {}
     for step in workflow:
         exposure, influence = exposure_of(step), influence_of(workflow, step.id)
-        obligations = mandatory_for(exposure, influence, mapping_rows=mapping_rows)
+        obligations = mandatory_for(exposure, influence, mapping_rows=mapping_rows,
+                                    domain=step.domain)
         claimed = {o.guardrail for o in obligations if o.guardrail}
         catalogue = {g["id"]: g for g in live}
         for gid in sorted(triggered_for(workflow, step.id, conditions=conditions,

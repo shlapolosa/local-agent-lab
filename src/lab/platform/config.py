@@ -203,6 +203,12 @@ REFERENCE_MODELS_DIR = _e("REFERENCE_MODELS_DIR") or str(VAR_DIR / "reference-so
 #: Unset means the local directory, which is how a workstation with the workbooks already works.
 REFERENCE_MODELS_REFS = tuple(r.strip() for r in _e("REFERENCE_MODELS_REFS", "").split(",")
                               if r.strip())
+# The corpus masters that may not live in this PUBLIC repository — sourced from RESTRICTED or
+# unclassified tenant documents (the ADHDS CRMF, the Target State Architecture) — BY REFERENCE into
+# the private artifact store, exactly like the licensed workbooks above. Read only by the operator's
+# publish script (scripts/publish_usecase_corpus.py `PRIVATE`); no service needs it.
+REFERENCE_PRIVATE_MASTERS_REFS = tuple(
+    r.strip() for r in _e("REFERENCE_PRIVATE_MASTERS_REFS", "").split(",") if r.strip())
 
 # --- collaboration provider (Microsoft Graph adapter: src/lab/substrate/mcp/graph/) ---
 # WHICH adapter the substrate wires behind the vendor-neutral `collab_mcp` port. The name is a key

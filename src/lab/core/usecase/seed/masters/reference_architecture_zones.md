@@ -1,20 +1,21 @@
 # Reference architecture model — zones
 
 **Artifact:** reference_architecture
-**Source:** CAFE_Artifacts_Visualisation_v0_25.html
-**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+**Source:** cafe-artifacts.xlsx
+**Rendered:** imported from the source above by scripts/artifacts_workbook.py
 **Section:** zones
 
-| id | label | sub |
-|---|---|---|
-| exp | Experience & Channels | channels |
-| gw | Edge & AI Gateway | runtime enforcement |
-| cog | Cognitive Plane | agents · orchestration |
-| knw | Knowledge & Semantic | grounding (G06) |
-| mod | Models | via APIM gateway |
-| too | Tools & Integration | actions (G02) |
-| data | Data Plane | systems of record |
-| ext | External Systems | mediated by APIM |
-| ident | Identity & Trust | cross-cutting |
-| obs | Observability · Cost · Eval | cross-cutting |
-| plat | Platform Foundation | Azure landing zone · WAF |
+| id | label | sub | layer |
+|---|---|---|---|
+| ex | Experience & received agents | how people and received agents reach AI | Layer 1 |
+| gw | Edge & AI gateway | every AI call passes the gateway and the sensitive-data decision | Layer 2 |
+| ag | Agent plane | build · host · orchestrate · safeguard | Layer 3 |
+| kn | Knowledge & semantic | ground | Layer 4 |
+| tl | Tools, actions & integration | act | Layer 4 |
+| mp | Model providers by residency | infer — in-region · sovereign · out-of-region | Layer 4 |
+| dt | Data | store | Layer 5 |
+| bn | Boundary — traditional systems | reached only by integration; not catalogued | Layer 5 |
+| me | Model engineering | source · adapt · validate · operate | Layer 5 |
+| sec | Security pillar | identity · secrets · egress · threat · data protection | Pillar |
+| gov | Governance & assurance pillar | control · lifecycle · evaluation · evidence | Pillar |
+| pf | Platform foundation | governed cloud foundation beneath every layer | Foundation |

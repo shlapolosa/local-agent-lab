@@ -29,7 +29,7 @@ MASTERS = ROOT / "src" / "lab" / "core" / "usecase" / "seed" / "masters"
 #: corpus whose artifacts drift apart in version cannot be pinned coherently, and the one time an
 #: artifact was corrected on its own (v0.25.1) the next corpus-wide run silently RE-RELEASED the
 #: older v0.25 over it, because that is the version this script releases.
-VERSION = "v0.29"
+VERSION = "v0.30"
 
 #: artifact_id -> (record_type, natural key, owner). The id is the corpus's name for the artifact
 #: and differs from the file stem where a consumer already spells it differently.
@@ -119,6 +119,68 @@ ARTIFACTS = {
     "readiness-gates-verdicts": ("readiness-verdict", "Verdict", "architecture governance"),
     "risk-derivation-classes": ("risk-class-scale", "Class", "architecture governance"),
     "risk-derivation-moves": ("risk-move", "Move", "architecture governance"),
+    # --- The CAFÉ bundle of 28 Sep 2026 (cafe-artifacts.xlsx), imported by
+    # scripts/artifacts_workbook.py. Keys were VERIFIED unique and non-empty against the rows, not
+    # guessed; record types name one row; owners are the workbook's own. Several are PRIVATE — see
+    # `PRIVATE` below.
+    "ai-as-is-architecture": ("ai-as-is-architecture", "service name", "Platform and AI operations"),
+    "business-capability-l1": ("business-capability-l1", "id", "Enterprise architecture"),
+    "business-capability-l2": ("business-capability-l2", "id", "Enterprise architecture"),
+    "business-capability-l3": ("business-capability-l3", "id", "Enterprise architecture"),
+    "business-capability-levelling-flags": ("business-capability-levelling-flag", "id", "Enterprise architecture"),
+    "criticality-crmf-alignment": ("criticality-crmf-alignment", "class", "Architecture Board"),
+    "criticality-crmf-rules": ("criticality-crmf-rule", "#", "Architecture Board"),
+    "criticality-tier-alignment": ("criticality-tier-alignment", "class", "Architecture Board"),
+    "delivery-rate-assumptions": ("delivery-rate-assumption", "assumption", "Finance"),
+    "foundry-coverage": ("foundry-coverage", "foundry_capability", "Architecture Board"),
+    "logical-building-blocks": ("logical-building-block", "id", "Agent Council"),
+    "ontology-competency-questions": ("ontology-competency-question", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-concepts": ("ontology-concept", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-exchange-standards": ("ontology-exchange-standard", "platform,standard", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-gaps": ("ontology-gap", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-identifiers": ("ontology-identifier", "identifier", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-indicator-links": ("ontology-indicator-link", "from,concept", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-indicators": ("ontology-indicator", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-modules": ("ontology-module", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-relationships": ("ontology-relationship", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-rules": ("ontology-rule", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-sources": ("ontology-source", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-states": ("ontology-state", "id", "Domain stewards; Ontology Council arbitrates"),
+    "ontology-terminology-bindings": ("ontology-terminology-binding", "concept", "Domain stewards; Ontology Council arbitrates"),
+    "platform-architecture-principles": ("platform-architecture-principle", "domain,principle", "Agent Council"),
+    "quality-attributes-continuity-tiers": ("quality-attributes-continuity-tier", "tier", "Architecture Board"),
+    "reference-architecture-coverage": ("reference-architecture-coverage", "l3", "Agent Council"),
+    "reference-architecture-flows": ("reference-architecture-flow", "id", "Agent Council"),
+    "reference-architecture-patterns": ("reference-architecture-pattern", "id", "Agent Council"),
+    "reference-architecture-principles": ("reference-architecture-principle", "id", "Agent Council"),
+    "reference-architecture-retired-components": ("reference-architecture-retired-component", "id", "Agent Council"),
+    "retired-capability-ids": ("retired-capability-id", "retired", "Enterprise architecture"),
+    "retired-realisation-rows": ("retired-realisation-row", "capability", "Architecture Board"),
+    "risk-acceptance-authority": ("risk-acceptance-authority", "decision", "Information Security Office (risk function); ISGC oversees"),
+    "risk-class-to-crmf": ("risk-class-to-crmf", "cafe_class", "Agent Council"),
+    "risk-class-to-crmf-rules": ("risk-class-to-crmf-rule", "#", "Agent Council"),
+    "risk-process": ("risk-process", "stage", "Information Security Office (risk function); ISGC oversees"),
+    "risk-raci": ("risk-raci", "activity", "Information Security Office (risk function); ISGC oversees"),
+    "risk-rating-bands": ("risk-rating-band", "rating", "Information Security Office (risk function); ISGC oversees"),
+    "risk-register-schema": ("risk-register-schema", "field", "Information Security Office (risk function); ISGC oversees"),
+    "risk-response": ("risk-response", "residual_level", "Information Security Office (risk function); ISGC oversees"),
+    "risk-response-options": ("risk-response-option", "option", "Information Security Office (risk function); ISGC oversees"),
+    "risk-scales-cia": ("risk-scales-cia", "level", "Information Security Office (risk function); ISGC oversees"),
+    "risk-scales-likelihood": ("risk-scales-likelihood", "rating", "Information Security Office (risk function); ISGC oversees"),
+    "risk-scales-vulnerability": ("risk-scales-vulnerability", "rating", "Information Security Office (risk function); ISGC oversees"),
+    "technology-capability-l1": ("technology-capability-l1", "id", "Enterprise architecture"),
+    "technology-capability-l2": ("technology-capability-l2", "id", "Enterprise architecture"),
+    "technology-capability-l3": ("technology-capability-l3", "id", "Enterprise architecture"),
+    "traditional-as-is-architecture": ("traditional-as-is-architecture", "service name", "Application owners"),
+    "traditional-capabilities": ("traditional-capability", "id", "Enterprise architecture"),
+    "traditional-capability-domains": ("traditional-capability-domain", "id", "Enterprise architecture"),
+    "traditional-capability-realisation": ("traditional-capability-realisation", "capability,platform", "Enterprise architecture"),
+    "traditional-rating-scale": ("traditional-rating-scale", "score", "Enterprise architecture"),
+    "workload-placement-archetypes": ("workload-placement-archetype", "id", "Agent Council"),
+    "workload-placement-intake": ("workload-placement-intake", "gate", "Agent Council"),
+    "workload-placement-principles": ("workload-placement-principle", "id", "Agent Council"),
+    "workload-placement-seven-rs": ("workload-placement-seven-r", "disposition", "Agent Council"),
+    "workload-placement-stages": ("workload-placement-stage", "stage", "Agent Council"),
 }
 
 
@@ -138,6 +200,19 @@ RETRIEVAL = {
     # complete register is to read every record.
     "ai-capability-map": "whole",
     "capability-domains": "whole", "criticality-taxonomy": "whole", "readiness-gates": "whole",
+    # The CAFÉ bundle's own `Read as: whole` declarations. Every other table it carries says `key`,
+    # the record default — and none of its modes disagreed with a mode already declared here.
+    "ai-as-is-architecture": "whole",
+    "business-capability-l3": "whole",
+    "logical-building-blocks": "whole",
+    "ontology-concepts": "whole",
+    "ontology-indicator-links": "whole",
+    "ontology-relationships": "whole",
+    "reference-architecture-coverage": "whole",
+    "risk-register-schema": "whole",
+    "technology-capability-l3": "whole",
+    "traditional-as-is-architecture": "whole",
+    "traditional-capabilities": "whole",
 }
 
 #: The licensed capability WORKBOOKS — never a file in this repository. The artifact id IS the
@@ -153,8 +228,108 @@ assert set(WORKBOOKS) == VectorStores.names(), "a store the corpus does not publ
 assert set(WORKBOOKS.values()) <= set(KNOWN), "a workbook stem the semantic layer does not know"
 
 
+#: Artifacts whose masters may NOT be committed: this repository is PUBLIC, and these tables come
+#: from tenant documents that are RESTRICTED or whose classification is not stated. User decision,
+#: 28 Sep 2026 — they reach the corpus BY REFERENCE (`REFERENCE_PRIVATE_MASTERS_REFS`, the private
+#: artifact store), the path the licensed BA Guild workbooks already take, until each source is
+#: cleared. The value is WHY: an unexplained entry is one somebody deletes to make a publish go
+#: through. `tests/governance/test_restricted_corpus_stays_private.py` also reads the CONTENT of
+#: every committed master, so an import that forgets this list still fails.
+PRIVATE: dict[str, str] = {
+    "build-surface":
+        "its S1.4 row applies the ADHDS workload placement strategy, from the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "criticality-crmf-alignment":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "criticality-crmf-rules":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "criticality-tier-alignment":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "delivery-rate-assumptions":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "ontology-competency-questions":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-concepts":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-exchange-standards":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-gaps":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-identifiers":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-indicator-links":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-indicators":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-modules":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-relationships":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-rules":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-sources":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-states":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "ontology-terminology-bindings":
+        "the ontology, whose modules, concepts and sources cite ADHDS documents (the Target State Architecture, the AI use-case catalogue) — one graph, so private whole; classification not stated",
+    "platform-architecture-principles":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "quality-attributes-continuity-tiers":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "risk-acceptance-authority":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-class-to-crmf":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-class-to-crmf-rules":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-process":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-raci":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-rating-bands":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-register-schema":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-response":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-response-options":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-scales-cia":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-scales-likelihood":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "risk-scales-vulnerability":
+        "the ADHDS Cyber Risk Management Framework v2.0 — Information Security Office, RESTRICTED",
+    "traditional-as-is-architecture":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "traditional-capabilities":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "traditional-capability-domains":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "traditional-capability-realisation":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "traditional-rating-scale":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "workload-placement-archetypes":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "workload-placement-intake":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "workload-placement-principles":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "workload-placement-seven-rs":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+    "workload-placement-stages":
+        "the ADHDS Target State Architecture v1 (an Accenture deliverable) — classification not stated",
+}
+
+#: Where a private master is written by the importer, and read from before it is uploaded: inside
+#: the git-ignored var/ tree, never under src/.
+PRIVATE_DIR = Path(config.REFERENCE_MODELS_DIR) / "cafe-private"
+
+
 def master_for(artifact_id: str) -> Path:
-    return MASTERS / f"{artifact_id.replace('-', '_')}.md"
+    stem = f"{artifact_id.replace('-', '_')}.md"
+    return (PRIVATE_DIR if artifact_id in PRIVATE else MASTERS) / stem
 
 
 def already_published() -> set[str]:
@@ -186,7 +361,9 @@ def main() -> int:
     ap.add_argument("--actor", default="operator")
     args = ap.parse_args()
 
-    missing = sorted(a for a in ARTIFACTS if not master_for(a).exists())
+    # A PRIVATE master is not in this repository by design — it is published from its `art://`
+    # ref, and a missing ref is a deferral named in the loop below, not a missing master.
+    missing = sorted(a for a in ARTIFACTS if a not in PRIVATE and not master_for(a).exists())
     extra = sorted(p.stem.replace("_", "-") for p in MASTERS.glob("*.md")
                    if p.stem.replace("_", "-") not in ARTIFACTS)
     stray = sorted(set(RETRIEVAL) - set(ARTIFACTS))
@@ -203,6 +380,7 @@ def main() -> int:
     failures: dict[str, str] = {}                         # artifact -> why it could not be published
     published = released = skipped = 0
     refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_MODELS_REFS}
+    private_refs = {r.rsplit("/", 1)[-1]: r for r in config.REFERENCE_PRIVATE_MASTERS_REFS}
     everything = {**{a: ("markdown",) + spec for a, spec in ARTIFACTS.items()},
                   **{a: ("workbook", "capability", "id,parent,level", "BA Guild") for a in WORKBOOKS}}
     for artifact_id, (fmt, record_type, key, owner) in sorted(everything.items()):
@@ -220,6 +398,16 @@ def main() -> int:
                 source = ["--master-ref", refs[f"{stem}.xlsx"], "--master-format", "workbook",
                           "--scheme", scheme, "--title", title, "--retrieval", "vector",
                           "--text-fields", "path,definition"]
+            elif artifact_id in PRIVATE:
+                stem = master_for(artifact_id).name
+                if stem not in private_refs:
+                    deferred[artifact_id] = (f"private ({PRIVATE[artifact_id].split(' — ')[0]}), "
+                                             f"and REFERENCE_PRIVATE_MASTERS_REFS carries no {stem}")
+                    print(f"  {artifact_id:38} deferred — {deferred[artifact_id]}")
+                    continue
+                source = ["--master-ref", private_refs[stem], "--master-format", "markdown"]
+                if artifact_id in RETRIEVAL:
+                    source += ["--retrieval", RETRIEVAL[artifact_id]]
             else:
                 source = ["--master", str(master_for(artifact_id))]
                 if artifact_id in RETRIEVAL:

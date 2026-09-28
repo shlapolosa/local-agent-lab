@@ -35,7 +35,10 @@ def test_the_higher_class_text_supersedes_the_one_it_inherits():
     assert rows, "G09 is mandated at exposure 3"
     assert len(rows) == 1, f"a guardrail is mandated once, got {rows}"
     source, _, text = rows[0]
-    assert source == "E3", "the strengthened row is the one that stands"
+    # E3 LEADS: its wording is the one that stands for the confirmation mode. Since the CAFÉ bundle
+    # of 28 Sep 2026, E2 also contributes an orthogonal G09 clause (the approver's authorisation)
+    # that E3 does not restate, and FR-44 wants every contributing class named.
+    assert source.split(" + ")[0] == "E3", "the strengthened row is the one that stands"
     assert "not sufficient" in text, text
 
 

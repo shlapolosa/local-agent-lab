@@ -594,6 +594,32 @@ def crosscheck(files: dict[str, dict], docx_path: Path) -> list[str]:
     return problems
 
 
+#: How this generator signs the masters it renders — the `Rendered` line every master carries.
+_RENDERED_BY = "scripts/extract_cafe_seed.py"
+
+
+def writes(masters_dir: Path, stem: str) -> bool:
+    """Whether this generator may write `<stem>.md`. Two sources now render masters, and the one
+    that rendered a master says so on it: since 28 Sep 2026 the CAFÉ WORKBOOK owns every table it
+    carries (`scripts/artifacts_workbook.py import`), and re-running this generator from the
+    HTML-era seed would silently put the older content back — 32 guardrails to 26, 92 components to
+    59 — in a master that still parses, publishes and signs. A PRIVATE master is never written here
+    at all: this repository is public (`publish_usecase_corpus.PRIVATE`)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_publish_corpus_x", Path(__file__).resolve().parent / "publish_usecase_corpus.py")
+    publisher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(publisher)
+    if stem.replace("_", "-") in publisher.PRIVATE:
+        return False
+    path = masters_dir / f"{stem}.md"
+    if not path.is_file():
+        return True
+    from lab.core.reference import master
+    rendered = master.parse(path.read_text(encoding="utf-8")).meta.get("Rendered", "")
+    return not rendered or _RENDERED_BY in rendered
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("html", type=Path)
@@ -618,6 +644,9 @@ def main(argv=None) -> int:
         # overwritten their parents back into a shape the publisher refuses. The masters are signed
         # inputs; a generator that cannot regenerate them is not a generator.
         for stem, text in masters_for(name, payload).items():
+            if not writes(masters_dir, stem):
+                print(f"  {stem}.md  left alone — another source owns it (see `writes`)")
+                continue
             (masters_dir / f"{stem}.md").write_text(text, encoding="utf-8")
         path = args.out / f"{name}.json"
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=False) + "\n",

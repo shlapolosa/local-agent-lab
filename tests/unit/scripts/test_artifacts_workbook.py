@@ -239,12 +239,18 @@ def test_a_step_with_a_decimal_keeps_it():
     assert wb.sheet_name("Role rate registry", "24.2").startswith("step-24.2-")
 
 
-def test_the_retired_business_capability_map_realises_nothing_and_says_why():
-    """Step 5 matches the TECHNOLOGY map. Asking the team for the business map would ask for work
-    nothing consumes — but it stays in the register with the reason, because a row that vanished
-    would read as an oversight."""
-    entry = wb.primary_map()["inputs"]["Business capability map"]
-    assert entry["corpus"] == [] and "retired" in entry["note"]
+def test_the_business_and_technology_maps_are_BOTH_primary_and_realise_their_own_levels():
+    """Superseded 28 Sep 2026 — the CAFÉ bundle is the source of truth, and it restores the business
+    capability map as the ENTERPRISE-architecture map the early steps read (3, then 5 and 14),
+    while the TECHNOLOGY map is what step 5 matches against from there on. It had been recorded
+    here as retired, with step 5 matching the AI realisation view; that view is now step 6's."""
+    inputs = wb.primary_map()["inputs"]
+    business = inputs["Business capability map"]["corpus"]
+    technology = inputs["Technology capability map"]["corpus"]
+    assert {"business-capability-l1", "business-capability-l2", "business-capability-l3"} <= set(business)
+    assert {"technology-capability-l1", "technology-capability-l2",
+            "technology-capability-l3"} <= set(technology)
+    assert "ai-capability-map" in inputs["AI capability map — realisation view"]["corpus"]
 
 
 # ------------------------------------------- the PRIMARY registers, and full accounting
@@ -283,7 +289,7 @@ def test_a_missing_artifact_with_a_declared_schema_is_offered_as_an_empty_table(
 def test_a_missing_artifact_with_no_schema_gets_no_invented_columns():
     """An invented header is worse than an honest gap: the team would fill it in good faith and
     the result would not be readable by anything."""
-    entry = wb.primary_map()["inputs"]["Risk register"]
+    entry = wb.primary_map()["inputs"]["Historical delivery actuals"]
     assert not entry.get("corpus") and not entry.get("schema") and entry.get("note")
 
 
@@ -308,7 +314,8 @@ def test_a_sheet_for_an_artifact_nobody_supplied_yields_no_master(tmp_path):
     over nothing, which reads downstream as 'the corpus says there are none'."""
     out = tmp_path / "a.xlsx"
     wb.build_workbook(out)
-    assert wb.read_primary_sheet(out, wb.sheet_name("Risk register", "12")) == {}
+    step = dict((r[0], r[3]) for r in wb.register()["inputs"]["rows"])["Role rate registry"]
+    assert wb.read_primary_sheet(out, wb.sheet_name("Role rate registry", step)) == {}
 
 
 def test_a_row_whose_last_cell_is_legitimately_empty_keeps_it(tmp_path):
@@ -328,3 +335,106 @@ def test_a_row_whose_last_cell_is_legitimately_empty_keeps_it(tmp_path):
     path = tmp_path / "a.xlsx"
     wb.export({"criticality-taxonomy": (parsed, ("t", "A", "x"))}, path)
     assert wb.read_sheet(path, "criticality-taxonomy").rows == parsed.rows
+
+
+# ------------------------------------------------ reading a workbook the TEAM reorganised
+def _book(path, sheets):
+    """A workbook of `{title: [rows]}`, written as a person would lay it out."""
+    import openpyxl
+    book = openpyxl.Workbook()
+    book.remove(book.active)
+    for title, rows in sheets.items():
+        sheet = book.create_sheet(title)
+        for row in rows:
+            sheet.append(list(row))
+    book.save(path)
+    return path
+
+
+def _table(artifact_id, headers, *rows):
+    return [[], [f"— {artifact_id}", f"The {artifact_id} table"], ["Read as", "whole: …"], [],
+            list(headers),
+            *[list(r) for r in rows]]
+
+
+def test_a_table_is_found_by_ITS_MARKER_whatever_the_sheet_is_now_called(tmp_path):
+    """The marker names the table; the sheet title is presentation. Measured 28 Sep 2026: the
+    team's CAFÉ bundle moved the business capability map to step 3 and the AI capability map to
+    step 6, and an importer that COMPUTED the sheet title from its own register refused both —
+    while each table still carried the marker that says exactly which artifact it is."""
+    path = _book(tmp_path / "a.xlsx", {
+        "0. index": [["#", "Primary artifact"]],
+        "step-99-renamed-by-the-team": [["Artifact", "X"],
+                                        *_table("criticality-taxonomy", ("Class", "Rigor"),
+                                                ("Routine", "Standard"))],
+    })
+    got = wb.read_all_tables(path)
+    assert set(got) == {"criticality-taxonomy"}
+    assert got["criticality-taxonomy"].rows == (("Routine", "Standard"),)
+
+
+def test_one_table_shown_on_TWO_sheets_is_one_table_when_both_copies_agree(tmp_path):
+    """The bundle shows `financial-formulas` under both the benefit library and the finance
+    assumptions — the same table, offered where each reader looks for it."""
+    body = _table("financial-formulas", ("Quantity", "Formula"), ("npv", "Σ …"))
+    path = _book(tmp_path / "a.xlsx", {"0. index": [["#"]], "a": body, "b": body})
+    assert set(wb.read_all_tables(path)) == {"financial-formulas"}
+
+
+def test_two_DIFFERENT_copies_of_one_table_are_refused_rather_than_one_silently_winning(tmp_path):
+    """Two edits to 'the same' table on two sheets is a conflict a person must resolve. Letting
+    the later sheet win publishes whichever the workbook happened to list last."""
+    path = _book(tmp_path / "a.xlsx", {
+        "0. index": [["#"]],
+        "a": _table("financial-formulas", ("Quantity", "Formula"), ("npv", "one")),
+        "b": _table("financial-formulas", ("Quantity", "Formula"), ("npv", "two")),
+    })
+    with pytest.raises(wb.WorkbookError, match="financial-formulas"):
+        wb.read_all_tables(path)
+
+
+def test_the_index_sheet_is_never_read_as_a_table(tmp_path):
+    path = _book(tmp_path / "a.xlsx", {"0. index": _table("criticality-taxonomy", ("Class",),
+                                                         ("Routine",))})
+    assert wb.read_all_tables(path) == {}
+
+
+def test_an_imported_master_names_the_WORKBOOK_as_its_source_and_keeps_the_rest_of_its_meta(
+        tmp_path, monkeypatch):
+    """Keeping the old meta verbatim kept `Source: CAFE_Artifacts_Visualisation_v0_25.html` on rows
+    that now came from somewhere else — a master that misstates its own provenance, which is the
+    one thing DR-02's derivation link exists to make checkable. Everything else in the meta (a
+    `Section`, say) is still the artifact's own and survives."""
+    masters = tmp_path / "masters"
+    masters.mkdir()
+    (masters / "criticality_taxonomy.md").write_text(
+        "# Criticality taxonomy\n\n**Artifact:** criticality_taxonomy\n"
+        "**Source:** CAFE_Artifacts_Visualisation_v0_25.html\n**Section:** classes\n\n"
+        "| Class | Rigor |\n|---|---|\n| Routine | Standard |\n")
+    monkeypatch.setattr(wb, "master_path", lambda a: masters / f"{a.replace('-', '_')}.md")
+    path = _book(tmp_path / "cafe-artifacts.xlsx", {
+        "0. index": [["#"]],
+        "s": _table("criticality-taxonomy", ("Class", "Rigor"), ("Routine", "Harness")),
+    })
+    assert wb.main(["import", str(path)]) == 0
+    written = master.parse((masters / "criticality_taxonomy.md").read_text())
+    assert written.rows == (("Routine", "Harness"),)
+    assert written.meta["Source"] == "cafe-artifacts.xlsx"
+    assert written.meta["Section"] == "classes", "the artifact's own meta must survive"
+
+
+def test_a_NEW_master_takes_its_title_from_the_marker_not_its_id(tmp_path, monkeypatch):
+    """The marker row is `— <id> | <title>`. Reading only the id headed every new master
+    `# ontology-concepts` — and the title is what a citation opens."""
+    masters = tmp_path / "masters"
+    masters.mkdir()
+    monkeypatch.setattr(wb, "master_path", lambda a: masters / f"{a.replace('-', '_')}.md")
+    path = _book(tmp_path / "cafe-artifacts.xlsx", {
+        "0. index": [["#"]],
+        "s": _table("ontology-concepts", ("id", "name"), ("C1", "Patient")),
+    })
+    assert wb.main(["import", str(path)]) == 0
+    written = master.parse((masters / "ontology_concepts.md").read_text())
+    assert written.title == "The ontology-concepts table"
+    assert written.meta["Artifact"] == "ontology_concepts"
+    assert written.meta["Source"] == "cafe-artifacts.xlsx"

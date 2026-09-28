@@ -1,54 +1,84 @@
 {
- "_source": "Which corpus artifacts realise each PRIMARY artifact of the docx register, and the declared schema for those nothing yet realises. Reviewable data, not inference: the docx names differ from the published ids, and a mapping guessed at publish time is one nobody can check. `tests/unit/scripts/test_artifacts_workbook.py` asserts every register row is accounted for here — mapped, or explicitly declared unrealised — so a new register row cannot be silently dropped.",
+ "_source": "cafe-artifacts.xlsx (CAF\u00c9 bundle, 28 Sep 2026) \u2014 the index sheet's 'Corpus tables' column",
  "_schema_sources": "declared = a field list this repository actually states. `html` = the contract prose of the HTML artifact register. `code` = a module that reads the table and names its fields, which is the strongest kind: the reader and the schema cannot drift.",
  "inputs": {
   "Business capability map": {
-   "corpus": [],
-   "note": "retired 18 Sep 2026 — step 5 matches the AI capability map, which is what the rest of the framework joins on. The licensed BA Guild maps are vector-mode and never files in this repository."
+   "corpus": [
+    "business-capability-l1",
+    "business-capability-l2",
+    "business-capability-l3",
+    "business-capability-levelling-flags"
+   ]
   },
-  "AI capability map": {
+  "Ontology": {
+   "corpus": [
+    "ontology-modules",
+    "ontology-concepts",
+    "ontology-relationships",
+    "ontology-states",
+    "ontology-rules",
+    "ontology-identifiers",
+    "ontology-terminology-bindings",
+    "ontology-exchange-standards",
+    "ontology-competency-questions",
+    "ontology-indicators",
+    "ontology-indicator-links",
+    "ontology-gaps",
+    "ontology-sources"
+   ]
+  },
+  "Technology capability map": {
+   "corpus": [
+    "technology-capability-l1",
+    "technology-capability-l2",
+    "technology-capability-l3",
+    "retired-capability-ids"
+   ]
+  },
+  "AI as-is architecture": {
+   "corpus": [
+    "ai-as-is-architecture"
+   ]
+  },
+  "AI capability map \u2014 realisation view": {
    "corpus": [
     "ai-capability-map",
-    "capability-domains"
+    "capability-domains",
+    "foundry-coverage",
+    "retired-realisation-rows"
+   ]
+  },
+  "Traditional as-is architecture": {
+   "corpus": [
+    "traditional-as-is-architecture"
    ]
   },
   "Traditional capability map": {
-   "corpus": [],
-   "note": "no schema declared anywhere — the contract names abstract TYPES (incident management, ERP, EHR, master data, identity...) but no per-row fields."
+   "corpus": [
+    "traditional-capability-domains",
+    "traditional-capabilities",
+    "traditional-capability-realisation",
+    "traditional-rating-scale"
+   ]
   },
-  "AI as-is architecture": {
-   "corpus": [],
-   "schema": [
-    "service name",
-    "consumers",
-    "offered behaviour",
-    "current service level",
-    "owned entities",
-    "failure semantics",
-    "operator"
-   ],
-   "schema_from": "html"
+  "Criticality taxonomy": {
+   "corpus": [
+    "criticality-taxonomy",
+    "criticality-crmf-alignment",
+    "criticality-crmf-rules",
+    "criticality-tier-alignment"
+   ]
   },
-  "Traditional as-is architecture": {
-   "corpus": [],
-   "schema": [
-    "service name",
-    "consumers",
-    "offered behaviour",
-    "current service level",
-    "owned entities",
-    "failure semantics",
-    "operator"
-   ],
-   "schema_from": "html",
-   "note": "the contract says 'same schema' as the AI as-is architecture."
-  },
-  "Ontology": {
-   "corpus": [],
-   "note": "served by semantic-mcp (`semantic_ontologies`), not by the reference corpus — a tool, so it has no master to edit."
+  "Quality attribute patterns": {
+   "corpus": [
+    "quality-attributes",
+    "quality-attributes-envelope-patterns",
+    "quality-attributes-continuity-tiers"
+   ]
   },
   "Grounding source classification": {
    "corpus": [],
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
    "schema": [
     "source",
     "sensitivity",
@@ -56,12 +86,21 @@
     "freshness",
     "provenance and trust"
    ],
-   "schema_from": "html",
-   "note": "a classification OVERLAY on systems already inventoried, not a second estate list. `source-register` (32 rows) is adjacent but is not this."
+   "schema_from": "html"
   },
   "Risk register": {
-   "corpus": [],
-   "note": "no schema declared — the contract says step-level risks map to enterprise entries, without naming the entry's fields."
+   "corpus": [
+    "risk-register-schema",
+    "risk-scales-cia",
+    "risk-scales-likelihood",
+    "risk-scales-vulnerability",
+    "risk-rating-bands",
+    "risk-response",
+    "risk-response-options",
+    "risk-acceptance-authority",
+    "risk-raci",
+    "risk-process"
+   ]
   },
   "Readiness gate definitions": {
    "corpus": [
@@ -69,14 +108,20 @@
     "readiness-gates-verdicts"
    ]
   },
-  "Criticality taxonomy": {
-   "corpus": [
-    "criticality-taxonomy"
-   ]
-  },
   "Determinism criteria register": {
    "corpus": [
     "determinism-criteria"
+   ]
+  },
+  "Exercise guidance": {
+   "corpus": [
+    "process-steps",
+    "process-step-keys",
+    "capability-map-rules",
+    "capability-map-rules-levels",
+    "capability-map-rules-heatmap",
+    "domain-model",
+    "service-contract-schema"
    ]
   },
   "Facet schema and defaults": {
@@ -98,12 +143,9 @@
     "guardrail-mapping",
     "risk-derivation",
     "risk-derivation-classes",
-    "risk-derivation-moves"
-   ]
-  },
-  "Surface enforceability matrix": {
-   "corpus": [
-    "surface-enforceability"
+    "risk-derivation-moves",
+    "risk-class-to-crmf",
+    "risk-class-to-crmf-rules"
    ]
   },
   "Build surface matrix": {
@@ -111,10 +153,9 @@
     "build-surface"
    ]
   },
-  "Quality attribute patterns": {
+  "Surface enforceability matrix": {
    "corpus": [
-    "quality-attributes",
-    "quality-attributes-envelope-patterns"
+    "surface-enforceability"
    ]
   },
   "Tradeoff catalogue": {
@@ -127,25 +168,26 @@
    "corpus": [
     "reference-architecture",
     "reference-architecture-zones",
+    "logical-building-blocks",
+    "reference-architecture-patterns",
+    "reference-architecture-principles",
     "reference-architecture-detail",
     "reference-architecture-topologies",
     "reference-architecture-topology-archetypes",
     "reference-architecture-components",
+    "reference-architecture-retired-components",
+    "reference-architecture-flows",
+    "reference-architecture-coverage",
     "reference-architecture-guardrail-origin",
     "archetypes",
     "composition-moves",
-    "building-block-schema"
-   ]
-  },
-  "Exercise guidance": {
-   "corpus": [
-    "process-steps",
-    "process-step-keys",
-    "capability-map-rules",
-    "capability-map-rules-levels",
-    "capability-map-rules-heatmap",
-    "domain-model",
-    "service-contract-schema"
+    "building-block-schema",
+    "platform-architecture-principles",
+    "workload-placement-principles",
+    "workload-placement-stages",
+    "workload-placement-intake",
+    "workload-placement-seven-rs",
+    "workload-placement-archetypes"
    ]
   },
   "Reference price sheet": {
@@ -160,10 +202,11 @@
   },
   "Historical delivery actuals": {
    "corpus": [],
-   "note": "no schema declared anywhere."
+   "note": "NOT YET SUPPLIED, and no schema is declared anywhere for it. The columns have to be agreed before the content can be: ask rather than assume."
   },
   "Role rate registry": {
    "corpus": [],
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
    "schema": [
     "role",
     "headcount",
@@ -171,56 +214,55 @@
     "current_minutes",
     "expected_minutes"
    ],
-   "schema_from": "code",
-   "note": "`lab.core.usecase.benefit._EFFORT_FIELDS` plus `role` — the module that reads the table names every field it requires, and refuses a row missing one."
+   "schema_from": "code"
   },
   "Cost-per-error reference": {
    "corpus": [],
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
    "schema": [
     "error_class",
     "current_volume",
     "error_rate",
     "expected_reduction"
    ],
-   "schema_from": "code",
-   "note": "`lab.core.usecase.benefit._QUALITY_FIELDS`."
+   "schema_from": "code"
   },
   "Benefit benchmark library": {
    "corpus": [
     "benefit-drivers",
     "financial-formulas"
-   ],
-   "note": "partially realised — the drivers and formulas are published; the benchmark VALUES are not."
+   ]
   },
   "Finance assumptions": {
    "corpus": [
-    "financial-formulas"
+    "financial-formulas",
+    "delivery-rate-assumptions"
    ]
   },
   "Delegation of authority matrix": {
    "corpus": [],
+   "note": "NOT YET SUPPLIED. The columns below are the declared schema \u2014 fill the rows.",
    "schema": [
     "limit",
     "authority"
    ],
-   "schema_from": "code",
-   "note": "`lab.core.usecase.authority.route` reads exactly these. With no table it ESCALATES and says why — routing money by a figure this lab invented is the one outcome it refuses. A live run escalated here on 13 Sep 2026."
+   "schema_from": "code"
   },
   "Work item and IDP templates": {
    "corpus": [],
-   "note": "no schema declared anywhere."
+   "note": "NOT YET SUPPLIED, and no schema is declared anywhere for it. The columns have to be agreed before the content can be: ask rather than assume."
   }
  },
  "outputs": {
-  "_note": "Outputs are PRODUCED by a run, not supplied to it. They have no master to edit, so they appear in the index with the step that produces them and carry no sheet — the workbook is for artifacts the team provides."
+  "_note": "Outputs are PRODUCED by a run, not supplied to it. They have no master to edit, so they appear in the index with the step that produces them and carry no sheet \u2014 the workbook is for artifacts the team provides."
  },
  "framework": {
-  "_note": "Published corpus artifacts that are NOT primary artifacts of the process: they describe the framework rather than supply it. Listed so every published id is accounted for — an unaccounted artifact is one nobody decided about.",
+  "_note": "Published corpus artifacts that are NOT primary artifacts of the process: they describe the framework rather than supply it. Listed so every published id is accounted for \u2014 an unaccounted artifact is one nobody decided about.",
   "input-artifacts": "the register of input artifacts itself",
   "output-artifacts": "the register of output artifacts itself",
   "intake-fields": "the Submit form's field groups, read by the review app",
   "intake-field-specs": "the typed field specification behind that form",
   "business-case-sections": "the eight sections step 24's business case must fill",
-  "source-register": "the lab's own source inventory — adjacent to the grounding source classification, and not it"
+  "source-register": "the lab's own source inventory \u2014 adjacent to the grounding source classification, and not it"
  }
 }

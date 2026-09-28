@@ -1,8 +1,8 @@
 # EA building block schema
 
 **Artifact:** building_block_schema
-**Source:** CAFE_Artifacts_Visualisation_v0_25.html
-**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+**Source:** cafe-artifacts.xlsx
+**Rendered:** imported from the source above by scripts/artifacts_workbook.py
 
 | Field | What it records | Why it is required |
 |---|---|---|
@@ -14,3 +14,4 @@
 | Failure semantics | at-most-once · at-least-once with idempotency key · saga with compensation | G23 presumes an answer to this. Without it, an irreversible effect has no reversal path and no confirmation |
 | Who operates it | The team accountable for its availability and change | An obligation resolving here needs a named owner or it is unowned |
 | Obligations resolved here | Which guardrail obligations this block discharges | The Stage 5 exit gate reads this |
+| ArchiMate type | The ArchiMate element type of the block: application component for anything with application behaviour; system software, technology service or node for platform services consumed by applications; residency recorded on the node | Lets the logical view, the physical view and the ArchiMate application and technology layers come from one model |

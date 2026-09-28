@@ -1,5 +1,5 @@
 {
- "_source": "Intake_Agent_Requirements_v2_7.docx — table 29 (inputs), table 30 (outputs). The register is the AUTHORITY for which artifacts are primary; extracted once and committed so the generator does not depend on a file outside the repository.",
+ "_source": "cafe-artifacts.xlsx (CAF\u00c9 bundle, 28 Sep 2026) \u2014 the index sheet and each tab's own Scope/Owner/Consumed-at-step/Form; the workbook is the source of truth",
  "inputs": {
   "headers": [
    "Artifact",
@@ -11,23 +11,23 @@
   "rows": [
    [
     "Business capability map",
-    "Per area",
-    "Enterprise architecture",
-    "5, 24",
-    "Graph"
-   ],
-   [
-    "AI capability map",
     "Shared",
-    "Architecture Board",
-    "16, 21",
+    "Enterprise architecture",
+    "3, 5, 14",
     "Structured"
    ],
    [
-    "Traditional capability map",
-    "Per area",
+    "Ontology",
+    "Shared",
+    "Domain stewards; Ontology Council arbitrates",
+    "4, 9",
+    "Graph"
+   ],
+   [
+    "Technology capability map",
+    "Shared",
     "Enterprise architecture",
-    "6",
+    "5, 24",
     "Structured"
    ],
    [
@@ -38,6 +38,13 @@
     "Read in place"
    ],
    [
+    "AI capability map \u2014 realisation view",
+    "Shared",
+    "Architecture Board",
+    "16, 21",
+    "Structured"
+   ],
+   [
     "Traditional as-is architecture",
     "Per area",
     "Application owners",
@@ -45,11 +52,25 @@
     "Read in place"
    ],
    [
-    "Ontology",
+    "Traditional capability map",
+    "Per area",
+    "Enterprise architecture",
+    "6",
+    "Structured"
+   ],
+   [
+    "Criticality taxonomy",
     "Shared",
-    "Domain stewards; Ontology Council arbitrates",
-    "4, 9",
-    "Graph"
+    "Architecture Board",
+    "7, 12",
+    "Structured"
+   ],
+   [
+    "Quality attribute patterns",
+    "Shared",
+    "Architecture Board",
+    "8",
+    "Index"
    ],
    [
     "Grounding source classification",
@@ -61,8 +82,8 @@
    [
     "Risk register",
     "Per area",
-    "Risk function",
-    "12",
+    "Information Security Office (risk function); ISGC oversees",
+    "7, 12, 19, 26a",
     "Read in place"
    ],
    [
@@ -73,18 +94,18 @@
     "Structured"
    ],
    [
-    "Criticality taxonomy",
-    "Shared",
-    "Architecture Board",
-    "7, 12",
-    "Structured"
-   ],
-   [
     "Determinism criteria register",
     "Shared",
     "Architecture Board",
     "15",
     "Structured"
+   ],
+   [
+    "Exercise guidance",
+    "Shared",
+    "Architecture Board",
+    "16, 4, 8, 10",
+    "Index"
    ],
    [
     "Facet schema and defaults",
@@ -108,13 +129,6 @@
     "Structured"
    ],
    [
-    "Surface enforceability matrix",
-    "Shared",
-    "Architecture Board",
-    "20",
-    "Structured"
-   ],
-   [
     "Build surface matrix",
     "Shared",
     "Architecture Board",
@@ -122,11 +136,11 @@
     "Structured"
    ],
    [
-    "Quality attribute patterns",
+    "Surface enforceability matrix",
     "Shared",
     "Architecture Board",
-    "8",
-    "Index"
+    "20",
+    "Structured"
    ],
    [
     "Tradeoff catalogue",
@@ -141,13 +155,6 @@
     "Agent Council",
     "22",
     "Structured"
-   ],
-   [
-    "Exercise guidance",
-    "Shared",
-    "Architecture Board",
-    "16, 4, 8, 10",
-    "Index"
    ],
    [
     "Reference price sheet",
@@ -261,7 +268,7 @@
     "Ontology delta",
     "9",
     "Yes",
-    "No — merges into the ontology"
+    "No \u2014 merges into the ontology"
    ],
    [
     "Workflow graph",
@@ -273,7 +280,7 @@
     "Retrieval contracts",
     "11",
     "Yes",
-    "Yes — enforced at runtime"
+    "Yes \u2014 enforced at runtime"
    ],
    [
     "Criticality class and router definition",
@@ -285,7 +292,7 @@
     "Outcome assertions",
     "13",
     "Yes",
-    "Yes — monitored in production"
+    "Yes \u2014 monitored in production"
    ],
    [
     "Readiness record",
@@ -333,7 +340,7 @@
     "Component selection and decision records",
     "21",
     "Yes",
-    "Yes — until the review trigger fires"
+    "Yes \u2014 until the review trigger fires"
    ],
    [
     "Conceptual, logical and physical designs",
@@ -345,19 +352,19 @@
     "Cost model with itemised lines and Year-1 total",
     "23",
     "Yes",
-    "Yes — the baseline actuals are measured against"
+    "Yes \u2014 the baseline actuals are measured against"
    ],
    [
     "Business case in eight sections",
     "24",
     "Yes",
-    "Yes — the record of why the investment was made"
+    "Yes \u2014 the record of why the investment was made"
    ],
    [
     "Recommendation and gate conditions",
     "24",
     "Yes",
-    "Yes — conditions are tracked to closure"
+    "Yes \u2014 conditions are tracked to closure"
    ],
    [
     "Draft work item tree and portal artifacts",
@@ -393,7 +400,7 @@
     "Gap flags",
     "5, 6, 9, 12, 17, 21, 23.2",
     "Yes",
-    "No — adjudicated by the Review Board"
+    "No \u2014 adjudicated by the Review Board"
    ]
   ]
  }

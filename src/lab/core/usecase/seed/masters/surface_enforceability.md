@@ -1,8 +1,8 @@
 # Surface enforceability
 
 **Artifact:** surface_enforceability
-**Source:** CAFE_Artifacts_Visualisation_v0_25.html
-**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+**Source:** cafe-artifacts.xlsx
+**Rendered:** imported from the source above by scripts/artifacts_workbook.py
 
 | Obligation | Declarative agent | Copilot Studio custom engine | Foundry hosted agent | Incumbent platform | Alternative runtime |
 |---|---|---|---|---|---|
@@ -24,3 +24,4 @@
 | G23 reversal or pre-commit confirmation | △ | ✓ | △ | ✓ | △ |
 | G24 staged release and rate limiting | ✗ | △ | △ | ✓ | ✓ |
 | G25 disclosure at emission | △ | ✓ | ✓ | ✓ | ✓ |
+| G29 residency-gated model routing | ✗ Microsoft-managed routing, not via the gateway | △ only when models are called through the gateway | ✓ via the AI gateway | △ | ✓ via the AI gateway |

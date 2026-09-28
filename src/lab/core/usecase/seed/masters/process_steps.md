@@ -1,14 +1,14 @@
 # Process steps
 
 **Artifact:** process_steps
-**Source:** CAFE_Artifacts_Visualisation_v0_25.html
-**Rendered:** generated from the source above by scripts/extract_cafe_seed.py
+**Source:** cafe-artifacts.xlsx
+**Rendered:** imported from the source above by scripts/artifacts_workbook.py
 
 | Step | Input artifacts | What is decided | Output artifacts |
 |---|---|---|---|
-| E0.1 Frame the use case Pre-work | — | No decision. Records the problem and names one accountable person | Use case record |
+| E0.1 Frame the use case Pre-work | Business capability map (L1–L3) | No decision. Records the problem and names one accountable person | Use case record |
 | E0.2 Decompose Pre-work | Use case record | No decision. Separates active, behavioural and passive elements. Sequencing anything here is the error | Element inventory |
-| E0.3 Match capabilities Pre-work | Element inventory; business capability map | No decision. A gap means either the map is incomplete or the function is not business work — both are findings, not choices | Capability coverage map |
+| E0.3 Match capabilities Pre-work | Element inventory; technology capability map (L1–L3); business capability map (business context) | No decision. A gap means either the map is incomplete or the function is not business work — both are findings, not choices | Capability coverage map |
 | E0.4 Match realisations Decision | Element inventory; as-is application architectures, else traditional capability map, else survey | Integration or build? And which confidence level the match carries — lookup, assumption or survey | Realisation match with confidence |
 | E0.5 Derive quality attributes Decision | Capability coverage map; existing business service levels; quality attribute form | Change ownership and model placement — the two chosen envelope patterns. The other four are derived | Quality attribute scenarios; envelope values |
 | E0.6 Check the ontology Pre-work | Element inventory (passive); ontology | No decision. Conflicts are resolved by the Ontology Council, not by the project | Ontology delta |
