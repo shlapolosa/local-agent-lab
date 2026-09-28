@@ -157,8 +157,28 @@ def derived_for(number: str) -> Derived:
 
 # ---------------------------------------------------------------- the completeness rules
 
+def _shown_business_ids(context: Mapping[str, Any] | None) -> set[str] | None:
+    """The business L3 ids step 3 was shown, or None when no map reached its prompt."""
+    shown = (context or {}).get("business_capabilities")
+    if not isinstance(shown, Mapping):
+        return None
+    return {str(r.get("id", "")).strip() for rows in shown.values() if isinstance(rows, list)
+            for r in rows if isinstance(r, Mapping)} - {""}
+
+
 def _frame(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
+    # A business capability is an id COPIED from the map step 3 was shown — the same rule step 5
+    # holds its technology match to. An id nobody can look up is an enterprise-architecture claim
+    # nothing can check, and with no map shown there is nothing an id could have been copied from.
+    chosen = [str(c.get("id", "")).strip() for c in out.get("business_capabilities") or []
+              if isinstance(c, Mapping)]
+    shown = _shown_business_ids(context)
+    unknown = [c for c in chosen if shown is None or c not in shown]
+    if unknown:
+        bad.append(f"business capabilities {unknown} are not rows of the business capability map "
+                   f"you were shown — copy an `id` from it, or list none and say in "
+                   f"open_questions that no business capability fits")
     problem = str(out.get("problem", "")).lower()
     hit = [w for w in _SOLUTION_WORDS if w in problem]
     if hit:
@@ -284,6 +304,17 @@ def _realisation_match(out: dict, context: Mapping[str, Any] | None = None) -> l
         if match.get("confidence") == "survey" and not (out.get("gap_flags") or []):
             bad.append(f'{match.get("element")!r} was matched by SURVEY with no gap flag — a survey '
                        f'result is a gap flag candidate, never a silent assumption')
+    # A shortlisted realisation is for a capability whose realisation ROW the step was shown — the
+    # same "copied, never composed" rule steps 3 and 5 hold their ids to. Nothing shown, nothing to
+    # shortlist from.
+    shown = {str(r.get("l3_id", "")).strip() for r in (context or {}).get("realisations") or []
+             if isinstance(r, Mapping)}
+    unknown = sorted({str(c.get("capability_id", "")).strip() for c in out.get("shortlist") or []
+                      if isinstance(c, Mapping)} - shown)
+    if unknown:
+        bad.append(f"shortlisted capabilities {unknown} have no realisation row you were shown — "
+                   f"copy `capability_id` from one, or raise a gap flag for a capability with no "
+                   f"acceptable realisation")
     return bad
 
 
@@ -715,6 +746,10 @@ def _cost_inputs(out: dict, context: Mapping[str, Any] | None = None) -> list[st
     if out.get("build_provenance") and not out.get("build_amount"):
         bad.append("a build provenance was given with no amount — the provenance describes a "
                    "figure, and there is none")
+    if out.get("build_fte_days") and not str(out.get("build_basis") or "").strip():
+        bad.append("build effort in FTE-days was given with no basis — at the published day rate "
+                   "it becomes a build cost, so say what it rests on (the building blocks, the "
+                   "integrations) or omit it")
     return bad[:5]
 
 

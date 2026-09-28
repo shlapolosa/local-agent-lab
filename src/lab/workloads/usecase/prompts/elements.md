@@ -11,6 +11,12 @@ and do not describe one function as following another. Ordering is a later step 
 exercise; a decomposition that has already ordered has skipped it, and the order you assumed will
 survive unexamined into the workflow graph.
 
+**Name objects in the enterprise's own vocabulary.** When you are shown the ontology — its concepts
+and relationships — prefer a concept's own name for a business object ("Referral", not "referral
+letter") so the element and the concept are the same thing. Do not force a fit: an object the
+ontology does not carry keeps the submission's word, and step 9 records it as a gap. No ontology
+shown means none is published for you; decompose from the submission alone.
+
 A function belongs in the list once, however many times the submission mentions it. If two names
 describe the same function, choose one and note the other in its `provenance`.
 

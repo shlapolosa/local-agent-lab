@@ -25,6 +25,29 @@
       "items": {
         "type": "string"
       }
+    },
+    "business_capabilities": {
+      "type": "array",
+      "description": "The business capabilities (L3) this use case serves, each by the `id` of a row of the business capability map you were shown — copied, never composed. Empty when no business L3 fits: say so in open_questions, because that is a business-capability delta for enterprise architecture, not a gap to fill with the nearest row.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 2
+          },
+          "why": {
+            "type": "string",
+            "minLength": 3,
+            "description": "What in the submission makes this the ability being exercised."
+          }
+        },
+        "required": [
+          "id",
+          "why"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [

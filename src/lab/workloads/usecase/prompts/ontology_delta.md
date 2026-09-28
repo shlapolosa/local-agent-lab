@@ -10,6 +10,12 @@ ontology you were given. Two checks, and both matter:
   word and each meaning. This is the half a coverage list cannot show, and it is the half that
   causes an agent to confidently answer the wrong question.
 
+The ontology you are given is the enterprise's own **CAFÉ ontology**: concepts (each with its
+module, kind and definition) and the relationships between them. Use the statuses your schema
+names: an object the ontology does not carry is `absent` — the framework calls it a **gap**, and
+gaps, with any relationship the use case needs that the ontology lacks, are the ontology delta for
+the Ontology Council. Name them; never invent a concept to close them.
+
 Check the objects, not the workflow. What the process does with them is a different step.
 
 ## How to answer

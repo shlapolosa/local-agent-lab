@@ -82,6 +82,9 @@ CORPORA = {
     # Which archetype a topology composes to — read for the model, so the draw.io projection knows
     # its base without reaching the corpus from the substrate.
     "topology_archetypes": ("reference-architecture-topology-archetypes", "topology-archetype"),
+    # The published delivery day rate (CAFÉ workbook, 28 Sep 2026) — step 23 prices a build it has
+    # an effort basis for at this rate; the multiplication is `cost.build_from_rate`, not a prompt.
+    "delivery_rates": ("delivery-rate-assumptions", "delivery-rate-assumption"),
 }
 
 #: Everything this run pins: what its own steps read, plus what the governed derivations read on
@@ -445,15 +448,21 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
     if not component_ids:
         d.defer("23", "estimate cost — needs the components step 21 selected, by catalogue id")
     else:
-        inputs = d.derived.get("cost_inputs") or {}
+        # A captured figure, else FTE-days with a basis at the PUBLISHED rate, else nothing.
+        build = cost.build_from_rate(d.derived.get("cost_inputs") or {},
+                                     d.available.get("delivery_rates") or [])
+        if build["provenance"]:
+            # On the record beside the cost, because the tool carries amount and provenance only:
+            # the basis and the currency are what let a reader check the figure.
+            d.record("build_line", build, "23")
         d.record("cost", await gateway.call(cfg, ValuationTools.cost, {
             "component_ids": component_ids,
             # The confirmed CLASS travels, not an envelope: which envelope a class buys at is the
             # governed service's rule (and, next, the criticality taxonomy's own column).
             "criticality": _criticality(state),
             "volume": cost.volume_from_intake(state.get("intake") or {}),
-            "build_amount": float(inputs.get("build_amount") or 0.0),
-            "build_provenance": inputs.get("build_provenance") or "",
+            "build_amount": build["amount"],
+            "build_provenance": build["provenance"],
             "design_version": design_version(d.derived),
             "pin_id": state["pin_id"], **reference.attribution(cfg, "cost")}), "23")
         await modelling.grow(cfg, d, "cost")

@@ -8,8 +8,12 @@ whatever you say. Two things are left that arithmetic cannot do.
 * **The build cost, with its PROVENANCE.** Read the intake mapping. If it captured an investment
   figure, carry it with what it IS — a vendor quote, a budget bucket or an estimate. These are not
   interchangeable: an approver reads "quote" as a number somebody will be held to. If nothing was
-  captured, leave `build_provenance` empty and omit `build_amount` rather than guessing; the service
-  will declare the build cost missing, which is the truth.
+  captured, leave `build_provenance` empty and omit `build_amount` rather than guessing.
+  **If you were shown the delivery day rate**, you may instead give the build effort in
+  `build_fte_days` — but only with a basis in `build_basis` that a reviewer can check against the
+  design (the building blocks it declares, the integrations it needs). The run multiplies it by the
+  published rate; you never compute the amount. No basis, no figure: the service then declares the
+  build cost missing, which is the truth.
 * **What the design needs that is not a catalogue component.** A building block declared in step 21,
   a service the composition relies on that no component covers — name each in `notes` so the Review
   Board sees what the join could not price. Do not price it yourself.

@@ -306,7 +306,8 @@ class Derivation:
         if agent is None:
             return False                       # not wired yet; whatever deferred it still stands
         pool = {**self.available, **(context or {})}
-        needs = sorted(set(A.CONTEXT_FOR.get(step.key, ())) - set(pool))
+        needs = sorted(set(A.CONTEXT_FOR.get(step.key, ())) - set(pool)
+                       - A.OPTIONAL_CONTEXT.get(step.key, frozenset()))
         if needs:
             # A step whose ONLY missing input is a corpus this tenant has not published records
             # its declared default instead of deferring — validated and gated exactly like an

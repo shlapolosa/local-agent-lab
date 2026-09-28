@@ -4,7 +4,7 @@
     "build_amount": {
       "type": "number",
       "minimum": 0,
-      "description": "The build cost captured at intake, if one was \u2014 never invented."
+      "description": "The build cost captured at intake, if one was — never invented."
     },
     "build_provenance": {
       "enum": [
@@ -24,7 +24,12 @@
       "items": {
         "type": "string"
       },
-      "description": "Anything the design needs that is not a catalogue component and so will not be in the join \u2014 named, for the Review Board."
+      "description": "Anything the design needs that is not a catalogue component and so will not be in the join — named, for the Review Board."
+    },
+    "build_fte_days": {
+      "type": "number",
+      "minimum": 0,
+      "description": "When NOTHING was captured at intake: the build effort in FTE-days, ONLY with a basis in `build_basis` a reviewer can check (e.g. per building block the design declares). The run prices it at the published delivery day rate. Omit rather than guess."
     }
   },
   "required": [

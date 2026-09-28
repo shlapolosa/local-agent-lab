@@ -51,12 +51,45 @@ REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec,
                   (ApprovalTools.ask, ("subject", "prompt", "items", "process")),
                   ReferenceTools.pin, (ReferenceTools.lookup, ("pin_id", "artifact_id")))
 
-#: The reference corpora served by a TOOL, and the tool that serves each. NOT preflighted: a
-#: corpus that cannot be fetched leaves its steps unable to run, which is a partial record and a
-#: named gap — refusing the whole run would give a deployment missing one grant nothing at all.
-CORPORA = {
-    "ontology": (SemanticTools.ontologies, {}),
+#: The governed corpora each exercise reads, by the CONTEXT key its step is handed — every one
+#: placed at its step by the CAFÉ workbook's index (28 Sep 2026), and read WHOLE under the run's
+#: pin, attributed to that key. `(artifact, record type)` pairs; a key reading several artifacts
+#: hands the step `{artifact: rows}`, and one member that cannot be read is named rather than
+#: silently leaving the rest to look complete. Best effort, like every corpus here: a step whose
+#: corpus is absent takes its declared default or stays pending — never runs on nothing.
+CORPUS: dict[str, tuple[tuple[str, str], ...]] = {
+    "business_capabilities": (("business-capability-l3", "business-capability-l3"),),     # 3
+    "ontology": (("ontology-concepts", "ontology-concept"),                                 # 4, 9
+                 ("ontology-relationships", "ontology-relationship")),
+    "landscape": (("ai-as-is-architecture", "ai-as-is-architecture"),                      # 6
+                  ("traditional-as-is-architecture", "traditional-as-is-architecture")),
+    "criticality_taxonomy": (("criticality-taxonomy", "criticality-class"),                # 7
+                             ("criticality-crmf-alignment", "criticality-crmf-alignment"),
+                             ("criticality-tier-alignment", "criticality-tier-alignment")),
+    "service_levels": (("ai-as-is-architecture", "ai-as-is-architecture"),                 # 8
+                       ("traditional-as-is-architecture", "traditional-as-is-architecture")),
+    "quality_patterns": (("quality-attributes", "quality-attribute"),                      # 8
+                         ("quality-attributes-envelope-patterns", "envelope-pattern"),
+                         ("quality-attributes-continuity-tiers",
+                          "quality-attributes-continuity-tier")),
 }
+
+#: What of each corpus a PROMPT carries, by context key — a projection, not a truncation: every row
+#: travels, only the fields the exercise does not read are dropped. None = every field.
+CORPUS_FIELDS: dict[str, tuple[str, ...] | None] = {
+    "business_capabilities": ("id", "l1", "l2", "name", "description", "ai_candidacy"),
+    "ontology": ("id", "name", "module", "kind", "parent", "definition",
+                 "subject", "predicate", "object", "cardinality"),
+    "landscape": None,
+    "criticality_taxonomy": None,
+    "service_levels": ("service name", "current service level", "failure semantics"),
+    "quality_patterns": None,
+}
+
+#: The realisation view — joined to what step 5 matched (`realisations_for`), never shown whole.
+REALISATION_ARTIFACT, REALISATION_RECORD_TYPE = "ai-capability-map", "capability"
+REALISATION_FIELDS = ("l3_id", "capability", "primary", "alternative", "sovereign",
+                      "uae_north_status", "constraint", "constraint_level", "components")
 
 #: The capability map is read from the GOVERNED corpus under this run's pin, not from a tool: the
 #: scheme names the artifact (= the gateway's relevance store), and what is fetched up front is
@@ -114,7 +147,9 @@ MAX_CORPUS_BYTES = 200_000
 #: labels reach no step — and a pin carries exactly what its run reads and nothing else.
 INTAKE_ARTIFACT = "intake-field-specs"
 
-REFERENCE_ARTIFACTS = (CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT)
+REFERENCE_ARTIFACTS = tuple(dict.fromkeys(
+    [CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT, REALISATION_ARTIFACT]
+    + [artifact for pairs in CORPUS.values() for artifact, _ in pairs]))
 
 
 async def intake_problems(cfg, pin_id: str, answered) -> list[dict]:
@@ -181,8 +216,7 @@ def project(name: str, corpus):
 #: grounded one. Section 6's own readiness phasing marks these red, so their absence is the
 #: documented state rather than a defect — but it is stated, not assumed.
 UNAVAILABLE = {
-    "landscape": "no as-is application landscape is published for this business area",
-    "service_levels": "no business service levels are published; step 8 must raise gap flags",
+    # Still missing upstream: the workbook declares its schema and supplies no rows.
     "source_classification": "no grounding source classification is published",
 }
 
@@ -244,6 +278,53 @@ async def fetch_capabilities(cfg, pin_id: str) -> list[dict]:
         parents += await reference.records(cfg, pin_id, artifact, record_type=artifact, key={},
                                            field="coverage_map", limit=MAP_LIMIT)
     return capabilities.concepts(rows, parents)
+
+
+def _project(rows, fields) -> list[dict]:
+    if fields is None:
+        return [dict(r) for r in rows if isinstance(r, dict)]
+    return [{f: r[f] for f in fields if f in r} for r in rows if isinstance(r, dict)]
+
+
+async def fetch_corpus(cfg, pin_id: str, key: str) -> tuple[dict, list[str]]:
+    """One context key's corpus: `{artifact: projected rows}`, and the artifacts that could not be
+    read — named, so a partial read never looks like a whole one."""
+    got, failed = {}, []
+    for artifact, record_type in CORPUS[key]:
+        try:
+            rows = await reference.records(cfg, pin_id, artifact, record_type=record_type, key={},
+                                           field=key, limit=MAP_LIMIT)
+        except Exception as exc:                             # noqa: BLE001 — a corpus is optional
+            failed.append(f"{artifact}: {type(exc).__name__}: {exc}"[:200])
+            continue
+        if rows:
+            got[artifact] = _project(rows, CORPUS_FIELDS.get(key))
+        else:
+            failed.append(f"{artifact}: the pinned artifact served no rows")
+    return got, failed
+
+
+def business_context(frame: dict, business_rows) -> list[dict]:
+    """The business L3s step 3 chose, each with the technology L3s the corpus says SERVE it
+    (`served_by_technology_l3`) — step 5's business context, derived rather than asked. The map is
+    not handed on whole: the context is what THIS use case exercises."""
+    chosen = [str(c.get("id", "")).strip() for c in (frame or {}).get("business_capabilities") or []
+              if isinstance(c, dict)]
+    by_id = {str(r.get("id", "")).strip(): r for r in business_rows or () if isinstance(r, dict)}
+    return [{"id": i, "name": by_id[i].get("name", ""),
+             "served_by_technology_l3": capabilities.refs(by_id[i].get("served_by_technology_l3")),
+             "ai_candidacy": by_id[i].get("ai_candidacy", "")}
+            for i in dict.fromkeys(chosen) if i in by_id]
+
+
+def realisations_for(coverage: dict, realisation_rows) -> list[dict]:
+    """The realisation view's rows for exactly the L3s step 5 MATCHED — one row per L3 by
+    `l3_id`, projected to what a shortlist reads. Step 6 shortlists realisations for the
+    capabilities this use case needs; 155 rows of every capability would make it a search."""
+    matched = {str(m.get("capability_id", "")).strip()
+               for m in (coverage or {}).get("matched") or [] if isinstance(m, dict)}
+    return [{f: r[f] for f in REALISATION_FIELDS if f in r} for r in realisation_rows or ()
+            if isinstance(r, dict) and capabilities.key(r) in matched]
 
 
 async def match_capabilities(cfg, d, pin_id: str) -> dict:
@@ -431,29 +512,31 @@ def build_workflow(cfg):
                     missing["capabilities"] = "the pinned map served no rows"
             except Exception as exc:                         # noqa: BLE001 — a corpus is optional
                 missing["capabilities"] = f"{type(exc).__name__}: {exc}"[:200]
-            for name, (tool, args) in CORPORA.items():
-                try:
-                    got = project(name, await gateway.call(cfg, tool, dict(args)))
-                except Exception as exc:                     # noqa: BLE001 — a corpus is optional
-                    missing[name] = f"{type(exc).__name__}: {exc}"[:200]
-                    continue
+            for name in CORPUS:
+                got, failed = await fetch_corpus(cfg, pinned["pin_id"], name)
                 size = len(json.dumps(got, ensure_ascii=False, default=str))
                 if size > MAX_CORPUS_BYTES:
                     missing[name] = (f"{size} bytes after projection, over the "
                                      f"{MAX_CORPUS_BYTES} a prompt may carry — the steps that "
                                      f"read it are not run rather than run on part of it")
                     continue
-                # An EMPTY corpus is unavailable, not present. A step handed `None` or `{}` reads
-                # an absent capability map and answers from nothing, which is the exact failure
-                # fetching it was meant to prevent — and the tool having answered at all makes it
-                # look grounded.
+                # An EMPTY corpus is unavailable, not present: a step handed `{}` reads an absent
+                # corpus and answers from nothing, which is what fetching it was meant to prevent.
                 if got:
                     fetched[name] = got
-                else:
-                    missing[name] = "the corpus was served but is empty"
+                if failed:
+                    missing[name if not got else f"{name} (partly)"] = "; ".join(failed)
+            try:
+                realisations = await reference.records(
+                    cfg, pinned["pin_id"], REALISATION_ARTIFACT,
+                    record_type=REALISATION_RECORD_TYPE, key={}, field="realisation_match",
+                    limit=MAP_LIMIT)
+            except Exception as exc:                         # noqa: BLE001 — a corpus is optional
+                realisations, missing["realisations"] = [], f"{type(exc).__name__}: {exc}"[:200]
             # Said in the record, not just in a comment: a reader must be able to tell that the
             # coverage map is L1 without going and reading this module.
             state = state | {"corpora": fetched, "corpora_unavailable": missing,
+                             "realisation_view": realisations,
                              "pin_id": pinned["pin_id"],
                              "pinned_versions": pinned["versions"]}
         await ctx.send_message(state)
@@ -489,7 +572,19 @@ def build_workflow(cfg):
                     continue
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.
+                if step.key == "realisation_match" and "coverage_map" in d.derived:
+                    # Step 6 shortlists realisations for what step 5 MATCHED — joined here, by
+                    # the L3 id, rather than asked of a prompt holding the whole view.
+                    d.available["realisations"] = realisations_for(
+                        d.derived["coverage_map"], state.get("realisation_view") or [])
                 await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key))
+                if step.key == "frame":
+                    # Step 5's business context: the business L3s step 3 chose, with the
+                    # technology the corpus says serves each.
+                    d.available["business_context"] = business_context(
+                        d.derived.get("frame") or {},
+                        (d.available.get("business_capabilities") or {})
+                        .get("business-capability-l3") or [])
                 # Onto the ONE architecture model the run grows: every later step reads it as
                 # data, and the views a reviewer sees are projections of it.
                 await modelling.grow(cfg, d, step.key)

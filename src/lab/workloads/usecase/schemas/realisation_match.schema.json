@@ -37,6 +37,46 @@
     "existing": {
       "type": "boolean"
     },
+    "shortlist": {
+      "type": "array",
+      "description": "Candidate realisations per matched technology capability, from the realisation view you were shown. A SHORTLIST — the selection is step 21's.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string",
+            "description": "The L3 id (e.g. KNW.01), copied from a realisation row you were shown."
+          },
+          "route": {
+            "enum": [
+              "microsoft",
+              "sovereign",
+              "alternative"
+            ]
+          },
+          "realisation": {
+            "type": "string",
+            "minLength": 2
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "route",
+          "realisation"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "estate_touched": {
+      "type": "array",
+      "description": "The traditional (non-AI) services this use case would touch, by the service name in the traditional as-is architecture — recorded separately from the AI realisations.",
+      "items": {
+        "type": "string"
+      }
+    },
     "gap_flags": {
       "type": "array",
       "items": {

@@ -46,11 +46,15 @@ def record_type_of(artifact_id: str) -> str:
     return module.ARTIFACTS[artifact_id][0]
 
 
-def tools(artifacts=(), *, version: str = VERSION, retrieval: dict | None = None) -> dict:
+def tools(artifacts=(), *, version: str = VERSION, retrieval: dict | None = None,
+          extra: dict | None = None) -> dict:
     """The fake gateway tools: `reference_pin` freezes what it is asked (or everything served),
     `reference_lookup` answers by artifact, type and key containment. Records are recorded on the
-    returned `calls` the same way the Router records them."""
-    served = corpus()
+    returned `calls` the same way the Router records them.
+
+    `extra` serves artifacts this repository does not carry — the PRIVATE masters — as
+    `{artifact_id: rows}`, for a test that needs one (their real content is not public)."""
+    served = {**corpus(), **dict(extra or {})}
     modes = dict(retrieval or {})
 
     def pin(args):

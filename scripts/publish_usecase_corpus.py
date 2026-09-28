@@ -400,7 +400,25 @@ def main() -> int:
                     help="0 (pilot) is where a first release belongs — CR-18's soak means a "
                          "version cannot skip a ring, and skipping is not a faster rollout")
     ap.add_argument("--actor", default="operator")
+    ap.add_argument("--upload-private", action="store_true",
+                    help="upload every PRIVATE master from PRIVATE_DIR to the artifact store and "
+                         "print the REFERENCE_PRIVATE_MASTERS_REFS line for .env; publishes nothing")
     args = ap.parse_args()
+
+    if args.upload_private:
+        # The masters this public repository may not carry, into the PRIVATE store the publisher
+        # reads `--master-ref` from. A missing one is named: publishing then defers it by name.
+        store, refs, absent = _store(), [], []
+        for artifact_id in sorted(PRIVATE):
+            path = master_for(artifact_id)
+            if not path.is_file():
+                absent.append(artifact_id)
+                continue
+            refs.append(store.put(path.name, path.read_bytes(), "text/markdown"))
+        print(f"uploaded {len(refs)} private masters"
+              + (f"; NOT FOUND (import the workbook first): {absent}" if absent else ""))
+        print(f"REFERENCE_PRIVATE_MASTERS_REFS={','.join(refs)}")
+        return 1 if absent else 0
 
     # A PRIVATE master is not in this repository by design — it is published from its `art://`
     # ref, and a missing ref is a deferral named in the loop below, not a missing master.

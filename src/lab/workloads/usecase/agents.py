@@ -26,21 +26,29 @@ from openai import AsyncOpenAI
 from lab.platform import config
 from lab.workloads.usecase.steps import Step, schema
 
-__all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "build_all", "context_for", "instructions",
+__all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "OPTIONAL_CONTEXT", "build_all", "context_for", "instructions",
            "make_agent", "message"]
 
 #: What each step is given. A step reads what its exercise needs and nothing else — a context that
 #: carried everything would make every prompt a search problem and every wrong answer unattributable.
 CONTEXT_FOR: dict[str, tuple[str, ...]] = {
-    "frame": ("submission",),
-    "elements": ("frame",),
-    "coverage_map": ("elements", "capabilities"),
+    # Since the CAFÉ workbook (28 Sep 2026) is the source of truth for which step reads which
+    # artifact, each corpus below is the one its index places at that step. Step 3 frames the use
+    # case in ENTERPRISE-architecture terms — the business L3s it serves — and step 4 decomposes it
+    # against the ontology's concepts, so an element is named in the enterprise's own vocabulary.
+    "frame": ("submission", "business_capabilities"),
+    "elements": ("frame", "ontology"),
+    # The technology map is the match; the business L3s step 3 chose, with the technology the
+    # corpus says serves each, are its "business context" (E0.3's own inputs).
+    "coverage_map": ("elements", "capabilities", "business_context"),
     # The translation before the search: the functions, and a SAMPLE of the map so the abilities
     # are written in its register rather than in the submission's.
     "capability_query": ("elements", "register"),
-    "realisation_match": ("elements", "landscape"),
-    "criticality_band": ("frame",),
-    "quality_attributes": ("coverage_map", "service_levels"),
+    # The realisation view for exactly what step 5 matched, and the estate as it stands (AI and
+    # traditional as-is) — step 6 shortlists; selection is step 21's.
+    "realisation_match": ("elements", "coverage_map", "realisations", "landscape"),
+    "criticality_band": ("frame", "criticality_taxonomy"),
+    "quality_attributes": ("coverage_map", "service_levels", "quality_patterns"),
     "ontology_delta": ("elements", "ontology"),
     "workflow_graph": ("elements", "coverage_map", "ontology_delta"),
     "source_contracts": ("workflow_graph", "source_classification"),
@@ -73,7 +81,7 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     # ids; the cost engineer reads what intake captured about the BUILD and what the design needs
     # beyond the catalogue. The value analyst reads the submission the figures have to come from
     # and never the cost, because a benefit sized to clear a known investment is not evidence.
-    "cost_inputs": ("intake", "component_selection", "composition"),
+    "cost_inputs": ("intake", "component_selection", "composition", "delivery_rates"),
     "benefit_inputs": ("frame", "workflow_graph", "quality_attributes", "criticality"),
     # Step 25 is the only step that reads nearly everything, and legitimately: it is not deciding
     # anything, it is writing down what was already decided. The one thing it must NOT invent is a
@@ -88,6 +96,23 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
 #: like an independent one.
 EXCLUDED_FROM: dict[str, tuple[str, ...]] = {
     "confirm_criticality": ("criticality_band",),
+}
+
+
+#: Inputs that ENRICH a step without being a precondition of it: handed over when present, named
+#: in `corpora_unavailable` when absent, never a reason to defer. Everything else in `CONTEXT_FOR`
+#: is a hard input — a step asked without it would answer from nothing. The distinction arrived with
+#: the CAFÉ workbook (28 Sep 2026), which placed governed corpora at steps that had always run
+#: without them — the ontology at step 4, the backbone every later step reads, is published by
+#: REFERENCE from a private master, and one upload nobody made must not stall every run there.
+OPTIONAL_CONTEXT: dict[str, frozenset[str]] = {
+    "frame": frozenset({"business_capabilities"}),
+    "elements": frozenset({"ontology"}),
+    "coverage_map": frozenset({"business_context"}),
+    "realisation_match": frozenset({"coverage_map", "realisations"}),
+    "criticality_band": frozenset({"criticality_taxonomy"}),
+    "quality_attributes": frozenset({"quality_patterns"}),
+    "cost_inputs": frozenset({"delivery_rates"}),
 }
 
 

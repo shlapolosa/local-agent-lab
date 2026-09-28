@@ -643,8 +643,15 @@ ANSWERS = {
 }
 
 
-def _screening_with_agents(**extra):
-    router = Router({**corpus_tools(), StorageTools.read_document: "Referrals wait eleven days.",
+#: A tiny stand-in for the PRIVATE ontology (published by reference; its content is not public).
+ONTOLOGY = {"ontology-concepts": [{"id": "Referral", "name": "Referral", "module": "CARE",
+                                   "kind": "entity", "parent": "", "definition": "A request."}],
+            "ontology-relationships": [{"id": "R1", "subject": "Referral", "predicate": "names",
+                                        "object": "Patient", "cardinality": "1"}]}
+
+
+def _screening_with_agents(corpus_extra=None, **extra):
+    router = Router({**corpus_tools(extra=corpus_extra), StorageTools.read_document: "Referrals wait eleven days.",
                      SemanticTools.store_spec: {"spec_ref": "art://s1/spec.json"},
                      SemanticTools.concepts: {"concepts": [{"id": "c1", "label": "Referral"}]},
                      SemanticTools.ontologies: {"vocabularies": ["archimate-3.1"]},
@@ -674,13 +681,18 @@ def test_the_derived_band_becomes_what_the_architect_is_asked_to_confirm():
     assert out["criticality_band"] == "business-critical"
 
 
-def test_a_step_whose_corpus_is_missing_records_its_declared_default_and_never_runs_the_agent():
+def test_a_step_whose_corpus_is_missing_records_its_declared_default_and_never_runs_the_agent(
+        monkeypatch):
     """Asked anyway, the agent would answer from nothing — and that answer is indistinguishable
     from a grounded one. Steps 6, 8 and 11 read corpora this instance does not publish; since 13
     Sep 2026 each records its DECLARED default instead of deferring (the design half was never
     reached while they stayed pending), listed under `defaulted_steps` so a reader can see what
-    rests on an assumption — and never under `pending_steps`, which means "did not run"."""
+    rests on an assumption — and never under `pending_steps`, which means "did not run".
+
+    The workbook of 28 Sep 2026 PUBLISHED the as-is landscape, so this is now a tenant that has
+    not: the corpus is removed from what the run reads, and the mechanism is what is under test."""
     from lab.workloads.use_case_screening import workflow as W
+    monkeypatch.delitem(W.CORPUS, "landscape")
     router, agents = _screening_with_agents()
     with spine(W, router) as h:
         h.cfg["agents"] = agents
@@ -708,8 +720,11 @@ def test_an_unavailable_corpus_is_named_in_the_record_rather_than_being_silently
         h.cfg["agents"] = agents
         run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
     screening = _screening_record(h)
-    assert set(screening["corpora_unavailable"]) >= {"landscape", "service_levels",
-                                                     "source_classification"}
+    missing = screening["corpora_unavailable"]
+    # Still unpublished upstream, and — in this public repository — the private masters: the
+    # ontology is named whole, the as-is landscape as PARTLY read (the AI half is public).
+    assert {"source_classification", "ontology"} <= set(missing), missing
+    assert "landscape (partly)" in missing and "traditional-as-is" in missing["landscape (partly)"]
 
 
 def test_a_corpus_that_fails_to_fetch_does_not_fail_the_run():
@@ -1632,7 +1647,7 @@ def test_the_model_trace_renders_what_each_step_added_when_it_is_on(monkeypatch)
     from lab.platform import config
     from lab.workloads.use_case_screening import workflow as W
     monkeypatch.setattr(config, "USECASE_MODEL_TRACE", True)
-    router, agents = _screening_with_agents(**{EATools.render: lambda a: {
+    router, agents = _screening_with_agents(corpus_extra=ONTOLOGY, **{EATools.render: lambda a: {
         "xml_ref": "art://t/x.xml", "svg_refs": {"delta": f"art://t/{a['basename']}.svg"}}})
     with spine(W, router) as h:
         h.cfg["agents"] = agents

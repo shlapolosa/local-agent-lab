@@ -27,7 +27,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 __all__ = [
     "BuildCost", "CATALOGUE_CAVEAT", "CostError", "CostLine", "CostModel", "DRIVERS", "PriceLine",
-    "Provenance", "ThreePoint", "build_cost", "catalogue", "cost_model", "envelope_for",
+    "Provenance", "ThreePoint", "build_cost", "build_from_rate", "catalogue", "cost_model", "envelope_for",
     "parse_estimate", "position", "volume_from_intake", "year_one_total",
 ]
 
@@ -432,3 +432,42 @@ def cost_model(component_ids: Sequence[str], lines: Iterable[PriceLine], *, enve
         gap_flags=tuple(gaps), build=build, requires_input=tuple(requires),
         sheet_version=sheet_version, design_version=design_version,
         caveat=CATALOGUE_CAVEAT, envelope=envelope, capex=capex)
+
+
+#: A published delivery day rate: a currency, a figure, "per FTE-day" — "AED 3,670 per FTE-day".
+_DAY_RATE = re.compile(r"^\s*([A-Z]{3})?\s*([\d,]+(?:\.\d+)?)\s*per\s*FTE-day", re.I)
+
+
+def build_from_rate(inputs: Mapping[str, Any], rates) -> dict:
+    """Step 23's build line: `{amount, provenance, basis, currency}`.
+
+    The CAFÉ workbook (28 Sep 2026) prices the build at the published delivery day rate. The rate is
+    one factor; the effort is the other, and its governed source — historical delivery actuals — is
+    not yet supplied, so FTE-days come from the cost engineer only with a stated basis, and the line
+    is an `estimate`. The multiplication is here, not in a prompt, and the rate is the corpus's.
+
+    A figure captured at intake (a quote, a budget bucket) always wins: it is what somebody will be
+    held to. No basis, no effort or no published rate is NO build cost — the service then declares
+    it missing, which is the truth — never a number chosen because it looked reasonable. The
+    currency travels with the line because the price sheet states none (Finance's to declare)."""
+    captured = inputs.get("build_amount")
+    if captured not in (None, "") and str(inputs.get("build_provenance") or "").strip():
+        return {"amount": float(captured), "provenance": str(inputs["build_provenance"]),
+                "basis": str(inputs.get("build_basis") or ""), "currency": ""}
+    none = {"amount": 0.0, "provenance": "", "basis": "", "currency": ""}
+    days, basis = inputs.get("build_fte_days"), str(inputs.get("build_basis") or "").strip()
+    if not isinstance(days, (int, float)) or days <= 0 or not basis:
+        return none
+    row = next((r for r in rates or () if "day rate" in str(r.get("assumption", "")).lower()), None)
+    if row is None:
+        return none
+    parsed = _DAY_RATE.match(str(row.get("value", "")))
+    if not parsed:
+        raise CostError(f"the published delivery day rate {row.get('value')!r} is not "
+                        f"'<currency> <amount> per FTE-day' — a rate that cannot be read is not zero")
+    currency, rate = (parsed.group(1) or "").upper(), float(parsed.group(2).replace(",", ""))
+    return {"amount": round(float(days) * rate, 2), "provenance": "estimate",
+            "basis": f"{days:g} FTE-days x {row.get('value')} ({row.get('basis', 'published rate')}); "
+                     f"effort: {basis}",
+            "currency": currency}
+
