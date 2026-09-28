@@ -33,6 +33,10 @@ __all__ = ["DomainScheme", "build", "BASE"]
 BASE = "urn:lab:semantic:domain:"
 
 
+#: the columns `build` interprets; anything else on a row is carried through untouched as `extra`
+MODELLED = ("id", "name", "label", "kind", "parent", "definition", "module", "alt")
+
+
 def _text(row: Mapping[str, Any], *names: str) -> str:
     for n in names:
         v = row.get(n)
@@ -70,7 +74,12 @@ def build(*, name: str, title: str, concepts: Iterable[Mapping[str, Any]],
         out[cid] = {"id": cid, "label": label, "kind": _text(row, "kind") or "concept",
                     "parent": _text(row, "parent") or None, "definition": _text(row, "definition"),
                     "module": _text(row, "module"),
-                    "alt": [str(a).strip() for a in (row.get("alt") or []) if str(a).strip()]}
+                    "alt": [str(a).strip() for a in (row.get("alt") or []) if str(a).strip()],
+                    # Everything the fabric does not model, kept verbatim. It becomes the MASTER of this
+                    # vocabulary, so a column it cannot interpret must survive the round trip rather than be
+                    # lost the first time it publishes: the real master carries seven of them.
+                    "extra": {k: str(v).strip() for k, v in row.items()
+                              if k not in MODELLED and str(v or "").strip()}}
     for cid, c in out.items():
         if c["parent"] and c["parent"] not in out:
             raise ValueError(f"concept {cid!r} names a parent the scheme does not hold: {c['parent']!r}")
@@ -134,6 +143,17 @@ class DomainScheme(SkosScheme):
         """(predicate, the concept at the other end, "out" | "in") for everything this concept is connected to."""
         out = [(e["predicate"], e["object"], "out") for e in self.relationships if e["subject"] == cid]
         return out + [(e["predicate"], e["subject"], "in") for e in self.relationships if e["object"] == cid]
+
+    def rows(self) -> list[dict]:
+        """The scheme back in the master's own shape — what a publication writes. The inverse of `build`, so a
+        column the fabric never modelled leaves exactly as it arrived."""
+        out = []
+        for c in self.concepts.values():
+            row = {"id": c["id"], "name": c["label"], "module": c.get("module", ""), "kind": c["kind"],
+                   "parent": c.get("parent") or "", "definition": c.get("definition", "")}
+            row.update(c.get("extra") or {})
+            out.append(row)
+        return out
 
     # ---------------------------------------------------------------------- RDF
 

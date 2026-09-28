@@ -108,3 +108,16 @@ def test_relations_of_answers_what_a_concept_is_connected_to():
     assert s.relations_of("Referral") == [("raisedOn", "DigitalPlatform", "out"),
                                           ("escalates", "UrgentReferral", "in")]
     assert s.relations_of("Nope") == []
+
+
+def test_columns_the_fabric_does_not_model_are_carried_not_dropped():
+    """The fabric becomes the MASTER of this vocabulary, so what it publishes back must not be narrower than what
+    it seeded from. The real master carries authoritative_source, fhir, guild_reference, platforms, sources,
+    status and used_by — none of which the fabric models today, and all of which would vanish on a round trip."""
+    s = scheme(concepts=[{**CONCEPTS[0], "authoritative_source": "ADHDS TSA v1", "status": "accepted",
+                          "fhir": "ServiceRequest"}], relationships=[])
+    c = s.concepts["Referral"]
+    assert c["extra"] == {"authoritative_source": "ADHDS TSA v1", "status": "accepted", "fhir": "ServiceRequest"}
+    assert "id" not in c["extra"] and "definition" not in c["extra"]      # what is modelled is not duplicated
+    assert s.rows()[0]["fhir"] == "ServiceRequest" and s.rows()[0]["id"] == "Referral"
+    assert set(s.rows()[0]) >= {"id", "name", "module", "kind", "parent", "definition", "fhir"}

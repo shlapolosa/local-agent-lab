@@ -418,5 +418,12 @@ FABRIC_SWEEP_FIRST_S = int(_e("FABRIC_SWEEP_FIRST_S", "180"))
 # own — those pointing at a receiver on GRAPH_NOTIFICATION_ALLOWLIST — when this much life is left.
 FABRIC_RENEW_WITHIN_S = int(_e("FABRIC_RENEW_WITHIN_S", str(2 * 86400)))
 FABRIC_DEFAULT_LABEL = _e("FABRIC_DEFAULT_LABEL", "")
+#: The MASTER of the domain vocabulary the fabric owns. It cannot be in the image (this repository is public and
+#: the ontology is tenant-sourced), so it travels the way the licensed workbooks do: by `art://` ref through the
+#: private artifact store, falling back to a directory on a workstation that has it.
+FABRIC_VOCAB_DIR = _e("FABRIC_VOCAB_DIR") or str(VAR_DIR / "vocabulary")
+FABRIC_VOCAB_REFS = tuple(r.strip() for r in _e("FABRIC_VOCAB_REFS", "").split(",") if r.strip())
+#: what the seed is called when the fabric publishes it back — recorded on the scheme, reported by the tools
+FABRIC_VOCAB_VERSION = _e("FABRIC_VOCAB_VERSION", "")
 #: the owner map (FR-2.2.2): folder/drive → owner, process → owner|requester; read once by the intake host
 FABRIC_OWNER_MAP = _e("FABRIC_OWNER_MAP", str(REPO_ROOT / "config" / "fabric-owners.json"))

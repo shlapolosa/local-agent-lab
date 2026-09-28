@@ -35,7 +35,7 @@ from lab.core.semantic.service import SemanticService
 from lab.platform import config
 from lab.platform.fabric_events import METRICS_KEY
 from lab.platform.filetypes import content_type_for
-from lab.substrate.mcp.semantic import cafe
+from lab.substrate.mcp.semantic import cafe, vocab_seed
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
 
@@ -44,7 +44,8 @@ SERVICE = "semantic-mcp"
 server = LabServer(SERVICE, config.SEMANTIC_MCP_PORT)
 
 
-def reference_dir(refs=config.REFERENCE_MODELS_REFS, directory=config.REFERENCE_MODELS_DIR) -> str:
+def reference_dir(refs=config.REFERENCE_MODELS_REFS, directory=config.REFERENCE_MODELS_DIR,
+                  prefix="reference-models-") -> str:
     """Where the licensed reference workbooks are, materialising them first if they arrive by ref.
 
     They cannot be in the image. This repository is public and the BA Guild models are licensed, so
@@ -63,7 +64,7 @@ def reference_dir(refs=config.REFERENCE_MODELS_REFS, directory=config.REFERENCE_
     from pathlib import Path
 
     store = server.container.artifacts()
-    out = Path(tempfile.mkdtemp(prefix="reference-models-"))
+    out = Path(tempfile.mkdtemp(prefix=prefix))
     for ref in refs:
         # The NAME in the ref is the filename, and the loader keys the scheme on the stem — so a
         # ref must keep the workbook's own name or the scheme comes back under a different one.
@@ -84,6 +85,13 @@ def boot() -> dict[str, int]:
     """Compose the fabric from the container, apply the catalog's schema, restore the persisted rung graphs.
     Part of STARTING, not of importing — `__main__` calls it before `serve`, a test after its overrides."""
     global F
+    # The domain vocabulary the fabric OWNS, seeded from its master. Here and not at import for the same reason
+    # the fabric itself is: materialising it needs the artifact store, which is a client. A deployment without
+    # the master keeps every other tool working and says it has no domain scheme.
+    seed = vocab_seed.load(reference_dir(config.FABRIC_VOCAB_REFS, config.FABRIC_VOCAB_DIR, "fabric-vocabulary-"),
+                           version=config.FABRIC_VOCAB_VERSION)
+    if seed is not None:
+        S.add_scheme(seed)
     catalog = server.container.catalog()
     F = FabricService(S.store.ds, catalog, S.doc_types, schemes=lambda: S.schemes_,
                       embedder=server.container.embedder(),

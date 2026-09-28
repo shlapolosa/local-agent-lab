@@ -155,3 +155,22 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn(); print(f"ok  {name}")
     print("ALL TESTS PASSED")
+
+
+def test_a_scheme_added_after_construction_is_registered_indexed_and_queryable():
+    """The store materialises the registry ONCE at construction, so a vocabulary the fabric seeds at BOOT (its
+    own domain ontology, which arrives from a file rather than from the package) needs a seam that also puts the
+    triples in — otherwise `semantic_schemes` lists it and SPARQL cannot see it."""
+    from lab.core.semantic.fabric.vocabulary import build
+    from lab.core.semantic.service import SemanticService
+
+    s = SemanticService(reference_dir="/nonexistent-so-no-workbooks")
+    sc = build(name="cafe", title="CAFÉ domain ontology",
+               concepts=[{"id": "Referral", "name": "Referral", "module": "CARE"}],
+               relationships=[], version="v0.30")
+    assert s.add_scheme(sc) is sc
+    assert "cafe" in s.registry.names() and s.scheme("cafe") is sc
+    assert [x["name"] for x in s.schemes() if x["name"] == "cafe"] == ["cafe"]
+    got = s.store.query("PREFIX skos: <http://www.w3.org/2004/02/skos/core#> "
+                        "SELECT ?l WHERE { ?c skos:prefLabel ?l }")
+    assert ["Referral"] in got["rows"]

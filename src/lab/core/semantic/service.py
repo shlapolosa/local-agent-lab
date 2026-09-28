@@ -96,6 +96,18 @@ class SemanticService:
         self._link_shared_top_concepts()
         self.default = "archimate-3.1"
 
+    def add_scheme(self, scheme):
+        """Register a scheme AFTER construction — the registry, the name index, and its triples in the store.
+
+        `SemanticStore` materialises the registry once when it is built, so a vocabulary that arrives later is
+        listed but invisible to SPARQL unless its graph is loaded too. That is the case for a vocabulary the
+        fabric OWNS: it is seeded at boot from a master, not imported from the package. One seam, so nobody
+        reaches into `registry`, `schemes_` and `store` by hand and forgets the third."""
+        self.registry.add(scheme)
+        self.schemes_[scheme.name] = scheme
+        self.store.load_model(f"urn:lab:semantic:vocab:{scheme.name}", scheme.graph())
+        return scheme
+
     # ---- reference schemes (SKOS) ----
     def _link_shared_top_concepts(self):
         """Same-label top concepts across schemes -> skos:exactMatch (both ways), in a
