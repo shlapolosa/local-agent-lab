@@ -35,6 +35,15 @@
               "type": "string"
             },
             "description": "The capability path this function resolved through, L1 first. Written by the drill: it is how the match was reached, not something an agent asserts."
+          },
+          "status": {
+            "enum": [
+              "missing",
+              "new",
+              "consumed",
+              "updated"
+            ],
+            "description": "The capability's impact: missing (needed, nothing provides it), new (to be introduced), consumed (exists in the estate and is reused as is), updated (exists and must change)."
           }
         },
         "required": [

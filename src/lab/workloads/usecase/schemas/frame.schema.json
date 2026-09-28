@@ -48,6 +48,40 @@
         ],
         "additionalProperties": false
       }
+    },
+    "motivation": {
+      "type": "object",
+      "description": "The motivation elements the submission states — ArchiMate's assessment, driver, goal, constraint and principle. Only what the submission says; an absent one stays absent.",
+      "properties": {
+        "assessment": {
+          "type": "string"
+        },
+        "drivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "principles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

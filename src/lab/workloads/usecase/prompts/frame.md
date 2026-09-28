@@ -20,6 +20,10 @@ it is not the solution, and the technology comes later. Usually one to three. **
 fits, list none and say so in `open_questions`**: that is a finding for enterprise architecture (a
 business-capability delta), and the nearest row is not an answer.
 
+State the **motivation** the submission gives, in `motivation`: the assessment (what is observed
+today), the drivers, the goals, the constraints and the principles. Only what the submission says —
+an element it does not state stays out, and a gap that matters is an open question.
+
 Anything the submission leaves genuinely unclear goes in `open_questions`. That is not a failure —
 an honest question is worth more here than a confident guess, because the guess will be treated as
 fact by every step after this one.

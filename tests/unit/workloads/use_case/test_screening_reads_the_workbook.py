@@ -47,7 +47,8 @@ def test_business_context_is_what_step_3_chose_WITH_the_technology_the_corpus_sa
     frame = {"business_capabilities": [{"id": "B1.1.2", "why": "drafts policy"}]}
     got = W.business_context(frame, BUSINESS)
     assert got == [{"id": "B1.1.2", "name": "Policy drafting & consultation",
-                    "served_by_technology_l3": ["COG.24", "KNW.01"], "ai_candidacy": "high"}]
+                    "served_by_technology_l3": ["COG.24", "KNW.01"], "ai_candidacy": "high",
+                    "indicators": []}]
 
 
 def test_no_business_capability_chosen_is_no_business_context_rather_than_the_whole_map():
@@ -102,6 +103,9 @@ def test_a_corpus_that_ENRICHES_a_step_is_optional_and_one_it_cannot_work_withou
     over when present, named in `corpora_unavailable` when absent, never a reason to defer."""
     from lab.workloads.usecase.agents import CONTEXT_FOR, OPTIONAL_CONTEXT
     assert "ontology" in OPTIONAL_CONTEXT["elements"]
+    # Recommendation 2 (28 Sep 2026) makes the business map REQUIRED at the PIN (public; gate A
+    # rests on it) — see the strict-pin test below. At the STEP it stays optional: a transient read
+    # failure must not stop step 3 framing the problem and owner, and every step after it.
     assert "business_capabilities" in OPTIONAL_CONTEXT["frame"]
     assert "capabilities" not in OPTIONAL_CONTEXT.get("coverage_map", ()), \
         "step 5 cannot match against no map — that stays hard (and defaults)"
@@ -122,17 +126,16 @@ def test_run_step_runs_a_step_whose_only_absent_inputs_are_optional():
 
     async def fake_run_gated(agent, message, **kw):
         ran["message"] = message
-        return {"problem": "Referrals wait days to be triaged by hand.",
-                "for_whom": "triage nurses", "expected_change": "urgent referrals seen same day",
-                "accountable_owner": "Jane Doe", "open_questions": []}
-    d = Derivation(available={"submission": "A use case."}, pending={}, publish=None)
+        return {"band": "routine", "dominant_failure_mode": "someone waits longer",
+                "provisional": True}
+    d = Derivation(available={"frame": {"problem": "p"}}, pending={}, publish=None)
     orig = D.run_gated
     D.run_gated = fake_run_gated
     try:
-        ok = asyncio.run(d.run_step({"agents": {"frame": Agent()}}, step_for("3")))
+        ok = asyncio.run(d.run_step({"agents": {"criticality_band": Agent()}}, step_for("7")))
     finally:
         D.run_gated = orig
-    assert ok and "frame" in d.derived, "no business map is no reason not to frame the use case"
+    assert ok and "criticality_band" in d.derived, "no taxonomy is no reason not to band it"
 
 
 # ------------------------------------------------ step 6: a shortlist, of what it was shown
@@ -200,3 +203,46 @@ def test_no_optional_input_can_mask_a_declared_default():
 def test_matched_capabilities_with_no_realisation_row_are_named():
     coverage = {"matched": [{"capability_id": "KNW.01"}, {"capability_id": "ZZZ.99"}]}
     assert W.unrealised_matches(coverage, REALISATIONS) == ["ZZZ.99"]
+
+
+
+# ------------------------------------------------ recommendation 2: step 3 frames in EA terms
+
+def test_the_business_map_is_pinned_strictly_because_it_is_public_and_gate_A_rests_on_it():
+    assert "business-capability-l3" in W.REQUIRED_ARTIFACTS
+
+
+def test_business_context_carries_candidacy_AND_indicators_copied_not_asked():
+    """Both are columns on the rows step 3 selects: a join copies them exactly, where a model
+    asked to copy them could paraphrase or drop one."""
+    rows = [dict(BUSINESS[0], indicators="K21; K04")]
+    got = W.business_context({"business_capabilities": [{"id": "B1.1.2", "why": "w"}]}, rows)
+    assert got[0]["ai_candidacy"] == "high" and got[0]["indicators"] == ["K21", "K04"]
+
+
+def test_step_3_may_state_the_MOTIVATION():
+    from lab.workloads.usecase.steps import schema
+    motivation = schema("frame")["properties"]["motivation"]["properties"]
+    assert {"assessment", "drivers", "goals", "constraints", "principles"} <= set(motivation)
+
+
+# ------------------------------------------------ recommendation 1: step 5 status, and XCT
+
+def test_a_match_may_say_whether_the_capability_is_missing_new_consumed_or_updated():
+    from lab.workloads.usecase.steps import schema
+    status = schema("coverage_map")["properties"]["matched"]["items"]["properties"]["status"]
+    assert set(status["enum"]) == {"missing", "new", "consumed", "updated"}
+
+
+def test_step_5_sees_the_estate_that_says_what_already_exists():
+    from lab.workloads.usecase.agents import CONTEXT_FOR, OPTIONAL_CONTEXT
+    assert "landscape" in CONTEXT_FOR["coverage_map"]
+    assert "landscape" in OPTIONAL_CONTEXT["coverage_map"], "status is richer with it, not gated on it"
+
+
+def test_cross_cutting_is_matched_when_a_named_function_exercises_it():
+    """Recommendation 1: excluding XCT outright meant a governance use case — whose function IS
+    cross-cutting, e.g. XCT.24 user access lifecycle — could never match its core capability."""
+    from lab.workloads.usecase.steps import step_for
+    prompt = step_for("5").prompt()
+    assert "unless a named function exercises it" in prompt

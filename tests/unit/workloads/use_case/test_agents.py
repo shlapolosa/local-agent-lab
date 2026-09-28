@@ -302,7 +302,9 @@ def test_a_step_reads_only_what_its_exercise_needs():
     available = {k: {"x": 1} for k in ("submission", "frame", "elements", "coverage_map",
                                        "ontology_delta", "capabilities", "landscape")}
     assert set(A.context_for("elements", available)) == {"frame"}
-    assert set(A.context_for("coverage_map", available)) == {"elements", "capabilities"}
+    # Step 5 reads the estate since recommendation 1 (28 Sep 2026) — its matches carry a status
+    # (consumed / updated / new / missing) only the estate can decide. The rest stays out.
+    assert set(A.context_for("coverage_map", available)) == {"elements", "capabilities", "landscape"}
 
 
 def test_every_step_declares_the_context_it_reads():

@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|---|---|
 | E0.1 | 3 | frame | Business Analyst | agent | 01 | screening | submission; business_capabilities |
 | E0.2 | 4 | elements | Business Architect | agent | 02 | screening | frame; ontology |
-| E0.3 | 5 | coverage_map | Business Architect | agent | 03 | screening | elements; capabilities; business_context |
+| E0.3 | 5 | coverage_map | Business Architect | agent | 03 | screening | elements; capabilities; business_context; landscape |
 | E0.4 | 6 | realisation_match | Application Architect | agent | 04 | screening | elements; coverage_map; realisations; landscape |
 | E0.5 | 8 | quality_attributes | Product Owner | agent | 05 | screening | coverage_map; service_levels; quality_patterns |
 | E0.6 | 9 | ontology_delta | Data Architect | agent | 06 | screening | elements; ontology |

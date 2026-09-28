@@ -40,7 +40,7 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     "elements": ("frame", "ontology"),
     # The technology map is the match; the business L3s step 3 chose, with the technology the
     # corpus says serves each, are its "business context" (E0.3's own inputs).
-    "coverage_map": ("elements", "capabilities", "business_context"),
+    "coverage_map": ("elements", "capabilities", "business_context", "landscape"),
     # The translation before the search: the functions, and a SAMPLE of the map so the abilities
     # are written in its register rather than in the submission's.
     "capability_query": ("elements", "register"),
@@ -106,9 +106,15 @@ EXCLUDED_FROM: dict[str, tuple[str, ...]] = {
 #: without them — the ontology at step 4, the backbone every later step reads, is published by
 #: REFERENCE from a private master, and one upload nobody made must not stall every run there.
 OPTIONAL_CONTEXT: dict[str, frozenset[str]] = {
+    # The business map is PINNED STRICTLY (public; readiness gate A rests on it — recommendation 2),
+    # so an unpublished map fails the run at the pin. What is left is a transient READ failure, and
+    # for that step 3 must still frame the problem and the owner from the submission: a hard input
+    # here stalled every step after it on a corpus outage. Its absence stays visible — no
+    # `business_capabilities_served` on the record, and the corpus named as unavailable.
     "frame": frozenset({"business_capabilities"}),
     "elements": frozenset({"ontology"}),
-    "coverage_map": frozenset({"business_context"}),
+    # The estate tells step 5 whether a capability already EXISTS (consumed / updated) or not.
+    "coverage_map": frozenset({"business_context", "landscape"}),
     "realisation_match": frozenset({"coverage_map", "realisations"}),
     "criticality_band": frozenset({"criticality_taxonomy"}),
     "quality_attributes": frozenset({"quality_patterns"}),

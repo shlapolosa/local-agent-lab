@@ -35,8 +35,10 @@ function only half walked.
 
 **Two things are NOT matched here, and the list is closed.** Only these:
 
-- the Cross-cutting domain (`XCT`) — governance, baselines and assurance: identity, observability,
-  evaluation harnesses, evidence retention, landing zones and the control-plane rails;
+- the Cross-cutting domain (`XCT`) — governance, baselines and assurance —
+  **unless a named function exercises it.** For most use cases these rails are derived later from the workflow's shape; but
+  when the use case IS governance (a function that manages user access, evidence or assurance),
+  the cross-cutting capability is what the function does, and it is matched like any other;
 - the Boundary domain (`BND`), unless a named function actually crosses it — its traditional
   systems are never catalogued here, only reached by integration.
 
@@ -94,6 +96,12 @@ not reach for an id to fill the gap.
 wrong: for every function whose judgement a MODEL makes, is the runtime that executes it named? If
 it is not, add it. A long inventory is where this slips — the more functions there are, the more
 the list drifts toward one obvious capability each.
+
+Record each matched capability's **`status`**: `missing` (needed, and nothing provides it), `new`
+(to be introduced by this use case), `consumed` (it already exists in the estate you were shown and
+is reused as is) or `updated` (it exists and must change). Read the estate for this — the AI and
+traditional as-is architectures — and do not call a capability `consumed` because it sounds
+common: without the estate showing it, it is `new` or `missing`.
 
 Record `confidence` for each match as `lookup` (a candidate's own definition says it does this),
 `assumption` (you inferred it from the labels) or `survey` (you would have to ask somebody). **If no
