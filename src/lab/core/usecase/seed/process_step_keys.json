@@ -19,7 +19,7 @@
     "agent",
     "01",
     "screening",
-    "submission; business_capabilities"
+    "submission"
    ],
    [
     "E0.2",
@@ -39,7 +39,7 @@
     "agent",
     "03",
     "screening",
-    "elements; capabilities; business_context; landscape"
+    "elements; capabilities; landscape"
    ],
    [
     "E0.4",

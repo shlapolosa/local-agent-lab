@@ -59,7 +59,6 @@ REQUIRED_TOOLS = (StorageTools.read_document, SemanticTools.store_spec,
 #: silently leaving the rest to look complete. Best effort, like every corpus here: a step whose
 #: corpus is absent takes its declared default or stays pending — never runs on nothing.
 CORPUS: dict[str, tuple[tuple[str, str], ...]] = {
-    "business_capabilities": (("business-capability-l3", "business-capability-l3"),),     # 3
     "ontology": (("ontology-concepts", "ontology-concept"),                                 # 4, 9
                  ("ontology-relationships", "ontology-relationship")),
     "landscape": (("ai-as-is-architecture", "ai-as-is-architecture"),                      # 6
@@ -78,8 +77,6 @@ CORPUS: dict[str, tuple[tuple[str, str], ...]] = {
 #: What of each corpus a PROMPT carries, by context key — a projection, not a truncation: every row
 #: travels, only the fields the exercise does not read are dropped. None = every field.
 CORPUS_FIELDS: dict[str, tuple[str, ...] | None] = {
-    "business_capabilities": ("id", "l1", "l2", "name", "description", "ai_candidacy",
-                              "indicators"),
     "ontology": ("id", "name", "module", "kind", "parent", "definition",
                  "subject", "predicate", "object", "cardinality"),
     "landscape": None,
@@ -150,9 +147,7 @@ MAX_CORPUS_BYTES = 200_000
 INTAKE_ARTIFACT = "intake-field-specs"
 
 #: Pinned STRICTLY — a run cannot work without them, and a missing one fails the pin, as it should.
-REQUIRED_ARTIFACTS = (CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT, REALISATION_ARTIFACT,
-                      # Public, and step 3's hard input — readiness gate A rests on it.
-                      "business-capability-l3")
+REQUIRED_ARTIFACTS = (CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT, REALISATION_ARTIFACT)
 #: Pinned only if published (`reference.pin(optional=)`): they enrich steps and several are PRIVATE
 #: masters published by reference. The server fails a whole pin on one unpublished artifact, so
 #: pinning these strictly failed every run whenever one upload had not been made.
@@ -348,22 +343,6 @@ def note_corpus_gaps(step_key: str, out: dict, missing: dict) -> None:
                 flags.append({"what": f"{label}: {missing[label]} — this answer did not see it",
                               "owning_body": "reference corpus owner"})
                 break
-
-
-def business_context(frame: dict, business_rows) -> list[dict]:
-    """The business L3s step 3 chose, each with the technology L3s the corpus says SERVE it
-    (`served_by_technology_l3`) — step 5's business context, derived rather than asked. The map is
-    not handed on whole: the context is what THIS use case exercises."""
-    chosen = [str(c.get("id", "")).strip() for c in (frame or {}).get("business_capabilities") or []
-              if isinstance(c, dict)]
-    by_id = {str(r.get("id", "")).strip(): r for r in business_rows or () if isinstance(r, dict)}
-    return [{"id": i, "name": by_id[i].get("name", ""),
-             "served_by_technology_l3": capabilities.refs(by_id[i].get("served_by_technology_l3")),
-             # Copied by the join, never asked of the model: they are columns on the chosen rows,
-             # and gate A reads them — "to assess" is carried as the map says it.
-             "ai_candidacy": by_id[i].get("ai_candidacy", ""),
-             "indicators": capabilities.refs(by_id[i].get("indicators"))}
-            for i in dict.fromkeys(chosen) if i in by_id]
 
 
 def realisations_for(coverage: dict, realisation_rows) -> list[dict]:
@@ -644,18 +623,6 @@ def build_workflow(cfg):
                 if await d.run_step(cfg, step, label=PENDING_STEPS.get(step.number, step.key)):
                     note_corpus_gaps(step.key, d.derived.get(step.key),
                                      state.get("corpora_unavailable") or {})
-                if step.key == "frame" and "frame" in d.derived \
-                        and d.available.get("business_capabilities"):
-                    # Step 5's business context: the business L3s step 3 chose, with the
-                    # technology the corpus says serves each. Only when step 3 RAN with the map:
-                    # `[]` then means "none fits"; unset means "never asked" — not the same.
-                    d.available["business_context"] = business_context(
-                        d.derived.get("frame") or {},
-                        (d.available.get("business_capabilities") or {})
-                        .get("business-capability-l3") or [])
-                    # On the RECORD too, as the EA framing of this use case: which business L3s it
-                    # serves, their AI candidacy and their indicators — what readiness reads.
-                    d.record("business_capabilities_served", d.available["business_context"], "3")
                 # Onto the ONE architecture model the run grows: every later step reads it as
                 # data, and the views a reviewer sees are projections of it.
                 await modelling.grow(cfg, d, step.key)

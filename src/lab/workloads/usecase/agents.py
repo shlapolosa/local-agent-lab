@@ -33,14 +33,14 @@ __all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "OPTIONAL_CONTEXT", "build_all", "con
 #: carried everything would make every prompt a search problem and every wrong answer unattributable.
 CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     # Since the CAFÉ workbook (28 Sep 2026) is the source of truth for which step reads which
-    # artifact, each corpus below is the one its index places at that step. Step 3 frames the use
-    # case in ENTERPRISE-architecture terms — the business L3s it serves — and step 4 decomposes it
-    # against the ontology's concepts, so an element is named in the enterprise's own vocabulary.
-    "frame": ("submission", "business_capabilities"),
+    # artifact, each corpus below is the one its index places at that step — except the BUSINESS
+    # capability map and the EA framing around it (steps 3 and 5), set aside by the user on 28 Sep
+    # to keep this release simple; the tables are published, and nothing reads them yet. Step 4
+    # decomposes against the ontology's concepts, so an element is named in the enterprise's own
+    # vocabulary.
+    "frame": ("submission",),
     "elements": ("frame", "ontology"),
-    # The technology map is the match; the business L3s step 3 chose, with the technology the
-    # corpus says serves each, are its "business context" (E0.3's own inputs).
-    "coverage_map": ("elements", "capabilities", "business_context", "landscape"),
+    "coverage_map": ("elements", "capabilities", "landscape"),
     # The translation before the search: the functions, and a SAMPLE of the map so the abilities
     # are written in its register rather than in the submission's.
     "capability_query": ("elements", "register"),
@@ -106,15 +106,9 @@ EXCLUDED_FROM: dict[str, tuple[str, ...]] = {
 #: without them — the ontology at step 4, the backbone every later step reads, is published by
 #: REFERENCE from a private master, and one upload nobody made must not stall every run there.
 OPTIONAL_CONTEXT: dict[str, frozenset[str]] = {
-    # The business map is PINNED STRICTLY (public; readiness gate A rests on it — recommendation 2),
-    # so an unpublished map fails the run at the pin. What is left is a transient READ failure, and
-    # for that step 3 must still frame the problem and the owner from the submission: a hard input
-    # here stalled every step after it on a corpus outage. Its absence stays visible — no
-    # `business_capabilities_served` on the record, and the corpus named as unavailable.
-    "frame": frozenset({"business_capabilities"}),
     "elements": frozenset({"ontology"}),
     # The estate tells step 5 whether a capability already EXISTS (consumed / updated) or not.
-    "coverage_map": frozenset({"business_context", "landscape"}),
+    "coverage_map": frozenset({"landscape"}),
     "realisation_match": frozenset({"coverage_map", "realisations"}),
     "criticality_band": frozenset({"criticality_taxonomy"}),
     "quality_attributes": frozenset({"quality_patterns"}),

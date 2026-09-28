@@ -157,28 +157,8 @@ def derived_for(number: str) -> Derived:
 
 # ---------------------------------------------------------------- the completeness rules
 
-def _shown_business_ids(context: Mapping[str, Any] | None) -> set[str] | None:
-    """The business L3 ids step 3 was shown, or None when no map reached its prompt."""
-    shown = (context or {}).get("business_capabilities")
-    if not isinstance(shown, Mapping):
-        return None
-    return {str(r.get("id", "")).strip() for rows in shown.values() if isinstance(rows, list)
-            for r in rows if isinstance(r, Mapping)} - {""}
-
-
 def _frame(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     bad = []
-    # A business capability is an id COPIED from the map step 3 was shown — the same rule step 5
-    # holds its technology match to. An id nobody can look up is an enterprise-architecture claim
-    # nothing can check, and with no map shown there is nothing an id could have been copied from.
-    chosen = [str(c.get("id", "")).strip() for c in out.get("business_capabilities") or []
-              if isinstance(c, Mapping)]
-    shown = _shown_business_ids(context)
-    unknown = [c for c in chosen if shown is None or c not in shown]
-    if unknown:
-        bad.append(f"business capabilities {unknown} are not rows of the business capability map "
-                   f"you were shown — copy an `id` from it, or list none and say in "
-                   f"open_questions that no business capability fits")
     problem = str(out.get("problem", "")).lower()
     hit = [w for w in _SOLUTION_WORDS if w in problem]
     if hit:

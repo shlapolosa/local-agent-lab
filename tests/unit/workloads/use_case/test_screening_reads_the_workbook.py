@@ -3,20 +3,18 @@ for which artifact a step consumes (user decision, 28 Sep 2026).
 
 | step | reads (workbook) |
 |---|---|
-| 3 frame | business capability map |
 | 4 / 9 | ontology |
-| 5 match | technology capability map + the business context step 3 chose |
+| 5 match | technology capability map + the as-is estate (for each match's status) |
 | 6 realise | the realisation view (for what step 5 matched) + the AI and traditional as-is |
 | 7 criticality | criticality taxonomy (+ its CRMF and continuity-tier alignment) |
 | 8 quality | quality-attribute patterns + the as-is service levels |
 """
-import pytest
 
 from lab.workloads.use_case_screening import workflow as W
 
 
 def test_every_workbook_placed_corpus_is_pinned_and_read():
-    wanted = {"business-capability-l3", "ontology-concepts", "ai-as-is-architecture",
+    wanted = {"ontology-concepts", "ai-as-is-architecture",
               "traditional-as-is-architecture", "criticality-taxonomy", "quality-attributes",
               "ai-capability-map"}
     pinned = set(W.REFERENCE_ARTIFACTS)
@@ -27,34 +25,14 @@ def test_every_workbook_placed_corpus_is_pinned_and_read():
 
 def test_the_step_context_names_the_workbook_inputs():
     from lab.workloads.usecase.agents import CONTEXT_FOR
-    assert "business_capabilities" in CONTEXT_FOR["frame"]
     assert "ontology" in CONTEXT_FOR["elements"]
-    assert "business_context" in CONTEXT_FOR["coverage_map"]
+    assert "landscape" in CONTEXT_FOR["coverage_map"]
     assert {"realisations", "landscape"} <= set(CONTEXT_FOR["realisation_match"])
     assert "criticality_taxonomy" in CONTEXT_FOR["criticality_band"]
     assert {"quality_patterns", "service_levels"} <= set(CONTEXT_FOR["quality_attributes"])
 
 
-# ------------------------------------------------ the two joins the run derives between steps
-
-BUSINESS = [{"id": "B1.1.2", "name": "Policy drafting & consultation",
-             "served_by_technology_l3": "COG.24; KNW.01", "ai_candidacy": "high"},
-            {"id": "B3.2.1", "name": "Referral triage", "served_by_technology_l3": "",
-             "ai_candidacy": "to assess"}]
-
-
-def test_business_context_is_what_step_3_chose_WITH_the_technology_the_corpus_says_serves_it():
-    frame = {"business_capabilities": [{"id": "B1.1.2", "why": "drafts policy"}]}
-    got = W.business_context(frame, BUSINESS)
-    assert got == [{"id": "B1.1.2", "name": "Policy drafting & consultation",
-                    "served_by_technology_l3": ["COG.24", "KNW.01"], "ai_candidacy": "high",
-                    "indicators": []}]
-
-
-def test_no_business_capability_chosen_is_no_business_context_rather_than_the_whole_map():
-    assert W.business_context({"business_capabilities": []}, BUSINESS) == []
-    assert W.business_context({}, BUSINESS) == []
-
+# ------------------------------------------------ the join the run derives between steps
 
 REALISATIONS = [{"l3_id": "KNW.01", "capability": "Agentic retrieval", "primary": "Foundry IQ",
                  "alternative": "AI Search", "sovereign": "Core42", "uae_north_status": "GA",
@@ -75,25 +53,6 @@ def test_nothing_matched_is_no_realisations():
     assert W.realisations_for({"matched": []}, REALISATIONS) == []
 
 
-# ------------------------------------------------ step 3's gate: only a business L3 it was shown
-
-def test_step_3_refuses_a_business_capability_it_was_not_shown():
-    from lab.workloads.usecase.steps import step_for
-    out = {"problem": "Referrals wait days to be triaged by hand.", "for_whom": "triage nurses",
-           "expected_change": "urgent referrals seen within a day", "accountable_owner": "Jane Doe",
-           "business_capabilities": [{"id": "B9.9.9", "why": "invented"}]}
-    problems = step_for("3").complete(out, {"business_capabilities": {"business-capability-l3": BUSINESS}})
-    assert any("B9.9.9" in p for p in problems), problems
-
-
-def test_step_3_accepts_one_it_was_shown():
-    from lab.workloads.usecase.steps import step_for
-    out = {"problem": "Referrals wait days to be triaged by hand.", "for_whom": "triage nurses",
-           "expected_change": "urgent referrals seen within a day", "accountable_owner": "Jane Doe",
-           "business_capabilities": [{"id": "B3.2.1", "why": "it is triage"}]}
-    assert not step_for("3").complete(out, {"business_capabilities": {"business-capability-l3": BUSINESS}})
-
-
 # ------------------------------------------------ enrichment never gates the backbone
 
 def test_a_corpus_that_ENRICHES_a_step_is_optional_and_one_it_cannot_work_without_is_not():
@@ -103,10 +62,6 @@ def test_a_corpus_that_ENRICHES_a_step_is_optional_and_one_it_cannot_work_withou
     over when present, named in `corpora_unavailable` when absent, never a reason to defer."""
     from lab.workloads.usecase.agents import CONTEXT_FOR, OPTIONAL_CONTEXT
     assert "ontology" in OPTIONAL_CONTEXT["elements"]
-    # Recommendation 2 (28 Sep 2026) makes the business map REQUIRED at the PIN (public; gate A
-    # rests on it) — see the strict-pin test below. At the STEP it stays optional: a transient read
-    # failure must not stop step 3 framing the problem and owner, and every step after it.
-    assert "business_capabilities" in OPTIONAL_CONTEXT["frame"]
     assert "capabilities" not in OPTIONAL_CONTEXT.get("coverage_map", ()), \
         "step 5 cannot match against no map — that stays hard (and defaults)"
     for key, optional in OPTIONAL_CONTEXT.items():
@@ -204,26 +159,6 @@ def test_matched_capabilities_with_no_realisation_row_are_named():
     coverage = {"matched": [{"capability_id": "KNW.01"}, {"capability_id": "ZZZ.99"}]}
     assert W.unrealised_matches(coverage, REALISATIONS) == ["ZZZ.99"]
 
-
-
-# ------------------------------------------------ recommendation 2: step 3 frames in EA terms
-
-def test_the_business_map_is_pinned_strictly_because_it_is_public_and_gate_A_rests_on_it():
-    assert "business-capability-l3" in W.REQUIRED_ARTIFACTS
-
-
-def test_business_context_carries_candidacy_AND_indicators_copied_not_asked():
-    """Both are columns on the rows step 3 selects: a join copies them exactly, where a model
-    asked to copy them could paraphrase or drop one."""
-    rows = [dict(BUSINESS[0], indicators="K21; K04")]
-    got = W.business_context({"business_capabilities": [{"id": "B1.1.2", "why": "w"}]}, rows)
-    assert got[0]["ai_candidacy"] == "high" and got[0]["indicators"] == ["K21", "K04"]
-
-
-def test_step_3_may_state_the_MOTIVATION():
-    from lab.workloads.usecase.steps import schema
-    motivation = schema("frame")["properties"]["motivation"]["properties"]
-    assert {"assessment", "drivers", "goals", "constraints", "principles"} <= set(motivation)
 
 
 # ------------------------------------------------ recommendation 1: step 5 status, and XCT
