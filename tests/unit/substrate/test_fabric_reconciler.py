@@ -149,3 +149,16 @@ def test_run_once_sweeps_first_then_measures_and_remembers_the_numbers(monkeypat
     R.run_once(call=call, client=r)
     assert order and order[0] == "sweep" and "measure" in order
     assert r.get(fabric_events.METRICS_KEY) and r.get("fabric:written:collab:collab://item/drive-1/page")   # loop-guarded
+
+
+def test_the_sweep_also_asks_the_steward_and_survives_a_question_that_fails(capsys, monkeypatch):
+    """The questions ride the sweep's cadence, and like the measurements beside them they must not be able to
+    stop it: a vocabulary the fabric cannot ask about is still a fabric that must keep ingesting."""
+    from lab.substrate import fabric_reconciler as R, fabric_vocabulary as V
+
+    async def boom(**kw):
+        raise ConnectionError("gateway down")
+    monkeypatch.setattr(V, "ask_open", boom)
+    monkeypatch.setattr(R, "_ASKED", set())
+    R.run_once(call=Gateway(), client=FakeRedis())
+    assert "vocabulary questions failed" in capsys.readouterr().out

@@ -17,6 +17,11 @@ TRUST_ORDER: dict[str, int] = {SUGGESTED: 1, EXTRACTED: 2, CONSTRUCTED: 3, CONFI
 GRAPH_BASE = "urn:fabric:graph:"
 PROV_GRAPH = URIRef(GRAPH_BASE + "prov")          # PROV-O records for every assertion
 CANDIDATES_GRAPH = URIRef(GRAPH_BASE + "candidates")   # proposed concepts awaiting a steward
+#: What a steward has GROWN the vocabulary by — admissions, retirements and the ambiguities still to settle.
+#: Its own graph rather than a rung, because these are statements about the VOCABULARY, not about an artifact:
+#: the seed is rebuilt from its master at every boot, so curation that lived only in a scheme would be lost
+#: every time the master was re-read, silently and completely.
+CURATED_GRAPH = URIRef(GRAPH_BASE + "curated")
 
 
 def graph_iri(rung: str) -> URIRef:
@@ -31,5 +36,5 @@ def weakest(*rungs: str) -> str:
 
 
 __all__ = ["RUNGS", "GRAPH_RUNGS", "IMPACT_READS", "TRUST_ORDER", "graph_iri", "weakest",
-           "PROV_GRAPH", "CANDIDATES_GRAPH", "OBSERVED", "SUGGESTED", "EXTRACTED",
+           "PROV_GRAPH", "CANDIDATES_GRAPH", "CURATED_GRAPH", "OBSERVED", "SUGGESTED", "EXTRACTED",
            "CONSTRUCTED", "CONFIRMED", "DERIVED"]

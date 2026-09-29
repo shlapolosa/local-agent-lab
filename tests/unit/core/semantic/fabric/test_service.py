@@ -232,8 +232,10 @@ def test_vocab_propose_parks_a_candidate_and_promote_accepts_it(fab):
     assert (c, RDF.type, G.SKOS.Concept) in g and (c, G.SKOS.prefLabel, Literal("Discharge Summary")) in g
     assert cand["iri"].startswith("urn:fabric:candidate:")
     assert "candidates" in fab.written[-1]
-    acc = fab.promote(cand["iri"], actor="steward@x", method="steward-review")
-    assert acc["rung"] == "H" and G.find(fab.ds, c, G.FAB.lifecycleState, G.FAB.Published)[0][0] == "H"
+    # A candidate with no home cannot be ADMITTED — accepting it would write a lifecycle triple on a concept
+    # no lookup can reach, which is how the same term came back the next time a document used it.
+    with pytest.raises(ValueError, match="names no scheme"):
+        fab.promote(cand["iri"], actor="steward@x", method="steward-review")
     with pytest.raises(ValueError):
         fab.vocab_propose("", actor="x")
     with pytest.raises(ValueError):
@@ -289,7 +291,7 @@ def test_snapshot_and_restore_round_trip_every_persisted_graph(fab):
     fab.graph_assert(a, "urn:fabric:ont#references", "urn:fabric:artifact:other", rung=EXTRACTED, method="x")
     fab.vocab_propose("Candidate", actor="c")
     snaps = {name: fab.snapshot(name) for name in fab.PERSISTED}
-    assert set(snaps) == {"S", "X", "C", "H", "D", "prov", "candidates"} == set(PERSISTED_GRAPHS)
+    assert set(snaps) == set(PERSISTED_GRAPHS) >= {"S", "X", "C", "H", "D", "prov", "candidates", "curated"}
     ds2 = Dataset(default_union=True)
     other = FabricService(ds2, MemoryCatalog(), DocumentTypes(), schemes=dict)
     loaded = other.restore(snaps.values())

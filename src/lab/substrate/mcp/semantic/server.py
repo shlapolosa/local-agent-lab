@@ -83,7 +83,7 @@ RUNGS = RungStore(artifacts=server.artifacts, redis=server.container.redis)
 F: FabricService | None = None
 
 
-def boot() -> dict[str, int]:
+def boot() -> dict[str, object]:
     """Compose the fabric from the container, apply the catalog's schema, restore the persisted rung graphs.
     Part of STARTING, not of importing — `__main__` calls it before `serve`, a test after its overrides."""
     global F
@@ -100,7 +100,14 @@ def boot() -> dict[str, int]:
                       on_write=lambda names: RUNGS.save(F, names))
     if hasattr(catalog, "ensure_schema"):
         catalog.ensure_schema()
-    return RUNGS.restore(F)
+    restored = RUNGS.restore(F)
+    # The seed was just rebuilt from its master, so the scheme object knows nothing a steward decided. The
+    # curated graph is restored ABOVE, so replaying it here is what makes admission survive a restart —
+    # without this line curation is durable and invisible, which is the worse of the two failures.
+    curated = F.recurate()
+    if any(curated.values()):
+        print(f"[fabric] vocabulary curation replayed: {curated}", flush=True)
+    return {**restored, "curation": curated}
 
 
 def fabric() -> FabricService:
@@ -351,10 +358,45 @@ def semantic_vocab_link(iri: str, terms: list[str], schemes: list[str] | None = 
 
 
 @server.tool()
-def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader: str = "") -> dict:
+def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader: str = "",
+                           scheme: str = "", concept_id: str = "", module: str = "") -> dict:
     """Park a candidate concept for a steward. Not in any scheme until a person accepts it (semantic_promote
-    with the candidate's IRI and no predicate)."""
-    return fabric().vocab_propose(label, definition=definition, actor=actor, broader=broader)
+    with the candidate's IRI and no predicate), at which point it IS admitted and findable from then on.
+    `scheme` is the vocabulary it would join and `concept_id` the id it would take — the steward supplies
+    whichever is missing at the gate, because a concept with no home cannot be looked up."""
+    return fabric().vocab_propose(label, definition=definition, actor=actor, broader=broader,
+                                  scheme=scheme, concept_id=concept_id, module=module)
+
+
+@server.tool()
+def semantic_vocab_retire(concept_id: str, scheme: str, resolves_to: str, actor: str, reason: str = "") -> dict:
+    """Supersede a concept: it stops being offered to classifiers and keeps RESOLVING to the one that replaced
+    it. Never deleted — a link made last month names the old id, and a lookup that fails on it turns a correct
+    historical statement into a dangling one. `actor` is the signed-in human; blank is refused."""
+    return fabric().vocab_retire(concept_id, scheme=scheme, resolves_to=resolves_to, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_vocab_amend(concept_id: str, scheme: str, alt: str, actor: str, reason: str = "") -> dict:
+    """Teach a concept the vocabulary ALREADY holds another name, so the next document using that term is
+    linked instead of proposing the same candidate again. The steward's answer to "this term has no concept"
+    when it does, under a different name — admitting a second would be the duplicate this prevents."""
+    return fabric().vocab_amend(concept_id, scheme=scheme, alt=alt, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_vocab_candidates() -> list:
+    """Terms a run met that the vocabulary has no concept for and nobody has accepted or declined yet — what
+    a steward is asked to admit, place under another name, or decline."""
+    return fabric().vocab_candidates()
+
+
+@server.tool()
+def semantic_vocab_conflicts() -> list:
+    """Words this vocabulary gives more than one meaning, which no document could therefore be linked to.
+    A steward settles each by retiring one meaning or renaming it; until then the link is not made, because
+    linking to both is worse than linking to neither."""
+    return fabric().vocab_conflicts()
 
 
 @server.tool()

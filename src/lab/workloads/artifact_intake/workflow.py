@@ -156,13 +156,17 @@ def build_workflow(cfg):
                 state = state | {"document_type": suggestion["document_type"], "type_rung": SUGGESTED}
             else:
                 state = state | {"type_rung": CONSTRUCTED if state.get("document_type") else ""}
-            linked, missed = [], []
+            linked, missed, conflicts = [], [], []
             if subjects:
                 out = await gateway.call(cfg, SemanticTools.vocab_link, {"iri": state["iri"], "terms": subjects})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
+                # A term the vocabulary gives TWO meanings is neither linked nor missed: it is a steward's
+                # decision. Carried on the run so a person reading it can see that two terms went to a
+                # steward — without this it is invisible everywhere except the curated graph.
+                conflicts = out.get("conflicts") or []
                 for term in missed:
                     await gateway.call(cfg, SemanticTools.vocab_propose,
-                                       {"label": term, "actor": "classifier-agent",
+                                       {"label": term, "actor": "classifier-agent", "scheme": cfg.get("vocabulary", ""),
                                         "definition": f"proposed while classifying {state['title']}"})
             # owner and label are LOOKED UP at C (FR-2.2.2): the item's own label, else the site default; the owner
             # map, else the run's requester, else the item's author — never the model. Unresolved → the review asks.
@@ -178,6 +182,7 @@ def build_workflow(cfg):
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "owner", "value": PERSON + owner, "rung": CONSTRUCTED, "method": method})
             state = state | {"subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
+                             "conflicts": conflicts,
                              "confidence": confidence, "rationale": (suggestion or {}).get("rationale", "")}
         await ctx.send_message(state)
 
@@ -307,7 +312,9 @@ def build_workflow(cfg):
                               or ["no candidate: type the delivery context as <kind>:<id>, or 'none'"]})
             summary = {"impact": len(state.get("impact") or []), "overlap": len(state.get("overlap") or []),
                        "drafts": len(state.get("drafts") or []), "subjects": len(state.get("linked") or []),
-                       "candidates_proposed": len(state.get("missed") or [])}
+                       "candidates_proposed": len(state.get("missed") or []),
+                       # a term the vocabulary gives two meanings: neither linked nor proposed, a steward's call
+                       "terms_for_a_steward": len(state.get("conflicts") or [])}
             cont = Continuation(process=ARTIFACT_PUBLISH.name, inputs={"artifact_iri": state["iri"]},
                                 requester=state.get("requester") or "")
             artifacts = {f'{d["id"]} {d["title"][:60]}'.strip(): d["ref"] for d in state.get("drafts") or []}

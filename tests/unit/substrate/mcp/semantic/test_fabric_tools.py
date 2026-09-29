@@ -16,6 +16,7 @@ from fixtures.embed import HashEmbedder
 from fixtures.fakes import FakeRedis
 from fixtures.skos import scheme
 from lab.core.semantic.fabric.rungs import graph_iri
+from lab.core.semantic.fabric.vocabulary import build as domain_scheme
 from lab.core.semantic.fabric.service import PERSISTED_GRAPHS
 from lab.platform import config
 from lab.platform.contracts import SemanticTools
@@ -26,6 +27,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.d
 SERVER = os.path.join(ROOT, "src", "lab", "substrate", "mcp", "semantic", "server.py")
 
 srv = STORE = REDIS = None
+def domain():
+    """A vocabulary the fabric OWNS (typed relationships, alt labels, curation) beside the reference one it
+    merely reads — the ambiguity is deliberate: two concepts a person may call "Agent"."""
+    return domain_scheme(name="cafe", title="CAFÉ",
+                         concepts=[{"id": "AIAgent", "name": "AI agent", "alt": ["Agent"]},
+                                   {"id": "SoftwareAgent", "name": "Agent"},
+                                   {"id": "UseCase", "name": "Use case"}],
+                         relationships=[{"subject": "AIAgent", "predicate": "realises", "object": "UseCase"}])
+
+
 LAB = {"source": "lab", "ref": "art://run1/minutes.json"}
 DOC = {"source": "collab", "handle": "collab://site/drive/doc7", "version": "2"}
 
@@ -48,12 +59,13 @@ def _server():
     srv.server.container.artifacts.override(STORE)
     srv.server.container.redis.override(REDIS)
     srv.server.container.embedder.override(HashEmbedder(dim=8))
-    assert srv.boot() == {}                        # composed from the overridden container; nothing persisted yet
-    sc = scheme()
-    srv.S.registry.add(sc); srv.S.schemes_[sc.name] = sc
-    g = srv.S.store.ds.graph(URIRef(f"urn:lab:semantic:vocab:{sc.name}"))
-    for t in sc.graph():
-        g.add(t)
+    # composed from the overridden container: nothing persisted yet, and no curation to replay onto the seed
+    assert not any(srv.boot()["curation"].values())
+    for sc in (scheme(), domain()):
+        srv.S.registry.add(sc); srv.S.schemes_[sc.name] = sc
+        g = srv.S.store.ds.graph(URIRef(f"urn:lab:semantic:vocab:{sc.name}"))
+        for t in sc.graph():
+            g.add(t)
     yield
     sys.modules.pop("semantic_fabric_server", None)
     mp.undo()
@@ -148,12 +160,41 @@ def test_an_artifacts_life_through_the_tools():
     assert call("semantic_validate_shapes") == {"conforms": True, "messages": []}
 
 
-def test_a_candidate_concept_is_parked_then_accepted():
-    c = call("semantic_vocab_propose", label="Discharge Summary", actor="classifier-agent", definition="Sent at discharge")
+def test_a_candidate_concept_is_parked_then_ADMITTED_and_findable_from_then_on():
+    """The whole point of the gate: a steward's acceptance puts the concept IN the vocabulary, so the next
+    document about it is linked instead of proposing the same term again."""
+    c = call("semantic_vocab_propose", label="Discharge Summary", actor="classifier-agent",
+             definition="Sent at discharge", scheme="cafe")
     assert c["iri"].startswith("urn:fabric:candidate:")
+    assert call("semantic_concepts", scheme="cafe", kind="") and not any(
+        x["label"] == "Discharge Summary" for x in call("semantic_concepts", scheme="cafe", kind=""))
     acc = call("semantic_promote", subject=c["iri"], actor="steward@x", method="steward-review")
-    assert acc["from"] == "candidates" and acc["rung"] == "H"
+    assert acc["from"] == "candidates" and acc["rung"] == "H" and acc["concept_id"] == "DischargeSummary"
+    d = call("semantic_catalog_upsert", pointer={"source": "collab", "handle": "collab://s/d/dis"})
+    assert call("semantic_vocab_link", iri=d["iri"], terms=["Discharge Summary"],
+                schemes=["cafe"])["linked"][0]["concept"].endswith("#DischargeSummary")
     assert "not a candidate" in call_error("semantic_promote", subject="urn:fabric:artifact:nope", actor="s", method="m")
+    # a candidate with no home is refused NAMING the schemes it could join, so the gate can ask for one
+    n = call("semantic_vocab_propose", label="Homeless", actor="a")
+    assert "names no scheme" in call_error("semantic_promote", subject=n["iri"], actor="s@x", method="m")
+
+
+def test_a_steward_supersedes_a_concept_and_it_still_resolves():
+    call("semantic_vocab_retire", concept_id="UseCase", scheme="cafe", resolves_to="AIAgent",
+         actor="steward@x", reason="one meaning, two names")
+    live = [x["id"] for x in call("semantic_concepts", scheme="cafe", kind="")]
+    assert "UseCase" not in live and "AIAgent" in live          # no longer offered
+    assert "actor" in call_error("semantic_vocab_retire", concept_id="AIAgent", scheme="cafe",
+                                 resolves_to="UseCase", actor="", reason="x")
+
+
+def test_a_word_with_two_meanings_waits_for_a_steward_and_is_listed_once():
+    assert call("semantic_vocab_conflicts") == []
+    d = call("semantic_catalog_upsert", pointer={"source": "collab", "handle": "collab://s/d/amb"})
+    r = call("semantic_vocab_link", iri=d["iri"], terms=["Agent"], schemes=["cafe"])
+    assert r["linked"] == [] and r["conflicts"][0]["term"] == "Agent"
+    open_ = call("semantic_vocab_conflicts")
+    assert len(open_) == 1 and open_[0]["concepts"] == ["AIAgent", "SoftwareAgent"]
 
 
 def test_a_content_property_is_refused_by_the_shapes():
@@ -175,7 +216,7 @@ def test_every_write_is_shadowed_and_boot_restores_it():
         ds.graph(iri).remove((None, None, None))
     assert len(ds.graph(graph_iri("C"))) == 0
     loaded = srv.boot()
-    assert loaded["C"] == before and set(loaded) == set(refs)
+    assert loaded["C"] == before and set(loaded) >= set(refs)
 
 
 def test_store_page_keeps_a_page_a_page():

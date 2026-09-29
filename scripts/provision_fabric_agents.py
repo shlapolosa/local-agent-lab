@@ -59,6 +59,11 @@ CURATOR_TOOLS = {
                          # the reconciler renews the lab's own subscriptions: renewal cannot change a
                          # destination or a resource, so it is the one SUBSCRIBE verb a consumer may hold
                          CollabTools.watches, CollabTools.watch_renew],
+    # ...and RAISE, because the reconciler asks a steward about a word the vocabulary gives two meanings
+    # (`fabric_vocabulary.ask_open`). Asking, never deciding: the curator is a sweep, not a person, and the
+    # split is the control. Without this the question is refused on every tick and swallowed by the sweep's
+    # guard — the same shape as the `collab_list` defect two comments above.
+    WorkflowTools.SERVER: list(ApprovalTools.RAISE),
 }
 
 

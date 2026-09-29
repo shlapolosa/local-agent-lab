@@ -391,3 +391,38 @@ def test_a_link_is_written_only_onto_a_run_that_exists():
     runlog.start("a" * 32, process="use_case_screening", input="x", client=redis)
     continuations.link_runs("a" * 32, "wfr-child", "use_case_design", client=redis)
     assert runlog.get("a" * 32, client=redis)["continued_as"] == "wfr-child"
+
+
+def test_an_answer_is_applied_even_when_the_approval_releases_nothing(monkeypatch, r):
+    """A steward's answer about the VOCABULARY starts no run — it changes what every future document is
+    classified against, and that IS the effect. The runner used to return the moment it found no continuation,
+    so the applier was never reached and the whole decision was discarded in silence: no run, no error, no log.
+    """
+    applied = []
+
+    async def fake_apply(state, actor, *, call=None):
+        applied.append((state["kind"], actor)); return [("semantic_vocab_retire", {})]
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, ApprovalKind.CONCEPT_ADMISSION.value, fake_apply)
+    rid = approvals.request(ApprovalKind.CONCEPT_ADMISSION.value, "'Agent' means more than one thing",
+                            {"scheme": "cafe", "term": "Agent", "concepts": ["AIAgent", "SoftwareAgent"],
+                             "answer_labels": ["decision", "keep"]}, "fabric", client=r)
+    approvals.human_decision(rid, Decision.APPROVE, "steward@doh", "review-app",
+                             answer={"decision": {"value": "settle"}, "keep": {"value": "AIAgent"}}, client=r)
+    assert _drain(r) == []                                   # nothing released, which is correct
+    assert applied == [(ApprovalKind.CONCEPT_ADMISSION.value, "steward@doh")]
+    assert r.hget(f"approvals:req:{rid}", "curated") == "1"
+
+
+def test_an_answer_that_the_domain_refuses_is_recorded_and_redriven_even_with_no_continuation(monkeypatch, r):
+    """The same protection the released kinds have: a refused write must not be lost just because this
+    approval had no run to hold back."""
+    async def boom(state, actor, *, call=None):
+        raise ValueError("the scheme does not hold 'Ghost'")
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, ApprovalKind.CONCEPT_ADMISSION.value, boom)
+    rid = approvals.request(ApprovalKind.CONCEPT_ADMISSION.value, "term",
+                            {"scheme": "cafe", "answer_labels": ["decision"]}, "fabric", client=r)
+    approvals.human_decision(rid, Decision.APPROVE, "steward@doh", "review-app",
+                             answer={"decision": {"value": "admit"}}, client=r)
+    assert _drain(r) == []
+    assert "Ghost" in r.hget(f"approvals:req:{rid}", "continuation_error")
+    assert rid in r.smembers(continuations.FAILED_KEY)

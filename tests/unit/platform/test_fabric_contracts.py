@@ -138,7 +138,10 @@ def test_semantic_tools_split_read_pipeline_and_promote():
     grants = [set(g) for g in T.GRANTS]
     assert set.union(*grants) == T.names() and all(a.isdisjoint(b) for a in grants for b in grants if a is not b)
     assert set(T.WRITE) == set(T.PIPELINE) | set(T.PROMOTE) | set(T.REINDEX)
-    assert T.PROMOTE == ("semantic_promote",) and T.REINDEX == ("semantic_reindex",)
+    # membership and the INVARIANT, not the exact tuple: PROMOTE grows as a steward gains decisions (admitting
+    # a concept, superseding one), and each addition must stay a person's decision rather than a pipeline write
+    assert {"semantic_promote"} <= set(T.PROMOTE) and T.REINDEX == ("semantic_reindex",)
+    assert set(T.PROMOTE).isdisjoint(T.PIPELINE) and set(T.PROMOTE).isdisjoint(T.READ)
     assert {"semantic_catalog_get", "semantic_impact", "semantic_search", "semantic_query", "semantic_recommend"} <= set(T.READ)
     assert {"semantic_catalog_upsert", "semantic_edge_assert", "semantic_embed"} <= set(T.PIPELINE)
     assert T.READ in T.GRANTS and T.REINDEX in T.GRANTS

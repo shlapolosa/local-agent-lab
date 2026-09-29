@@ -144,9 +144,12 @@ class SemanticService:
         # The original six keys are ALWAYS present: callers index `c["parent"]` and test it for None, so a key
         # dropped for being empty is a KeyError in somebody else's loop. `module` and `kind` place a DOMAIN
         # concept and are added only where the scheme has them, so a capability map answers exactly as before.
+        # A RETIRED concept is never offered here. This is the list a classifier chooses from, so offering one
+        # would have it keep making the link a steward has just retired — the vocabulary would grow its own
+        # duplicates back, and the retirement would look like it had simply not worked.
         return [{**{k: c.get(k) for k in ("id", "label", "level", "tier", "parent", "definition")},
                  **{k: c[k] for k in ("module", "kind") if c.get(k)}}      # kind is always set; module is not
-                for c in sc.subtree(root, depth, kind)]
+                for c in sc.subtree(root, depth, kind) if not c.get("retired")]
 
     def export_archimate(self, scheme, root_label=None, depth=None, kind="capability", views="overview,branches"):
         sc = self.scheme(scheme)

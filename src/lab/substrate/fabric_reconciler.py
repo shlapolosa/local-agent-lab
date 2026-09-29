@@ -23,7 +23,7 @@ from lab.core import ids
 from lab.core.collab.model import ContentHandle
 from lab.platform import config, fabric_events, streams
 from lab.platform.contracts import ArtifactChanged, CollabTools, SemanticTools
-from lab.substrate import fabric_gateway, fabric_metrics
+from lab.substrate import fabric_gateway, fabric_metrics, fabric_vocabulary
 
 SERVICE = "fabric-reconciler"
 
@@ -128,6 +128,12 @@ async def sweep(*, call=None, allowlist: tuple[str, ...] | None = None, depth: i
     return published
 
 
+#: conflicts this PROCESS has already asked about. In memory on purpose: a restart re-asks at most once, and
+#: `approvals.channel_events` drops what a person has already decided — the cost of forgetting is one duplicate
+#: card, while the cost of a durable "asked" that outlives a withdrawn approval is a question nobody ever sees.
+_ASKED: set[str] = set()
+
+
 def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
     r = client or _client()
     try:
@@ -142,6 +148,14 @@ def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
         print(f"[reconciler] swept: {len(out)} change(s) published", flush=True)
     except Exception as e:                          # noqa: BLE001 — a sweep that fails runs again next tick
         print(f"[reconciler] sweep failed: {type(e).__name__}: {e}", flush=True)
+    try:    # the steward's questions ride the same cadence: nothing else raises them, and an ambiguity that
+            # nobody is asked about is one no document can be linked through, indefinitely and silently
+        raised = asyncio.run(fabric_vocabulary.ask_open(call=call, seen=_ASKED))
+        if raised:
+            print(f"[reconciler] asked a steward about {len(raised)} ambiguity(ies): "
+                  f"{[r['term'] for r in raised]}", flush=True)
+    except Exception as e:                          # noqa: BLE001 — a question that fails is asked next tick
+        print(f"[reconciler] vocabulary questions failed: {type(e).__name__}: {e}", flush=True)
     try:                                            # the measurements ride the same cadence (BR-8)
         m = asyncio.run(fabric_metrics.tick(folder=config.FABRIC_WIKI_FOLDER, client=r, call=call))
         print(f"[reconciler] measured: {m['records']['total']} record(s)", flush=True)

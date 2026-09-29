@@ -14,13 +14,15 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts"))
 
-from lab.platform.contracts import ALL_TOOLS, PROCESSES, PRODUCING_PROCESSES, ApprovalTools, SemanticTools, WorkflowTools  # noqa: E402
+from lab.platform.contracts import (ALL_TOOLS, PROCESSES, PRODUCING_PROCESSES, ApprovalTools, CollabTools,  # noqa: E402
+                                    SemanticTools, WorkflowTools)
 from lab.workloads.artifact_intake import host as intake_host  # noqa: E402
 from lab.workloads.artifact_intake import workflow as intake  # noqa: E402
 from lab.workloads.artifact_publish import host as publish_host  # noqa: E402
 from lab.workloads.artifact_publish import workflow as publish  # noqa: E402
 import provision_fabric_agents as P  # noqa: E402
 
+from lab.substrate import fabric_metrics, fabric_projector, fabric_reconciler, fabric_vocabulary
 GRANTS = {"fabric-intake": P.INTAKE_TOOLS, "fabric-publish": P.PUBLISH_TOOLS, "fabric-curator": P.CURATOR_TOOLS,
           "fabric-bot": P.BOT_TOOLS}
 #: which team each host's identity belongs to (the script mints the key on that team)
@@ -109,3 +111,30 @@ def test_reindex_is_an_operators_sweep_and_reaches_no_workload():
         assert SemanticTools.reindex not in _all(GRANTS[name]), name
     assert SemanticTools.reindex in _all(GRANTS["fabric-curator"])
     assert SemanticTools.reindex not in SemanticTools.PIPELINE and SemanticTools.REINDEX == (SemanticTools.reindex,)
+
+
+# The substrate's own consumers call the gateway too, with the CURATOR credential — and they are not workloads,
+# so the table above never looked at them. Measured twice now: the reconciler's `collab_list` and then its
+# `approvals_ask`, each refused on every tick and swallowed by the sweep's own guard, which is what makes this
+# class of defect so quiet. Each entry is the tools that module's call sites actually name.
+SUBSTRATE_CONSUMERS = {
+    "fabric-curator": (
+        (fabric_reconciler, ()),
+        (fabric_vocabulary, (SemanticTools.vocab_conflicts, SemanticTools.vocab_candidates, ApprovalTools.ask)),
+        (fabric_projector, (SemanticTools.catalog_get, SemanticTools.store_page, CollabTools.put)),
+        (fabric_metrics, (SemanticTools.query, SemanticTools.store_page, CollabTools.put)),
+    ),
+}
+
+
+@pytest.mark.parametrize("team,module,needed", [(t, m, n) for t, ms in SUBSTRATE_CONSUMERS.items() for m, n in ms])
+def test_every_tool_a_substrate_consumer_calls_is_granted_to_the_identity_it_uses(team, module, needed):
+    granted = _all(GRANTS[team])
+    assert not sorted(set(needed) - granted), f"{module.__name__} calls tools {team} is not granted"
+
+
+def test_the_curator_may_ask_a_steward_but_never_answer_for_one():
+    """It is a sweep, not a person. Asking must never imply deciding — the same split the intake already has."""
+    workflow = P.CURATOR_TOOLS[WorkflowTools.SERVER]
+    assert ApprovalTools.ask in workflow
+    assert not set(workflow) & set(ApprovalTools.WRITE)

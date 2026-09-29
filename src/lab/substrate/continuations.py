@@ -35,6 +35,7 @@ from lab.platform import config, runlog, streams, workflows
 from lab.platform.contracts import PROCESSES, Decision, continuation_of
 from lab.substrate import answer_appliers, approvals
 from lab.substrate import fabric_curator  # noqa: F401 — registers the fabric's appliers on import
+from lab.substrate import fabric_vocabulary  # noqa: F401 — and the steward's, for the vocabulary itself
 
 SERVICE = "continuations"
 GROUP = approvals.DEC_GROUPS[0]
@@ -64,6 +65,19 @@ def _continue(fields: dict, *, client) -> str | None:
         if fields.get("decision") != Decision.APPROVE:
             return None                                  # decline releases nothing; update stays open
         state = approvals.status(rid, client=client)
+        # Some kinds carry an ANSWER a domain must apply (the fabric: a person's rung-H decision, with a grant
+        # the released workload does not hold). The registry says which; refused there = recorded on the
+        # approval and NOT released — publishing a record whose facets the person corrected but the fabric
+        # never took would be a lie in the wiki.
+        # ABOVE the continuation check, deliberately: an answer about the VOCABULARY releases nothing at all —
+        # changing what every future document is classified against IS its effect — so a runner that returned
+        # first would discard the decision in silence, with no run, no error and no log to find it by.
+        applier = answer_appliers.applier_for(state.get("kind", ""))
+        if applier is not None:
+            applied = asyncio.run(applier(state, fields.get("actor") or state.get("decided_by") or ""))
+            client.hset(f"approvals:req:{rid}", mapping={"curated": str(len(applied))})
+            client.hdel(f"approvals:req:{rid}", "continuation_error")
+            client.srem(FAILED_KEY, rid)
         cont = continuation_of(state.get("payload") or {})
         if cont is None:
             return None                                  # most approvals release nothing at all
@@ -74,14 +88,6 @@ def _continue(fields: dict, *, client) -> str | None:
         # can then read the decision (who, when) without the asker knowing the id before asking.
         if "approval_id" in {f.name for f in PROCESSES[cont.process].inputs} and not inputs.get("approval_id"):
             inputs["approval_id"] = rid
-        # Some kinds carry an ANSWER a domain must apply FIRST (the fabric: a person's rung-H decision, with
-        # a grant the released workload does not hold). The registry says which; refused there = recorded
-        # on the approval and NOT released — publishing a record whose facets the person corrected but the
-        # fabric never took would be a lie in the wiki.
-        applier = answer_appliers.applier_for(state.get("kind", ""))
-        if applier is not None:
-            applied = asyncio.run(applier(state, fields.get("actor") or state.get("decided_by") or ""))
-            client.hset(f"approvals:req:{rid}", mapping={"curated": str(len(applied))})
         # The process's OWN contract validates these inputs inside submit(), so a malformed answer is
         # refused loudly at this boundary rather than inside a workload an hour later.
         started, duplicate = workflows.submit(

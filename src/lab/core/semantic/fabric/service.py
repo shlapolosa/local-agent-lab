@@ -29,13 +29,15 @@ from lab.core.semantic.fabric import topology
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
                                               iri_safe, pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
-from lab.core.semantic.fabric.rungs import (DERIVED, CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, GRAPH_RUNGS,
+from lab.core.semantic.fabric.rungs import (DERIVED, CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, CURATED_GRAPH, EXTRACTED, GRAPH_RUNGS,
                                              IMPACT_READS,
                                              PROV_GRAPH, graph_iri)
 
 FAB, DCT, SKOS = G.FAB, G.DCT, G.SKOS
 DCAT = Namespace("http://www.w3.org/ns/dcat#")
 CANDIDATE = "urn:fabric:candidate:"
+CURATION = "urn:fabric:curation:"      # one recorded decision about the vocabulary
+CONFLICT = "urn:fabric:conflict:"      # one word with several meanings, awaiting a steward
 DOC_TYPE_SCHEME = "urn:fabric:scheme:doc-types#"
 PERSON = "urn:fabric:person:"
 #: What an IRI looks like HERE: a URN, or a scheme with an authority (`art://`, `collab://`, `https://`). A
@@ -76,7 +78,17 @@ _MIRRORED = (RDF.type, DCT.title, DCAT.accessURL, FAB.lifecycleState, FAB.produc
 _LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, FAB.relatedTo, FAB.synthesisedFrom, DCT.subject, FAB.documentType,
           FAB.ownedBy, FAB.sensitivityLabel)
 #: persisted name -> named graph: the five rungs, the PROV records, the candidates
+def concept_id_for(label: str) -> str:
+    """The id a NEW concept takes when the steward names none: the label as one word, in the shape the seeded
+    vocabularies already use ("Model card" -> "ModelCard"). ONE home — the substrate's gate shows this as the
+    default and sends it as the answer, so a second copy that split on spaces alone gave "Model-card" a
+    different id depending on which path minted it. A steward may always override it, because an id is what
+    every consumer joins on and is the one thing that must not be regretted."""
+    return "".join(w[:1].upper() + w[1:] for w in re.split(r"[^0-9A-Za-z]+", str(label or "")) if w) or "Concept"
+
+
 PERSISTED_GRAPHS: dict[str, URIRef] = {"prov": PROV_GRAPH, "candidates": CANDIDATES_GRAPH,
+                                       "curated": CURATED_GRAPH,
                                        **{r: graph_iri(r) for r in GRAPH_RUNGS}}
 
 
@@ -378,21 +390,36 @@ class FabricService:
         self._require(iri)
         available = self._schemes()
         chosen = {n: sc for n, sc in available.items() if not schemes or n in schemes}
-        linked, missed = [], []
+        linked, missed, conflicts = [], [], []
         for t in terms:
             hits = [(n, sc, c) for n, sc in chosen.items() for c in sc.find(t)]
             if not hits:
                 missed.append(t)
                 continue
+            by_scheme: dict[str, list] = {}
             for n, sc, c in hits:
+                by_scheme.setdefault(n, []).append((n, sc, c))
+            # One word, several meanings WITHIN one vocabulary. Linking to all of them is worse than linking
+            # to none: the document carries both, and nothing downstream — the picture, impact, search — can
+            # tell which was meant. Across vocabularies it is not an ambiguity at all: that is what having
+            # two vocabularies means, and each is linked as before.
+            ambiguous = {n for n, group in by_scheme.items() if len({c["id"] for _, _, c in group}) > 1}
+            for n in sorted(ambiguous):
+                conflicts.append(self._conflict(t, n, [c["id"] for _, _, c in by_scheme[n]]))
+            for n, sc, c in [h for h in hits if h[0] not in ambiguous]:
                 concept = sc.uri(c["id"])
                 self.graph_assert(iri, str(DCT.subject), concept, rung=EXTRACTED, method="label-match")
                 linked.append({"term": t, "scheme": n, "concept": str(concept), "label": c["label"]})
-        return {"linked": linked, "missed": missed}
+        return {"linked": linked, "missed": missed, "conflicts": conflicts}
 
-    def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "") -> dict:
+    def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
+                      scheme: str = "", concept_id: str = "", module: str = "") -> dict:
         """Park a candidate concept for a steward (the candidates graph is not a scheme: a steward accepts
-        it with `promote`, which records the acceptance at rung H)."""
+        it with `promote`, which records the acceptance at rung H).
+
+        `scheme` is the vocabulary it would join and `concept_id` the id it would take — both optional here and
+        both REQUIRED by the time it is admitted, because a concept with no home cannot be looked up and an id
+        is what every consumer joins on. Left out, the steward supplies them at the gate."""
         if not str(label or "").strip():
             raise ValueError("a candidate has a label")
         if not actor:
@@ -405,8 +432,15 @@ class FabricService:
             g.add((c, SKOS.definition, Literal(definition)))
         if broader:
             g.add((c, SKOS.broader, URIRef(broader)))
+        if scheme:
+            g.add((c, FAB.candidateScheme, Literal(scheme)))
+        if concept_id:
+            g.add((c, FAB.candidateId, Literal(concept_id)))
+        if module:
+            g.add((c, FAB.candidateModule, Literal(module)))
         self._persist(("candidates",), lambda: g.remove((c, None, None)))
-        return {"iri": str(c), "label": label.strip()}
+        return {"iri": str(c), "label": label.strip(), "scheme": scheme, "concept_id": concept_id,
+                "module": module}
 
     # ------------------------------------------------------------------ gate
 
@@ -418,11 +452,7 @@ class FabricService:
             raise ValueError("a promotion is a person's decision: actor is required")
         s = URIRef(subject)
         if not predicate:
-            if (s, RDF.type, SKOS.Concept) not in self.ds.graph(CANDIDATES_GRAPH):
-                raise LookupError(f"{subject} is not a candidate concept")
-            r = self.graph_assert(subject, str(FAB.lifecycleState), FAB.Published, rung=to, method=method,
-                                  actor=actor, supersede=True)
-            return {**r, "from": "candidates"}
+            return self._admit(s, actor=actor, method=method, to=to)
         p, o = URIRef(predicate), term(obj)
         current = next((r for r, _ in G.find(self.ds, s, p, o)), None)
         before = self._invalidations()
@@ -436,6 +466,251 @@ class FabricService:
         self._commit((current, to, "prov"), undo, subjects=(s,))
         return {"assertion": str(made.id), "rung": to, "from": current, "subject": subject,
                 "predicate": predicate, "object": str(o)}
+
+    # ------------------------------------------------------------ curation
+
+    def _scheme(self, name: str):
+        sc = (self._schemes() or {}).get(name)
+        if sc is None:
+            raise LookupError(f"the fabric holds no vocabulary {name!r} — it holds "
+                              f"{sorted((self._schemes() or {}))}")
+        return sc
+
+    def _admit(self, candidate: URIRef, *, actor: str, method: str, to: str = CONFIRMED) -> dict:
+        """Accept a parked candidate INTO its vocabulary: the concept itself, durably, in the admitting
+        person's name — not merely a lifecycle triple on a candidate no lookup can reach."""
+        cg = self.ds.graph(CANDIDATES_GRAPH)
+        if (candidate, RDF.type, SKOS.Concept) not in cg:
+            raise LookupError(f"{candidate} is not a candidate concept")
+        label = str(cg.value(candidate, SKOS.prefLabel) or "")
+        name = str(cg.value(candidate, FAB.candidateScheme) or "")
+        if not name:
+            raise ValueError(f"candidate {label!r} names no scheme to join — admit it with a scheme, "
+                             f"one of {sorted((self._schemes() or {}))}")
+        scheme = self._scheme(name)
+        cid = str(cg.value(candidate, FAB.candidateId) or "") or concept_id_for(label)
+        held = scheme.concepts.get(cid)
+        if held is not None and held.get("label") == label:
+            # Already admitted — a redrive of a decision whose first attempt got this far, or a steward
+            # answering twice. Idempotent HERE rather than in the applier, because this is what owns the id:
+            # raising would leave the approval permanently stuck behind a confusing error.
+            return {"from": "candidates", "scheme": name, "concept_id": cid,
+                    "concept": str(scheme.uri(cid)), "label": label, "actor": actor, "rung": to,
+                    "assertion": "", "already": True}
+        broader = str(cg.value(candidate, SKOS.broader) or "")
+        row = {"id": cid, "label": label, "definition": str(cg.value(candidate, SKOS.definition) or ""),
+               "parent": scheme.resolve(broader) if broader else None,
+               "module": str(cg.value(candidate, FAB.candidateModule) or "")}
+        scheme.admit(**row)
+        undo_scheme = lambda: scheme.concepts.pop(cid, None)          # noqa: E731
+        try:
+            written = self._record_curation(name, "admitted", row, actor=actor, method=method, to=to)
+        except Exception:
+            undo_scheme()
+            raise
+        self.graph_assert(str(candidate), str(FAB.lifecycleState), FAB.Published, rung=to, method=method,
+                          actor=actor, supersede=True)
+        return {"from": "candidates", "scheme": name, "concept_id": cid, "concept": str(scheme.uri(cid)),
+                "label": label, "actor": actor, "rung": to, "assertion": written}
+
+    def vocab_retire(self, cid: str, *, scheme: str, resolves_to: str, actor: str, reason: str = "",
+                     to: str = CONFIRMED) -> dict:
+        """Supersede a concept: it stops being offered and keeps resolving to the one that replaced it.
+
+        A person's decision, recorded as one — `actor` is refused blank for the same reason an approval's is:
+        "who narrowed this vocabulary" is what the record is for."""
+        if not actor:
+            raise ValueError("a retirement is a person's decision: actor is required")
+        sc = self._scheme(scheme)
+        before = dict(sc.concepts[cid]) if cid in sc.concepts else None
+        sc.retire(cid, resolves_to=resolves_to, reason=reason)
+        row = {"id": cid, "resolves_to": resolves_to, "reason": reason}
+        try:
+            written = self._record_curation(scheme, "retired", row, actor=actor, method="retire", to=to)
+        except Exception:
+            if before is not None:
+                sc.concepts[cid] = before
+            raise
+        return {"scheme": scheme, "concept_id": cid, "resolves_to": resolves_to, "actor": actor,
+                "rung": to, "assertion": written}
+
+    def vocab_amend(self, cid: str, *, scheme: str, alt: str, actor: str, reason: str = "",
+                    to: str = CONFIRMED) -> dict:
+        """Record that a term is another way of saying a concept the vocabulary already holds — so the next
+        document using it is LINKED rather than proposing the same candidate again."""
+        if not actor:
+            raise ValueError("an amendment is a person's decision: actor is required")
+        sc = self._scheme(scheme)
+        before = dict(sc.concepts.get(cid) or {})
+        sc.amend(cid, alt=alt)
+        try:
+            written = self._record_curation(scheme, "amended", {"id": cid, "alt": alt, "reason": reason},
+                                            actor=actor, method="amend", to=to)
+        except Exception:
+            # the whole row, not just `alt`: `amend` also sets `curated`, and a seed concept left marked that
+            # way would be published as part of the delta by a write the store never took
+            sc.concepts[cid] = before
+            raise
+        return {"scheme": scheme, "concept_id": cid, "alt": alt, "actor": actor, "rung": to,
+                "assertion": written}
+
+    def _record_curation(self, scheme: str, act: str, row: Mapping[str, Any], *, actor: str, method: str,
+                         to: str) -> str:
+        """One curation decision, durably, with who made it. The curated graph is PERSISTED, so a boot that
+        rebuilds the seed from its master replays these onto it (`recurate`) instead of losing them."""
+        g = self.ds.graph(CURATED_GRAPH)
+        node = URIRef(CURATION + ids.ulid())
+        triples = [(node, RDF.type, FAB.Curation), (node, FAB.curationAct, Literal(act)),
+                   (node, FAB.curationScheme, Literal(scheme)), (node, G.PROV.wasAttributedTo, Literal(actor)),
+                   (node, FAB.method, Literal(method)), (node, FAB.rung, Literal(to)),
+                   (node, G.PROV.generatedAtTime, G.now())]
+        triples += [(node, FAB[k], Literal(v)) for k, v in row.items() if v not in (None, "")]
+        for t in triples:
+            g.add(t)
+        self._persist(("curated",), lambda: [g.remove(t) for t in triples])
+        return str(node)
+
+    def _conflict(self, term: str, scheme: str, ids: Iterable[str]) -> dict:
+        """One word, several meanings in ONE vocabulary — recorded once for a steward, however many documents
+        trip over it.
+
+        Idempotent on (scheme, the term case-folded, the meanings it matched): the same ambiguity met by a
+        hundred documents is one decision, and a hundred identical rows would bury the few that differ,
+        exactly as an approval backlog does to a channel. Case-folded because `find` matches that way, so
+        "Agent" and "agent" are one ambiguity and would otherwise mint two."""
+        out = {"term": term, "scheme": scheme, "concepts": sorted(ids)}
+        g = self.ds.graph(CURATED_GRAPH)
+        key = "|".join([scheme, term.casefold(), *out["concepts"]])
+        node = URIRef(CONFLICT + iri_safe(key))
+        if (node, RDF.type, FAB.Conflict) in g:
+            return out
+        triples = [(node, RDF.type, FAB.Conflict), (node, FAB.conflictTerm, Literal(term)),
+                   (node, FAB.curationScheme, Literal(out["scheme"])), (node, G.PROV.generatedAtTime, G.now())]
+        triples += [(node, FAB.candidateId, Literal(c)) for c in out["concepts"]]
+        for t in triples:
+            g.add(t)
+        self._persist(("curated",), lambda: [g.remove(t) for t in triples])
+        return out
+
+    def vocab_candidates(self) -> list[dict]:
+        """Terms a run met that the vocabulary has no concept for, and nobody has yet accepted or declined.
+
+        A candidate is OPEN until it is admitted (its lifecycle becomes Published) or the term stops being
+        absent — a steward may have settled it by making it another name for a concept already held, which is
+        the commonest answer and leaves no candidate to accept. Derived, for the same reason conflict openness
+        is: a marker would have to be written by every path that can close one."""
+        g = self.ds.graph(CANDIDATES_GRAPH)
+        out = []
+        for node in g.subjects(RDF.type, SKOS.Concept):
+            label = str(g.value(node, SKOS.prefLabel) or "")
+            name = str(g.value(node, FAB.candidateScheme) or "")
+            if G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
+                continue                                   # admitted already
+            sc = (self._schemes() or {}).get(name)
+            if sc is not None and sc.find(label):
+                continue                                   # the term means something now; nobody needs asking
+            out.append({"iri": str(node), "label": label, "scheme": name,
+                        "concept_id": str(g.value(node, FAB.candidateId) or ""),
+                        "definition": str(g.value(node, SKOS.definition) or ""),
+                        "proposed_by": str(g.value(node, G.PROV.wasAttributedTo) or "")})
+        return sorted(out, key=lambda c: c["label"])
+
+    def vocab_conflicts(self) -> list[dict]:
+        """Ambiguities a steward has not settled — what the gate asks about.
+
+        Openness is DERIVED from the vocabulary, never from a marker: a conflict is settled exactly when the
+        term no longer matches more than one LIVE concept, which is true whether the steward retired a meaning
+        or made the term another name for one. A marker would have to be written by every path that can settle
+        one — and the path that forgot would re-ask the steward, with a fresh approval id, on every restart
+        forever."""
+        g = self.ds.graph(CURATED_GRAPH)
+        out = []
+        for node in g.subjects(RDF.type, FAB.Conflict):
+            term = str(g.value(node, FAB.conflictTerm) or "")
+            name = str(g.value(node, FAB.curationScheme) or "")
+            sc = (self._schemes() or {}).get(name)
+            if sc is not None and len({c["id"] for c in sc.find(term)}) < 2:
+                continue                                   # the ambiguity is gone; nobody needs asking
+            out.append({"iri": str(node), "term": term, "scheme": name,
+                        "concepts": sorted(str(o) for o in g.objects(node, FAB.candidateId))})
+        return sorted(out, key=lambda c: c["term"])
+
+    def _replay(self, act: str, node: URIRef, sc) -> bool:
+        """One recorded decision onto a scheme. True when it changed something, False when it was already
+        there — the two are different answers and a boot line that conflated them could not tell a quiet
+        replay from a lost one."""
+        g = self.ds.graph(CURATED_GRAPH)
+        cid = str(g.value(node, FAB.id) or "")
+        if act == "admitted":
+            if cid in sc.concepts:
+                return False
+            sc.admit(id=cid, label=str(g.value(node, FAB.label) or ""),
+                     definition=str(g.value(node, FAB.definition) or ""),
+                     parent=str(g.value(node, FAB.parent) or "") or None,
+                     module=str(g.value(node, FAB.module) or ""))
+            return True
+        if act == "amended":
+            alt = str(g.value(node, FAB.alt) or "")
+            if alt.casefold() in {a.casefold() for a in (sc.concepts.get(cid) or {}).get("alt") or []}:
+                return False
+            sc.amend(cid, alt=alt)
+            return True
+        if act == "retired":
+            if (sc.concepts.get(cid) or {}).get("retired"):
+                return False
+            sc.retire(cid, resolves_to=str(g.value(node, FAB.resolves_to) or ""),
+                      reason=str(g.value(node, FAB.reason) or ""))
+            return True
+        raise ValueError(f"unknown curation act {act!r}")
+
+    def recurate(self) -> dict:
+        """Replay the curated delta onto the schemes as they stand — the boot path.
+
+        The seed is rebuilt from its master at every start, so the scheme object is NEW and knows nothing a
+        steward decided. Three properties this needs, each learned the hard way:
+
+        ORDER. Admissions are replayed FIRST and in passes, because one may name another as its parent and the
+        recorded timestamps are only second-resolution — two decisions in the same second tie, and the tie
+        would be broken by rdflib's iteration order, i.e. arbitrarily. Passes repeat while progress is made,
+        so parent-before-child stops mattering at all.
+
+        SURVIVAL. This runs inside `boot()`, and `admit` refuses a row it cannot place. One malformed row must
+        not stop a service from starting — it would refuse identically on every restart, with the bad row
+        still in the store, which is the opposite of what a replay is for. So a row that cannot be applied is
+        COUNTED and NAMED and the rest go on.
+
+        HONESTY. `skipped` and `failed` are reported beside the successes: a replay that silently dropped
+        three decisions and one that had nothing to do both return zeros otherwise, and the scheme is wrong
+        in exactly one of those cases."""
+        g = self.ds.graph(CURATED_GRAPH)
+        counts = {"admitted": 0, "amended": 0, "retired": 0, "skipped": 0, "failed": 0}
+        rows = [(str(g.value(n, FAB.curationAct) or ""), n) for n in g.subjects(RDF.type, FAB.Curation)]
+        # (time, node) so a tie is at least DETERMINISTIC; ULIDs are monotonic per process, not across them
+        rows.sort(key=lambda r: (str(g.value(r[1], G.PROV.generatedAtTime) or ""), str(r[1])))
+        pending = [r for r in rows if r[0] == "admitted"] + [r for r in rows if r[0] != "admitted"]
+        while pending:
+            progressed, deferred = False, []
+            for act, node in pending:
+                name = str(g.value(node, FAB.curationScheme) or "")
+                sc = (self._schemes() or {}).get(name)
+                if sc is None:
+                    print(f"[fabric] curation for an absent vocabulary {name!r} left unapplied", flush=True)
+                    counts["skipped"] += 1
+                    continue
+                try:
+                    applied = self._replay(act, node, sc)
+                except Exception as e:                    # noqa: BLE001 — one bad row must never stop a boot
+                    deferred.append((act, node, f"{type(e).__name__}: {e}"))
+                    continue
+                counts[act if applied else "skipped"] += 1
+                progressed = progressed or applied
+            if not progressed:
+                for act, node, why in deferred:           # nothing left can make these applicable
+                    print(f"[fabric] curation {node} ({act}) could not be replayed: {why}", flush=True)
+                counts["failed"] += len(deferred)
+                break
+            pending = [(a, n) for a, n, _ in deferred]
+        return counts
 
     # ---------------------------------------------------------------- facade
 

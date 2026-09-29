@@ -228,6 +228,10 @@ class SemanticTools(ToolCatalogue):
     impact = "semantic_impact"                     # reads C·X·H·D — never S (NFR-7)
     vocab_link = "semantic_vocab_link"
     vocab_propose = "semantic_vocab_propose"
+    vocab_retire = "semantic_vocab_retire"         # a steward supersedes a concept; it still RESOLVES
+    vocab_amend = "semantic_vocab_amend"           # a term is another way of saying one already held
+    vocab_conflicts = "semantic_vocab_conflicts"   # words with two meanings, awaiting a steward
+    vocab_candidates = "semantic_vocab_candidates" # terms with no meaning yet, awaiting a steward
     embed = "semantic_embed"
     reindex = "semantic_reindex"
     similar = "semantic_similar"
@@ -250,10 +254,13 @@ class SemanticTools(ToolCatalogue):
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
             catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
-            render_cafe, topology)
+            render_cafe, topology, vocab_conflicts, vocab_candidates)
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
-    PROMOTE = (promote,)
+    # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
+    # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
+    # narrow the vocabulary it is classified against would be marking its own homework.
+    PROMOTE = (promote, vocab_retire, vocab_amend)
     REINDEX = (reindex,)
     WRITE = PIPELINE + PROMOTE + REINDEX
     GRANTS = (READ, PIPELINE, PROMOTE, REINDEX)
@@ -539,6 +546,11 @@ class ApprovalKind(StrEnum):
     # artifact for publication. Nothing dispatches on either value.
     ASSOCIATION = "association"
     DRAFT_REVIEW = "draft-review"
+    # A steward is asked about the VOCABULARY rather than about an artifact: admit this term as a concept,
+    # say it already exists under another name, decline it, or settle a word that means two things. Widening
+    # or narrowing what every future document is classified against is not a model's decision — but it is the
+    # same gate, the same audit log and the same channels, and nothing dispatches on this value either.
+    CONCEPT_ADMISSION = "concept-admission"
     # A NOTICE through the same gate (FR-5.3.2): a change reached published records that reference it, and their
     # owners are told — on every channel, with no new outbound path. Acknowledging is `approve`; nothing is released.
     IMPACT_NOTICE = "impact-notice"
