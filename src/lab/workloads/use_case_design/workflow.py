@@ -75,6 +75,8 @@ CORPORA = {
     "surface_enforceability": ("surface-enforceability", "obligation"),
     "ai_capability_map": ("ai-capability-map", "capability"),
     "component_catalogue": ("reference-architecture-components", "component"),
+    # Which zones RUN the use case and which govern it — the `layer` column step 21's gate reads.
+    "zones": ("reference-architecture-zones", "zone"),
     # The published guardrails, for the ONE thing the workload derives from them: which capability
     # (and so which component) enforces each — the chain that tells step 21 whether the selection
     # carries the families the composition requires. The control set itself is decision-mcp's.

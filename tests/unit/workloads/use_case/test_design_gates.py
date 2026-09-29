@@ -249,8 +249,8 @@ def soft(number, out, context):
 #: which is where family membership comes from — the catalogue has no such column.
 WITH_FAMILIES = {"component_families": {"by_component": {"cmp-model": ["F2"], "cmp-vault": ["F4", "F5"]},
                                         "unclaimed": []},
-                 "component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog"},
-                                         {"id": "cmp-vault", "zone": "ident", "name": "Key Vault"}],
+                 "component_catalogue": [{"id": "cmp-model", "zone": "mp", "name": "Foundry model catalog"},
+                                         {"id": "cmp-vault", "zone": "sec", "name": "Key Vault"}],
                  "model_summary": {"required_families": ["F2", "F4"]}}
 
 
@@ -289,7 +289,7 @@ def test_a_family_the_corpus_is_silent_about_is_not_demanded():
 
 def test_a_published_catalogue_column_is_believed_over_the_derivation():
     ctx = dict(WITH_FAMILIES)
-    ctx["component_catalogue"] = [{"id": "cmp-model", "zone": "mod", "families": ["F2", "F4"]}]
+    ctx["component_catalogue"] = [{"id": "cmp-model", "zone": "mp", "families": ["F2", "F4"]}]
     assert soft("21", COMPONENTS, ctx) == []
 
 
@@ -338,9 +338,17 @@ def test_the_determinism_tiering_is_held_to_the_same_coverage():
 
 # ---------------------------------------------------------------- 21 · something runs the use case
 
-CROSS_CUTTING = {"component_catalogue": [{"id": "cmp-entra", "zone": "ident", "name": "Entra"},
-                                         {"id": "cmp-sentinel", "zone": "obs", "name": "Sentinel"},
-                                         {"id": "cmp-model", "zone": "mod", "name": "Model catalog"}]}
+#: The PUBLISHED zones, read from the committed master — never typed here. The first version of
+#: this fixture used the zone codes of an earlier catalogue (`ident`, `obs`, `mod`); the code and
+#: the test agreed with each other, the corpus moved to `sec`/`gov`/`kn`, and every live selection
+#: was flagged as "a control plane with nothing inside it" (wfr-6598d006731b, 29 Sep 2026).
+ZONES = seed.master_rows("reference_architecture_zones")
+
+CROSS_CUTTING = {"zones": ZONES,
+                 "component_catalogue": [{"id": "cmp-entra", "zone": "sec", "name": "Entra"},
+                                         {"id": "cmp-sentinel", "zone": "gov", "name": "Sentinel"},
+                                         {"id": "cmp-model", "zone": "mp", "name": "Model catalog"},
+                                         {"id": "cmp-gateway", "zone": "gw", "name": "AI gateway"}]}
 
 
 def _picked(*ids):
@@ -354,7 +362,29 @@ def test_a_selection_of_only_cross_cutting_components_is_a_control_plane_with_no
     solution view that was a parts list."""
     problems = soft("21", _picked("cmp-entra", "cmp-sentinel"), CROSS_CUTTING)
     assert any("control plane with nothing inside it" in p for p in problems)
-    assert "ident" in problems[0] and "obs" in problems[0]
+    assert "sec" in problems[0] and "gov" in problems[0]
+
+
+def test_the_published_zones_say_which_run_the_use_case_and_which_govern_it():
+    """The rule reads the corpus's own `layer` column, so a renamed zone is a publish, not a code
+    change. Pillars and the foundation govern; the numbered layers do the work."""
+    by_layer = {str(z["id"]): str(z["layer"]) for z in ZONES}
+    assert {"sec", "gov"} <= {z for z, layer in by_layer.items() if layer == "Pillar"}
+    assert {"ag", "kn", "tl", "mp", "dt"} <= {z for z, layer in by_layer.items()
+                                             if layer.startswith("Layer")}
+
+
+def test_a_gateway_mediates_and_does_not_count_as_running_the_use_case():
+    """Run 5's parts list included the gateway. It is `Layer 2` in the corpus, so "every numbered
+    layer does the work" would pass a gateway + security selection — the control plane again."""
+    problems = soft("21", _picked("cmp-gateway", "cmp-entra"), CROSS_CUTTING)
+    assert any("control plane with nothing inside it" in p for p in problems)
+
+
+def test_without_the_zones_table_the_rule_makes_no_claim():
+    """Absent is not "every zone is cross-cutting" — that is the claim this rule got wrong."""
+    no_zones = {"component_catalogue": CROSS_CUTTING["component_catalogue"]}
+    assert soft("21", _picked("cmp-entra", "cmp-sentinel"), no_zones) == []
 
 
 def test_one_component_that_runs_the_use_case_satisfies_it():

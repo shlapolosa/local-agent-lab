@@ -168,7 +168,10 @@ def chain(run_id: str, *, client=None) -> list:
             out.append({"run": current, "process": _released_process(out), "status": "queued",
                         "subject": "", "elapsed": None, "error": "", "steps": []})
             break
-        nxt = str(h.get("continued_as") or "")
+        # The link names the child's REQUEST id (its trace does not exist when it is released) and
+        # the run log is keyed by trace, so it is resolved here — unresolved, a child that had
+        # started rendered as `queued` forever.
+        nxt = resolve(str(h.get("continued_as") or ""), client=client)
         if not nxt or any(c["run"] == nxt for c in out):
             break
         current = nxt

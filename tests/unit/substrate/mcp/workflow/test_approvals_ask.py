@@ -249,3 +249,27 @@ def test_the_asker_declares_the_kind_and_an_unknown_kind_is_refused(tools):
     assert approvals.status(out["request_id"], client=r)["kind"] == "draft-review"
     assert "kind must be one of" in call_error(server, "approvals_ask", subject="s", prompt="p",
                                                items=[{"label": "x"}], kind="whatever")
+
+
+# ------------------------------------------------------------------ which run asked
+def test_an_approval_records_the_trace_of_the_run_that_asked_it(tools, monkeypatch):
+    """The asking run's trace arrives on the call's `traceparent`, and the approval is the only
+    thing that carries it to the run the approval releases. It was dropped here: every approval
+    raised through this tool had `trace_id: None`, so the continuation runner linked nothing and
+    the live page stopped at the approval (apr-45a1a0af5961, 29 Sep 2026) — a person who approved
+    saw no design run follow, which is the question the chain exists to answer."""
+    from opentelemetry.trace import NonRecordingSpan, SpanContext
+    from lab.substrate import approvals
+    from lab.substrate.mcp.workflow import approval_tools
+    asking = NonRecordingSpan(SpanContext(trace_id=0xABC, span_id=0x1, is_remote=True))
+    monkeypatch.setattr(approval_tools, "span", lambda: asking)
+    server, r = tools
+    out = call(server, "approvals_ask", subject="s", prompt="p", items=[{"label": "A"}])
+    assert approvals.status(out["request_id"], client=r)["trace_id"] == f"{0xABC:032x}"
+
+
+def test_an_approval_asked_outside_any_trace_records_none(tools):
+    from lab.substrate import approvals
+    server, r = tools
+    out = call(server, "approvals_ask", subject="s", prompt="p", items=[{"label": "A"}])
+    assert not approvals.status(out["request_id"], client=r)["trace_id"]

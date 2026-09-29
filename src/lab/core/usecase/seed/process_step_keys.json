@@ -179,7 +179,7 @@
     "agent",
     "16",
     "design",
-    "obligations; quality_attributes; realisation_match; ai_capability_map; component_catalogue; build_surface; model_summary; coverage_map; enforcement_points; component_families"
+    "obligations; quality_attributes; realisation_match; ai_capability_map; component_catalogue; zones; build_surface; model_summary; coverage_map; enforcement_points; component_families"
    ],
    [
     "Q6.1–Q6.2",

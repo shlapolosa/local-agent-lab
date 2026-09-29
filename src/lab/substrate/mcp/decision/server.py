@@ -185,7 +185,7 @@ def decision_composition(workflow: dict, topology: str, conditions: dict | None 
             "variants": dict(out.variants), "modifiers": dict(out.modifiers),
             "enforcement": {k: list(v) for k, v in out.enforcement.items()},
             "unbound": sorted(out.unbound),
-            "connectors": [list(c) for c in out.connectors],
+            "connectors": [{"from": a, "to": b} for a, b in out.connectors],
             "rules_source": provenance}
 
 

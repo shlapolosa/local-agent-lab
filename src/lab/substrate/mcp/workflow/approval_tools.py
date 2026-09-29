@@ -277,8 +277,14 @@ def register(server: LabServer) -> None:
         if summary:
             payload["summary"] = dict(summary)
         payload |= dict(artifacts or {})
+        # The ASKING run's trace, from the call's own traceparent: the continuation runner links the
+        # run an approval releases back to this one through it, and without it the live page stops
+        # at the approval — a decision that looks like it did nothing.
+        asked_in = span().get_span_context()
         rid = approvals.request(kind=kind, subject=subject,
-                                payload=payload, requester=requester or SOURCE, client=_client())
+                                payload=payload, requester=requester or SOURCE,
+                                trace_id=f"{asked_in.trace_id:032x}" if asked_in.is_valid else None,
+                                client=_client())
         span().set_attributes({"approval.request_id": rid, "approvals.asked": len(prompts)})
         return {"request_id": rid, "status": ApprovalStatus.PENDING.value, "asked": len(prompts),
                 "review_app": cfg.review_app_url(),

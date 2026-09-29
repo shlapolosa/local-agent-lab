@@ -6,6 +6,8 @@ predicate two derivations later, a refusal arriving as a sentence, and — the o
 — every answer saying WHICH rules it used, so an ungoverned derivation can never be mistaken for a
 governed one.
 """
+import dataclasses
+
 import pytest
 from fastmcp.exceptions import ToolError
 
@@ -171,6 +173,17 @@ def test_composition_derives_the_families_the_steps_call_for():
     out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS, **pinned())
     assert "F4" in out["families"]          # an effect of record write or above
     assert out["enforcement"]["F4"]
+
+
+def test_a_connector_says_which_end_is_which(monkeypatch):
+    """A bare `[a, b]` pair is indistinguishable from any other two-item list — the live view
+    rendered it as `2 × n1`, losing the target. Named ends are the contract."""
+    from lab.core.usecase import composition
+    real = composition.compose
+    monkeypatch.setattr(composition, "compose", lambda *a, **k: dataclasses.replace(
+        real(*a, **k), connectors=(("n1", "n2"), ("n7", "n12"))))
+    out = S.decision_composition(wf(COMMIT), topology="T2", conditions=ANSWERS, **pinned())
+    assert out["connectors"] == [{"from": "n1", "to": "n2"}, {"from": "n7", "to": "n12"}]
 
 
 def test_a_family_no_step_calls_for_is_absent():

@@ -376,3 +376,18 @@ def test_a_failure_recorded_before_the_set_existed_is_still_redriven(r):
     started = continuations.redrive_failed(client=r)
     assert len(started) == 1 and approvals.status(rid, client=r)["released_request_id"] == started[0]
     assert "continuation_error" not in approvals.status(rid, client=r) and continuations.failed(client=r) == []
+
+
+def test_a_link_is_written_only_onto_a_run_that_exists():
+    """An approval asked outside a governed run — a connector, a person with the master key —
+    carries a trace no run log knows. Linking it would create a permanent `run:` row for a run that
+    never existed."""
+    from fixtures.fakes import FakeRedis
+    from lab.platform import runlog
+    from lab.substrate import continuations
+    redis = FakeRedis()
+    continuations.link_runs("f" * 32, "wfr-child", "use_case_design", client=redis)
+    assert runlog.get("f" * 32, client=redis) == {}
+    runlog.start("a" * 32, process="use_case_screening", input="x", client=redis)
+    continuations.link_runs("a" * 32, "wfr-child", "use_case_design", client=redis)
+    assert runlog.get("a" * 32, client=redis)["continued_as"] == "wfr-child"

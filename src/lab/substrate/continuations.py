@@ -119,6 +119,8 @@ def link_runs(parent_trace: str, child: str, process: str, *, client=None) -> No
     if not parent_trace or not child:
         return
     try:
+        if not runlog.get(parent_trace, client=client):
+            return                   # asked outside any governed run: nothing to link from
         runlog.update(parent_trace, continued_as=child, continued_process=process, client=client)
     except Exception as e:                               # noqa: BLE001 — see the docstring
         print(f"continuation link not written for {parent_trace}: {type(e).__name__}: {e}",

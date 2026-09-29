@@ -22,7 +22,7 @@
 | Q2.1–Q2.4 | 18 | risk |  | derived | 13 | design | — |
 | Q3.1–Q3.4 | 19 | obligations |  | derived | 14 | design | — |
 | Q4.1–Q4.3 | 20 | build_surface | Technology Architect | agent | 15 | design | obligations; realisation_match; surface_enforceability |
-| Q5.1–Q5.3 | 21 | component_selection | Solution Architect | agent | 16 | design | obligations; quality_attributes; realisation_match; ai_capability_map; component_catalogue; build_surface; model_summary; coverage_map; enforcement_points; component_families |
+| Q5.1–Q5.3 | 21 | component_selection | Solution Architect | agent | 16 | design | obligations; quality_attributes; realisation_match; ai_capability_map; component_catalogue; zones; build_surface; model_summary; coverage_map; enforcement_points; component_families |
 | Q6.1–Q6.2 | 22 | composition |  | derived | 17 | design | — |
 | Q7.1 | 25 | delivery_artifacts | Product Owner | agent | 18 | design | frame; composition; obligations; cost; benefit; component_selection; quality_attributes; criticality; model_summary |
 | Q7.2–Q7.3 | 23 | cost_inputs | Cost Engineer | agent | 19 | design | intake; component_selection; composition; delivery_rates |

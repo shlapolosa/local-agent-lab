@@ -118,3 +118,22 @@ def test_a_request_id_resolves_to_the_trace_so_a_fresh_link_works():
     assert live.resolve("wfr-abc", client=redis) == "t9"
     assert live.resolve("t9", client=redis) == "t9"
     assert live.resolve("wfr-unknown", client=redis) == "wfr-unknown"
+
+
+def test_a_continuation_that_HAS_started_is_followed_through_its_request_id():
+    """The link is written as the child's REQUEST id — its trace does not exist yet when the
+    approval releases it — while the run log is keyed by trace. Followed unresolved, a child that
+    had started and even finished still rendered as `queued`, forever. Every earlier test linked
+    trace to trace, which is not the shape production writes."""
+    from lab.platform import workflows
+    from lab.platform.contracts import WorkflowStatus
+    redis = FakeRedis()
+    _run(redis, "t1", "use_case_screening", status="done")
+    rid = "wfr-released"
+    redis.hset(f"workflow:req:{rid}", mapping={"process": "use_case_design", "status": "pending"})
+    runlog.update("t1", continued_as=rid, continued_process="use_case_design", client=redis)
+    _run(redis, "t2", "use_case_design")
+    workflows.mark(rid, WorkflowStatus.RUNNING, trace_id="t2", client=redis)
+    chain = live.chain("t1", client=redis)
+    assert [c["run"] for c in chain] == ["t1", "t2"]
+    assert chain[1]["status"] == "running"

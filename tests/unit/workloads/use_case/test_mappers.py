@@ -70,9 +70,9 @@ OUTPUTS = {
                            "catalog_entry": {"name": "Referral triage", "owner": "lead", "capability": "cap-1"}},
 }
 
-POOL = {"component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog",
+POOL = {"component_catalogue": [{"id": "cmp-model", "zone": "mp", "name": "Foundry model catalog",
                                  "families": ["F2"]},
-                                {"id": "cmp-vault", "zone": "ident", "name": "Key Vault"}],
+                                {"id": "cmp-vault", "zone": "sec", "name": "Key Vault"}],
         "topology_archetypes": [{"id": "T1", "value": "A1; A7"}, {"id": "T2", "value": "A2; A3; A5"}],
         "composition": OUTPUTS["composition"]}
 
@@ -136,9 +136,9 @@ def test_the_business_layer_joins_on_the_function_name():
 def test_cafe_tags_come_from_the_catalogue_the_step_was_shown():
     m = run_all()
     ac = m.elements["ac-cmp-model"]
-    assert ac["props"]["cafe.zone"] == "mod" and ac["props"]["cafe.component_id"] == "cmp-model"
+    assert ac["props"]["cafe.zone"] == "mp" and ac["props"]["cafe.component_id"] == "cmp-model"
     assert ac["props"]["cafe.families"] == "F2"
-    assert ("zone-mod", "ac-cmp-model", "Aggregation") in m.relations
+    assert ("zone-mp", "ac-cmp-model", "Aggregation") in m.relations
     assert ("fam-f2", "ac-cmp-model", "Aggregation") in m.relations
     assert ("ac-cmp-model", "con-g01", "Realization") in m.relations, "the family's enforcement point"
     assert not any(r["src"].startswith("node-") and r["tgt"].startswith("ac-") for r in m.relations.values()), \

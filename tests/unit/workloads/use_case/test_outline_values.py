@@ -137,12 +137,12 @@ def test_every_schema_declared_list_renders_a_value_for_a_realistic_row():
 
 def test_a_mapping_whose_values_are_lists_summarises_them():
     """`by_step` on the obligations is `{step: [obligation, ...]}` and rendered as a raw Python
-    repr — `n1: [{'guardrail': 'G01', 'text': ...}]`. A reader gets the count and the first one,
-    which is what the row is for; the record has the rest."""
+    repr — `n1: [{'guardrail': 'G01', 'text': ...}]`. A reader gets the members by id (since 29 Sep
+    2026 — "count × first" hid every member after the first); the record has the rest."""
     out = D.outline({"by_step": {"n1": [{"guardrail": "G01", "text": "prompt integrity"},
                                         {"guardrail": "G03", "text": "output scanning"}]}})
     item = out["by_step"]["items"][0]
-    assert item.startswith("n1: ") and "G01" in item and "2" in item
+    assert item == "n1: G01, G03"
     assert "{" not in item and "'" not in item, "a Python repr is not a rendering"
 
 

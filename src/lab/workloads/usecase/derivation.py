@@ -140,7 +140,50 @@ def _paired(item: dict) -> str:
     if item.get("capability_id") and item.get("route") and item.get("realisation"):
         return (f"{item['capability_id']} · {item['route']}: {item['realisation']}"
                 + (" (preferred)" if item.get("preferred") else ""))
+    # A workflow step: the id joins the graph, the activity is what a person reads (steps 10, 17),
+    # and on step 15 the TIER is the decision itself. All three rendered as a bare `n1` before.
+    if item.get("id") and item.get("activity"):
+        return f"{item['id']} · {item['activity']}"
+    if item.get("id") and item.get("tier"):
+        return (f"{item['id']} · {item['tier']}"
+                + (f" ({item['necessity']})" if item.get("necessity") else ""))
+    # A connector, an edge or a facet override: the ends, plus what qualifies them — an edge's
+    # data class drives its obligations, and an override without its facet says nothing.
+    if item.get("from") and item.get("to"):
+        return (f"{item['facet']}: " if item.get("facet") else "") + f"{item['from']} → {item['to']}" \
+            + (f" · {item['data_class']}" if item.get("data_class") else "")
     return ""
+
+
+#: A nested list names this many members and counts the rest.
+LIST_SHOWN = 6
+
+#: How a member of a NESTED list is named — the shortest thing that tells two members apart. A
+#: full label per member (`G01 · G01 prompt and registry integrity · baseline`) fills the line
+#: with the first one and leaves no room for the others, which is the fault this replaced.
+_MEMBER_KEYS = ("guardrail", "artifact_id", "capability_id", "id")
+
+
+def _member(item) -> str:
+    if isinstance(item, dict):
+        for field in _MEMBER_KEYS:
+            if item.get(field):
+                return str(item[field]) + (f" {item['version']}" if item.get("version") else "")
+    return _label(item)
+
+
+def _members(items: list) -> str:
+    """A list inside a value, as its members — `G06, G12` — never `2 × G06`.
+
+    Measured on wfr-6598d006731b (29 Sep 2026): "N × <first>" read as N COPIES and hid every
+    member after the first — a family bound to two different guardrails, eleven different pinned
+    artifacts, all rendered as one repeated. The count survives as "+k more" once the list is
+    longer than a line can hold."""
+    if not items:
+        return "none"
+    shown = [_member(i) for i in items[:LIST_SHOWN]]
+    rest = len(items) - len(shown)
+    return ", ".join(shown) + (f" +{rest} more" if rest else "")
 
 
 def outline(out) -> dict:
@@ -193,14 +236,9 @@ def _label(item) -> str:
     fallback, because naming something badly beats naming it not at all.
     """
     if isinstance(item, (list, tuple, set)):
-        # A LIST as a value — `by_step` is `{step: [obligation, ...]}` — rendered as a raw Python
-        # repr, which is not a rendering. The count and the first entry are what the line is for;
-        # the record holds the rest.
-        items = list(item)
-        if not items:
-            return "none"
-        return _clip(f"{len(items)} × {_label(items[0])}" if len(items) > 1
-                     else _label(items[0]))
+        # A LIST as a value — `by_step` is `{step: [obligation, ...]}`, a family's guardrails —
+        # named by its members; the record holds each member in full.
+        return _clip(_members(list(item)))
     if isinstance(item, dict):
         paired = _paired(item)
         if paired:
@@ -216,7 +254,9 @@ def _label(item) -> str:
         # Scalars only: a nested list is the row's own detail, and splicing it into a one-line
         # label is how a row stops being readable. A row of nothing but containers says what it
         # holds rather than coming back empty.
-        scalars = [str(v).strip() for v in item.values()
+        # A number or a flag keeps its NAME: step 18's `n1: 2 · 2` could not say which was exposure.
+        # Text names itself, so it goes bare.
+        scalars = [str(v).strip() if isinstance(v, str) else f"{k} {v}" for k, v in item.items()
                    if v not in (None, "", [], {}) and not isinstance(v, (list, dict, tuple, set))]
         if scalars:
             return _clip(" · ".join(scalars[:3]))

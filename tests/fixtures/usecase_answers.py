@@ -40,8 +40,8 @@ COMPONENTS = {"selected": [{"capability": "inference", "component_id": "cmp-mode
               "tradeoffs": [], "unresolved": []}
 
 #: The catalogue step 21 is shown, as its gate reads it — the id column is what admits a component.
-CATALOGUE = {"component_catalogue": [{"id": "cmp-model", "zone": "mod", "name": "Foundry model catalog"},
-                                     {"id": "cmp-vault", "zone": "ident", "name": "Key Vault"}]}
+CATALOGUE = {"component_catalogue": [{"id": "cmp-model", "zone": "mp", "name": "Foundry model catalog"},
+                                     {"id": "cmp-vault", "zone": "sec", "name": "Key Vault"}]}
 
 COST_INPUTS = {"build_amount": 250000, "build_provenance": "budget bucket",
                "build_basis": "the Investment row of the intake", "notes": []}

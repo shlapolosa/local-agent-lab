@@ -604,11 +604,17 @@ def _families_realised(out: dict, context: Mapping[str, Any] | None = None) -> l
 FAMILY_REMEDY = ("select a catalogue component whose `families` include it, or name it under "
                  "`unresolved` as something the design still owes")
 
-#: The CAFÉ zones that RUN the use case, as opposed to the cross-cutting ones that govern it
-#: (`ident`, `obs`, `plat`). A selection drawn entirely from the cross-cutting zones is a control
-#: plane with nothing inside it — measured run 5, 15 Sep 2026: sixteen components, every one of them
-#: identity, observability, platform or gateway, and a solution view that was a parts list.
-DELIVERY_ZONES = ("exp", "cog", "knw", "mod", "too", "data", "ext")
+#: A zone RUNS the use case when the published zones place it in a numbered layer (`Layer 1`..`5`:
+#: experience, gateway, agent plane, knowledge, tools, models, data) and GOVERNS it when they place
+#: it in a pillar or the foundation (security, governance, platform). A selection drawn entirely
+#: from the governing zones is a control plane with nothing inside it — measured run 5, 15 Sep
+#: 2026: sixteen components, every one identity, observability or platform, and a solution view
+#: that was a parts list. The zone codes are the CORPUS's: they were a tuple here once, the
+#: catalogue renamed them, and every selection after that was flagged (29 Sep 2026).
+#: Layer 2 is the gateway: it MEDIATES every call and runs nothing, and run 5's parts list was
+#: "identity, observability, platform or gateway" — counting it as delivery would pass exactly that.
+DELIVERY_LAYER = "Layer"
+MEDIATING_LAYERS = ("Layer 2",)
 DELIVERY_REMEDY = ("select the components that DO the work as well as the ones that govern it — the "
                    "runtime or orchestrator, the model, the knowledge or grounding store, the tools "
                    "it calls, the data it reads — or name under `unresolved` why this design needs "
@@ -618,17 +624,21 @@ DELIVERY_REMEDY = ("select the components that DO the work as well as the ones t
 def _does_the_work(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
     """Step 21's second SOFT rule: something in the selection runs the use case.
 
-    Zones are the catalogue's own column, so this asks nothing the corpus does not already say. A
-    catalogue with no zone column makes no claim, exactly as the family rule does.
+    Zones are the catalogue's own column and their layers the zones table's, so this asks nothing
+    the corpus does not already say. Without either it makes no claim, exactly as the family rule
+    does.
     """
     ctx = context or {}
+    delivery = {str(z.get("id")) for z in ctx.get("zones") or []
+                if isinstance(z, Mapping) and str(z.get("layer") or "").startswith(DELIVERY_LAYER)
+                and str(z.get("layer")) not in MEDIATING_LAYERS}
     zone_of = {str(r.get("id")): str(r.get("zone") or "") for r in ctx.get("component_catalogue") or []
                if isinstance(r, Mapping) and r.get("id")}
-    if not any(zone_of.values()):
-        return []
+    if not delivery or not any(zone_of.values()):
+        return []                    # no published zones, or no zone column: no claim either way
     chosen = {str(c.get("component_id", "")) for c in out.get("selected") or []}
     zones = {zone_of.get(cid, "") for cid in chosen} - {""}
-    if not zones or zones & set(DELIVERY_ZONES):
+    if not zones or zones & delivery:
         return []
     named = " ".join(str(u) for u in out.get("unresolved") or []).lower()
     if "zone" in named or "runtime" in named or "model" in named:

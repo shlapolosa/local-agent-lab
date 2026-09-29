@@ -63,7 +63,7 @@ CONTEXT_FOR: dict[str, tuple[str, ...]] = {
     # families the composition (22, run first) requires and which are realised — never the whole
     # spec, which would put every element's properties into a prompt an architect skims.
     "component_selection": ("obligations", "quality_attributes", "realisation_match",
-                            "ai_capability_map", "component_catalogue", "build_surface",
+                            "ai_capability_map", "component_catalogue", "zones", "build_surface",
                             "model_summary",
                             # WHICH technology capabilities this use case needs — step 5's own
                             # output, now that it matches the technology map. Its `capability_id`
@@ -113,6 +113,8 @@ OPTIONAL_CONTEXT: dict[str, frozenset[str]] = {
     "criticality_band": frozenset({"criticality_taxonomy"}),
     "quality_attributes": frozenset({"quality_patterns"}),
     "cost_inputs": frozenset({"delivery_rates"}),
+    # The zones only classify: without them the "does anything run it" rule makes no claim.
+    "component_selection": frozenset({"zones"}),
 }
 
 
