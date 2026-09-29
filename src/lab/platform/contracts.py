@@ -232,6 +232,7 @@ class SemanticTools(ToolCatalogue):
     vocab_amend = "semantic_vocab_amend"           # a term is another way of saying one already held
     vocab_conflicts = "semantic_vocab_conflicts"   # words with two meanings, awaiting a steward
     vocab_candidates = "semantic_vocab_candidates" # terms with no meaning yet, awaiting a steward
+    vocab_master = "semantic_vocab_master"         # the vocabulary as its master, staged for an operator
     embed = "semantic_embed"
     reindex = "semantic_reindex"
     similar = "semantic_similar"
@@ -254,7 +255,7 @@ class SemanticTools(ToolCatalogue):
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
             catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
-            render_cafe, topology, vocab_conflicts, vocab_candidates)
+            render_cafe, topology, vocab_conflicts, vocab_candidates, vocab_master)
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept

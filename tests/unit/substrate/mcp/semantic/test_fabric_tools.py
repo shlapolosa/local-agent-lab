@@ -266,3 +266,31 @@ def test_a_second_renderer_needs_the_adapter_and_the_registry_line_and_nothing_e
         assert STORE.get(r["ref"]).startswith(b"\x89PNG-")
     finally:
         srv.server.container.renderer.reset_override()
+
+
+def test_the_vocabulary_is_staged_as_a_master_an_operator_publishes():
+    """The fabric renders what it owns and hands an operator a ref and a command. It cannot publish: the
+    signing seed is off every service and the corpus reader holds SELECT only."""
+    from lab.core.reference.master import parse
+
+    out = call("semantic_vocab_master", scheme="cafe", owner="ea@doh", version="0.4")
+    assert sorted(out) == ["ontology-concepts", "ontology-relationships"]
+    made = out["ontology-concepts"]
+    assert made["ref"].startswith("art://") and made["ref"].endswith("/ontology-concepts.md")
+    assert "--version 0.4" in made["command"] and "--owner ea@doh" in made["command"]
+    m = parse(STORE.get(made["ref"]).decode())                     # what the publisher will actually parse
+    assert m.meta["Vocabulary"] == "cafe" and {"id", "name"} <= set(m.headers)
+    assert {r[0] for r in m.rows} >= {"AIAgent", "UseCase"}
+    assert "unknown scheme nope" in call_error("semantic_vocab_master", scheme="nope")   # and names the ones it has
+
+
+def test_a_concept_a_steward_admitted_is_in_the_master_the_operator_publishes():
+    """The loop closed: what a person decided reaches the corpus the other pipelines read, under the ids they
+    already join on — so their switch is an artifact id, not code."""
+    from lab.core.reference.master import parse
+
+    c = call("semantic_vocab_propose", label="Model card", actor="a", scheme="cafe", definition="what a model is for")
+    call("semantic_promote", subject=c["iri"], actor="steward@doh", method="steward-review")
+    m = parse(STORE.get(call("semantic_vocab_master", scheme="cafe")["ontology-concepts"]["ref"]).decode())
+    row = next(dict(zip(m.headers, r)) for r in m.rows if r[0] == "ModelCard")
+    assert row["name"] == "Model card" and row["definition"] == "what a model is for"

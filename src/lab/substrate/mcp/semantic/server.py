@@ -26,6 +26,7 @@ vocabularies + fabric together), are SHACL-checked on every write and shadowed t
   semantic_embed|similar|search               the facade over the embedding index (proposes, never decides)
   semantic_validate_shapes · semantic_promote the fitness function, and the curator's gate (actor required)
 """
+import asyncio
 import json
 from datetime import datetime, timezone
 import os
@@ -37,6 +38,7 @@ from lab.core.viz import CONCEPT
 from lab.platform.filetypes import content_type_for, file_slug
 from lab.platform.fabric_events import METRICS_KEY
 from lab.platform.filetypes import content_type_for
+from lab.substrate import fabric_publication
 from lab.substrate.mcp.semantic import cafe, vocab_seed
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
@@ -382,6 +384,26 @@ def semantic_vocab_amend(concept_id: str, scheme: str, alt: str, actor: str, rea
     linked instead of proposing the same candidate again. The steward's answer to "this term has no concept"
     when it does, under a different name — admitting a second would be the duplicate this prevents."""
     return fabric().vocab_amend(concept_id, scheme=scheme, alt=alt, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_vocab_master(scheme: str, owner: str = "ea@doh", version: str = "") -> dict:
+    """Render the vocabulary as its human-readable MASTER and store it by reference — what an operator then
+    signs and publishes into the governed corpus.
+
+    Returns {artifact_id: {ref, name, rows, command}}. It stages; it does not publish, and it cannot: the
+    signing seed is off every service by design and the corpus reader holds SELECT only. The `command` is the
+    exact line to run. The master is the SOURCE — the publisher hashes this text and derives its records from
+    parsing it, so `derived_from = master_sha256` is mechanical rather than a promise."""
+    sc = S.scheme(scheme)
+    return asyncio.run(fabric_publication.stage(sc, call=_local_store, owner=owner, version=version))
+
+
+async def _local_store(calls):
+    """The staging transport, in-process: this server already holds the artifact store, so a master does not
+    make a round trip through the gateway to come back to the process that rendered it."""
+    return [{"ref": server.artifacts().put(a["name"], a["text"].encode("utf-8"), "text/markdown"),
+             "name": a["name"]} for _, a in calls]
 
 
 @server.tool()
