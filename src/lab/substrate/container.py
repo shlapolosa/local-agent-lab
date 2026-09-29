@@ -23,7 +23,7 @@ SUBSTRATE_KEYS = CONFIG_KEYS + ("ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "
                                 "REFERENCE_PROVIDER", "REFERENCE_DB_URL", "REFERENCE_RING",
                                 "REFERENCE_PIN_TTL_S", "REFERENCE_TRUST_KEYS",
                                 "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM",
-                                "REFERENCE_EMBED_KEY", "FABRIC_DB_URL")
+                                "REFERENCE_EMBED_KEY", "FABRIC_DB_URL", "FABRIC_RENDERER")
 
 # The COLLABORATION port's adapters, by name: the ONE place a provider module is named. The
 # container binds a KEY (`COLLAB_PROVIDER`), so a second collaboration platform — a different
@@ -62,6 +62,24 @@ REFERENCE_PROVIDERS: dict[str, str] = {
     "postgres": "lab.substrate.reference.pg_library",     # reads the tables — the corpus server
     "mcp": "lab.substrate.reference.mcp_library",         # reads THROUGH reference-mcp — a server with no DSN
 }
+
+
+# The DIAGRAM port's adapters (`lab.core.viz.GraphRenderer`). One today: a self-contained HTML page a
+# person opens from a download, with no script and no network call — which is what a Teams answer can
+# actually hand over. The registry is what makes the alternatives cheap: an interactive force-directed
+# page (one vendored library) or a raster image (one headless browser) is an entry plus its adapter,
+# and the fabric, which only ever builds a `TopologyView`, does not learn that either exists.
+RENDERER_PROVIDERS: dict[str, str] = {"svg": "lab.substrate.viz_svg"}
+
+
+def graph_renderer(provider: str, **overrides):
+    """The `lab.core.viz.GraphRenderer` this deployment draws with, by registry key. Imported LAZILY
+    for the same reason as the others: a role that never draws must not load a drawing adapter."""
+    name = str(provider or "").strip().lower()
+    if name not in RENDERER_PROVIDERS:
+        raise ValueError(f"unknown graph renderer {name!r} — FABRIC_RENDERER must be one of "
+                         f"{sorted(RENDERER_PROVIDERS)}")
+    return importlib.import_module(RENDERER_PROVIDERS[name]).build(**overrides)
 
 
 def reference_library(provider: str, **overrides):
@@ -150,6 +168,8 @@ class SubstrateContainer(Container):
     # the governed corpus (signed, versioned artifacts read under a pin) — the reference-mcp role's adapter
     reference = providers.Singleton(reference_library, provider=Container.config.reference_provider,
                                     embedder=embedder)
+    # how a topology view becomes something a person can open — chosen by key, never imported by the fabric
+    renderer = providers.Singleton(graph_renderer, provider=Container.config.fabric_renderer)
     # The same port, built for a NAMED provider instead of the configured one. A Factory rather than
     # a Singleton because the name is the argument: running four providers in their own lanes means
     # four adapters, and a Singleton would hand every lane the first one built.

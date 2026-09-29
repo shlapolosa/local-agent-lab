@@ -55,8 +55,8 @@ def test_a_tick_gathers_through_the_gateway_remembers_and_publishes_the_page():
             if suffix == SemanticTools.query:
                 name = next(k for k, q in M.QUERIES.items() if q == args["sparql"])
                 out.append(TABLES[name])
-            elif suffix == SemanticTools.store_spec:
-                out.append({"spec_ref": "art://m/fabric-metrics.md"})
+            elif suffix == SemanticTools.store_page:
+                out.append({"ref": "art://m/fabric-metrics.md", "name": args["name"]})
             elif suffix == CollabTools.put:
                 out.append({"handle": "collab://item/d/page", "name": args["name"]})
         return out

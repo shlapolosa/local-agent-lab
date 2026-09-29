@@ -176,3 +176,52 @@ def test_every_write_is_shadowed_and_boot_restores_it():
     assert len(ds.graph(graph_iri("C"))) == 0
     loaded = srv.boot()
     assert loaded["C"] == before and set(loaded) == set(refs)
+
+
+def test_store_page_keeps_a_page_a_page():
+    r = call("semantic_store_page", text="# Title\n\nbody", name="notes/adr-14.md")
+    assert r["ref"].endswith("/adr-14.md") and r["name"] == "adr-14.md"     # a name, never a path
+    assert STORE.get(r["ref"]).decode() == "# Title\n\nbody"                # byte for byte, not wrapped
+    assert "content" in call_error("semantic_store_page", text="  ", name="a.md")
+    assert "extension" in call_error("semantic_store_page", text="x", name="adr-14")
+
+
+def test_topology_draws_the_record_from_the_graph_as_it_stands():
+    d = call("semantic_catalog_upsert", pointer={"source": "collab", "handle": "collab://s/d/drawn"},
+             title="ADR-14 Event bus")
+    call("semantic_vocab_link", iri=d["iri"], terms=["Care Delivery"])
+    r = call("semantic_topology", iri=d["iri"], proposed=["Widget"])
+    assert r["ref"].endswith("/adr-14-event-bus.topology.html") and r["title"] == "ADR-14 Event bus"
+    assert (r["suffix"], r["media_type"]) == (".html", "text/html; charset=utf-8")
+    assert r["nodes"] >= 3 and r["edges"] >= 2 and "Care Delivery" in r["concepts"] and "Widget" in r["concepts"]
+    page = STORE.get(r["ref"]).decode()
+    assert page.startswith("<!doctype html>") and "Care Delivery" in page and "<script" not in page.lower()
+    assert "focus" in r["statuses"] and call_error("semantic_topology", iri="urn:fabric:artifact:nope")
+
+
+def test_a_second_renderer_needs_the_adapter_and_the_registry_line_and_nothing_else(monkeypatch):
+    """The whole claim of the renderer registry, proved through the real seam: a raster adapter changes the
+    file's name and type and NOT one line of the fabric, the tool or the caller."""
+    import sys
+    import types
+
+    from lab.core.viz import Rendered
+    from lab.substrate import container as C
+
+    fake = types.ModuleType("lab.substrate.viz_fake")
+    fake.build = lambda **kw: type("Pixels", (), {
+        "name": "pixels",
+        "render": lambda self, view: Rendered(content=b"\x89PNG-" + view.title.encode(),
+                                              media_type="image/png", suffix=".png")})()
+    monkeypatch.setitem(sys.modules, "lab.substrate.viz_fake", fake)
+    monkeypatch.setitem(C.RENDERER_PROVIDERS, "pixels", "lab.substrate.viz_fake")
+    srv.server.container.renderer.override(C.graph_renderer("pixels"))
+    try:
+        d = call("semantic_catalog_upsert", pointer={"source": "collab", "handle": "collab://s/d/raster"},
+                 title="Rastered record")
+        r = call("semantic_topology", iri=d["iri"])
+        assert (r["suffix"], r["media_type"]) == (".png", "image/png")
+        assert r["ref"].endswith("/rastered-record.topology.png")
+        assert STORE.get(r["ref"]).startswith(b"\x89PNG-")
+    finally:
+        srv.server.container.renderer.reset_override()

@@ -3,6 +3,8 @@ the two lookups every uploader/parser uses. Lives in the platform kernel because
 store (substrate) and the input parser (platform, used by workloads) derive from it.
 """
 import mimetypes
+import re
+import unicodedata
 
 # THE table of file types that cross a service boundary: extension -> (content type, kind).
 # `kind` is how the lab reads the file — vsdx (structured OOXML, parsed deterministically), image
@@ -25,6 +27,9 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
     # A draw.io solution view (`semantic_render_cafe`): mxGraph XML a person opens in diagrams.net.
     "drawio": ("application/vnd.jgraph.mxfile+xml", "artifact"),
     "json": ("application/json", "artifact"),
+    # a rendered topology view: one self-contained page, typed so the provider serves it as a page
+    # rather than offering an unknown blob, and kinded `artifact` so no reader tries to parse it
+    "html": ("text/html", "artifact"),
     "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "artifact"),
 }
 CONTENT_TYPES = {ext: ct for ext, (ct, _kind) in FILE_TYPES.items()}     # extension -> content type
@@ -32,6 +37,17 @@ CONTENT_TYPES = {ext: ct for ext, (ct, _kind) in FILE_TYPES.items()}     # exten
 # The approval download's mime comes from `mimetypes` (contracts.ImportArtifact), which knows nothing
 # of draw.io; teach it once, here, beside the table it would otherwise disagree with.
 mimetypes.add_type(CONTENT_TYPES["drawio"], ".drawio")
+
+
+def file_slug(text: str, default: str = "record", limit: int = 80) -> str:
+    """A name as a SLUG: lowercase, ASCII (accents folded, the rest dropped), runs of anything else folded to
+    one dash, no leading or trailing dash, capped at `limit`.
+
+    Beside the type table because it is the same concern — what a thing is called when it leaves the lab — and
+    THE one home for the rule: the projector's page, the topology beside it and a model's element id are the
+    same transformation, and two copies of it disagree the first day one is fixed."""
+    s = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:limit] or default
 
 
 def _ext(name: str) -> str:
@@ -48,4 +64,4 @@ def kind_for(name: str, default: str = "unknown") -> str:
     return FILE_TYPES[_ext(name)][1] if _ext(name) in FILE_TYPES else default
 
 
-__all__ = ["FILE_TYPES", "CONTENT_TYPES", "content_type_for", "kind_for"]
+__all__ = ["FILE_TYPES", "CONTENT_TYPES", "content_type_for", "kind_for", "file_slug"]

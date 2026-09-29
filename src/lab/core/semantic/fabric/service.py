@@ -21,13 +21,16 @@ from rdflib.namespace import Namespace
 
 from lab.core import ids
 from lab.core.delivery import DeliveryContext
+from lab.core.viz import TopologyView
 from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
+from lab.core.semantic.fabric import topology
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
                                               iri_safe, pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
 from lab.core.semantic.fabric.rungs import (DERIVED, CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, GRAPH_RUNGS,
+                                             IMPACT_READS,
                                              PROV_GRAPH, graph_iri)
 
 FAB, DCT, SKOS = G.FAB, G.DCT, G.SKOS
@@ -485,17 +488,42 @@ class FabricService:
         hits = [h for h in hits if h["state"] == state] if state else [h for h in hits if h["state"] != "withdrawn"]
         return hits[:limit]
 
+    def _relational_schemes(self) -> list[Any]:
+        """The vocabularies that declare their own relationship TYPES — the only ones that can state how two
+        concepts are connected. A capability map is a hierarchy: unioning its 1,600 concepts in would cost a
+        derivation everything and tell it nothing, and would put a thousand siblings on a picture. ONE home,
+        because a derivation that reads several while a drawing reads one draws edges it cannot explain."""
+        return [sc for sc in (self._schemes() or {}).values() if getattr(sc, "relationships", None)]
+
     def derive(self) -> dict:
         """Rebuild the derived rung D from the trusted rungs (two rules, `derive.RULES`) and persist it. Counts only.
         On a persist failure D is left EMPTY in memory (not restored to the previous derivation): D is recomputed,
         never asserted, so an empty D is honest until the next derivation, where a stale one would not be."""
-        # Only schemes that declare their own relationship types are context for a derivation: a capability map
-        # is a hierarchy, and unioning its 1,600 concepts in would cost the rule everything and tell it nothing.
-        vocab = [URIRef(f"urn:lab:semantic:vocab:{n}") for n, sc in (self._schemes() or {}).items()
-                 if getattr(sc, "relationships", None)]
+        vocab = [URIRef(f"urn:lab:semantic:vocab:{sc.name}") for sc in self._relational_schemes()]
         out = DR.derive(self.ds, vocabulary=vocab)
         self._persist((DERIVED, "prov"), lambda: DR.clear(self.ds))
         return out
+
+    def topology(self, iri: str, *, ontology_ring: bool = True, proposed: Iterable[str] = (),
+                 as_of: str = "") -> TopologyView:
+        """What this record is about, and what that connects it to — as the graph stands NOW.
+
+        The fabric builds the view because only it knows which rung each link was made at; a renderer
+        turns it into something a person can open and never learns what a rung is. `proposed` are terms
+        this record used that the vocabulary has no concept for: they are the caller's, because a
+        candidate is parked without a record to blame, and a gap a person can see is one a steward can
+        close."""
+        row = self.catalog_get(iri)
+        if row is None:
+            raise LookupError(f"no catalog record {iri}")
+        # relatedTo on the TRUSTED rungs only: a derived neighbour is worth drawing, a suggested one is a
+        # model's guess and drawing it beside a confirmed fact is how a picture stops being evidence.
+        related = [{**h, "predicate": _short(FAB.relatedTo)}
+                   for h in self.graph_traverse(iri, [str(FAB.relatedTo)], rungs=list(IMPACT_READS), depth=1)
+                   if h["iri"] != iri]
+        # The SAME schemes the derivation reads, so the picture can always explain the edges the derivation made.
+        return topology.view_of(row, schemes=self._relational_schemes(), related=related, proposed=proposed,
+                                as_of=as_of, ontology_ring=ontology_ring)
 
     def recommend(self, text: str, *, limit: int = 5) -> list[dict]:
         """"Before you create": what already exists, PUBLISHED, on this topic — with its owner, so a person

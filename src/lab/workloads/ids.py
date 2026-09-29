@@ -8,8 +8,8 @@ workflow's own path and the Architect's accumulator tools). Pure, deterministic,
 from __future__ import annotations
 
 import hashlib
-import re
-import unicodedata
+
+from lab.platform.filetypes import file_slug
 
 __all__ = ["rid", "slug"]
 
@@ -22,6 +22,8 @@ def rid(src: str, rtype: str, tgt: str) -> str:
 
 def slug(text: str) -> str:
     """The prompt's element-id rule: lowercase, ASCII only (accents folded, the rest dropped),
-    runs of spaces/punctuation -> one dash, no leading/trailing dash. "" when nothing survives."""
-    s = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+    runs of spaces/punctuation -> one dash, no leading/trailing dash. "" when nothing survives.
+
+    The kernel's `file_slug` IS this rule; an element id differs only in taking no length cap and in answering
+    "" rather than a placeholder, so both are arguments rather than a second copy of the transformation."""
+    return file_slug(text, default="", limit=len(text) + 1)

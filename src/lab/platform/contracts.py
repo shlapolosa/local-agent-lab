@@ -210,6 +210,7 @@ class SemanticTools(ToolCatalogue):
     concepts = "semantic_concepts"
     export_archimate = "semantic_export_archimate"
     store_spec = "semantic_store_spec"
+    store_page = "semantic_store_page"   # raw text by ref (Markdown/HTML) — what `store_spec` cannot do without wrapping it
     questions = "semantic_questions"
     ask = "semantic_ask"
     # The Documentation Fabric's four metadata products (docs/fabric/notes 004/005) on the SAME server:
@@ -234,6 +235,7 @@ class SemanticTools(ToolCatalogue):
     recommend = "semantic_recommend"               # published only, with owners: "before you create" (BR-4)
     metrics = "semantic_metrics"                   # the published measurements (BR-8), numbers only
     derive = "semantic_derive"                     # rebuild rung D (two rules) — the publish workload, after a baseline
+    topology = "semantic_topology"                 # what one record is about, drawn from the graph as it stands
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
     render_cafe = "semantic_render_cafe"           # a solution view (draw.io + SVG) projected from a model spec
@@ -246,9 +248,9 @@ class SemanticTools(ToolCatalogue):
     # workload agent. WRITE = PIPELINE + PROMOTE + REINDEX so the split ratchet
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
-            export_archimate, store_spec, questions, ask,
+            export_archimate, store_spec, store_page, questions, ask,
             catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
-            render_cafe)
+            render_cafe, topology)
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
     PROMOTE = (promote,)

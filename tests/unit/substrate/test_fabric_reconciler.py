@@ -138,8 +138,8 @@ def test_run_once_sweeps_first_then_measures_and_remembers_the_numbers(monkeypat
                 out.append({"columns": ["state", "n"], "rows": []} if name == "states"
                            else {"columns": ["rung", "n"], "rows": []} if name == "delivery"
                            else {"columns": ["n"], "rows": [["0"]]})
-            elif suffix == "semantic_store_spec":
-                out.append({"spec_ref": "art://m/fabric-metrics.md"})
+            elif suffix == "semantic_store_page":
+                out.append({"ref": "art://m/fabric-metrics.md", "name": args["name"]})
             elif suffix == "collab_put":
                 out.append({"handle": "collab://item/drive-1/page", "name": args["name"]})
             else:

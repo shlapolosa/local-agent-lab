@@ -429,3 +429,6 @@ FABRIC_VOCAB_REFS = tuple(r.strip() for r in _e("FABRIC_VOCAB_REFS", "").split("
 FABRIC_VOCAB_VERSION = _e("FABRIC_VOCAB_VERSION", "")
 #: the owner map (FR-2.2.2): folder/drive → owner, process → owner|requester; read once by the intake host
 FABRIC_OWNER_MAP = _e("FABRIC_OWNER_MAP", str(REPO_ROOT / "config" / "fabric-owners.json"))
+#: which `GraphRenderer` adapter draws a topology view (registry `lab.substrate.container.RENDERER_PROVIDERS`).
+#: `svg` is one self-contained page a person opens from a download; an interactive or raster adapter is a key.
+FABRIC_RENDERER = _e("FABRIC_RENDERER", "svg")

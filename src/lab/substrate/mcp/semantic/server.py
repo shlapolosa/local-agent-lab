@@ -33,6 +33,8 @@ import os
 from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
 from lab.platform import config
+from lab.core.viz import CONCEPT
+from lab.platform.filetypes import content_type_for, file_slug
 from lab.platform.fabric_events import METRICS_KEY
 from lab.platform.filetypes import content_type_for
 from lab.substrate.mcp.semantic import cafe, vocab_seed
@@ -413,6 +415,48 @@ def semantic_recommend(text: str, limit: int = 5) -> list:
     """Before you create a document: the PUBLISHED records already on this topic, each with its owner and source
     pointer — reuse or ask instead of writing a twin. Never content."""
     return fabric().recommend(text, limit=limit)
+
+
+@server.tool()
+def semantic_store_page(text: str, name: str) -> dict:
+    """Store a text document (Markdown, HTML) in the artifact store AS ITSELF and return its art:// ref.
+
+    The sibling of `semantic_store_spec`, and not the same tool: a spec is JSON and is stored as JSON, while a
+    page must arrive at its reader byte for byte — `{"text": "# Title"}` written into a wiki is a file nobody
+    can read. The content type comes from the NAME, so a caller cannot mislabel its own file."""
+    if not str(text or "").strip():
+        raise ValueError("a page has content")
+    filename = str(name or "").strip().rsplit("/", 1)[-1]
+    if "." not in filename:
+        raise ValueError(f"a page's name carries its extension, which is what types it: {name!r}")
+    ref = server.artifacts().put(filename, text.encode("utf-8"), content_type_for(filename, "text/plain"))
+    span().set_attributes({"semantic.page_ref": ref, "semantic.page_bytes": len(text.encode("utf-8"))})
+    return {"ref": ref, "name": filename, "bytes": len(text.encode("utf-8"))}
+
+
+@server.tool()
+def semantic_topology(iri: str, ontology_ring: bool = True, proposed: list[str] | None = None) -> dict:
+    """Draw what this record is about and what that connects it to, AS THE GRAPH STANDS NOW, and store the
+    drawing — returns {ref, name, media_type, suffix, nodes, edges, concepts, statuses, title}.
+
+    The drawing is named in the RENDERER's own terms (`suffix`, `media_type`) and never as HTML: which adapter
+    draws is configuration (`FABRIC_RENDERER`), so a caller that assumed a page would break the day a raster or
+    an interactive one is configured — the one change the renderer registry exists to make free.
+
+    Every call rebuilds the view from the catalogue and the vocabulary, so a picture is never older than the
+    knowledge; there is no stored layout to go stale. The colour of each box is the RUNG the link was made at,
+    so the drawing answers how the fabric knows what it claims and not merely what it claims. `proposed` are
+    terms the record used that the vocabulary has no concept for — drawn as gaps, because a gap a person can
+    see is one a steward can close. Reading only: it writes an artifact, never the graph."""
+    view = fabric().topology(iri, ontology_ring=ontology_ring, proposed=proposed or [],
+                             as_of=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    out = server.container.renderer().render(view)
+    name = f"{file_slug(view.title)}.topology{out.suffix}"
+    ref = server.artifacts().put(name, out.content, out.media_type)
+    span().set_attributes({"fabric.topology.nodes": len(view.nodes), "fabric.topology.edges": len(view.edges)})
+    return {"ref": ref, "name": name, "media_type": out.media_type, "suffix": out.suffix,
+            "nodes": len(view.nodes), "edges": len(view.edges), "title": view.title,
+            "concepts": [n.label for n in view.nodes if n.kind == CONCEPT], "statuses": list(view.statuses)}
 
 
 @server.tool()

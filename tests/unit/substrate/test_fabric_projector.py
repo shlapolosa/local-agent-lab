@@ -28,8 +28,9 @@ def test_the_page_is_metadata_and_links_never_content():
 
 
 class Gateway:
-    def __init__(self, row=ROW, put_error=None):
+    def __init__(self, row=ROW, put_error=None, topology_error=None, suffix=".html"):
         self.row, self.put_error, self.calls = row, put_error, []
+        self.topology_error, self.suffix = topology_error, suffix
 
     async def __call__(self, calls):
         out = []
@@ -39,6 +40,14 @@ class Gateway:
                 out.append(self.row)
             elif suffix == SemanticTools.store_spec:
                 out.append({"spec_ref": f"art://store/{args['name']}"})
+            elif suffix == SemanticTools.store_page:
+                out.append({"ref": f"art://store/{args['name']}", "name": args["name"]})
+            elif suffix == SemanticTools.topology:
+                if self.topology_error:
+                    raise self.topology_error
+                out.append({"ref": f"art://store/adr-14-event-bus.topology{self.suffix}", "suffix": self.suffix,
+                            "media_type": "text/html", "nodes": 3, "edges": 2, "title": "ADR-14 Event bus",
+                            "concepts": ["Care Delivery", "Triage"], "statuses": ["focus", "X", "vocabulary"]})
             elif suffix == CollabTools.put:
                 if self.put_error:
                     raise self.put_error
@@ -60,9 +69,10 @@ def test_a_finished_publish_run_is_projected_tagged_and_acked():
     r, gw = FakeRedis(), Gateway()
     rid = _finish(r, artifact_iri=IRI)
     out = P.run_once(folder=WIKI, client=r, call=gw)
-    assert out == [{"ref": "art://store/adr-14-event-bus.md", "handle": "collab://item/drive-1/page1", "name": "adr-14-event-bus.md",
-                    "version": "2026-09-11T12:00:00Z"}]
-    put = next(a for s, a in gw.calls if s == CollabTools.put)
+    assert len(out) == 1 and out[0].items() >= {"ref": "art://store/adr-14-event-bus.md", "name": "adr-14-event-bus.md",
+                                                "handle": "collab://item/drive-1/page1",
+                                                "version": "2026-09-11T12:00:00Z"}.items()
+    put = next(a for s, a in gw.calls if s == CollabTools.put and a["name"].endswith(".md"))
     assert put == {"folder": WIKI, "ref": "art://store/adr-14-event-bus.md", "name": "adr-14-event-bus.md"}
     tag = fabric_events.written_by_fabric("collab:collab://item/drive-1/page1", "2026-09-11T12:00:00Z", client=r)
     assert tag["kind"] == "projection" and tag["version"] == "2026-09-11T12:00:00Z"
@@ -73,7 +83,8 @@ def test_a_finished_publish_run_is_projected_tagged_and_acked():
     assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 0
     # a redelivery writes nothing twice
     _finish(r, artifact_iri=IRI)
-    assert P.run_once(folder=WIKI, client=r, call=gw) and len([s for s, _ in gw.calls if s == CollabTools.put]) == 2
+    # two files per projected record now — the page and the topology beside it — and no more
+    assert P.run_once(folder=WIKI, client=r, call=gw) and len([s for s, _ in gw.calls if s == CollabTools.put]) == 4
     assert r.get(P._key(rid)) == "1"
 
 
@@ -82,7 +93,11 @@ def test_without_a_wiki_folder_it_logs_and_writes_nothing(capsys):
     _finish(r, artifact_iri=IRI)
     out = P.run_once(folder="", client=r, call=gw)
     assert out[0]["handle"] == "" and "version" not in out[0] and CollabTools.put not in [s for s, _ in gw.calls]
-    assert "would write adr-14-event-bus.md" in capsys.readouterr().out
+    assert out[0]["topology"] == ""                       # nothing was written, so there is no link to offer
+    printed = capsys.readouterr().out
+    # both writes announce themselves: the page by its size, the drawing by the ref it would have written
+    assert "would write adr-14-event-bus.md" in printed
+    assert "would write adr-14-event-bus.topology.html" in printed
 
 
 def test_a_failed_write_stays_unacked_and_is_noted_on_the_run():
@@ -100,3 +115,62 @@ def test_other_processes_and_unfinished_runs_are_acked_and_ignored():
     assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 0
     assert asyncio.run(P.project({"status": "failed", "process": ARTIFACT_PUBLISH.name}, folder=WIKI, call=gw)) is None
     assert asyncio.run(P.project({"status": "done", "process": ARTIFACT_PUBLISH.name}, folder=WIKI, call=gw)) is None
+
+
+def test_the_page_arrives_as_itself_not_wrapped_in_the_json_a_spec_would_need():
+    r, gw = FakeRedis(), Gateway()
+    _finish(r, artifact_iri=IRI)
+    P.run_once(folder=WIKI, client=r, call=gw)
+    stored = next(a for s, a in gw.calls if s == SemanticTools.store_page)
+    assert stored["name"] == "adr-14-event-bus.md" and stored["text"].startswith("---\n")
+    assert not any(s == SemanticTools.store_spec for s, _ in gw.calls)      # a page is not a spec
+
+
+def test_the_topology_is_drawn_beside_the_page_and_the_page_links_to_it():
+    r, gw = FakeRedis(), Gateway()
+    rid = _finish(r, artifact_iri=IRI)
+    out = P.run_once(folder=WIKI, client=r, call=gw)
+    drawn = next(a for s, a in gw.calls if s == SemanticTools.topology)
+    assert drawn == {"iri": IRI}                       # drawn from the graph as it stands, not from the page
+    puts = [a["name"] for s, a in gw.calls if s == CollabTools.put]
+    assert puts == ["adr-14-event-bus.topology.html", "adr-14-event-bus.md"]
+    md = next(a["text"] for s, a in gw.calls if s == SemanticTools.store_page)
+    assert "https://t/p" in md and "2 concepts" in md   # the link a person opens, and what it holds
+    assert out[0]["topology"] == "https://t/p"
+    # on the run too, so whatever answers a person can offer the picture without drawing it again
+    assert workflows.status(rid, client=r)["topology_url"] == "https://t/p"
+
+
+def test_a_view_that_cannot_be_drawn_never_costs_the_page():
+    r, gw = FakeRedis(), Gateway(topology_error=RuntimeError("renderer down"))
+    _finish(r, artifact_iri=IRI)
+    out = P.run_once(folder=WIKI, client=r, call=gw)
+    assert out[0]["handle"] == "collab://item/drive-1/page1" and out[0]["topology"] == ""
+    md = next(a["text"] for s, a in gw.calls if s == SemanticTools.store_page)
+    assert "Topology" not in md                        # a link to a page that was never written is worse than none
+
+
+def test_the_drawing_is_named_by_the_renderer_never_by_the_projector():
+    """Which adapter draws is configuration. A projector that assumed HTML would break the day a raster or an
+    interactive renderer is configured — the one change the renderer registry exists to make free."""
+    r, gw = FakeRedis(), Gateway(suffix=".svg")
+    _finish(r, artifact_iri=IRI)
+    P.run_once(folder=WIKI, client=r, call=gw)
+    assert [a["name"] for s, a in gw.calls if s == CollabTools.put][0] == "adr-14-event-bus.topology.svg"
+
+
+def test_a_topology_written_but_not_tagged_fails_the_run_rather_than_feeding_the_fabric_its_own_drawing(monkeypatch):
+    """The one failure the blanket guard must not swallow: the file is already in the folder, so leaving it
+    untagged means the next sweep ingests the fabric's own picture as somebody's document."""
+    r, gw = FakeRedis(), Gateway()
+    rid = _finish(r, artifact_iri=IRI)
+    real, seen = fabric_events.mark_written, []
+    def boom(*a, **kw):                                   # ONLY the drawing's guard, after its put landed
+        seen.append(1)
+        if len(seen) == 1:
+            raise ConnectionError("redis blip")
+        return real(*a, **kw)
+    monkeypatch.setattr(fabric_events, "mark_written", boom)
+    assert P.run_once(folder=WIKI, client=r, call=gw) == []
+    assert "projection_error" in workflows.status(rid, client=r)
+    assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 1      # unacked, so it is reclaimed and retried

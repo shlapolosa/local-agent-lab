@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 
 from lab.core.semantic.fabric.catalog import pointer_key
 from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DELIVERED_UNDER, REFERENCES, SUBJECT, short
 from lab.platform import config, fabric_events, streams, workflows
+from lab.platform.filetypes import file_slug as slug
 from lab.platform.contracts import ARTIFACT_PUBLISH, CollabTools, SemanticTools, WorkflowStatus
 from lab.substrate import fabric_gateway
 
@@ -30,14 +30,11 @@ PROJECTED_TTL_S = 86400
 TAG_KIND = "projection"
 
 
-def slug(text: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
-    return s[:80] or "record"
-
-
-def page(row: dict) -> str:
+def page(row: dict, topology: dict | None = None) -> str:
     """The Markdown projection of one record. Pure: frontmatter = the row's facets, body = its links.
-    Metadata only — the artifact's own content lives in its system of record, linked, never copied."""
+    Metadata only — the artifact's own content lives in its system of record, linked, never copied.
+    `topology` is the drawn view beside it ({url, nodes, concepts}) when one was written — a link, never a
+    picture, because the page is text and the view is regenerated on every publish."""
     links = row.get("links") or []
     ctx = [l["object"] for l in links if l.get("predicate") == short(DELIVERED_UNDER)]
     subjects = [l["object"] for l in links if l.get("predicate") == short(SUBJECT)]
@@ -64,6 +61,11 @@ def page(row: dict) -> str:
         lines += ["## About", ""] + [f"- {s}" for s in front["subjects"]] + [""]
     if refs:
         lines += ["## References", ""] + [f"- {r['object']} ({r.get('rung', '?')})" for r in refs] + [""]
+    if topology and topology.get("url"):
+        lines += ["## Topology", "",
+                  f"[What this is about, drawn]({topology['url']}) — {len(topology.get('concepts') or [])} concepts, "
+                  f"{topology.get('nodes', 0)} nodes. Redrawn from the graph on every publish; the colour of a box "
+                  "says how the fabric knows it.", ""]
     lines += ["## Source", "", f"`{front['source']}` — open it in its system of record; this page is a projection "
               "of the fabric's record and is regenerated on every publish.", ""]
     return "\n".join(lines)
@@ -86,8 +88,35 @@ async def project(state: dict, *, folder: str, call=None, client=None) -> dict |
     row = (await go([(SemanticTools.catalog_get, {"iri": iri})]))[0]
     if not row:
         raise LookupError(f"no catalog record {iri}")
-    name = f"{slug(row.get('title') or iri.rsplit(':', 1)[-1])}.md"
-    return await write_page(name, page(row), folder=folder, call=go, client=client, run_id=str(state.get("request_id") or ""))
+    stem = slug(row.get("title") or iri.rsplit(":", 1)[-1])
+    run_id = str(state.get("request_id") or "")
+    # The picture FIRST, because the page links to it — and a view that cannot be drawn must not cost the page:
+    # a record with no drawing is a page missing one section, while a link to a page nobody wrote is a broken
+    # promise a reader finds instead of the fabric.
+    drawn = await draw(iri, stem, folder=folder, call=go, client=client, run_id=run_id)
+    out = await write_page(f"{stem}.md", page(row, drawn), folder=folder, call=go, client=client, run_id=run_id)
+    return {**out, "topology": drawn.get("url", "") if drawn else ""}
+
+
+async def draw(iri: str, stem: str, *, folder: str, call, client=None, run_id: str = "") -> dict | None:
+    """The record's topology view, drawn and written beside its page. Returns {url, nodes, concepts} or None.
+
+    Built by the fabric from the CURRENT graph on every publish — there is no stored layout, so the picture a
+    reader opens is never older than the knowledge it claims to show.
+
+    Only the DRAWING is optional. Once the file is in the folder the write must complete, loop guard and all:
+    a topology page left untagged is ingested by the fabric as a new document on the next sweep — the very loop
+    the guard exists to stop — and it would be invisible, because the record's own page still published. So the
+    guarded region ends where the write begins, and a half-finished write fails the run to be reclaimed."""
+    try:
+        view = (await call([(SemanticTools.topology, {"iri": iri})]))[0]
+        view = json.loads(view) if isinstance(view, str) else view
+    except Exception as e:                       # noqa: BLE001 — a drawing is extra; the record is the work
+        print(f"[projector] {iri}: no topology drawn ({type(e).__name__}: {e})", flush=True)
+        return None
+    put = await write_ref(f"{stem}.topology{view.get('suffix') or '.html'}", view["ref"], folder=folder,
+                          call=call, client=client, run_id=run_id)
+    return {**view, "url": put.get("url", "")}
 
 
 async def write_page(name: str, text: str, *, folder: str, call, client=None, run_id: str = "") -> dict:
@@ -96,13 +125,25 @@ async def write_page(name: str, text: str, *, folder: str, call, client=None, ru
     event this write causes — the loop guard is part of the write, not something a caller remembers (a page
     written without it is ingested by the fabric on the next sweep, every time it is rewritten). Shared by the
     record projection and the measurements page."""
-    stored = (await call([(SemanticTools.store_spec, {"spec": {"text": text}, "name": name})]))[0]
-    ref = stored["spec_ref"] if isinstance(stored, dict) else json.loads(stored)["spec_ref"]
+    stored = (await call([(SemanticTools.store_page, {"text": text, "name": name})]))[0]
+    stored = json.loads(stored) if isinstance(stored, str) else stored
     if not folder:
         print(f"[projector] would write {name} ({len(text)} chars) — FABRIC_WIKI_FOLDER unset", flush=True)
-        return {"ref": ref, "handle": "", "name": name}
+        return {"ref": stored["ref"], "handle": "", "name": name}
+    return await write_ref(name, stored["ref"], folder=folder, call=call, client=client, run_id=run_id)
+
+
+async def write_ref(name: str, ref: str, *, folder: str, call, client=None, run_id: str = "") -> dict:
+    """An already-stored artifact into the wiki folder, and the loop guard that must go with it. Separate from
+    `write_page` because the topology view is rendered by the fabric and never passes through this process as
+    text — but it is written, tagged and remembered in exactly the same way."""
+    if not folder:
+        print(f"[projector] would write {name} ({ref}) — FABRIC_WIKI_FOLDER unset", flush=True)
+        return {"ref": ref, "handle": "", "name": name, "url": ""}
     put = (await call([(CollabTools.put, {"folder": folder, "ref": ref, "name": name})]))[0]
+    put = json.loads(put) if isinstance(put, str) else put
     out = {"ref": ref, "handle": str(put.get("handle") or ""), "name": str(put.get("name") or name),
+           "url": str(put.get("url") or ""),
            "version": str(put.get("modified") or put.get("version") or "")}
     if out["handle"]:
         # a fabric page is regenerated on every write, so tagging every version of it (an empty stamp is
@@ -123,7 +164,10 @@ def handle(entry_id: str, fields: dict, *, folder: str, client, call=None) -> di
         out = asyncio.run(project(workflows.status(rid, client=client), folder=folder, call=call, client=client))
         if out is None:
             return _done(entry_id, client)
-        workflows.annotate(rid, client=client, projection_ref=out["ref"], projection_handle=out["handle"])
+        # the topology URL rides the run so whatever answers a person — the review app, the bot — can
+        # offer the picture without drawing it again; "" when none was drawn, which reads as "no link"
+        workflows.annotate(rid, client=client, projection_ref=out["ref"], projection_handle=out["handle"],
+                           topology_url=out.get("topology", ""))
         client.set(_key(rid), "1", ex=PROJECTED_TTL_S)
         _done(entry_id, client)
         return out
