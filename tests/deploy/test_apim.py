@@ -173,7 +173,12 @@ def test_each_mcp_server_is_its_own_api_at_the_path_the_client_aggregates():
 
 # ------------------------------------------------------------------ key callers: products + subscriptions
 def test_a_key_team_product_holds_exactly_its_granted_servers_and_models_only_if_it_calls_them():
-    assert set(apim.product_apis("fabric-curator", ())) == {"mcp-collab-mcp", "mcp-semantic-mcp"}
+    # DERIVED from the gateway's own grant table, not pinned: a team's servers grow (the curator gained
+    # workflow-mcp when it began asking a steward about the vocabulary), and a pinned set makes every such
+    # change look like a defect while catching nothing. What must hold is that APIM and the gateway agree.
+    for team in ("fabric-curator", "fabric-intake", "fabric-bot"):
+        assert set(apim.product_apis(team, ())) == {apim._api_id(s) for s in apim.grants.TEAMS[team]}, team
+    assert {"mcp-collab-mcp", "mcp-semantic-mcp"} <= set(apim.product_apis("fabric-curator", ()))
     assert "models" not in apim.product_apis("usecase-submitter", ()), "a submit-only identity calls no model"
     assert apim.product_apis("reference-corpus", ("text-embedding-3-large",)) == ["models"], "zero tools"
 
