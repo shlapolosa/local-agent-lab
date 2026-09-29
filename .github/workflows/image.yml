@@ -56,7 +56,9 @@ jobs:
 
       - name: install
         run: |
-          [ -d .venv ] || python -m venv .venv
+          # A dangling `.venv` SYMLINK (one was committed on 24 Sep, pointing at a laptop path)
+          # fails `-d` and then `venv` with "File exists" — only on a cache miss, so it hid for five days.
+          [ -d .venv ] || { rm -f .venv; python -m venv .venv; }
           .venv/bin/pip install -q -r deploy/requirements.txt -e . -r deploy/requirements-dev.txt
 
       # NO .env on the runner, deliberately: the suite is offline by contract (CLAUDE.md), and a
