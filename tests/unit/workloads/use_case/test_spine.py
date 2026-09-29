@@ -52,7 +52,6 @@ from lab.platform.contracts import (
     ApprovalTools,
     CollabTools,
     DecisionTools,
-    EATools,
     Continuation,
     ValuationTools,
     SemanticTools,
@@ -630,7 +629,8 @@ ANSWERS = {
                      "functions_without_capability": [], "capabilities_without_function": []},
     "criticality_band": {"band": "business-critical", "provisional": True,
                          "dominant_failure_mode": "a referral is missed and a patient deteriorates"},
-    "ontology_delta": {"concepts": [{"object": "referral", "status": "defined"}], "conflicts": []},
+    "ontology_delta": {"concepts": [{"object": "referral", "id": "Referral", "status": "matched"}],
+                       "relationships": [], "conflicts": []},
     "workflow_graph": {"nodes": [{"id": "n1", "activity": "assess", "performed_by": "nurse"}],
                        "edges": []},
     # Scripted too, so what stops steps 6, 8 and 11 is the MISSING CORPUS rather than a missing
@@ -656,6 +656,46 @@ def _screening_with_agents(corpus_extra=None, **extra):
                      ApprovalTools.ask: {"request_id": "apr-1", "review_app": "r"},
                      **extra}, full=True)
     return router, {k: ScriptedAgent(v) for k, v in ANSWERS.items()}
+
+
+VIEWS_DRAWN = {SemanticTools.view_capabilities: {"html_ref": "art://v/capabilities.html"},
+               SemanticTools.view_realisations: {"html_ref": "art://v/realisations.html"},
+               SemanticTools.view_ontology: {"html_ref": "art://v/ontology.html", "summary": {"unresolved": []}},
+               SemanticTools.view_workflow: {"html_ref": "art://v/workflow.html"}}
+#: which steps each view is drawn from — a view appears exactly when they all produced something
+#: (step 6's view joins its shortlist to what step 5 matched, so it needs both)
+DRAWN_FROM = {"5 · capabilities": ("coverage_map",),
+              "6 · realisations": ("coverage_map", "realisation_match"),
+              "9 · ontology": ("ontology_delta",), "10 · workflow": ("workflow_graph",)}
+
+
+def test_the_screening_draws_a_view_for_each_step_that_produced_one_and_the_architect_sees_them():
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents(corpus_extra=ONTOLOGY, **VIEWS_DRAWN)
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    record = _screening_record(h)
+    refs = record["views"]["view_refs"]
+    assert refs, "at least one step produced something to draw"
+    assert {label for label, keys in DRAWN_FROM.items() if all(record.get(k) for k in keys)} == set(refs)
+    ontology = h.router.called(SemanticTools.view_ontology)
+    assert ontology and ontology[0]["concepts"] == [{"id": "Referral", "status": "matched"}]
+    assert ontology[0]["pin_id"] == record["pin_id"] and ontology[0]["field"] == "ontology_view"
+    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
+    assert asked["artifacts"]["view_refs"] == refs
+
+
+def test_a_screening_that_cannot_draw_still_asks_its_question():
+    from lab.workloads.use_case_screening import workflow as W
+    router, agents = _screening_with_agents(corpus_extra=ONTOLOGY,
+                                            **{t: RuntimeError("down") for t in VIEWS_DRAWN})
+    with spine(W, router) as h:
+        h.cfg["agents"] = agents
+        out = run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
+    views = _screening_record(h)["views"]
+    assert views["view_refs"] == {} and any("down" in w for w in views["warnings"])
+    assert out["approval_id"] == "apr-1"
 
 
 def test_a_wired_step_runs_and_lands_in_the_screening_record():
@@ -1377,7 +1417,8 @@ def test_the_screening_run_pins_its_map_and_the_record_carries_the_versions_it_c
     # The required set strictly, plus whichever OPTIONAL artifacts are published — the private
     # masters are not in this public fixture, so they are left out rather than failing the pin.
     from fixtures.usecase_corpus import corpus
-    expected = list(W.REQUIRED_ARTIFACTS) + [a for a in W.OPTIONAL_ARTIFACTS if a in corpus()]
+    expected = list(W.REQUIRED_ARTIFACTS) + [a for a in W.OPTIONAL_ARTIFACTS + W.VIEW_ARTIFACTS
+                                             if a in corpus()]
     assert pinned == [{"artifact_ids": expected}], "exactly the map, once"
     record = h.router.called(SemanticTools.store_spec)[-1]["spec"]
     assert record["pin_id"] == "pin-test"
@@ -1392,7 +1433,8 @@ def test_the_design_run_pins_first_and_derives_every_obligation_under_that_pin()
     calls = [c[0] for c in h.router.calls]
     assert calls.index("reference_pin") < calls.index(DecisionTools.readiness)
     from fixtures.usecase_corpus import corpus
-    expected = list(W.REQUIRED_ARTIFACTS) + [a for a in W.OPTIONAL_ARTIFACTS if a in corpus()]
+    expected = list(W.REQUIRED_ARTIFACTS) + [a for a in W.OPTIONAL_ARTIFACTS + W.VIEW_ARTIFACTS
+                                             if a in corpus()]
     assert h.router.called("reference_pin") == [{"artifact_ids": expected}]
     for tool in (DecisionTools.obligations, DecisionTools.composition):
         for call in h.router.called(tool):
@@ -1556,21 +1598,21 @@ def test_the_screening_grows_one_model_and_carries_it_in_its_record():
     root = [e for e in model["elements"] if e["id"] == "usecase"][0]
     assert root["props"]["criticality.band"] == "business-critical"
     assert model["dropped"] == []
-    assert "model_trace" not in _screening_record(h), "the trace is off by default"
     asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
-    assert "svg_refs" not in asked["artifacts"]
+    assert "svg_refs" not in asked["artifacts"], "the ArchiMate views are gone (29 Sep 2026)"
 
 
-RENDERED = {EATools.render: {"xml_ref": "art://v/design.archimate.xml",
-                             "svg_refs": {"biz-app": "art://v/biz-app.svg"}, "violations": [], "warnings": []},
-            SemanticTools.render_cafe: {"drawio_ref": "art://v/design.drawio", "svg_ref": "art://v/design.cafe.svg",
-                                        "placed": ["ac-x"], "unplaced": [], "violations": 0, "warnings": []}}
+RENDERED = {SemanticTools.view_architecture: {
+    "logical_ref": "art://v/architecture.logical.html", "physical_ref": "art://v/architecture.physical.html",
+    "summary": {"components_in_scope": 1, "unresolved": []}, "rules_source": {}}}
+CARRIED = {"5 · capabilities": "art://s/capabilities.html", "10 · workflow": "art://s/workflow.html"}
 
 
 def _design_with_model(**extra):
     """The design chain over a screening record that already carries a model."""
     screening = dict(READY) | {"quality_attributes": {"attributes": [{"name": "latency"}]},
                                "frame": {"problem": "referral triage takes too long"},
+                               "views": {"view_refs": dict(CARRIED), "warnings": []},
                                "model": {"name": "triage", "id": "usecase",
                                          "elements": [{"id": "bf-assess-referral", "type": "BusinessFunction",
                                                        "name": "assess referral", "folder": "Business"}],
@@ -1578,7 +1620,9 @@ def _design_with_model(**extra):
     return _design_chain_router(**{StorageTools.read_artifact: screening, **RENDERED, **extra})
 
 
-def test_the_design_continues_the_screenings_model_and_renders_it_at_the_end():
+def test_the_design_draws_what_step_21_selected_after_the_screenings_views():
+    """Step 22's scoped reference architecture, from step 21's selection by component id, under the
+    run's pin — and the screening's views first, so the package carries every view in step order."""
     from lab.workloads.use_case_design import workflow as W
     with spine(W, _design_with_model()) as h:
         _with_design_agents(h)
@@ -1587,40 +1631,31 @@ def test_the_design_continues_the_screenings_model_and_renders_it_at_the_end():
     ids_ = {e["id"] for e in package["model"]["elements"]}
     assert "bf-assess-referral" in ids_, "the screening's element survived into the design"
     assert {"bp-n1", "node-foundry-hosted-agent", f"ac-{MODEL_CATALOG}", "fam-f2"} <= ids_
-    root = [e for e in package["model"]["elements"] if e["id"] == "usecase"][0]
-    assert root["props"]["cafe.archetype"] == "A2", "T2 -> its first archetype, from the pinned corpus"
-    # The views: model stored by ref, both projections called by that ref, refs in the package.
-    stored = [c[1] for c in h.router.calls if c[0] == SemanticTools.store_spec and c[1]["name"] == "design.model.json"]
-    assert len(stored) == 1 and stored[0]["spec"]["standard_views"] is True
-    rendered = [c[1] for c in h.router.calls if c[0] == EATools.render][0]
-    assert rendered == {"spec_ref": "art://d1/design.json", "basename": "design", "strict": False}
-    assert [c[1] for c in h.router.calls if c[0] == SemanticTools.render_cafe][0]["spec_ref"] == "art://d1/design.json"
+    drawn = [c[1] for c in h.router.calls if c[0] == SemanticTools.view_architecture]
+    assert len(drawn) == 1 and drawn[0]["components"], "drawn from the selection"
+    assert drawn[0]["pin_id"] and drawn[0]["field"] == "architecture_view"
+    selected = [c["component_id"] for c in package["component_selection"]["selected"]]
+    assert drawn[0]["components"] == selected
     views = package["views"]
-    assert views["architecture_ref"] == "art://v/design.drawio"
-    assert views["svg_refs"] == {"biz-app": "art://v/biz-app.svg", "cafe": "art://v/design.cafe.svg"}
-    assert views["archimate_xml_ref"] == "art://v/design.archimate.xml"
-    # T2 admits three archetypes; the drawing stands on one, and says so beside itself.
-    assert views["warnings"] == ["cafe: drawn on A2; the pinned corpus admits A2, A3, A5 for this topology"]
-    # ...and on the approval and the run's product.
+    assert list(views["view_refs"]) == ["5 · capabilities", "10 · workflow",
+                                        "22 · logical architecture", "22 · physical architecture"]
     asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
-    assert asked["artifacts"]["svg_refs"] == views["svg_refs"]
-    assert asked["artifacts"]["architecture_ref"] == "art://v/design.drawio"
-    assert out["architecture_ref"] == "art://v/design.drawio"
+    assert asked["artifacts"]["view_refs"] == views["view_refs"]
+    assert "svg_refs" not in asked["artifacts"] and "architecture_ref" not in asked["artifacts"]
+    assert out["architecture_ref"] == "art://v/architecture.logical.html"
+    assert not any(c[0] in ("ea_render", "archimate_render") for c in h.router.calls)
 
 
 def test_a_render_that_fails_is_a_named_warning_and_the_design_still_reaches_its_reviewer():
-    """A design that cannot draw is still a design: neither render tool is required, so a
-    deployment without the grant degrades to the model ref and says so."""
+    """A design that cannot draw is still a design: the view tool is not required, so a deployment
+    without it keeps the screening's views, names the failure, and points at the package."""
     from lab.workloads.use_case_design import workflow as W
-    with spine(W, _design_with_model(**{EATools.render: RuntimeError("no ea_mcp grant"),
-                                        SemanticTools.render_cafe: RuntimeError("skill missing")})) as h:
+    with spine(W, _design_with_model(**{SemanticTools.view_architecture: RuntimeError("no grant")})) as h:
         _with_design_agents(h)
         out = run_spine(W, h, _design_inputs())
     views = _package(h)["views"]
-    assert views["architecture_ref"] == views["model_ref"] == "art://d1/design.json"
-    assert views["svg_refs"] == {}
-    assert any("no ea_mcp grant" in w for w in views["warnings"])
-    assert any("skill missing" in w for w in views["warnings"])
+    assert views["view_refs"] == CARRIED
+    assert any("no grant" in w for w in views["warnings"])
     assert out["approval_id"] == "apr-2" and out["architecture_ref"] == "art://d1/design.json"
 
 
@@ -1638,44 +1673,6 @@ def test_the_composition_runs_before_the_components_are_selected_and_the_selecto
     assert '"required_families"' in shown and '"F2"' in shown
     assert "## model_summary" in shown and '"props"' not in shown, "names by type, never the spec"
     assert "## model\n" not in shown
-
-
-def test_the_model_trace_renders_what_each_step_added_when_it_is_on(monkeypatch):
-    """THROWAWAY test aid: one artifact per step that changed the model, so a step's contribution
-    is proven on the run itself; the approvals show them as one tab per step."""
-    from lab.platform import config
-    from lab.workloads.use_case_screening import workflow as W
-    monkeypatch.setattr(config, "USECASE_MODEL_TRACE", True)
-    router, agents = _screening_with_agents(corpus_extra=ONTOLOGY, **{EATools.render: lambda a: {
-        "xml_ref": "art://t/x.xml", "svg_refs": {"delta": f"art://t/{a['basename']}.svg"}}})
-    with spine(W, router) as h:
-        h.cfg["agents"] = agents
-        run_spine(W, h, {"submission": "art://in/u.md", "submitter": "ba@x.ae"})
-    record = _screening_record(h)
-    trace = record["model_trace"]
-    assert set(trace) >= {"frame", "elements", "criticality_band", "ontology_delta"}
-    assert trace["elements"]["svg_refs"] == {"delta": "art://t/model.elements.svg"}
-    assert trace["elements"]["added"] > 0 and trace["elements"]["spec_ref"] == "art://s1/spec.json"
-    deltas = [c[1] for c in h.router.calls if c[0] == SemanticTools.store_spec and c[1]["name"] == "model.elements.json"]
-    assert deltas and deltas[0]["spec"]["views"][0]["id"] == "delta-elements"
-    asked = [c for c in h.router.calls if c[0] == ApprovalTools.ask][0][1]
-    tabs = asked["artifacts"]["svg_refs"]
-    assert list(tabs)[:2] == ["3 frame", "4 elements"], "one tab per step, in run order"
-    assert "9 ontology_delta" in tabs
-
-
-def test_the_views_record_how_much_of_the_drawing_the_reference_architecture_carried():
-    """A view of tiles with no lines is a parts list; these two counts are what say so on the record
-    without anybody opening the file."""
-    from lab.workloads.use_case_design import workflow as W
-    drawn = dict(RENDERED)
-    drawn[SemanticTools.render_cafe] = dict(RENDERED[SemanticTools.render_cafe],
-                                            catalogued=15, edges=5)
-    with spine(W, _design_with_model(**drawn)) as h:
-        _with_design_agents(h)
-        run_spine(W, h, _design_inputs())
-    views = _package(h)["views"]
-    assert views["cafe_catalogued"] == 15 and views["cafe_edges"] == 5
 
 
 def test_the_conformance_approval_says_what_the_design_still_owes():

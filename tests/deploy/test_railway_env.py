@@ -260,11 +260,14 @@ def test_semantic_mcp_is_credential_free():
     """No upstream credential ever: the fabric's index posts to the GATEWAY (a coordinate, and a virtual key
     when one is configured — `REFERENCE_EMBED_KEY`, like reference-mcp), never to a model provider. Redis
     because the rung store keeps its index of latest graph refs there: the first cloud deploy crashed at
-    boot on 127.0.0.1:6379 for want of this one key."""
+    boot on 127.0.0.1:6379 for want of this one key. The reference COORDINATES because the CAFÉ views
+    read the maps they draw through reference-mcp (29 Sep 2026) — a URL and a ring, never a DSN."""
     env = railway.env_for_role("semantic-mcp", FAKE)
     assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "ARTIFACTS_URL", "DATABASE_URL",
-                        "OTEL_EXPORTER_OTLP_ENDPOINT", "GATEWAY_URL", "REDIS_URL"}
-    assert not _has(env, "ADOIT_", "LITELLM_", "OLLAMA_", "ANTHROPIC_", "GRAPH_", "ENTRA_")
+                        "OTEL_EXPORTER_OTLP_ENDPOINT", "GATEWAY_URL", "REDIS_URL",
+                        "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_PROVIDER"}
+    assert not _has(env, "ADOIT_", "LITELLM_", "OLLAMA_", "ANTHROPIC_", "GRAPH_", "ENTRA_",
+                    "REFERENCE_DB", "REFERENCE_PUBLISH", "REFERENCE_SIGNING")
 
 
 def test_storage_mcp_and_review_s3_gating():
@@ -610,7 +613,7 @@ def test_every_usecase_setting_reaches_the_usecase_workloads():
     import glob
     src = "".join(open(f).read() for f in glob.glob(os.path.join(ROOT, "src/lab/workloads/**/*.py"), recursive=True))
     names = sorted(set(re.findall(r"config\.(USECASE_[A-Z_]+)", src)))
-    assert "USECASE_MODEL_TRACE" in names and "USECASE_AGENT_MODEL" in names
+    assert "USECASE_AGENT_MODEL" in names, "the scan found the settings it exists to check"
     for role in ("usecase-screening", "usecase-design"):
         for name in names:
             assert any(fnmatch.fnmatchcase(name, p) for p in railway.WORKLOAD_ENV[role]), (role, name)

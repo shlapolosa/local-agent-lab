@@ -17,9 +17,9 @@ Rules every mapper obeys:
   facet vector's, the determinism classifier's and the exposure derivation's, so all four land on
   ONE `bp-<id>` element; a function name from step 4 is the one step 5 and step 10 cite.
 
-CAFÉ rides as `props` on the elements the draw.io projection reads: `cafe.zone`,
-`cafe.component_id`, `cafe.families` on a selected component, `cafe.archetype`/`cafe.topology` on
-the root. Nothing here draws.
+CAFÉ rides as `props` on the elements: `cafe.zone`, `cafe.component_id`, `cafe.families` on a
+selected component, `cafe.archetype`/`cafe.topology` on the root — recorded with the model. Nothing
+here draws: the use case is drawn as the CAFÉ views (`lab.workloads.usecase.views`).
 """
 from __future__ import annotations
 
@@ -240,7 +240,8 @@ def _ontology_delta(out, model, pool):
         slug = ids.slug(_s(c.get("object")))
         if slug:
             model.el(f"bo-{slug}", "BusinessObject", _s(c.get("object")),
-                     props={"ontology.status": _s(c.get("status")), "ontology.note": _s(c.get("note"))})
+                     props={"ontology.status": _s(c.get("status")), "ontology.id": _s(c.get("id")),
+                            "ontology.note": _s(c.get("note"))})
 
 
 def _workflow_graph(out, model, pool):

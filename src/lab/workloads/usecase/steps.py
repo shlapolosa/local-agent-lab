@@ -332,14 +332,46 @@ def _quality_attributes(out: dict, context: Mapping[str, Any] | None = None) -> 
     return bad
 
 
+#: What a Council member needs to review a proposed concept (the CAFÉ ontology-graph skill's
+#: admission reminder): without these a gap is a word, not a proposal.
+GAP_FIELDS = ("name", "module", "kind", "definition")
+
+
 def _ontology_delta(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:
+    """Step 9: every object matched to the ontology by id, in the CAFÉ vocabulary — so the answer
+    can be drawn on the ontology (`semantic_view_ontology`) and a gap is reviewable as a delta."""
     if not out.get("concepts"):
         return ["no business object was checked — the ontology check is per OBJECT, and an empty "
                 "result means it was not run"]
+    bad = []
     if "conflicts" not in out:
-        return ["conflicts must be reported even where empty — one word meaning two things is the "
-                "half of this check that a coverage list cannot show"]
-    return []
+        bad.append("conflicts must be reported even where empty — one word meaning two things is "
+                   "the half of this check that a coverage list cannot show")
+    ontology = (context or {}).get("ontology") or {}
+    known = {str(c.get("id")) for c in ontology.get("ontology-concepts") or () if c.get("id")}
+    proposed = set()
+    for c in out["concepts"]:
+        name = c.get("object")
+        if c.get("status") == "gap":
+            proposed.add(str(name))
+            thin = [f for f in GAP_FIELDS if not str(c.get(f) or "").strip()]
+            if thin:
+                bad.append(f"the gap {name!r} is missing {', '.join(thin)} — the Ontology Council "
+                           f"reviews a proposed concept by these, and cannot admit a bare word")
+        elif not str(c.get("id") or "").strip():
+            bad.append(f"{name!r} is {c.get('status')} but names no ontology concept id — only a "
+                       f"gap has no id")
+        elif known and c["id"] not in known:
+            bad.append(f"{name!r} names {c['id']!r}, which the ontology does not carry — use the id "
+                       f"exactly as given, or mark the object a gap")
+    ends = known | proposed | {str(c.get("id")) for c in out["concepts"] if c.get("id")}
+    for r in (out.get("relationships") or []) if known else ():    # nothing to check them against
+        for end in ("subject", "object"):
+            if str(r.get(end)) not in ends:
+                bad.append(f"the relationship {r.get('subject')} {r.get('predicate')} "
+                           f"{r.get('object')} names {r.get(end)!r}, which is neither a concept "
+                           f"nor a gap proposed here")
+    return bad[:6]
 
 
 def _workflow_graph(out: dict, context: Mapping[str, Any] | None = None) -> list[str]:

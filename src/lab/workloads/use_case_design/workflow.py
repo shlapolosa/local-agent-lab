@@ -38,14 +38,14 @@ from lab.platform.contracts import (
     ApprovalTools,
     Continuation,
     DecisionTools,
-    EATools,
     SemanticTools,
     StorageTools,
     ValuationTools,
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import reference
-from lab.workloads.usecase import families, mappers, modeltrace, modelling, owed
+from lab.workloads.usecase import families, mappers, modelling, owed
+from lab.workloads.usecase import views as cafe_views
 from lab.workloads.usecase.derivation import Derivation
 from lab.workloads.usecase.steps import derived_for
 from lab.workloads.usecase.steps import NUMBER_OF, step_for
@@ -81,8 +81,7 @@ CORPORA = {
     # (and so which component) enforces each — the chain that tells step 21 whether the selection
     # carries the families the composition requires. The control set itself is decision-mcp's.
     "guardrails": ("guardrails", "guardrail"),
-    # Which archetype a topology composes to — read for the model, so the draw.io projection knows
-    # its base without reaching the corpus from the substrate.
+    # Which archetype a topology composes to — recorded on the model's root.
     "topology_archetypes": ("reference-architecture-topology-archetypes", "topology-archetype"),
     # The published delivery day rate (CAFÉ workbook, 28 Sep 2026) — step 23 prices a build it has
     # an effort basis for at this rate; the multiplication is `cost.build_from_rate`, not a prompt.
@@ -102,6 +101,9 @@ REFERENCE_ARTIFACTS = tuple(dict.fromkeys(
 #: whenever one upload had not been made (review, 28 Sep 2026).
 OPTIONAL_ARTIFACTS = ("delivery-rate-assumptions",)
 REQUIRED_ARTIFACTS = tuple(a for a in REFERENCE_ARTIFACTS if a not in OPTIONAL_ARTIFACTS)
+#: What step 22's CAFÉ views read, pinned only if published: a table not released costs a picture,
+#: never the design run. Kept apart from REFERENCE_ARTIFACTS, which is what the STEPS read.
+VIEW_ARTIFACTS = cafe_views.artifacts(cafe_views.DESIGN, exclude=REQUIRED_ARTIFACTS + OPTIONAL_ARTIFACTS)
 
 #: Everything steps 17-25 would produce. Named here because "no partial design package" is only
 #: checkable against a list of what a package HAS — a test that guessed would pass on a typo.
@@ -238,7 +240,7 @@ async def _agent_step(cfg, number: str, d: Derivation) -> None:
     """One design exercise, through the shared runner — then onto the model."""
     step = step_for(number)
     await d.run_step(cfg, step)
-    await modelling.grow(cfg, d, step.key)
+    modelling.apply_mapper(d, step.key)
 
 
 def determines_from(graph: Mapping[str, Any]) -> dict:
@@ -343,10 +345,10 @@ async def _risk_and_obligations(cfg, payload: dict, d: Derivation, pin_id: str) 
         return
     await d.derive(cfg, derived_for("18"),
                    await gateway.call(cfg, DecisionTools.exposure, {"workflow": payload}))
-    await modelling.grow(cfg, d, "risk")
+    modelling.apply_mapper(d, "risk")
     await d.derive(cfg, derived_for("19"), await gateway.call(cfg, DecisionTools.obligations, {
         "workflow": payload, "pin_id": pin_id, **reference.attribution(cfg, "obligations")}))
-    await modelling.grow(cfg, d, "obligations")
+    modelling.apply_mapper(d, "obligations")
 
 
 async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
@@ -384,7 +386,7 @@ async def _compose(cfg, payload: dict, d: Derivation, pin_id: str) -> None:
         d.record("enforcement_points", enforcement_binding.candidates(guardrails, capability_map))
     except enforcement_binding.EnforcementError as absent:
         d.defer("21", f"bind obligations to enforcement points: {absent}")
-    await modelling.grow(cfg, d, "composition")
+    modelling.apply_mapper(d, "composition")
 
 
 async def _bind_obligations(d: Derivation) -> None:
@@ -482,7 +484,7 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
             "build_provenance": build["provenance"],
             "design_version": design_version(d.derived),
             "pin_id": state["pin_id"], **reference.attribution(cfg, "cost")}), "23")
-        await modelling.grow(cfg, d, "cost")
+        modelling.apply_mapper(d, "cost")
 
     evidence = d.derived.get("benefit_inputs")
     cost_model = d.derived.get("cost")
@@ -508,52 +510,19 @@ async def _valuation(cfg, d: Derivation, state: dict) -> None:
         # recommendation that did not carry them would read as settled.
         "open_conditions": (list(cost_model.get("requires_input") or ())
                             + list(evidence.get("unsupplied") or ()))}), "24")
-    await modelling.grow(cfg, d, "benefit")
+    modelling.apply_mapper(d, "benefit")
 
 
-async def _views(cfg, model: Mapping[str, Any]) -> dict:
-    """Project the model: `model_ref` (the spec, by ref), the ArchiMate XML + one SVG per standard
-    view, the CAFÉ draw.io view + its SVG. `architecture_ref` is the drawing a person opens — the
-    draw.io file, else the model. Every failure is a named warning, never an exception: a design
-    that cannot draw is still a design."""
-    out: dict[str, Any] = {"model_ref": "", "archimate_xml_ref": "", "architecture_ref": "",
-                           "svg_refs": {}, "warnings": []}
-    if not model.get("elements"):
-        out["warnings"].append("no model: nothing to render")
-        return out
-    try:
-        stored = await gateway.call(cfg, SemanticTools.store_spec,
-                                    {"spec": model, "name": "design.model.json"})
-        out["model_ref"] = out["architecture_ref"] = gateway.ref_from(stored)
-    except Exception as exc:                       # noqa: BLE001 — recorded, never raised
-        out["warnings"].append(f"store model: {exc!r}"[:200])
-        return out
-    root = next((e for e in model.get("elements") or [] if e.get("id") == mappers.ROOT), {})
-    admitted = mappers.as_list((root.get("props") or {}).get("cafe.archetypes"))
-    if len(admitted) > 1:
-        # The corpus admits several archetypes for this topology; the drawing has to stand on one.
-        # Recorded beside the drawing, where the reviewer sees the assumption.
-        out["warnings"].append(f'cafe: drawn on {(root.get("props") or {}).get("cafe.archetype")}; '
-                               f'the pinned corpus admits {", ".join(admitted)} for this topology')
-    for tool, args, take in (
-            (EATools.render, {"spec_ref": out["model_ref"], "basename": "design", "strict": False},
-             lambda r: {"archimate_xml_ref": r.get("xml_ref", ""), "svg_refs": dict(r.get("svg_refs") or {})}),
-            (SemanticTools.render_cafe, {"spec_ref": out["model_ref"], "basename": "design"},
-             lambda r: {"architecture_ref": r.get("drawio_ref") or out["architecture_ref"],
-                        "svg_refs": {**out["svg_refs"], **({"cafe": r["svg_ref"]} if r.get("svg_ref") else {})},
-                        "cafe_unplaced": list(r.get("unplaced") or ()),
-                        # Counts a reviewer can read without opening the drawing: how many of the
-                        # selected components the reference architecture carries, and how many
-                        # connections it therefore drew. A view of tiles with no lines is a parts
-                        # list, and this is what says so on the record.
-                        "cafe_catalogued": r.get("catalogued"), "cafe_edges": r.get("edges")})):
-        try:
-            res = await gateway.call(cfg, tool, args)
-            res = res if isinstance(res, dict) else json.loads(res or "{}")
-            out.update(take(res))
-            out["warnings"].extend(f"{tool}: {w}" for w in (res.get("warnings") or ())[:5])
-        except Exception as exc:                   # noqa: BLE001
-            out["warnings"].append(f"{tool}: {type(exc).__name__}: {str(exc)[:120]}")
+async def _views(cfg, state: dict, derived: Mapping[str, Any]) -> dict:
+    """Step 22's scoped reference architecture — logical and physical, showing only what step 21
+    selected — after the screening's four views, so the package carries every view of the use case
+    in step order. Best effort: a failure is a named warning on the record, never an exception."""
+    screening = state.get("screening") or {}
+    out = await cafe_views.render_design(
+        cfg, derived, state["pin_id"],
+        carried=(screening.get("views") or {}).get("view_refs") or {},
+        title=str((screening.get("frame") or {}).get("problem", ""))[:90],
+        use_case=str(cfg.get("run_id") or ""))
     if cfg.get("run_id") and out["warnings"]:
         runlog.update(cfg["run_id"], render_warnings="; ".join(out["warnings"])[:400])
     return out
@@ -603,7 +572,7 @@ def build_workflow(cfg):
             # is best-effort: the step that needs it defers by name. The versions the pin froze
             # are compared with the ones the screening run cited — recorded, not blocked on,
             # because a routine corpus release must not stall every in-flight case.
-            pinned = await reference.pin(cfg, REQUIRED_ARTIFACTS, optional=OPTIONAL_ARTIFACTS,
+            pinned = await reference.pin(cfg, REQUIRED_ARTIFACTS, optional=OPTIONAL_ARTIFACTS + VIEW_ARTIFACTS,
                                          previous=screening.get("pinned_versions") or ())
             d = Derivation(available={**{k: v for k, v in screening.items() if v},
                                       "criticality": _criticality_context(state)})
@@ -698,12 +667,10 @@ def build_workflow(cfg):
 
     @executor(id="render_views")
     async def render_views(state: dict, ctx: WorkflowContext[dict]) -> None:
-        """The views, then the package. The model the run grew is stored by ref and projected
-        twice — the ArchiMate views by the engine, the CAFÉ solution view by the draw.io projector —
-        and the refs go INTO the package, because the investment run reads the package. Each render
-        is best-effort in its own right: a run that produced a model but no picture is still a run,
-        and the warning it records is the visible degradation (neither render tool is REQUIRED).
-        """
+        """The views, then the package. Step 22's scoped reference architecture is drawn from
+        step 21's selection, beside the screening's views, and the refs go INTO the package,
+        because the investment run reads the package. Best effort: a run that produced a design but
+        no picture is still a run, and the warning it records is the visible degradation."""
         with _node(cfg, "render_views"):
             if state.get("halted"):
                 await ctx.send_message(state)
@@ -711,7 +678,7 @@ def build_workflow(cfg):
             d = Derivation(derived=dict(state.get("derived") or {}),
                            pending=dict(state.get("pending") or {}))
             d.defaulted = dict(state.get("defaulted") or {})
-            d.record("views", await _views(cfg, d.derived.get("model") or {}))
+            d.record("views", await _views(cfg, state, d.derived))
             package = d.package(submission_ref=state["submission_ref"],
                                 screening_ref=state["screening_ref"],
                                 criticality=dict(state.get("criticality") or {}),
@@ -779,19 +746,9 @@ async def _finding(cfg, state: dict) -> dict:
 
 
 def _view_artifacts(state: dict) -> dict:
-    """What the conformance reviewer can OPEN: the refs the views produced (each a download) and the
-    SVGs (rendered inline as tabs) — the final views first, then the per-step trace while it is on."""
-    design = state.get("design") or {}
-    views = design.get("views") or {}
-    # One key per DISTINCT ref: when nothing drew, `architecture_ref` IS the model ref, and two
-    # downloads of one file is what the review app refuses (`contracts.import_artifacts` dedupes
-    # too — belt and braces, because this payload is read by more than the review app).
-    refs: dict[str, str] = {}
-    for k in ("model_ref", "archimate_xml_ref", "architecture_ref"):
-        if views.get(k) and views[k] not in refs.values():
-            refs[k] = views[k]
-    svgs = {**(views.get("svg_refs") or {}), **modeltrace.tabs(design)}
-    return {**refs, **({"svg_refs": svgs} if svgs else {})}
+    """What the conformance reviewer can OPEN: every CAFÉ view of the use case, one tab each."""
+    refs = ((state.get("design") or {}).get("views") or {}).get("view_refs") or {}
+    return {"view_refs": dict(refs)} if refs else {}
 
 
 async def _conformance(cfg, state: dict) -> dict:
@@ -823,8 +780,9 @@ async def _conformance(cfg, state: dict) -> dict:
     views = (state.get("design") or {}).get("views") or {}
     return {"approval_id": asked["request_id"], "review_app": asked.get("review_app", ""),
             "verdict": "proceed", "halted": False,
-            # The drawing a person opens; the model when nothing drew; the package as a last resort.
-            "architecture_ref": views.get("architecture_ref") or views.get("model_ref") or state["design_ref"],
+            # The drawing a person opens — the logical architecture — and the package when nothing drew.
+            "architecture_ref": ((views.get("view_refs") or {}).get(cafe_views.LOGICAL_ARCHITECTURE)
+                                 or state["design_ref"]),
             "risk_ref": state["design_ref"] if (state.get("design") or {}).get("risk") else "",
             "obligations_ref": (state["design_ref"]
                                 if (state.get("design") or {}).get("obligations") else ""),

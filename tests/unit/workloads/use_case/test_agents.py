@@ -206,7 +206,8 @@ def test_a_scenario_from_a_real_commitment_passes():
 def test_the_ontology_check_must_report_conflicts_even_when_empty():
     """The half a coverage list cannot show, and the half that makes an agent confidently answer
     the wrong question."""
-    assert gated("9", {"concepts": [{"object": "referral", "status": "defined"}]})
+    assert gated("9", {"concepts": [{"object": "referral", "id": "Referral", "status": "matched"}],
+                       "relationships": []})
 
 
 def test_a_retrieval_contract_without_a_citation_policy_is_rejected():
@@ -336,12 +337,14 @@ def test_a_survey_match_with_a_gap_flag_raised_is_accepted():
 
 
 def test_an_ontology_check_over_no_objects_was_not_run():
-    assert any("not run" in p for p in gated("9", {"concepts": [], "conflicts": []}))
+    assert any("not run" in p for p in gated("9", {"concepts": [], "relationships": [],
+                                                   "conflicts": []}))
 
 
 def test_an_ontology_check_reporting_coverage_and_conflicts_passes():
-    assert gated("9", {"concepts": [{"object": "referral", "status": "unbound",
-                                     "note": "defined but no data binding"}],
+    assert gated("9", {"concepts": [{"object": "referral", "id": "Referral", "status": "partial",
+                                     "note": "carries no urgency"}],
+                       "relationships": [],
                        "conflicts": [{"word": "episode", "meanings": ["a care episode",
                                                                      "a billing period"]}]}) == []
 

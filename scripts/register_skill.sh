@@ -32,6 +32,26 @@ case "$SKILL" in
     CATEGORY=architecture
     DESC="CAFÉ M5 logical reference architecture (archetypes A1–A8 or a supplied solution spec) as draw.io plus a dark SVG preview, enforcing the M3/M4 interlock. Bundles the drawio-c4 engine."
     KEYWORDS='["drawio","cafe","reference-architecture","agent-archetypes","m5"]' ;;
+  cafe-capability-heatmap)
+    CATEGORY=architecture
+    DESC="CAFÉ technology capability map (A0) as a RAG heatmap of the L3s a use case impacts — red missing, green new, amber consumed or updated — as one HTML page. Step 5."
+    KEYWORDS='["cafe","capability-map","heatmap","use-case","step-5"]' ;;
+  cafe-realisation-heatmap)
+    CATEGORY=architecture
+    DESC="CAFÉ realisation view (A0) with a solution's shortlisted realisations RAG-filled and the chosen route (Microsoft, sovereign, alternative) marked, as one HTML page. Step 6."
+    KEYWORDS='["cafe","realisation","heatmap","sovereign","step-6"]' ;;
+  cafe-ontology-graph)
+    CATEGORY=architecture
+    DESC="A use case's match against the CAFÉ ontology as an interactive offline force-directed page: matched, partial, enhancement, gap (the ontology delta). Step 9."
+    KEYWORDS='["cafe","ontology","graph","ontology-delta","step-9"]' ;;
+  cafe-bpmn-flow)
+    CATEGORY=architecture
+    DESC="A use case's workflow as BPMN swimlanes whose tasks are L3 capabilities, with gateways, events and optional MVP → target phasing, as one HTML page. Step 10."
+    KEYWORDS='["cafe","bpmn","workflow","swimlanes","step-10"]' ;;
+  cafe-scoped-reference-architecture)
+    CATEGORY=architecture
+    DESC="CAFÉ logical and physical reference architecture (H pattern) showing only a solution's scope — selected components and the building blocks they realise — as HTML pages. Step 22."
+    KEYWORDS='["cafe","reference-architecture","solution-scope","logical","physical","step-22"]' ;;
   *)
     CATEGORY=general
     DESC="$SKILL skill for the local agent lab."

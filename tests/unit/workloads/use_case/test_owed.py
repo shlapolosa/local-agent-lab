@@ -12,7 +12,7 @@ PACKAGE = {
     "benefit": {"summary": {"annual_benefit": 0.0, "payback_months": None,
                             "requires_input": ["no effort table was captured at intake"]},
                 "recommendation": {"verdict": "proceed with conditions"}},
-    "views": {"cafe_unplaced": ["bb-one", "bb-two"], "warnings": []},
+    "views": {"view_refs": {}, "warnings": ["architecture_view: not on the pinned map — cmp-x"]},
     "pending_steps": {}, "defaulted_steps": {"6": "landscape is not published"},
     "model": {"elements": [1, 2, 3], "relations": [1]},
 }
@@ -33,7 +33,7 @@ def test_every_kind_of_shortfall_reaches_the_line_list():
     lines = " | ".join(owed(PACKAGE))
     for needle in ("G23 has no enforcement point", "price catalogue", "2 selected component(s) have no line",
                    "no effort table", "step 6 recorded a declared default",
-                   "2 building block(s) are not in the solution view"):
+                   "view: architecture_view: not on the pinned map"):
         assert needle in lines, needle
 
 

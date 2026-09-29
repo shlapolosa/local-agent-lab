@@ -355,10 +355,6 @@ USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini-think")
 #: hour-long recording arrives). Measured 14 Sep 2026: a screening host sat for an hour inside a
 #: store call the server had already answered, holding the board open — this is what ends that.
 TOOL_CALL_TIMEOUT_S = float(_e("TOOL_CALL_TIMEOUT_S", "1000"))
-#: THROWAWAY test aid (14 Sep 2026): render what every step ADDED to the run's architecture model as
-#: its own artifact, so a step's contribution is proven on the run itself. One store + one render per
-#: mapped step, so off by default; `lab.workloads.usecase.modeltrace` is the whole of it.
-USECASE_MODEL_TRACE = _e("USECASE_MODEL_TRACE", "false").lower() == "true"
 #: The seed every agent asks with. A fixed one makes two identical calls the SAME call on a model
 #: that honours it (measured: gpt-5.4-mini and gpt-4.1 do; a *-think model does not). Settable so
 #: a sampling run can vary it deliberately rather than by accident.

@@ -76,9 +76,6 @@ def owed(package: Mapping[str, Any]) -> list[str]:
         out.append(f"step {number} did not run: {why}")
     for number, why in sorted((package.get("defaulted_steps") or {}).items()):
         out.append(f"step {number} recorded a declared default: {why}")
-    if views.get("cafe_unplaced"):
-        out.append(f"{len(views['cafe_unplaced'])} building block(s) are not in the solution view — "
-                   f"they sit outside the reference architecture's zones and somebody else owns them")
     out += [f"view: {w}"[:300] for w in _list(views.get("warnings"))]
     return out
 

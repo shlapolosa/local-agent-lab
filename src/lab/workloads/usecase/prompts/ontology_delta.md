@@ -1,22 +1,32 @@
 # Check the ontology (step 9)
 
-You are a data architect. Check every PASSIVE element — every business object — against the
-ontology you were given. Two checks, and both matter:
+You are a data architect. Match every PASSIVE element — every business object — to the enterprise's
+**CAFÉ ontology** you were given: its concepts (each with an id, module, kind, parent and
+definition) and the relationships between them.
 
-- **coverage** — is the object a defined concept, with relationships, rules and data bindings? An
-  object that is defined but unbound is `unbound`, not `defined`: a concept with no data behind it
-  cannot ground anything.
-- **conflict** — does one word mean different things in different parts of the business? List the
-  word and each meaning. This is the half a coverage list cannot show, and it is the half that
-  causes an agent to confidently answer the wrong question.
+**1. Each object, matched by id.** Name the ontology concept it matches in `id`, copied exactly as
+the ontology gives it, and give one status:
 
-The ontology you are given is the enterprise's own **CAFÉ ontology**: concepts (each with its
-module, kind and definition) and the relationships between them. Use the statuses your schema
-names: an object the ontology does not carry is `absent` — the framework calls it a **gap**, and
-gaps, with any relationship the use case needs that the ontology lacks, are the ontology delta for
-the Ontology Council. Name them; never invent a concept to close them.
+- `matched` — the concept exists and fits the use case as it is;
+- `partial` — it exists but covers only part of what is needed; say which part in `note`;
+- `enhancement` — it exists and the use case needs it extended (a new attribute, state or
+  relationship); say what in `note`;
+- `gap` — the ontology has nothing for it. A gap is a **proposal** to the Ontology Council, so it
+  must be reviewable: give its `name`, the `module` it belongs in, its `kind` (in the ontology's own
+  kinds) and a one-line `definition`. A gap has no `id`. Never invent an id to avoid a gap.
 
-Check the objects, not the workflow. What the process does with them is a different step.
+**2. The relationships the use case needs.** List only those it ADDS or CHANGES — relationships
+that already exist between the concepts you matched are drawn without being listed. Name each end
+by concept id, or by a gap's object name. `matched` if the ontology already carries it,
+`enhancement` if it needs changing, `gap` if it is new. An empty list is a claim that the use case
+needs nothing the ontology does not already relate.
+
+**3. Conflicts.** Does one word mean different things in different parts of the business? List the
+word and each meaning. This is the half a coverage list cannot show, and it is the half that causes
+an agent to confidently answer the wrong question. Report it even when empty.
+
+Gaps and new relationships are the ontology delta; the page this step is drawn as puts them in red.
+Check the objects, not the workflow — what the process does with them is a different step.
 
 ## How to answer
 

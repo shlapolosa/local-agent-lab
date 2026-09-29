@@ -123,7 +123,7 @@ def storage_read_artifact(ref: str, max_chars: int = 0) -> str:
     span().set_attribute("storage.ref", ref)
     name = _name(ref)
     if filetypes.kind_for(name) != "artifact":
-        raise ValueError(f"{name} is not an artifact (.json/.xml/.svg/.xlsx); use "
+        raise ValueError(f"{name} is not an artifact (.json/.xml/.svg/.xlsx/.html); use "
                          "storage_read_document for an uploaded document or storage_get for an image")
     raw = server.uploads().get(ref)
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)

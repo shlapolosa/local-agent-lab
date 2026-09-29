@@ -95,7 +95,10 @@ FABRIC_EVENTS = "fabric:events"
 #      it inherits the line.
 #   7. SERVICE_PORTS — a server needs its listen port there too, or production gives it no ingress.
 SUBSTRATE = {
-    "semantic-mcp": {"cmd": "python -m lab.substrate.mcp.semantic.server", "port": None},
+    # The CAFÉ views read the maps they draw through reference-mcp, under the caller's pin — the
+    # same substrate-to-substrate exception decision-mcp is.
+    "semantic-mcp": {"cmd": "python -m lab.substrate.mcp.semantic.server", "port": None,
+                     "env": {"REFERENCE_PROVIDER": "mcp"}},
     "adoit-mcp":    {"cmd": "python -m lab.substrate.mcp.adoit.server", "port": None},
     # READ-ONLY governed object store. "s3": True = this service (and only such services) receives the
     # bucket credentials (S3_* + UPLOADS_URL); every other service — and every workload — gets none.
@@ -384,6 +387,8 @@ ROLE_ENV = {
         "REDIS_URL",                               # rung_store: the index of the latest rung-graph refs + the single-writer lock.   # + fabric:metrics, the numbers semantic_metrics answers with
                                                    # Missing here = boot() crashes on 127.0.0.1:6379 (measured, first cloud deploy)
         "GATEWAY_URL", "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",   # the fabric's index posts to the gateway
+        "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_PROVIDER",   # the CAFÉ views read the corpus
+                                                   # THROUGH reference-mcp (views.py), never a DSN
         _OTLP, "REFERENCE_MODELS_DIR",
     ],
     "storage-mcp": [                               # src/lab/substrate/mcp/storage/server.py + lab.substrate.artifacts + lab.platform.docparse — READ-ONLY upload store
@@ -578,13 +583,11 @@ WORKLOAD_ENV: dict[str, list[str]] = {
         "USECASE_AGENT_*",                         # identity.agent_headers(): CLIENT_ID/SECRET/KEY
         *_USECASE_SPECIALISTS,                     # each bounded context's OWN identity (credential_for)
         "AGENT_*",                                 # responses-store toggle, timeouts, caps
-        "USECASE_MODEL_TRACE",                     # the throwaway per-step model trace (test aid)
     ],
     "usecase-design": [
         "USECASE_AGENT_*",
         *_USECASE_SPECIALISTS,
         "AGENT_*",
-        "USECASE_MODEL_TRACE",
     ],
     "usecase-investment": [                        # a DIFFERENT identity: its grants carry the write
         "USECASE_DELIVERY_*",                      # path, and one workload never holds another's

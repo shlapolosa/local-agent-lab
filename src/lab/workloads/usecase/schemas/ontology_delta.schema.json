@@ -3,18 +3,77 @@
   "properties": {
     "concepts": {
       "type": "array",
+      "description": "Every business object the use case handles, matched to the ontology.",
       "items": {
         "type": "object",
         "properties": {
           "object": {
-            "type": "string"
+            "type": "string",
+            "description": "The business object, as step 4 named it."
+          },
+          "id": {
+            "type": "string",
+            "description": "The ontology concept it matches, by its id exactly as the ontology gives it. Required unless the status is gap."
           },
           "status": {
             "enum": [
-              "defined",
-              "absent",
-              "unbound",
-              "conflicting"
+              "matched",
+              "partial",
+              "enhancement",
+              "gap"
+            ],
+            "description": "matched = the concept exists and fits as is · partial = it exists but covers only part of what is needed · enhancement = it exists and needs extending (an attribute, a state, a relationship) · gap = not in the ontology: an ontology delta."
+          },
+          "note": {
+            "type": "string",
+            "description": "What is partial, what the enhancement is, or why it is a gap."
+          },
+          "name": {
+            "type": "string",
+            "description": "For a gap: the proposed concept's name."
+          },
+          "module": {
+            "type": "string",
+            "description": "For a gap: the ontology module it belongs in."
+          },
+          "kind": {
+            "type": "string",
+            "description": "For a gap: its kind, in the ontology's own kinds."
+          },
+          "definition": {
+            "type": "string",
+            "description": "For a gap: a one-line definition the Ontology Council can review."
+          }
+        },
+        "required": [
+          "object",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "Relationships the use case ADDS or CHANGES — existing ones between matched concepts are drawn without being listed.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "description": "A concept id, or a gap's object name."
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string",
+            "description": "A concept id, or a gap's object name."
+          },
+          "status": {
+            "enum": [
+              "matched",
+              "enhancement",
+              "gap"
             ]
           },
           "note": {
@@ -22,6 +81,8 @@
           }
         },
         "required": [
+          "subject",
+          "predicate",
           "object",
           "status"
         ],
@@ -71,7 +132,8 @@
   },
   "required": [
     "concepts",
-    "conflicts"
+    "conflicts",
+    "relationships"
   ],
   "additionalProperties": false,
   "$schema": "https://json-schema.org/draft/2020-12/schema",

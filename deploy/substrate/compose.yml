@@ -77,6 +77,10 @@ services:
     <<: *sub
     command: ["python", "-m", "lab.substrate.mcp.semantic.server"]
     volumes: ["../../semantic/reference/sources:/app/semantic/reference/sources:ro"]
+    environment:              # the CAFÉ views read the maps they draw through reference-mcp
+      <<: *env
+      REFERENCE_MCP_URL: ${REFERENCE_MCP_URL:-http://reference-mcp:9700/mcp}
+      REFERENCE_PROVIDER: mcp
   adoit-mcp:                  # shared governed EA-repository facade — internal only
     <<: *sub
     command: ["python", "-m", "lab.substrate.mcp.adoit.server"]

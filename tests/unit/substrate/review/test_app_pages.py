@@ -5,6 +5,7 @@ artifacts` modules swapped into the app's namespace. Offline: no Redis, no gatew
 Asserts BEHAVIOUR: which decision is published, what Submit publishes for N files, the Runs board
 row shape, the Mermaid highlight of the current node, artifact-unavailable degradation.
 Run: .venv/bin/python tests/unit/substrate/review/test_app_pages.py   (also pytest-compatible)"""
+import base64
 import json
 import sys
 
@@ -173,6 +174,34 @@ def test_an_approval_staged_before_the_neutral_payload_still_offers_every_file()
     dl = [(a[0], k.get("file_name")) for p, a, k in st.calls if p.endswith("download_button")]
     assert dl == [("model.archimate.xml", "model.archimate.xml"), ("objects.xlsx", "objects.xlsx")]
     assert st.count("caption") == 0 and st.count("expander") == 0        # no notes, no instructions
+
+
+def test_each_cafe_view_is_a_tab_with_its_page_embedded_and_a_download():
+    """29 Sep 2026: the use case is drawn as the CAFÉ views — one HTML page each — instead of
+    ArchiMate SVGs. The page is embedded in a frame of its own and offered as a file, because an A0
+    heatmap is read in a browser at full size, not in a tab."""
+    page = b"<!doctype html><html><body><svg></svg></body></html>"
+    st = install(FakeSt(), store=FakeStore({"art://v1/capabilities.html": page}))
+    APP._views({"view_refs": {"5 · capabilities": "art://v1/capabilities.html"}})
+    assert st.count("tabs") == 1
+    dl = [(a[0], k.get("file_name"), k.get("mime")) for p, a, k in st.calls if p.endswith("download_button")]
+    assert dl == [("⬇️ capabilities.html", "capabilities.html", "text/html")]
+    framed = [a[0] for p, a, k in st.calls if p.endswith("iframe")]
+    assert len(framed) == 1 and framed[0].startswith("data:text/html;base64,"), \
+        "a page is framed from a data: URL — an opaque origin — never as an HTML string"
+    assert base64.b64decode(framed[0].split(",", 1)[1]) == page
+
+
+def test_a_view_ref_that_is_not_a_page_is_offered_as_a_file_and_never_framed():
+    st = install(FakeSt(), store=FakeStore({"art://v1/x.json": b'{"x":"<script>"}'}))
+    APP._views({"view_refs": {"odd": "art://v1/x.json"}})
+    assert st.count("iframe") == 0 and st.count("download_button") == 1
+
+
+def test_an_approval_staged_with_svg_previews_still_shows_them():
+    st = install(FakeSt(), store=FakeStore({"art://s1/o.svg": b"<svg/>"}))
+    APP._views({"svg_refs": {"Overview": "art://s1/o.svg"}})
+    assert st.count("tabs") == 1 and st.count("markdown") == 1 and st.count("iframe") == 0
 
 
 def test_submit_page_offers_every_process_an_outside_caller_may_start_and_no_others():

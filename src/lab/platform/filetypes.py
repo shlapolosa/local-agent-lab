@@ -2,7 +2,6 @@
 the two lookups every uploader/parser uses. Lives in the platform kernel because BOTH the artifact
 store (substrate) and the input parser (platform, used by workloads) derive from it.
 """
-import mimetypes
 import re
 import unicodedata
 
@@ -24,8 +23,8 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
     # own readers refuse. Both decode as UTF-8 through the text branch of `docparse`.
     "vtt": ("text/vtt", "document"), "srt": ("text/plain", "document"),
     "xml": ("application/xml", "artifact"), "svg": ("image/svg+xml", "artifact"),
-    # A draw.io solution view (`semantic_render_cafe`): mxGraph XML a person opens in diagrams.net.
-    "drawio": ("application/vnd.jgraph.mxfile+xml", "artifact"),
+    # A CAFÉ view (`semantic_view_*`): one self-contained page a person opens in a browser.
+    "html": ("text/html", "artifact"),
     "json": ("application/json", "artifact"),
     # a rendered topology view: one self-contained page, typed so the provider serves it as a page
     # rather than offering an unknown blob, and kinded `artifact` so no reader tries to parse it
@@ -33,10 +32,6 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
     "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "artifact"),
 }
 CONTENT_TYPES = {ext: ct for ext, (ct, _kind) in FILE_TYPES.items()}     # extension -> content type
-
-# The approval download's mime comes from `mimetypes` (contracts.ImportArtifact), which knows nothing
-# of draw.io; teach it once, here, beside the table it would otherwise disagree with.
-mimetypes.add_type(CONTENT_TYPES["drawio"], ".drawio")
 
 
 def file_slug(text: str, default: str = "record", limit: int = 80) -> str:

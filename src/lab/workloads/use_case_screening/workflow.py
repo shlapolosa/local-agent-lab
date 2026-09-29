@@ -35,7 +35,8 @@ from lab.workloads.usecase import coverage
 from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
 from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
-from lab.workloads.usecase import intake, modeltrace, modelling
+from lab.workloads.usecase import intake, modelling
+from lab.workloads.usecase import views as cafe_views
 from lab.workloads.usecase.derivation import Derivation
 
 #: Refused at preflight rather than twenty minutes in. `collab_fetch` is deliberately absent: only
@@ -153,7 +154,9 @@ REQUIRED_ARTIFACTS = (CAPABILITY_ARTIFACT, *PARENT_ARTIFACTS, INTAKE_ARTIFACT, R
 #: pinning these strictly failed every run whenever one upload had not been made.
 OPTIONAL_ARTIFACTS = tuple(dict.fromkeys(
     a for pairs in CORPUS.values() for a, _ in pairs if a not in REQUIRED_ARTIFACTS))
-REFERENCE_ARTIFACTS = REQUIRED_ARTIFACTS + OPTIONAL_ARTIFACTS
+#: What the CAFÉ views of steps 5, 6, 9 and 10 read — pinned only if published, like the above.
+VIEW_ARTIFACTS = cafe_views.artifacts(cafe_views.SCREENING, exclude=REQUIRED_ARTIFACTS + OPTIONAL_ARTIFACTS)
+REFERENCE_ARTIFACTS = REQUIRED_ARTIFACTS + OPTIONAL_ARTIFACTS + VIEW_ARTIFACTS
 
 
 async def intake_problems(cfg, pin_id: str, answered) -> list[dict]:
@@ -532,7 +535,7 @@ def build_workflow(cfg):
         indistinguishable from one grounded in a real map. What could not be read is named, and the
         steps that needed it stay pending."""
         with _node(cfg, "corpora"):
-            pinned = await reference.pin(cfg, REQUIRED_ARTIFACTS, optional=OPTIONAL_ARTIFACTS)
+            pinned = await reference.pin(cfg, REQUIRED_ARTIFACTS, optional=OPTIONAL_ARTIFACTS + VIEW_ARTIFACTS)
             # Which answered labels reach no step — the one check the contract cannot make.
             state = state | {"intake_problems": await intake_problems(
                 cfg, pinned["pin_id"], state.get("intake") or {})}
@@ -606,7 +609,7 @@ def build_workflow(cfg):
                     # reader most needs the record to say how deep the match went.
                     state = state | {"capability_depth": drilled.get("capability_depth", 0),
                                      "coverage_trail": drilled.get("coverage_trail") or []}
-                    await modelling.grow(cfg, d, step.key)
+                    modelling.apply_mapper(d, step.key)
                     continue
                 # The label is what this process calls the step ("match capabilities"), so a
                 # deferred one reads as the exercise a person recognises rather than as its key.
@@ -625,10 +628,17 @@ def build_workflow(cfg):
                                      state.get("corpora_unavailable") or {})
                 # Onto the ONE architecture model the run grows: every later step reads it as
                 # data, and the views a reviewer sees are projections of it.
-                await modelling.grow(cfg, d, step.key)
+                modelling.apply_mapper(d, step.key)
             derived, pending = d.derived, d.pending
+            # The CAFÉ views of steps 5, 6, 9 and 10, drawn under this run's pin. Best effort: a
+            # view that cannot be drawn is a warning on the record, never a failed screening.
+            views = await cafe_views.render_screening(
+                cfg, derived, state["pin_id"],
+                title=str((derived.get("frame") or {}).get("problem", ""))[:90],
+                use_case=str(cfg.get("run_id") or ""))
 
             screening = {"pending_steps": pending,
+                         "views": views,
                          # Steps that recorded their DECLARED default because this tenant has not
                          # published the corpus they read — listed apart from pending (did not run)
                          # and from derived, so a reader sees what rests on an assumption.
@@ -693,9 +703,9 @@ def build_workflow(cfg):
                 # this lab actually decides in, while `approvals_get` carried both refs happily.
                 "artifacts": {"submission_ref": state["submission_record_ref"],
                               "screening_ref": state["screening_ref"],
-                              # The per-step model trace, while it is on: one tab per step.
-                              **({"svg_refs": trace_tabs} if (trace_tabs := modeltrace.tabs(
-                                  state.get("screening") or {})) else {})},
+                              # The CAFÉ views, one tab each, in step order.
+                              **({"view_refs": refs} if (refs := ((state.get("screening") or {})
+                                  .get("views") or {}).get("view_refs")) else {})},
                 "requester": state.get("submitter", ""),
                 "process": PROCESS})
             out = {"approval_id": asked["request_id"],

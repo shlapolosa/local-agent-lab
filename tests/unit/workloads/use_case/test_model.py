@@ -65,23 +65,9 @@ def test_the_spec_round_trips_and_builds_through_the_engine():
     assert spec["standard_views"] is True and spec["elements"][0]["props"] == {"verb": "assess"}
     again = Model.from_spec(spec)
     assert again.to_spec() == spec, "from_spec(to_spec(m)) is the identity"
-    assert again.touched == set(), "loading is not a step"
     built = _build(spec)                                    # the renderer's own reconstruction
     assert built.validate_relations() == []
     assert built.relations[ids.rid("bf", "Access", "bo")][3] == {"accessType": "Write"}
-
-
-def test_touched_names_what_one_step_added_and_the_delta_carries_the_endpoints():
-    m = Model()
-    m.el("bf", "BusinessFunction", "assess")
-    m.clear_touched()
-    m.el("cap", "Capability", "Referral management")
-    m.rel("Realization", "bf", "cap")
-    delta = m.delta_spec("coverage_map")
-    assert {e["id"] for e in delta["elements"]} == {"bf", "cap"}, "the existing endpoint is drawn"
-    assert [r["type"] for r in delta["relations"]] == ["Realization"]
-    assert delta["views"][0]["elements"] == ["bf", "cap"] and delta["views"][0]["id"] == "delta-coverage-map"
-    assert delta["relations"][0]["src"] == "bf"
 
 
 def test_the_model_id_never_collides_with_the_root_element_the_engine_would_mint_alike():

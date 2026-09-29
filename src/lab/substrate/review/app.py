@@ -724,11 +724,7 @@ def _render_mermaid(src):
                 'mermaid.initialize({startOnLoad:true,theme:"neutral"});</script>'
                 f'<pre class="mermaid" style="margin:0">{escape(src)}</pre>')   # mermaid entity-decodes
         height = min(80 + 90 * (src.count("-->") + 1), 720)
-        if hasattr(st, "iframe"):                # Streamlit >= 1.6x; components.v1.html is deprecated
-            st.iframe(html, height=height)
-        else:
-            import streamlit.components.v1 as components
-            components.html(html, height=height, scrolling=True)
+        _embed(html, height)
     except Exception as e:                       # noqa: BLE001 — never lose the board over a diagram
         st.caption(f"diagram not rendered ({e}); source below")
     with st.expander("Mermaid source"):
@@ -1020,21 +1016,48 @@ def _import_files(p):
     return bool(declared) and readable == 0
 
 
+def _embed(html: str, height: int) -> None:
+    """One self-contained page in a frame of its own — the mermaid graph, a CAFÉ view — ALWAYS as a
+    `data:` URL. Given an HTML string, `st.iframe` frames it with `allow-scripts allow-same-origin`,
+    so a script in the page would run as this app, the one surface where approvals are decided
+    (Streamlit's own docstring: never pass it LLM output). A `data:` document has an OPAQUE origin
+    whatever the sandbox says, so a page can run its own script (the ontology graph needs D3) and
+    reach nothing of ours. Structural, so it holds for every renderer, present and future."""
+    src = "data:text/html;base64," + base64.b64encode(html.encode("utf-8")).decode()
+    if hasattr(st, "iframe"):                    # Streamlit >= 1.6x; components.v1.html is deprecated
+        st.iframe(src, height=height)
+    else:
+        import streamlit.components.v1 as components
+        components.iframe(src, height=height, scrolling=True)
+
+
 def _views(p):
-    views = []                                   # [(label, bytes)]
-    for label, ref in (p.get("svg_refs") or {}).items():
-        try:
-            views.append((label, container.artifacts().get(ref)))
-        except Exception as e:                   # noqa: BLE001
-            st.warning(f"view {label}: {e}")
+    """The CAFÉ views (`view_refs`, one HTML page each) as tabs, each with its download — and the
+    SVG previews of approvals staged before them (`svg_refs`), so an older request still opens."""
+    views = []                                   # [(label, kind, bytes, ref)]
+    for key, kind in (("view_refs", "html"), ("svg_refs", "svg")):
+        for label, ref in (p.get(key) or {}).items():
+            try:
+                views.append((label, kind, container.artifacts().get(ref), ref))
+            except Exception as e:               # noqa: BLE001
+                st.warning(f"view {label}: {e}")
     if not views:
         return
     tabs = st.tabs([v[0] for v in views])
-    for tab, (_, svg_bytes) in zip(tabs, views):
+    for tab, (label, kind, body, ref) in zip(tabs, views):
         with tab:
-            data = base64.b64encode(svg_bytes).decode()
-            st.markdown(f'<div style="overflow:auto;max-height:75vh;border:1px solid #ccc">'
-                        f'<img src="data:image/svg+xml;base64,{data}"/></div>', unsafe_allow_html=True)
+            if kind == "html":
+                name = ref.rsplit("/", 1)[-1]
+                page = name.lower().endswith(".html")
+                st.download_button(f"⬇️ {name}", body, file_name=name,
+                                   mime="text/html" if page else content_type_for(name),
+                                   key=f"view-{ref}")
+                if page:                         # a view is a page; anything else is only a file
+                    _embed(body.decode("utf-8", "replace"), 820)
+            else:
+                data = base64.b64encode(body).decode()
+                st.markdown(f'<div style="overflow:auto;max-height:75vh;border:1px solid #ccc">'
+                            f'<img src="data:image/svg+xml;base64,{data}"/></div>', unsafe_allow_html=True)
 
 
 def _answer_form(p, request_id):

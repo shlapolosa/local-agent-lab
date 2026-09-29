@@ -2,13 +2,13 @@
 
 Every agent step's output is mapped onto it by a deterministic mapper (`mappers.MAPPERS`), so by
 the time the solution architect selects components the business, data and application layers are
-already there as DATA the step can read, and the views a reviewer sees at the end are projections
-of the same model — not a second rendering of the process records.
+already there as DATA the step can read.
 
-The shape is the engine's spec (`lab.core.archimate.engine`, read back by `adoit-mcp`'s
-`archimate_render` and by `semantic_validate_model`): `{name, id, elements[], relations[]}`. Two
-things the engine does not carry are carried here and dropped harmlessly at render time: `props`
-(the CAFÉ zone, family and archetype tags the draw.io projection reads, and the step facets — a
+The shape is the engine's spec (`lab.core.archimate.engine`): `{name, id, elements[],
+relations[]}`. Nothing draws it any more — the use case is drawn as the CAFÉ views
+(`lab.workloads.usecase.views`, 29 Sep 2026) — but it rides the record and step 21 reads its
+summary. Two things beyond the engine's shape are carried: `props`
+(the CAFÉ zone, family and archetype tags, and the step facets — a
 tier, an exposure, a band — that the record keeps but the XML export does not yet) and `dropped`, the proposals the
 published relationship matrix refused. A mapper is deterministic and runs inside a 600-1000 s
 workflow, so an illegal relation is COUNTED and left out, never raised — the model stays legal,
@@ -48,8 +48,6 @@ class Model:
     #: with "step 21 named a capability step 5 never matched" would make that invariant mean two
     #: things and silently weaken it. Different fault, different owner, different list.
     gaps: list[dict] = field(default_factory=list)
-    #: The ids `el`/`rel` touched since the last `clear_touched()` — what ONE step added or updated.
-    touched: set[str] = field(default_factory=set)
 
     # ------------------------------------------------------------------ growing it
     def el(self, eid: str, atype: str, name: str = "", *, doc: str | None = None,
@@ -73,7 +71,6 @@ class Model:
             if merged:
                 cur["props"] = merged
         self.elements[eid] = cur
-        self.touched.add(eid)
         return eid
 
     def rel(self, rtype: str, src: str, tgt: str, *, accessType: str | None = None) -> bool:
@@ -99,11 +96,7 @@ class Model:
         if accessType:
             rel["accessType"] = accessType
         self.relations[key] = rel
-        self.touched.add(rel["id"])
         return True
-
-    def clear_touched(self) -> None:
-        self.touched = set()
 
     # ------------------------------------------------------------------ reading it
     def has(self, eid: str) -> bool:
@@ -141,19 +134,4 @@ class Model:
         for r in spec.get("relations") or []:
             m.rel(r["type"], r["src"], r["tgt"], accessType=r.get("accessType"))
         m.dropped = list(spec.get("dropped") or []) + m.dropped
-        m.clear_touched()
         return m
-
-    def delta_spec(self, title: str) -> dict:
-        """What the touched ids amount to, as a renderable spec: the touched elements, the relations
-        added since the last clear, and the endpoints of those relations (a new relation to an
-        element that was already there is still something this step added). ONE view over exactly
-        those ids — the engine has no highlight, so the view's membership IS the delta."""
-        rels = [r for r in self.relations.values() if r["id"] in self.touched]
-        eids = {e for e in self.touched if e in self.elements}
-        eids |= {r["src"] for r in rels} | {r["tgt"] for r in rels}
-        elements = [copy.deepcopy(self.elements[e]) for e in self.elements if e in eids]
-        vid = "delta-" + ids.slug(title)
-        return {"name": f"{self.name} — {title}", "id": f"{self.id}-{ids.slug(title)}",
-                "elements": elements, "relations": [copy.deepcopy(r) for r in rels],
-                "views": [{"id": vid, "title": title, "elements": [e["id"] for e in elements]}]}

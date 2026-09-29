@@ -11,8 +11,8 @@ def test_the_design_half_continues_the_screenings_model_from_the_pool():
     """The screening record is spread into `available`; this half's `derived` starts empty."""
     d = Derivation(available={"model": CARRIED})
     d.record("build_surface", {"surface": "Foundry hosted agent", "topology": "T2"}, "20")
-    model = modelling.apply_mapper(d, "build_surface")
-    assert model is not None and {"bf-assess", "node-foundry-hosted-agent"} <= set(model.elements)
+    modelling.apply_mapper(d, "build_surface")
+    assert {"bf-assess", "node-foundry-hosted-agent"} <= set(modelling.current(d).elements)
     assert d.derived["model"] is not CARRIED and "node-foundry-hosted-agent" in str(d.derived["model"])
     assert d.available["model"] == d.derived["model"], "re-recorded: context to every later step"
 
@@ -37,6 +37,6 @@ def test_ensure_seeds_the_summary_so_a_step_that_reads_it_is_not_deferred():
 
 def test_a_step_without_a_mapper_or_that_did_not_run_leaves_the_model_alone():
     d = Derivation(available={"model": CARRIED})
-    assert modelling.apply_mapper(d, "benefit_inputs") is None
-    assert modelling.apply_mapper(d, "frame") is None, "frame never ran"
+    modelling.apply_mapper(d, "benefit_inputs")
+    modelling.apply_mapper(d, "frame")                     # frame never ran
     assert "model" not in d.derived

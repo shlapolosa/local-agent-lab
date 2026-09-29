@@ -243,7 +243,14 @@ class SemanticTools(ToolCatalogue):
     topology = "semantic_topology"                 # what one record is about, drawn from the graph as it stands
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
-    render_cafe = "semantic_render_cafe"           # a solution view (draw.io + SVG) projected from a model spec
+    # The CAFÉ views, one per step the CAFÉ bundle places one at — each read under the caller's pin
+    # and stored as an HTML page, by ref (they replaced the ArchiMate/draw.io views, 29 Sep 2026).
+    view_capabilities = "semantic_view_capabilities"     # step 5: the capability map, impact-filled
+    view_realisations = "semantic_view_realisations"     # step 6: the realisation view, route marked
+    view_ontology = "semantic_view_ontology"             # step 9: the ontology match
+    view_workflow = "semantic_view_workflow"             # step 10: BPMN whose tasks are L3s
+    view_architecture = "semantic_view_architecture"     # step 22: logical + physical, scope only
+    VIEWS = (view_capabilities, view_realisations, view_ontology, view_workflow, view_architecture)
     # FOUR GRANTS. `READ` is what every team had before the fabric and every query the products answer.
     # `PIPELINE` is what the intake and publish workloads write — per artifact, at a rung, with provenance —
     # and the curator. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
@@ -255,7 +262,7 @@ class SemanticTools(ToolCatalogue):
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
             catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
-            render_cafe, topology, vocab_conflicts, vocab_candidates, vocab_master)
+            topology, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept

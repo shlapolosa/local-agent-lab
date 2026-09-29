@@ -27,7 +27,8 @@ OUTPUTS = {
     "quality_attributes": {"scenarios": [{"function": "assess referral", "stimulus": "a referral arrives",
                                           "response": "a band is returned", "response_measure": 2,
                                           "unit": "seconds", "percentile": 95, "taken_from": "clause 4"}]},
-    "ontology_delta": {"concepts": [{"object": "referral", "status": "defined", "note": "HL7"}], "conflicts": []},
+    "ontology_delta": {"concepts": [{"object": "referral", "id": "Referral", "status": "matched", "note": "HL7"}],
+                       "relationships": [], "conflicts": []},
     "workflow_graph": {"nodes": [{"id": "n1", "activity": "read the referral", "performed_by": "triage nurse",
                                   "function": "assess referral"},
                                  {"id": "n2", "activity": "record the band", "performed_by": "triage nurse",
@@ -130,7 +131,8 @@ def test_the_business_layer_joins_on_the_function_name():
     assert ("bf-assess-referral", "bp-n1", "Aggregation") in m.relations
     assert ("ba-triage-nurse", "bp-n1", "Assignment") in m.relations
     assert m.elements["bo-referral"]["props"]["sensitivity"] == "confidential"
-    assert m.elements["bo-referral"]["props"]["ontology.status"] == "defined"
+    assert m.elements["bo-referral"]["props"]["ontology.status"] == "matched"
+    assert m.elements["bo-referral"]["props"]["ontology.id"] == "Referral"
 
 
 def test_cafe_tags_come_from_the_catalogue_the_step_was_shown():
