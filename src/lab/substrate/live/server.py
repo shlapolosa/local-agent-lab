@@ -358,6 +358,10 @@ function detail(s) {
   return dl;
 }
 
+// Whether THIS page watched a run in flight. The approval redirect fires only on the transition a
+// person saw — never on reopening a run that finished while nobody was looking.
+let sawRunning = false, redirected = false;
+
 function render(payload) {
   // The whole handover chain: this run, and whatever its approval released after it. One page,
   // because a run that hands over is the normal shape and watching one at a time hides it.
@@ -375,12 +379,20 @@ function render(payload) {
   // it — once a continuation exists the chain strip is the better answer.
   const last = runs[runs.length - 1];
   const cta = $("cta");
+  if (last.status && last.status !== "done" && last.status !== "failed") sawRunning = true;
   if (last.approval && last.approval.url && !last.continued_as) {
     cta.innerHTML = "";
     const a = document.createElement("a");
     a.href = last.approval.url; a.target = "_blank"; a.rel = "noopener"; a.className = "cta";
     a.textContent = "This run is waiting on a decision — open the approval →";
     cta.append(a);
+    // Watched it finish into a decision: take the person there, as the approval side already does
+    // for the run it releases (reported 29 Sep 2026: "I did not redirect for approval").
+    if (sawRunning && last.status === "done" && !redirected) {
+      redirected = true;
+      a.textContent = "Waiting on your decision — opening the approval…";
+      setTimeout(() => location.assign(last.approval.url), 2500);
+    }
   } else { cta.replaceChildren(); }
 
   // The strip: every run in the chain, the one being viewed marked, the others a link.

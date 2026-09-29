@@ -126,6 +126,23 @@ MAX_BYTES = 12000
 _LABELS = ("capability_label", "label", "name", "title", "what", "capability_id", "id", "function")
 
 
+def _paired(item: dict) -> str:
+    """A row that RELATES two things, named by both — or "" for a row that names one.
+
+    One naming field per row made distinct rows render identically (wfr-886957c31872, 29 Sep 2026):
+    step 5's matches are (function, capability) PAIRS, and showing the capability alone printed
+    "Custom agent hosting" four times for four different functions; step 6's shortlist showed the
+    bare L3 id, hiding the route and the product that made each row different."""
+    capability = str(item.get("capability_label") or item.get("capability_id") or "").strip()
+    if item.get("function") and capability:
+        status = str(item.get("status") or "").strip()
+        return f"{item['function']} → {capability}" + (f" · {status}" if status else "")
+    if item.get("capability_id") and item.get("route") and item.get("realisation"):
+        return (f"{item['capability_id']} · {item['route']}: {item['realisation']}"
+                + (" (preferred)" if item.get("preferred") else ""))
+    return ""
+
+
 def outline(out) -> dict:
     """What a step produced, for a reader watching the run: values, and lists of what is in them.
 
@@ -185,6 +202,9 @@ def _label(item) -> str:
         return _clip(f"{len(items)} × {_label(items[0])}" if len(items) > 1
                      else _label(items[0]))
     if isinstance(item, dict):
+        paired = _paired(item)
+        if paired:
+            return _clip(paired)
         for field in _LABELS:
             if item.get(field):
                 return _clip(str(item[field]))

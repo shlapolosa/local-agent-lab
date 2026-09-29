@@ -362,3 +362,14 @@ def test_the_frame_hands_the_page_a_finished_url_so_the_browser_builds_none():
     art = live.frame(runlog.get(rid, client=redis))["steps"][0]["artifacts"][0]
     assert art["name"] == "one.json"
     assert art["url"] == "" or "artifact=art%3A%2F%2Fa%2Fone.json" in art["url"]
+
+
+def test_watching_a_run_finish_into_an_approval_TAKES_you_there():
+    """Reported on wfr-886957c31872 (29 Sep 2026): "I did not redirect for approval." The page showed
+    a link, while the other half of the handover — approval to the run it releases — navigates by
+    itself. It moves ONLY on the transition a person watched (running -> waiting on a decision), so
+    reopening a finished run later shows the link and never throws anyone somewhere unasked."""
+    html = live.page("e7fb30be")
+    assert "sawRunning" in html, "remembers that THIS page watched the run in flight"
+    assert "location.assign(last.approval.url)" in html
+    assert "open the approval" in html, "the link stays for a page opened after the fact"

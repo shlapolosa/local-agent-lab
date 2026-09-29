@@ -109,7 +109,8 @@ def test_step_6_refuses_a_shortlist_for_a_capability_it_was_not_shown():
 
 def test_step_6_accepts_a_shortlist_of_rows_it_was_shown_and_needs_none_at_all():
     from lab.workloads.usecase.steps import step_for
-    ok = _six([{"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42"}])
+    ok = _six([{"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42",
+                "preferred": True}])
     assert not step_for("6").complete(ok, {"realisations": REALISATIONS})
     assert not step_for("6").complete(_six([]), {"realisations": REALISATIONS})
 
@@ -181,3 +182,41 @@ def test_cross_cutting_is_matched_when_a_named_function_exercises_it():
     from lab.workloads.usecase.steps import step_for
     prompt = step_for("5").prompt()
     assert "unless a named function exercises it" in prompt
+
+
+# ------------------------------------------------ step 6 is a CHOICE, not a copy of the view
+
+def test_a_shortlisted_capability_has_exactly_ONE_preferred_route():
+    """wfr-886957c31872 (29 Sep 2026): the 'shortlist' was every route of every matched capability
+    — 20 microsoft, 20 alternative, 2 sovereign — a copy of the realisation view with no choice
+    made. A shortlist that prefers nothing has decided nothing."""
+    from lab.workloads.usecase.steps import step_for
+    none = _six([{"capability_id": "KNW.01", "route": "microsoft", "realisation": "Foundry IQ"},
+                 {"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42"}])
+    assert any("preferred" in p for p in step_for("6").complete(none, {"realisations": REALISATIONS}))
+    two = _six([{"capability_id": "KNW.01", "route": "microsoft", "realisation": "Foundry IQ",
+                 "preferred": True},
+                {"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42",
+                 "preferred": True}])
+    assert any("preferred" in p for p in step_for("6").complete(two, {"realisations": REALISATIONS}))
+    one = _six([{"capability_id": "KNW.01", "route": "microsoft", "realisation": "Foundry IQ",
+                 "preferred": True},
+                {"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42"}])
+    assert not step_for("6").complete(one, {"realisations": REALISATIONS})
+
+
+def test_a_route_is_listed_once_per_capability():
+    from lab.workloads.usecase.steps import step_for
+    dup = _six([{"capability_id": "KNW.01", "route": "microsoft", "realisation": "A",
+                 "preferred": True},
+                {"capability_id": "KNW.01", "route": "microsoft", "realisation": "B"}])
+    assert any("twice" in p for p in step_for("6").complete(dup, {"realisations": REALISATIONS}))
+
+
+def test_step_6_no_longer_asks_which_service_realises_a_ROLE():
+    """No service realises "Clinical reviewer"; asking produced three 'survey the operating model'
+    gap flags of pure noise on every run. The estate realises FUNCTIONS and capabilities."""
+    from lab.workloads.usecase.steps import step_for, schema
+    prompt = step_for("6").prompt()
+    assert "ACTIVE element" not in prompt
+    assert "preferred" in schema("realisation_match")["properties"]["shortlist"]["items"]["properties"]

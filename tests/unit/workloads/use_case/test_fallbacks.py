@@ -37,7 +37,8 @@ def test_every_default_validates_against_its_schema_and_passes_its_own_gate(key)
 
 def test_the_defaults_are_the_conservative_reading_of_not_knowing():
     r = fallbacks.fallback("realisation_match", POOL)
-    assert r["existing"] is False and r["matched"] == [] and "nurse" in r["unrealised"]
+    assert r["existing"] is False and r["matched"] == [] and "triage referral" in r["unrealised"]
+    assert "nurse" not in r["unrealised"], "a service realises a function, never a role"
     q = fallbacks.fallback("quality_attributes", POOL)
     assert q["scenarios"] == [], "no commitment exists, so no scenario is invented"
     c = fallbacks.fallback("source_contracts", POOL)

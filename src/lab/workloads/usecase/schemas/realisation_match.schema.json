@@ -7,10 +7,12 @@
         "type": "object",
         "properties": {
           "element": {
-            "type": "string"
+            "type": "string",
+            "description": "The business FUNCTION (or matched capability) an existing service already provides — never a role or a person."
           },
           "realised_by": {
-            "type": "string"
+            "type": "string",
+            "description": "The as-is service that provides it, named as the AI or traditional as-is architecture names it."
           },
           "confidence": {
             "enum": [
@@ -32,14 +34,15 @@
       "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "description": "Business functions nothing in the as-is estate provides today — they must be built."
     },
     "existing": {
       "type": "boolean"
     },
     "shortlist": {
       "type": "array",
-      "description": "Candidate realisations per matched technology capability, from the realisation view you were shown. A SHORTLIST — the selection is step 21's.",
+      "description": "The VIABLE candidate realisations per matched technology capability — not every route the view lists — with exactly one PREFERRED per capability. A shortlist, not the selection: that is step 21's.",
       "items": {
         "type": "object",
         "properties": {
@@ -60,6 +63,10 @@
           },
           "why": {
             "type": "string"
+          },
+          "preferred": {
+            "type": "boolean",
+            "description": "True on exactly one entry per capability: the route this step would lead with, and why."
           }
         },
         "required": [

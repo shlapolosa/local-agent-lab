@@ -41,9 +41,10 @@ def _flag(what: str, body: str) -> dict:
 
 
 def _realisation_match(pool: Mapping[str, Any]) -> dict:
-    """No landscape: nothing is known to exist, so every element is unrealised and must be built."""
-    unrealised = _names(pool, "active") + _names(pool, "behavioural") + _names(pool, "passive")
-    return {"matched": [], "unrealised": unrealised or ["every element of this use case"],
+    """No landscape: nothing is known to exist, so every FUNCTION is unrealised and must be built.
+    Functions, not roles: a service realises a function, never a person (29 Sep 2026)."""
+    unrealised = _names(pool, "behavioural")
+    return {"matched": [], "unrealised": unrealised or ["every function of this use case"],
             "existing": False,
             "gap_flags": [_flag("DEFAULT — no as-is application landscape is published for this "
                                 "business area, so no element could be matched to an existing "

@@ -295,6 +295,20 @@ def _realisation_match(out: dict, context: Mapping[str, Any] | None = None) -> l
         bad.append(f"shortlisted capabilities {unknown} have no realisation row you were shown — "
                    f"copy `capability_id` from one, or raise a gap flag for a capability with no "
                    f"acceptable realisation")
+    # A shortlist that prefers nothing has decided nothing: wfr-886957c31872 listed every route of
+    # every capability — a copy of the realisation view (29 Sep 2026).
+    entries = [c for c in out.get("shortlist") or [] if isinstance(c, Mapping)]
+    seen, preferred = set(), {}
+    for c in entries:
+        cap, route = str(c.get("capability_id", "")).strip(), str(c.get("route", "")).strip()
+        if (cap, route) in seen:
+            bad.append(f"{cap} lists the {route} route twice — one entry per route")
+        seen.add((cap, route))
+        preferred[cap] = preferred.get(cap, 0) + (1 if c.get("preferred") is True else 0)
+    wrong = sorted(cap for cap, n in preferred.items() if n != 1)
+    if wrong:
+        bad.append(f"shortlisted capabilities {wrong} must mark exactly ONE route `preferred` — "
+                   f"the route this step would lead with, weighing residency and constraints")
     return bad
 
 

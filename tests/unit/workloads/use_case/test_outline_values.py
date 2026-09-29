@@ -26,7 +26,9 @@ def test_a_list_entry_is_named_by_what_a_person_reads_not_by_its_key():
     out = D.outline({"matched": [{"function": "validate the form",
                                   "capability_id": "tec-cap-0031",
                                   "capability_label": "Submission Validation"}]})
-    assert out["matched"]["items"] == ["Submission Validation"]
+    # Since 29 Sep 2026 a match names its function too (see test_outline_labels.py): the capability
+    # alone made four different matches render as four identical lines.
+    assert out["matched"]["items"] == ["validate the form → Submission Validation"]
 
 
 def test_an_entry_with_only_an_id_still_says_the_id_rather_than_nothing():
@@ -64,13 +66,14 @@ def test_a_match_without_the_optional_label_still_names_the_CAPABILITY_not_the_f
                 "confidence": "lookup"},
                {"function": "prepare design pack", "capability_id": "tec-cap-0042",
                 "confidence": "lookup"}]
-    assert D.outline({"matched": matched})["matched"]["items"] == ["tec-cap-0031", "tec-cap-0042"]
+    assert D.outline({"matched": matched})["matched"]["items"] == [
+        "prepare design pack → tec-cap-0031", "prepare design pack → tec-cap-0042"]
 
 
 def test_the_label_still_wins_when_the_model_did_supply_one():
     assert D.outline({"matched": [{"function": "f", "capability_id": "tec-cap-0031",
                                    "capability_label": "Submission Validation"}]}
-                     )["matched"]["items"] == ["Submission Validation"]
+                     )["matched"]["items"] == ["f → Submission Validation"]
 
 
 def test_a_function_is_still_how_an_entry_with_nothing_else_is_named():
