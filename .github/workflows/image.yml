@@ -24,6 +24,12 @@ on:
       - "deploy/Dockerfile"
       - "deploy/requirements.txt"
       - "deploy/requirements-dev.txt"
+      # The deploy MODULES decide what each service is and what env it receives — topology.py's role
+      # tables, railway.py's release, grants.py, apim.py, aca.py. Leaving them out meant a change to
+      # "which variables does semantic-mcp get" shipped only when something else happened to trigger a
+      # run: measured 30 Sep 2026, a role-env change was pushed to main and NO run started at all, so
+      # the config sat on main looking deployed. The image does not change, but the deploy does.
+      - "deploy/*.py"
       - "tests/**"                 # the suite GATES the build now, so a test change must run it
       - ".github/workflows/image.yml"
   workflow_dispatch:             # manual rebuild (e.g. after changing the base image)
