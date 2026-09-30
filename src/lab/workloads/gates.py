@@ -73,8 +73,33 @@ def json_of(reply: Any) -> dict:
 def schema_errors(validator: Draft202012Validator, obj: Any) -> list[str]:
     if not isinstance(obj, dict) or not obj:
         return ["the reply was not a JSON object"]
-    return [f'{"/".join(str(p) for p in e.path) or "(root)"}: {e.message}'
+    return [f'{"/".join(str(p) for p in e.path) or "(root)"}: {_explain(validator.schema, e)}'
             for e in list(validator.iter_errors(obj))[:MAX_REPORTED]]
+
+
+def _explain(schema: dict, error) -> str:
+    """The validator's message — and, for a value that is ALLOWED in a sibling field, which field.
+
+    "'internal group' is not one of [...]" names what is permitted, not what went wrong: the value
+    was an audience written into blast_radius (wfr-47625c3ebdd5, 30 Sep 2026), and a retry told only
+    the list made the same swap again. The sibling is found through the error's own schema path, so
+    the rule is general and names no field."""
+    path = list(error.schema_path)
+    if error.validator != "enum" or len(path) < 3 or path[-3] != "properties":
+        return error.message
+    siblings: Any = schema
+    try:
+        for part in path[:-2]:
+            siblings = siblings[part]
+    except (KeyError, IndexError, TypeError):
+        return error.message
+    field = path[-2]
+    owners = [name for name, spec in siblings.items()
+              if name != field and isinstance(spec, dict) and error.instance in (spec.get("enum") or ())]
+    if not owners:
+        return error.message
+    return (f"{error.instance!r} is an `{owners[0]}` value, not a {field} one — "
+            f"{field} takes one of {list(error.validator_value)}")
 
 
 def gate(obj: dict, *, validator: Draft202012Validator,

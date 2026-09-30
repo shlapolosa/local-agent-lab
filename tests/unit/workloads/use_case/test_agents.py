@@ -671,3 +671,13 @@ def test_without_the_function_list_or_below_three_functions_the_rule_says_nothin
     assert gated("10", _graph("assess referral", "classify risk", "produce recommendation")) == []
     two = {"elements": {"behavioural": [{"name": "assess referral"}, {"name": "classify risk"}]}}
     assert gated("10", _graph("assess referral", "classify risk"), two) == []
+
+
+def test_step_17_is_told_which_facet_each_easily_swapped_value_belongs_to():
+    """wfr-47625c3ebdd5 wrote an audience into blast_radius twice. The prompt names both facets'
+    values from the domain vocabulary — asserted against it, so a renamed value breaks this test
+    rather than leaving the prompt teaching a word the gate refuses."""
+    from lab.core.usecase.model import AUDIENCES, BLAST_RADII
+    text = step_for("17").prompt()
+    for value in (*BLAST_RADII, *AUDIENCES):
+        assert f"`{value}`" in text, value

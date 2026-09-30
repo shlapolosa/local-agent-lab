@@ -54,3 +54,31 @@ def test_a_hard_failure_still_raises_after_the_one_retry():
     from lab.workloads import gates
     with pytest.raises(gates.GateFailed):
         _run(_Agent('{"nope": 1}', '{"nope": 2}'), soft=lambda o: [])
+
+
+# ------------------------------------------------------------------ a value in the wrong field
+# wfr-47625c3ebdd5 (30 Sep 2026) failed step 17 twice on `blast_radius: "internal group"` — an
+# AUDIENCE value in the neighbouring field. The model had the enums in its schema and the retry was
+# told "is not one of [...]", which names what is allowed and not what went wrong. A value that
+# belongs to a SIBLING field is now named as such, so the retry hears the actual mistake.
+
+def _facets_validator():
+    from jsonschema import Draft202012Validator
+    return Draft202012Validator({"type": "object", "properties": {"steps": {"type": "array", "items": {
+        "type": "object", "properties": {
+            "blast_radius": {"enum": ["single record", "single subject", "cohort", "population"]},
+            "audience": {"enum": ["internal individual", "internal group", "partner"]}}}}}})
+
+
+def test_a_value_that_belongs_to_a_sibling_field_is_named_as_that_fields():
+    from lab.workloads.gates import schema_errors
+    [problem] = schema_errors(_facets_validator(), {"steps": [{"blast_radius": "internal group"}]})
+    assert problem.startswith("steps/0/blast_radius:")
+    assert "'internal group' is an `audience` value" in problem
+    assert "blast_radius takes one of" in problem and "cohort" in problem
+
+
+def test_a_value_that_belongs_nowhere_keeps_the_plain_message():
+    from lab.workloads.gates import schema_errors
+    [problem] = schema_errors(_facets_validator(), {"steps": [{"blast_radius": "everyone"}]})
+    assert "is not one of" in problem and "value —" not in problem

@@ -14,6 +14,15 @@ and say why in an override — leaving it out is the one thing that cannot be se
 depending on what it does; "produce recommendation" is `decide`. Map each node to the nearest verb
 and record an override if the fit is poor.
 
+**Two facets that are easy to swap — keep them apart.** Each facet takes only its OWN values, the
+enum under its name in the schema; a value from a neighbouring facet is refused.
+
+- `blast_radius` is how much the step's EFFECT touches if it goes wrong: `single record`,
+  `single subject`, `cohort` or `population`. A step that notifies a team still writes to one
+  record or affects one subject — the team is not what is harmed.
+- `audience` is who RECEIVES the step's output: `internal individual`, `internal group`,
+  `partner`, `customer`, `public` or `regulator`. "The reviewers see it" is an audience.
+
 Every override carries a written justification. Not "seemed right" — the reason this step is not
 like others of its activity. Each override is also a gap flag candidate: if the default is wrong
 often enough, the default is wrong.
