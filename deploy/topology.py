@@ -389,6 +389,10 @@ ROLE_ENV = {
         "GATEWAY_URL", "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",   # the fabric's index posts to the gateway
         "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_PROVIDER",   # the CAFÉ views read the corpus
                                                    # THROUGH reference-mcp (views.py), never a DSN
+        # The domain vocabulary the FABRIC owns, by reference for the same reason the licensed workbooks
+        # are: it is tenant-sourced and cannot be in a public image. Without these the server starts and
+        # says it has no domain scheme — every subject link then silently becomes a missed term.
+        "FABRIC_VOCAB_REFS", "FABRIC_VOCAB_VERSION", "FABRIC_VOCAB_DIR",
         _OTLP, "REFERENCE_MODELS_DIR",
     ],
     "storage-mcp": [                               # src/lab/substrate/mcp/storage/server.py + lab.substrate.artifacts + lab.platform.docparse — READ-ONLY upload store
@@ -606,6 +610,9 @@ WORKLOAD_ENV: dict[str, list[str]] = {
         "CLASSIFIER_AGENT_*", "SYNTHESIS_AGENT_*", # two identities: the classifier SUGGESTS (and carries the tool
                                                    # calls), the synthesiser WRITES tagged drafts
         "FABRIC_AGENT_MODEL", "FABRIC_ASSOCIATION_THRESHOLD", "FABRIC_DEFAULT_LABEL",
+        # which vocabulary the classifier CHOOSES its subjects from (it reads the concepts through the
+        # gateway; the master itself never reaches a workload). Unset = it proposes free text, as before.
+        "FABRIC_VOCAB_SCHEME",
         "AGENT_*",
     ],
     "artifact-publish": [
