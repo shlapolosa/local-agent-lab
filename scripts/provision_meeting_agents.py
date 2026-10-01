@@ -45,7 +45,9 @@ def _helpers():
 TRANSCRIPT_TOOLS = {
     CollabTools.SERVER: [CollabTools.fetch, CollabTools.item, CollabTools.meetings,
                          CollabTools.recordings, CollabTools.capabilities],
-    SpeechTools.SERVER: [SpeechTools.transcribe, SpeechTools.capabilities],
+    # identify: who a voice SOUNDS like, offered pre-filled. Never enrol — a workload that only asks
+    # must not be able to keep anyone's voice.
+    SpeechTools.SERVER: [SpeechTools.transcribe, SpeechTools.capabilities, SpeechTools.identify],
     StorageTools.SERVER: [StorageTools.get, StorageTools.info, StorageTools.read_document],
     WorkflowTools.SERVER: list(ApprovalTools.RAISE),      # ask, never answer
 }
@@ -57,6 +59,9 @@ MINUTES_TOOLS = {
     CollabTools.SERVER: [CollabTools.item, CollabTools.put],
     SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.load_model,
                            SemanticTools.validate_model],
+    # The voiceprint WRITE, and ONLY it: this run starts after a person answered, which is the only
+    # moment a voice may be kept — and the speech service keeps one only where consent was ticked.
+    SpeechTools.SERVER: list(SpeechTools.WRITE),
 }
 CONNECTOR_TOOLS = {
     # `verbs_for`, not VERBS: a continuation-only process has no submit tool, and a grant that named

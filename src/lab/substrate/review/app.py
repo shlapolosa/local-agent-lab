@@ -1115,14 +1115,26 @@ def _answer_form(p, request_id):
                                        "is wrong survives this gate and only fails later, during "
                                        "attribution — by which time you are not here to correct it.")
             picked = next((c.identity for c in candidates if c.label == chosen), "")
+        # A voiceprint SUGGESTION arrives pre-filled — the same prefill the Teams card does — and is
+        # only ever a suggestion: the boxes stay editable, and the score is shown so a person can
+        # weigh it rather than click it through.
+        sug = prompt.suggestion or {}
+        if sug:
+            st.caption(f'Recognised as **{sug.get("display") or sug.get("identity") or sug.get("tag")}** '
+                       f'(voice match {float(sug.get("score") or 0):.2f}) — check it, and change it if wrong.')
         c1, c2 = st.columns(2)
         identity = c1.text_input("Directory identity", key=f"id_{request_id}_{prompt.label}",
-                                 placeholder="maria@contoso.com",
+                                 value=sug.get("identity", ""), placeholder="maria@contoso.com",
                                  help="Their user principal name, if they are in the organisation.")
         tag = c2.text_input("or a free tag", key=f"tag_{request_id}_{prompt.label}",
-                            placeholder="the vendor's architect",
+                            value=sug.get("tag", ""), placeholder="the vendor's architect",
                             help="For anyone outside the organisation. Not everyone in the room is "
                                  "in the directory, and guessing is worse than saying so.")
+        consent = st.checkbox("Consent — they agreed to have their voice remembered",
+                              key=f"consent_{request_id}_{prompt.label}",
+                              help="Ticked, this voice is kept as a voiceprint so future meetings can "
+                                   "suggest who it is. Naming someone is not their consent: tick only "
+                                   "if THEY agreed. Unticked, nothing about their voice is kept.")
         identity, tag = identity.strip(), tag.strip()
         # A typed identity WINS over a pick: the box is the more specific act, and silently
         # overriding what someone typed is how a form loses a person's trust.
@@ -1130,7 +1142,8 @@ def _answer_form(p, request_id):
         if bool(identity) == bool(tag):
             missing.append(prompt.label)
         else:
-            answer[prompt.label] = {"identity": identity} if identity else {"tag": tag}
+            answer[prompt.label] = ({"identity": identity} if identity else {"tag": tag}) \
+                | ({"consent": "yes"} if consent else {})
 
     if missing:
         st.info(f'Give exactly one of identity or tag for: {", ".join(missing)}. '

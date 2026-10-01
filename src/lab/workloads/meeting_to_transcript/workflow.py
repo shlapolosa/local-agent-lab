@@ -1,8 +1,9 @@
 """The `meeting_to_transcript` graph: a recording becomes a question its organiser can answer.
 
-    fetch_recording [D] -> transcribe [D] -> speaker_digest [D] -> ask_mapping [D, terminal]
+    fetch_recording [D] -> transcribe [D] -> speaker_digest [D] -> identify_voices [D]
+        -> resolve_candidates [D] -> ask_mapping [D, terminal]
 
-FOUR DETERMINISTIC STEPS AND NO AGENT, deliberately. The obvious temptation is an agent that guesses
+DETERMINISTIC STEPS AND NO AGENT, deliberately. The obvious temptation is an agent that guesses
 who each speaker is from self-introductions. It is the wrong call: it anchors the human on exactly
 the judgement being asked for, and its failure mode is a confident wrong identity that the organiser
 clicks straight through — which is the single thing this gate exists to prevent. If it is ever added
@@ -38,7 +39,10 @@ PROMPT = ("Who is each speaker? For every SPEAKER_nn below, give the person's di
           "(their email or user principal name) if they are in the organisation, or a free tag "
           "describing them if they are not — a guest, a vendor, anyone external. Use the duration, "
           "the turn count and the sample quotes to tell the voices apart. Answer for every speaker: "
-          "an unidentified one stops the minutes being written.")
+          "an unidentified one stops the minutes being written. Where a name is already filled in, "
+          "the voice matched someone the lab has heard before — check it, and change it if it is "
+          "wrong. Tick consent ONLY if that person agreed to have their voice remembered, so future "
+          "meetings can recognise them.")
 
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "",
@@ -280,6 +284,34 @@ def build_workflow(cfg):
             state = state | {"items": items}
         await ctx.send_message(state)
 
+    @executor(id="identify_voices")
+    async def identify_voices(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Pre-fill who each voice SOUNDS LIKE, from voiceprints people consented to have kept.
+
+        A SUGGESTION, never an answer: it rides on the question pre-filled, and the organiser
+        confirms or corrects it. The module docstring's warning about agents guessing identities
+        applies with full force to anything that pre-fills — which is why this is a measured vector
+        match with a threshold tuned so that a voice it is unsure of is left EMPTY (no wrong name in
+        a three-person meeting at that threshold, 29 Sep 2026), and not a model reading
+        self-introductions.
+
+        BEST EFFORT, like the attendee picker: not in `REQUIRED_TOOLS`, and every failure leaves the
+        items exactly as they were, so the question still works with no voiceprint service at all.
+        """
+        with gateway.node_span(cfg, "identify_voices"):
+            try:
+                got = await gateway.call(cfg, SpeechTools.identify, {
+                    "audio_ref": state["recording_ref"], "segments_ref": state["transcript_ref"]})
+                found = {s.get("label"): s.get("suggestion") or {} for s in (got or {}).get("speakers") or []}
+                items = [i | {"suggestion": found[i["label"]]} if found.get(i["label"]) else i
+                         for i in state["items"]]
+                print(f"[identify_voices] {sum(1 for i in items if i.get('suggestion'))} of {len(items)} "
+                      "voice(s) recognised", flush=True)
+                state = state | {"items": items}
+            except Exception as e:                      # noqa: BLE001 - a convenience never fails the run
+                print(f"[identify_voices] no suggestions ({type(e).__name__}: {e})", flush=True)
+        await ctx.send_message(state)
+
     @executor(id="resolve_candidates")
     async def resolve_candidates(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Who the provider says attended, offered to the human as a PICK instead of a typed address.
@@ -348,6 +380,9 @@ def build_workflow(cfg):
                                         "owner": state["owner"],
                                         "recording": state["recording"],
                                         "provider": state.get("lane") or "",
+                                        # the recording, so a voice the organiser names AND ticks
+                                        # consent for can be kept as a voiceprint after approval
+                                        "audio": state["recording_ref"],
                                         "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await gateway.call(cfg, ApprovalTools.ask, {
@@ -372,8 +407,8 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=fetch_recording)
-            .add_chain([fetch_recording, transcribe, speaker_digest, resolve_candidates,
-                            ask_mapping]).build())
+            .add_chain([fetch_recording, transcribe, speaker_digest, identify_voices,
+                        resolve_candidates, ask_mapping]).build())
 
 
 async def run_workflow(cfg, inputs: dict):

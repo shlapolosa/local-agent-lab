@@ -84,14 +84,22 @@ def test_neither_workload_can_reach_the_others_capabilities():
 
     Both now touch the collaboration port, and the split is in WHICH verbs: the transcript side
     FETCHES a recording (bytes in), the minutes side PUTS documents back (bytes out). Neither can do
-    the other's, which is the property worth asserting — the mere name of the server is not."""
-    from lab.platform.contracts import CollabTools
-    transcript, minutes = set(P.TRANSCRIPT_TOOLS), set(P.MINUTES_TOOLS)
-    assert "semantic_mcp" not in transcript and "speech_mcp" not in minutes
+    the other's, which is the property worth asserting — the mere name of the server is not.
+
+    The SPEECH port is split the same way since voiceprints: the transcript side transcribes and
+    identifies (it may suggest who a voice sounds like), the minutes side may only KEEP a voice —
+    which it does after a person answered — and can neither transcribe nor identify."""
+    from lab.platform.contracts import CollabTools, SpeechTools
+    transcript = set(P.TRANSCRIPT_TOOLS)
+    assert "semantic_mcp" not in transcript
     t_collab = set(P.TRANSCRIPT_TOOLS.get(CollabTools.SERVER, []))
     m_collab = set(P.MINUTES_TOOLS.get(CollabTools.SERVER, []))
     assert CollabTools.fetch in t_collab and CollabTools.fetch not in m_collab
     assert CollabTools.put in m_collab and CollabTools.put not in t_collab
+    t_speech = set(P.TRANSCRIPT_TOOLS.get(SpeechTools.SERVER, []))
+    m_speech = set(P.MINUTES_TOOLS.get(SpeechTools.SERVER, []))
+    assert m_speech == set(SpeechTools.WRITE), "the minutes side may keep a voice and nothing else"
+    assert SpeechTools.transcribe in t_speech and not t_speech & set(SpeechTools.WRITE)
 
 
 def test_no_grant_includes_the_collaboration_subscription_writes():
@@ -103,6 +111,16 @@ def test_no_grant_includes_the_collaboration_subscription_writes():
     from lab.platform.contracts import CollabTools
     for name, grant in GRANTS.items():
         assert not set(grant.get(CollabTools.SERVER, [])) & set(CollabTools.SUBSCRIBE), name
+
+
+def test_only_the_run_that_follows_a_human_answer_may_keep_a_voice():
+    """`speech_enrol` stores biometric data. The transcript run ASKS — it may suggest who a voice
+    sounds like, never keep one; the minutes run starts after a person answered and ticked consent,
+    so it alone holds the write. No connector holds it either."""
+    from lab.platform.contracts import SpeechTools
+    holders = {name for name, grant in GRANTS.items() if SpeechTools.enrol in _all(grant)}
+    assert holders == {"meeting-minutes"}
+    assert SpeechTools.identify in _all(P.TRANSCRIPT_TOOLS)
 
 
 if __name__ == "__main__":

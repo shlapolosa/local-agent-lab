@@ -19,7 +19,7 @@ from lab.substrate import artifacts as _artifacts
 # the platform allowlist + the store settings that exist ONLY here
 SUBSTRATE_KEYS = CONFIG_KEYS + ("ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "S3_REGION",
                                 "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE",
-                                "COLLAB_PROVIDER", "SPEECH_PROVIDER",
+                                "COLLAB_PROVIDER", "SPEECH_PROVIDER", "VOICEPRINT_URL",
                                 "REFERENCE_PROVIDER", "REFERENCE_DB_URL", "REFERENCE_RING",
                                 "REFERENCE_PIN_TTL_S", "REFERENCE_TRUST_KEYS",
                                 "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM",
@@ -142,6 +142,16 @@ def speech_transcriber(provider: str, **overrides):
     return importlib.import_module(SPEECH_PROVIDERS[name]).build(**opts)
 
 
+def _voiceprint_gallery(url: str):
+    from lab.substrate.voiceprint.gallery import PostgresGallery
+    return PostgresGallery(url)
+
+
+def _voiceprint_client(url: str, secret: str):
+    from lab.substrate.voiceprint.client import HttpEmbedder
+    return HttpEmbedder(url, secret)
+
+
 class SubstrateContainer(Container):
     """Inherits config/redis/tracer; adds the store ports → adapters chosen by URL scheme.
 
@@ -174,6 +184,12 @@ class SubstrateContainer(Container):
     # a Singleton because the name is the argument: running four providers in their own lanes means
     # four adapters, and a Singleton would hand every lane the first one built.
     speech_named = providers.Factory(speech_transcriber)
+    # VOICEPRINTS: the gallery (vectors only, in the substrate's own Postgres) and the model that makes
+    # them, which runs as its own service so its runtime never weighs on this shared image. Both are
+    # resolved lazily per use — a server that never identifies a voice never connects to either.
+    voiceprints = providers.Singleton(_voiceprint_gallery, url=Container.config.artifacts_url)
+    speaker_embedder = providers.Singleton(_voiceprint_client, url=Container.config.voiceprint_url,
+                                           secret=Container.config.mcp_shared_secret)
 
 
 def build(service_name: str, *, instrument_urllib: bool = False, **overrides) -> SubstrateContainer:

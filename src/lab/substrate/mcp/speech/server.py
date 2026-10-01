@@ -40,7 +40,9 @@ import json
 
 from fastmcp.exceptions import ToolError
 
+from lab.core.meetings.model import Speakers
 from lab.core.speech import AudioClip, SpeechError, Transcript
+from lab.core.speech import voiceprint as V
 from lab.platform import config
 from lab.substrate import container
 from lab.platform.contracts import SpeechTools
@@ -193,8 +195,104 @@ def speech_transcribe(audio_ref: str, languages: list[str] | None = None, diariz
             "read_with": "storage_get"}
 
 
+# ------------------------------------------------------------------ voiceprints
+MIN_SEGMENT_S = 1.0     # below a second an embedding is mostly noise (measured, 29 Sep 2026)
+MAX_LABEL_S = 120.0     # enough speech to know a voice; bounds one call on a long meeting
+
+
+def _read(store, ref: str) -> bytes:
+    blob = store.get(ref)
+    return blob["body"] if isinstance(blob, dict) else blob
+
+
+def _samples(audio_ref: str, segments_ref: str, only=None) -> tuple[dict, str]:
+    """Each label's speech as (vector, seconds) pairs, and the model that made the vectors.
+
+    Only segments with WORDS count: a diarizer segments audio, not speech, and a breath attributed to
+    a voice is not that voice. The recording is decoded ONCE and cut in-process; every clip goes to
+    the model in ONE call. `only` limits the work to the labels that may be kept — a voice nobody
+    consented to keeping is never even embedded by `speech_enrol`.
+    """
+    segs = json.loads(_read(server.artifacts(), segments_ref)).get("segments") or []
+    picked: dict[str, list[tuple[float, float]]] = {}
+    for s in segs:
+        label, start, end = s.get("speaker") or "", float(s.get("start") or 0), float(s.get("end") or 0)
+        if (only is not None and label not in only) or not (s.get("text") or "").strip():
+            continue
+        if end - start >= MIN_SEGMENT_S and sum(e - b for b, e in picked.get(label, [])) < MAX_LABEL_S:
+            picked.setdefault(label, []).append((start, end))
+    if not picked:
+        return {}, ""
+    wav = audio_tools.to_wav16k(_clip(audio_ref), config.AUDIO_EXTRACT_BIN).data
+    order = [(label, b, e) for label, spans in picked.items() for b, e in spans]
+    embedder = server.speaker_embedder()
+    vectors = embedder.embed([audio_tools.slice_wav(wav, b, e) for _, b, e in order])
+    out: dict[str, list] = {}
+    for (label, b, e), v in zip(order, vectors):
+        out.setdefault(label, []).append((v, e - b))
+    return out, embedder.model
+
+
+@governed
+def speech_identify(audio_ref: str, segments_ref: str) -> dict:
+    """Which anonymous speakers sound like someone the lab has heard before.
+
+    `audio_ref` is the recording (audio or video) and `segments_ref` the `transcript_ref` that
+    speech_transcribe returned for it. Returns one entry per speaker label: a `suggestion` in the
+    answer's own shape ({"identity" or "tag", "display", "score"}) when the voice matches a stored
+    voiceprint closely enough, and an EMPTY suggestion when it does not. A suggestion is for a human
+    to confirm, never an answer: present it pre-filled and let the person change it.
+
+    Only voices whose owners consented were ever stored, and nothing is stored by this call."""
+    samples, model = _samples(audio_ref, segments_ref)
+    people = server.voiceprints().voiceprints(model) if model else []
+    found = V.identify(samples, people, model=model)
+    span().set_attributes({"voiceprint.labels": len(found), "voiceprint.gallery": len(people),
+                           "voiceprint.suggested": sum(1 for s in found.values() if s)})
+    return {"model": model, "speakers": [
+        {"label": label, "seconds": round(sum(sec for _, sec in samples.get(label, [])), 1),
+         "suggestion": s.to_dict() if s else {}} for label, s in found.items()]}
+
+
+@governed
+def speech_enrol(audio_ref: str, segments_ref: str, speaker_map: dict, consented_by: str,
+                 source: str = "") -> dict:
+    """KEEP the voices a human named and ticked consent for, so the next meeting can suggest them.
+
+    `speaker_map` is the organiser's answer: label -> {"identity" or "tag", "consent": "yes"}.
+    `consented_by` is who attested that consent; it is stored with every voiceprint. A voice is kept
+    only when consent was ticked AND the gallery did not already recognise it as that person — a
+    confirmed match is left alone, a corrected one is kept under the corrected name. Speech too short
+    or too mixed to trust is skipped and reported. Returns labels and reasons — never a name."""
+    if not (consented_by or "").strip():
+        raise SpeechError("a voiceprint is kept only with the name of whoever attested consent")
+    answer = Speakers.from_answer(speaker_map)
+    consenting = {e.label for e in answer.entries if e.consent}
+    if not consenting:
+        return {"model": "", "enrolled": [], "skipped": {}, "reason": "no speaker was ticked for consent"}
+    samples, model = _samples(audio_ref, segments_ref, only=consenting)
+    gallery = server.voiceprints()
+    plan = V.to_enrol(answer, V.identify(samples, gallery.voiceprints(model) if model else [], model=model))
+    enrolled, skipped = [], {}
+    for label in sorted(consenting):
+        if label not in plan:
+            skipped[label] = "already recognised as the person named"
+            continue
+        kind, key = plan[label]
+        vp = V.enrolment(kind, key, samples.get(label, []), model=model or "unknown", source=source,
+                         consented_by=consented_by.strip())
+        if vp is None:
+            skipped[label] = "too little clean speech to keep"
+            continue
+        gallery.add(vp)
+        enrolled.append(label)
+    span().set_attributes({"voiceprint.consented": len(consenting), "voiceprint.enrolled": len(enrolled)})
+    return {"model": model, "enrolled": enrolled, "skipped": skipped}
+
+
 # the catalogue is the contract: registering under any other name fails the parity test
-assert {speech_capabilities.__name__, speech_transcribe.__name__} == set(SpeechTools.names())
+assert {speech_capabilities.__name__, speech_transcribe.__name__, speech_identify.__name__,
+        speech_enrol.__name__} == set(SpeechTools.names())
 
 
 if __name__ == "__main__":

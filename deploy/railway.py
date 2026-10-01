@@ -39,6 +39,7 @@ from topology import (  # noqa: E402,F401 — re-exported: tests and scripts add
     REDIS_IMAGE, REPO, ROLE_ENV, S3_KEYS, SUBSTRATE, WORKLOAD_ENV, WORKLOADS, _OTLP, _head_tag, _print_env_keys,
     _value, deploy_profile, embedder_enabled, env_for_role, load_env_for_cloud, parse_env,
     replica_services, substrate_names, substrate_services, workload_env,
+    VOICEPRINT_CMD, VOICEPRINT_IMAGE, VOICEPRINT_NAME, VOICEPRINT_PORT, voiceprint_enabled,
 )
 
 
@@ -362,6 +363,26 @@ def ensure_embedder():
     return sid
 
 
+def ensure_voiceprint(base):
+    """The voiceprint MODEL: this repo's code in its own image, pinned to THIS commit's tag (CI builds
+    it on every push). Its env is the role allowlist and nothing more — the shared bearer, where to
+    listen — and it binds dual-stack because speech-mcp reaches it over Railway's IPv6 private DNS."""
+    sid, created = ensure_image_service(VOICEPRINT_NAME, VOICEPRINT_IMAGE)
+    print(f"  {VOICEPRINT_NAME:13} {'created' if created else 'exists '} {sid[:8]}  ({VOICEPRINT_IMAGE})")
+    env = env_for_role(VOICEPRINT_NAME, {**base, "BIND_HOST": "::", "VOICEPRINT_PORT": str(VOICEPRINT_PORT)})
+    _print_env_keys(VOICEPRINT_NAME, env)
+    gql('mutation($in:VariableCollectionUpsertInput!){ variableCollectionUpsert(input:$in) }',
+        {"in": {"projectId": PROJECT, "environmentId": ENV, "serviceId": sid,
+                "variables": env, "replace": True, "skipDeploys": True}})
+    gql('mutation($s:String!,$e:String!,$in:ServiceInstanceUpdateInput!){ '
+        'serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:$in) }',
+        {"s": sid, "e": ENV, "in": {"source": {"image": VOICEPRINT_IMAGE}, "startCommand": VOICEPRINT_CMD,
+                                    "healthcheckPath": "", "restartPolicyType": "ALWAYS"}})
+    deploy(sid, latest=False)
+    print(f"  {VOICEPRINT_NAME:13} deploying (speaker-embedding model, dual-stack bind on :{VOICEPRINT_PORT})")
+    return sid
+
+
 # --- the upload store: a Railway Bucket (S3-compatible; Azure Blob on the target) ---
 BUCKET_NAME = "lab-uploads"
 
@@ -549,7 +570,7 @@ def release(wait_s: int = 600):
     _require_quiet(deploy_profile())
     ids = services()
     names = [n for n in substrate_names(deploy_profile(), ids)
-             if n not in (REDIS_NAME, EMBED_NAME, JAEGER_NAME)]
+             if n not in (REDIS_NAME, EMBED_NAME, VOICEPRINT_NAME, JAEGER_NAME)]
     # REPLICAS, not just the base name. `w["service"]` is the FIRST replica only, and every other
     # one was therefore never rolled by CD: after each push the meeting workload had two replicas of
     # ONE consumer group running two different commits, taking work from the same stream. That is the
@@ -693,6 +714,11 @@ def substrate_up():
     else:
         print(f"  {EMBED_NAME:13} skipped  (REFERENCE_EMBED_MODEL={base.get('REFERENCE_EMBED_MODEL')!r} "
               f"is served by a vendor through the gateway; an existing service is left to `down`)")
+    if voiceprint_enabled(base):
+        ensure_voiceprint(base)                            # the voiceprint model, before speech-mcp needs it
+    else:
+        print(f"  {VOICEPRINT_NAME:13} skipped  (VOICEPRINT_ENABLED is not set — meetings run with no "
+              f"voice suggestions; an existing service is left to `down`)")
     # Each service is deployed INDEPENDENTLY and the failures are reported at the end. It used to
     # stop at the first one, and on 19 Sep 2026 a single transient Railway API error
     # ("Problem processing request") on one service left the THIRTEEN behind it on the previous
@@ -738,6 +764,7 @@ def substrate_env_report():
     print(f"substrate env allowlist (from .env, `# CLOUD:` profile; {len(base)} keys in the pool)")
     for name in (REDIS_NAME, EMBED_NAME, JAEGER_NAME):
         _print_env_keys("jaeger" if name == JAEGER_NAME else name, {})
+    _print_env_keys(VOICEPRINT_NAME, env_for_role(VOICEPRINT_NAME, {**base, "BIND_HOST": "::"}))
     for name, spec in substrate_services(base).items():
         _print_env_keys(name, substrate_env(name, spec, base))
 

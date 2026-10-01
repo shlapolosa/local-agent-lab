@@ -24,7 +24,9 @@ INPUTS = {"transcript": "art://t/x.segments.json",
           "recording": "collab://item/b!d/01FILE",
           "chat_id": "19:meeting_ZmFrZQ@thread.v2",
           # the LANE: which provider's pipeline this minutes run belongs to
-          "provider": "elevenlabs"}
+          "provider": "elevenlabs",
+          # the recording, so a consented voice can be kept as a voiceprint
+          "audio": "art://r1/Meeting Recording.mp4"}
 
 
 def test_it_is_registered_and_gets_its_own_consumer_group():
@@ -39,9 +41,9 @@ def test_every_input_the_contract_declares_reaches_the_run():
     seen = {}
 
     async def fake_run_once(root, transcript, speaker_map, owner="", recording="", chat_id="",
-                            provider="", on_trace=None):
+                            provider="", audio="", on_trace=None):
         seen.update(transcript=transcript, speaker_map=speaker_map, owner=owner,
-                    recording=recording, chat_id=chat_id, provider=provider)
+                    recording=recording, chat_id=chat_id, provider=provider, audio=audio)
         return {"minutes_ref": "art://m/x.json"}
 
     saved, consumer.run_once = consumer.run_once, fake_run_once

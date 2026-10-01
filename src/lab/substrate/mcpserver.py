@@ -49,7 +49,7 @@ from lab.substrate import container as _container
 from lab.substrate.mcpauth import BearerAuthMiddleware
 from lab.substrate.specref import load_spec
 
-LOOPBACK = ("127.0.0.1", "localhost", "::1")
+from lab.substrate.netbind import LOOPBACK, dual_stack_sockets, refuse_open, run as _run
 
 
 def span():
@@ -73,6 +73,8 @@ class LabServer:
         self.speech = self.container.speech      # the speech provider (talk -> attributable words)
         self.reference = self.container.reference    # the governed corpus (signed artifacts, read under a pin)
         self.speech_named = self.container.speech_named   # ...or a NAMED one, for a per-provider lane
+        self.voiceprints = self.container.voiceprints          # who the lab has heard before (vectors only)
+        self.speaker_embedder = self.container.speaker_embedder   # the model that turns speech into a voiceprint
         self.mcp = FastMCP(service)
 
     def tool(self, *args, **kwargs):
@@ -153,43 +155,14 @@ def app_for(mcp, *, path: str = "/mcp", routes=(), public_paths=()):
 def serve(mcp, service: str, port: int, *, path: str = "/mcp", log_level: str = "info",
           routes=(), public_paths=()) -> None:
     """Run `mcp` as a streamable-HTTP server on config.BIND_HOST:`port``path` (blocking)."""
-    import uvicorn
-    if config.BIND_HOST not in LOOPBACK and not config.MCP_SHARED_SECRET:
-        raise SystemExit(f"{service}: refusing to start — BIND_HOST={config.BIND_HOST} with no "
-                         "MCP_SHARED_SECRET would expose an ungoverned MCP server to the network; "
-                         "set MCP_SHARED_SECRET or bind to loopback")
+    refuse_open(service)
     # The BUILD is part of "serving": a tag says what this service was asked to run, this line says
     # what it actually is, and a deploy log is where a person looks when a tool call fails oddly.
     print(f"{service}: serving on http://{config.BIND_HOST}:{port}{path}  {config.build_id()}",
           flush=True)
     app = app_for(mcp, path=path, routes=routes, public_paths=public_paths)
-    sockets = dual_stack_sockets(port) if config.BIND_HOST == "::" else None
-    if sockets is None:
-        uvicorn.run(app, host=config.BIND_HOST, port=port, log_level=log_level)
-        return
-    uvicorn.Server(uvicorn.Config(app, host=config.BIND_HOST, port=port, log_level=log_level)).run(sockets=sockets)
-
-
-def dual_stack_sockets(port: int) -> list:
-    """One IPv6 socket AND one IPv4 socket on `port`, for a server that must answer BOTH the private
-    network and the public edge.
-
-    asyncio (and so uvicorn) sets IPV6_V6ONLY on a `::` listener, so a host of `::` is IPv6-only: the
-    gateway reaches an MCP server over Railway's IPv6-only private DNS, but the public edge that a
-    provider's change notification arrives through is IPv4 — measured 11 Sep 2026, graph-mcp's public
-    domain answered every request with 502 and Graph refused the subscription. Two sockets, one server."""
-    import socket
-    made = []
-    for family, host in ((socket.AF_INET6, "::"), (socket.AF_INET, "0.0.0.0")):
-        sock = socket.socket(family, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if family == socket.AF_INET6:
-            sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)     # the IPv4 side is its own socket
-        sock.bind((host, port if made == [] else made[0].getsockname()[1]))
-        sock.listen(128)
-        sock.set_inheritable(True)
-        made.append(sock)
-    return made
+    _run(app, port, sockets=dual_stack_sockets(port) if config.BIND_HOST == "::" else None,
+         log_level=log_level)
 
 
 __all__ = ["LabServer", "span", "serve", "app_for", "dual_stack_sockets", "LOOPBACK", "error_response", "json_body"]

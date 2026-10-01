@@ -1,6 +1,7 @@
 """The `transcript_to_minutes` graph: an attributed transcript becomes knowledge.
 
-    attribute [D] -> minutes [A] -> minutes_gate [D] -> to_spec [D] -> load_semantic [D] -> publish [D]
+    attribute [D] -> minutes [A] -> minutes_gate [D] -> to_spec [D] -> load_semantic [D]
+        -> deliver [D] -> keep_voices [D] -> publish [D]
 
 ONE agent step, gated. Everything either side of it is deterministic, which is the lab's rule: an
 agent's output never flows onward un-validated, and the things a model must not decide — ids, IRIs,
@@ -29,7 +30,7 @@ from jsonschema import Draft7Validator
 from lab.core.meetings import (Speakers, minutes_to_spec, named_minutes,
                                  transcript_for_people)
 from lab.platform import runlog
-from lab.platform.contracts import CollabTools, SemanticTools, StorageTools
+from lab.platform.contracts import CollabTools, SemanticTools, SpeechTools, StorageTools
 from lab.workloads import gateway, workflowviz
 
 REQUIRED_TOOLS = (StorageTools.read_artifact, SemanticTools.store_spec, SemanticTools.load_model,
@@ -337,6 +338,38 @@ def build_workflow(cfg):
                     print(f"[deliver] not delivered ({state['delivery']})", flush=True)
         await ctx.send_message(state)
 
+    @executor(id="keep_voices")
+    async def keep_voices(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Keep the voices the organiser named AND ticked consent for, so the next meeting can suggest them.
+
+        Runs only after a person answered, which is the point: a voiceprint is biometric data, and the
+        consent tick on the card is the only thing that may cause one to be stored. Which voices that
+        means — ticked, and not already recognised as the person named — is decided by the speech
+        service from the same rules every surface shares; this step only asks.
+
+        BEST EFFORT, like delivery: the minutes are written by now, and a voice that could not be kept
+        is reported in `voiceprints`, never raised. No recording reference (a run started before this
+        existed, or a recording the lab never held) means nothing to learn from, and it says so.
+        """
+        with gateway.node_span(cfg, "keep_voices"):
+            ticked = [e.label for e in state["map"].entries if e.consent]
+            if not ticked:
+                note = {"enrolled": [], "reason": "no speaker was ticked for consent"}
+            elif not state.get("audio") or not state.get("owner"):
+                note = {"enrolled": [], "reason": "no recording reference or organiser to attest consent"}
+            else:
+                try:
+                    note = await gateway.call(cfg, SpeechTools.enrol, {
+                        "audio_ref": state["audio"], "segments_ref": state["transcript"],
+                        "speaker_map": state["speaker_map"], "consented_by": state["owner"],
+                        "source": state["transcript"]})
+                except Exception as e:              # noqa: BLE001 - keeping a voice never costs the minutes
+                    note = {"enrolled": [], "reason": f"{type(e).__name__}: {e}"}
+            print(f"[keep_voices] kept {len(note.get('enrolled') or [])} of {len(ticked)} ticked voice(s)"
+                  + (f" — {note['reason']}" if note.get("reason") else ""), flush=True)
+            state = state | {"voiceprints": note}
+        await ctx.send_message(state)
+
     @executor(id="publish")
     async def publish(state: dict, ctx: WorkflowContext[dict]) -> None:
         with gateway.node_span(cfg, "publish"):
@@ -352,6 +385,7 @@ def build_workflow(cfg):
                    # what reached the tenant, and where a notifier should announce it
                    "delivered": state.get("delivered") or [], "chat_id": state.get("chat_id", ""),
                    "delivery": state.get("delivery", ""),
+                   "voiceprints": state.get("voiceprints") or {},
                    "summary": {"concepts": len(m.get("concepts") or []),
                                "decisions": len(m.get("decisions") or []),
                                "actions": len(m.get("actions") or []),
@@ -361,7 +395,8 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=attribute)
-            .add_chain([attribute, minutes, to_spec, load_semantic, deliver, publish]).build())
+            .add_chain([attribute, minutes, to_spec, load_semantic, deliver, keep_voices,
+                        publish]).build())
 
 
 def _speaking_labels(segments) -> set[str]:

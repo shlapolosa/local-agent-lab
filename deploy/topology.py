@@ -52,11 +52,19 @@ def _head_tag():
 
 IMAGE_TAG = os.environ.get("LAB_IMAGE_TAG") or _head_tag()
 IMAGE = os.environ.get("LAB_IMAGE") or f"ghcr.io/{REPO}:{IMAGE_TAG}"
+VOICEPRINT_IMAGE = os.environ.get("LAB_VOICEPRINT_IMAGE") or f"ghcr.io/{REPO}/voiceprint:{IMAGE_TAG}"
 
 
 REDIS_NAME = "redis"
 EMBED_NAME = "embedder"
 EMBED_MODEL = "nomic-embed-text"
+# The VOICEPRINT model (speech -> speaker vector): this repo's code in its OWN image, because the model's
+# runtime is ~1 GB and every other service pulls the shared one. `is_ours` matches `ghcr.io/<repo>:` and
+# this is `ghcr.io/<repo>/voiceprint:`, so a code `release` leaves it alone — it changes with `substrate
+# up`, like the embedder, and is built by CI on every push so that is always possible.
+VOICEPRINT_NAME = "voiceprint"
+VOICEPRINT_PORT = 9650
+VOICEPRINT_CMD = "python -m lab.substrate.voiceprint.service"
 JAEGER_NAME = "local-agent-lab"   # pre-existing Jaeger service (Docker image; NOT built from our repo)
 
 # The gateway's ONE config and its server flags. A target that serves the config through a model
@@ -239,6 +247,13 @@ def embedder_enabled(base_env: dict) -> bool:
     return base_env.get("REFERENCE_EMBED_MODEL", EMBED_MODEL) in ("", EMBED_MODEL)
 
 
+def voiceprint_enabled(base_env: dict) -> bool:
+    """The voiceprint model runs only when the profile asks for it. It holds ~1 GB resident for a
+    feature a deployment may not use, and without it every meeting still works — speech-mcp's
+    `speech_identify` refuses with a sentence and the question is asked with no suggestions."""
+    return str(base_env.get("VOICEPRINT_ENABLED", "")).strip().lower() in ("1", "true", "yes")
+
+
 def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
     """Service names the substrate owns, in deploy order (redis first, jaeger last). A channel — and
     the embedder — is included when it is configured OR already deployed, so `down`/`status` still
@@ -246,7 +261,8 @@ def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
     table = substrate_services(base_env)
     chans = [n for n in CHANNELS if n in table or n in (ids or {})]
     embed = [EMBED_NAME] if embedder_enabled(base_env) or EMBED_NAME in (ids or {}) else []
-    return [REDIS_NAME] + embed + list(SUBSTRATE) + chans + [JAEGER_NAME]
+    voice = [VOICEPRINT_NAME] if voiceprint_enabled(base_env) or VOICEPRINT_NAME in (ids or {}) else []
+    return [REDIS_NAME] + embed + voice + list(SUBSTRATE) + chans + [JAEGER_NAME]
 
 # --- how a service is ADDRESSED: the one thing that differs between deploy targets -------------------
 # Every server's listen port. A target turns (service, port) into a URL its own network routes: Railway
@@ -294,7 +310,7 @@ COPIES = {"PG_VECTOR_API_KEY": "MCP_SHARED_SECRET"}
 _COORDINATES = frozenset({
     "BIND_HOST", "ADOIT_MCP_URL", "SEMANTIC_MCP_URL", "STORAGE_MCP_URL", "WORKFLOW_MCP_URL", "GRAPH_MCP_URL",
     "SPEECH_MCP_URL", "REFERENCE_MCP_URL", "DECISION_MCP_URL", "VALUATION_MCP_URL", "WORKFLOW_API_URL",
-    "GATEWAY_URL", "PG_VECTOR_API_BASE", "EMBED_URL", "REVIEW_APP_URL"})
+    "GATEWAY_URL", "PG_VECTOR_API_BASE", "EMBED_URL", "VOICEPRINT_URL", "REVIEW_APP_URL"})
 
 
 def coordinate_keys(net: Network) -> frozenset:
@@ -326,6 +342,7 @@ def substrate_env(name, spec, base_env, net: Network) -> dict:
     for copy_key, source in COPIES.items():
         env[copy_key] = env.get(source, "")
     env["EMBED_URL"] = at(EMBED_NAME)                       # the gateway's embedding model
+    env["VOICEPRINT_URL"] = net.address(VOICEPRINT_NAME, VOICEPRINT_PORT)   # speech-mcp's voiceprint model
     env = _select(env, name, net, s3=bool(spec.get("s3")))   # bucket credentials: only services flagged "s3"
     env.update(spec.get("env", {}))
     return env
@@ -467,6 +484,8 @@ ROLE_ENV = {
         # SpeechNotConfigured, the lane is skipped by name, and a four-provider comparison quietly
         # returns one provider's answer while every service reports healthy.
         "MUNSIT_*", "ELEVENLABS_*", "ASSEMBLYAI_*", "SONIOX_*",
+        "VOICEPRINT_URL",                          # the voiceprint MODEL (its own service); the gallery
+                                                   # itself lives in the ARTIFACTS_URL database below
         "AUDIO_EXTRACT_BIN",                       # the host tool that pulls audio out of a video recording;
                                                    # unset = video refused with a sentence, audio still works
         "ARTIFACTS_URL",                           # config.UPLOADS_URL falls back to it when no bucket is set.
@@ -562,6 +581,9 @@ ROLE_ENV = {
     # image services built from nothing in this repo: they get NO .env keys at all
     "redis": [],
     "embedder": [],                                # the embedding model: an image, no env, no secret
+    # The voiceprint model: the shared bearer (its vectors are biometric data), where to listen, and
+    # NOTHING else — no store, no bucket, no gallery, no provider credential. It cannot read what it embeds.
+    "voiceprint": ["MCP_SHARED_SECRET", "BIND_HOST", "VOICEPRINT_PORT", _OTLP],
     "jaeger": [],
 }
 

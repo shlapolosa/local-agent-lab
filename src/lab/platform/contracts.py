@@ -28,7 +28,7 @@ import mimetypes
 import re
 
 from lab.platform import config
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dc_field
 from enum import StrEnum
 from typing import Any, Mapping
 
@@ -434,6 +434,16 @@ class SpeechTools(ToolCatalogue):
     SERVER = "speech_mcp"
     capabilities = "speech_capabilities"   # what THIS provider/plan actually serves, and why not
     transcribe = "speech_transcribe"
+    # VOICEPRINTS. `identify` says which anonymous label sounds like someone the lab has met before —
+    # a SUGGESTION the organiser confirms, never an answer. `enrol` KEEPS a voice, which is storing
+    # biometric data, so it is its own grant: only the step that runs after a human answered (and
+    # ticked consent) may hold it. Both take references and return names or counts — a vector never
+    # crosses the gateway.
+    identify = "speech_identify"
+    enrol = "speech_enrol"
+
+    READ = (capabilities, transcribe, identify)
+    WRITE = (enrol,)
 
 
 class CollabTools(ToolCatalogue):
@@ -677,19 +687,27 @@ class SpeakerPrompt:
     samples: tuple[str, ...] = ()
     seconds: float = 0.0
     turns: int = 0
+    # Who this voice SOUNDS LIKE, from the voiceprint gallery — in the answer's own shape
+    # ({"identity"|"tag": ..., "display": ..., "score": ...}) so a surface can prefill it. Empty means
+    # "not recognised", and the question is asked exactly as it was before voiceprints existed.
+    suggestion: dict[str, Any] = dc_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not (self.label or "").strip():
             raise ValueError("a speaker prompt needs its label — the answer is keyed on it")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"label": self.label, "samples": list(self.samples), "seconds": self.seconds,
-                "turns": self.turns}
+        out = {"label": self.label, "samples": list(self.samples), "seconds": self.seconds,
+               "turns": self.turns}
+        if self.suggestion:
+            out["suggestion"] = dict(self.suggestion)
+        return out
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SpeakerPrompt":
         return cls(label=str(d.get("label") or ""), samples=tuple(d.get("samples") or ()),
-                   seconds=float(d.get("seconds") or 0.0), turns=int(d.get("turns") or 0))
+                   seconds=float(d.get("seconds") or 0.0), turns=int(d.get("turns") or 0),
+                   suggestion=dict(d.get("suggestion") or {}))
 
 
 def speaker_prompts(payload: dict[str, Any]) -> list[SpeakerPrompt]:
@@ -1560,9 +1578,16 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
                    "which meeting they belong to.", required=False),
         InputField("provider", InputKind.CHOICE, _LANE, required=False,
                    choices=SPEECH_PROVIDERS),
+        InputField("audio", InputKind.REF,
+                   "Optional art://<id>/<name> reference to the RECORDING the transcript was made "
+                   "from. It is what lets a voice the organiser named — and ticked consent for — be "
+                   "kept as a voiceprint, so the next meeting can suggest who it is. Omitted, the "
+                   "minutes are written exactly as before and no voice is kept.", required=False),
     ),
     outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary",
              "provider",
+             # how many voices this run kept, and why not when it kept none — best effort, like delivery
+             "voiceprints",
              # what reached the collaboration platform, where to announce it, and why not when it
              # did not — delivery is best effort, so its outcome is reported rather than raised
              "delivered", "chat_id", "delivery"),

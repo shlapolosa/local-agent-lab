@@ -374,6 +374,14 @@
                           "isSubtle": false
                         },
                         {
+                          "type": "TextBlock",
+                          "wrap": true,
+                          "color": "Accent",
+                          "spacing": "Small",
+                          "text": "@{if(empty(coalesce(item()?['suggestion'], json('{}'))), '', concat('Recognised as ', coalesce(item()?['suggestion']?['display'], ''), ' (voice match ', string(coalesce(item()?['suggestion']?['score'], 0)), ') — check it, and change it if it is wrong'))}",
+                          "isVisible": "@not(empty(coalesce(item()?['suggestion'], json('{}'))))"
+                        },
+                        {
                           "//": "A picker of who actually attended. isVisible is driven by whether any candidate exists, so a meeting we could not resolve shows no empty dropdown. A typed identity below still wins — this fills the common case, it does not constrain the honest one.",
                           "type": "Input.ChoiceSet",
                           "id": "@{concat('pick_', item()['label'])}",
@@ -389,14 +397,24 @@
                           "id": "@{concat('identity_', item()['label'])}",
                           "label": "Directory identity (email or user principal name)",
                           "placeholder": "maria@contoso.com",
-                          "isRequired": false
+                          "isRequired": false,
+                          "value": "@{coalesce(item()?['suggestion']?['identity'], '')}"
                         },
                         {
                           "type": "Input.Text",
                           "id": "@{concat('tag_', item()['label'])}",
                           "label": "OR a free tag, if they are not in the directory",
                           "placeholder": "the vendor's architect",
-                          "isRequired": false
+                          "isRequired": false,
+                          "value": "@{coalesce(item()?['suggestion']?['tag'], '')}"
+                        },
+                        {
+                          "type": "Input.Toggle",
+                          "id": "@{concat('consent_', item()['label'])}",
+                          "title": "Consent — they agreed to have their voice remembered",
+                          "valueOn": "yes",
+                          "valueOff": "no",
+                          "value": "no"
                         }
                       ]
                     }
@@ -501,7 +519,8 @@
                         "select": {
                           "label": "@item()['label']",
                           "identity": "@trim(coalesce(if(empty(trim(coalesce(body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])], ''))), coalesce(body('Ask_the_organiser')?['data']?[concat('pick_', item()['label'])], ''), body('Ask_the_organiser')?['data']?[concat('identity_', item()['label'])]), ''))",
-                          "tag": "@trim(coalesce(body('Ask_the_organiser')?['data']?[concat('tag_', item()['label'])], ''))"
+                          "tag": "@trim(coalesce(body('Ask_the_organiser')?['data']?[concat('tag_', item()['label'])], ''))",
+                          "consent": "@coalesce(body('Ask_the_organiser')?['data']?[concat('consent_', item()['label'])], 'no')"
                         }
                       },
                       "runAfter": {}
@@ -556,7 +575,7 @@
                           "type": "SetVariable",
                           "inputs": {
                             "name": "answerDraft",
-                            "value": "@setProperty(variables('answer'), item()['label'], if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity'])))"
+                            "value": "@setProperty(variables('answer'), item()['label'], if(equals(item()?['consent'], 'yes'), setProperty(if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity'])), 'consent', 'yes'), if(empty(item()['identity']), setProperty(json('{}'), 'tag', item()['tag']), setProperty(json('{}'), 'identity', item()['identity']))))"
                           },
                           "runAfter": {}
                         },

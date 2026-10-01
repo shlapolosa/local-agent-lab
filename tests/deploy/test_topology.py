@@ -132,3 +132,36 @@ def test_image_helpers_say_what_is_ours_and_where_builds_disagree():
 def test_long_lived_workloads_are_the_stream_consumers():
     names = topology.long_lived_workloads()
     assert "visio" in names and "visio-job" not in names
+
+
+# ------------------------------------------------------------------ the voiceprint model
+def test_the_voiceprint_model_is_opt_in_and_listed_once_deployed():
+    """~1 GB resident for a feature a deployment may not use: the profile decides. Once it exists it
+    stays listed whatever the profile says, so `down`/`status` never orphan it."""
+    assert topology.VOICEPRINT_NAME not in topology.substrate_names({})
+    assert topology.VOICEPRINT_NAME in topology.substrate_names({"VOICEPRINT_ENABLED": "true"})
+    assert topology.VOICEPRINT_NAME in topology.substrate_names({}, ids={topology.VOICEPRINT_NAME: "sid"})
+
+
+def test_the_voiceprint_image_is_never_mistaken_for_the_shared_one():
+    """A code `release` rolls every service running the shared image onto the new commit. The model
+    has its own image, so it must not count as one — or the first push would swap its image out."""
+    assert not topology.is_ours(topology.VOICEPRINT_IMAGE)
+    assert topology.VOICEPRINT_IMAGE.startswith(f"ghcr.io/{topology.REPO}/voiceprint:")
+
+
+def test_only_speech_mcp_is_told_where_the_voiceprint_model_is():
+    net = topology.Network(bind_host="::", address=lambda svc, port: f"http://{svc}:{port}")
+    speech = topology.substrate_env("speech-mcp", topology.SUBSTRATE["speech-mcp"], {}, net)
+    assert speech["VOICEPRINT_URL"] == f"http://{topology.VOICEPRINT_NAME}:{topology.VOICEPRINT_PORT}"
+    holders = {n for n, spec in topology.SUBSTRATE.items()
+               if "VOICEPRINT_URL" in topology.substrate_env(n, spec, {}, net)}
+    assert holders == {"speech-mcp"}
+
+
+def test_the_voiceprint_model_holds_no_store_and_no_provider_credential():
+    """It embeds speech it is handed and keeps nothing: the gallery is speech-mcp's, in its database."""
+    base = {"MCP_SHARED_SECRET": "s", "ARTIFACTS_URL": "postgresql://x", "SONIOX_API_KEY": "k",
+            "S3_SECRET_ACCESS_KEY": "b", "REDIS_URL": "redis://r", "BIND_HOST": "::", "VOICEPRINT_PORT": "9650"}
+    env = topology.env_for_role(topology.VOICEPRINT_NAME, base)
+    assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "VOICEPRINT_PORT"}

@@ -18,7 +18,9 @@ async def _run(root, req, on_trace):
                           # scope is the meeting, and the chat id is where its outputs are announced
                           recording=req.inputs.get("recording", ""),
                           chat_id=req.inputs.get("chat_id", ""),
-                          provider=req.inputs.get("provider", ""), on_trace=on_trace)
+                          provider=req.inputs.get("provider", ""),
+                          # the recording itself, so a voice named with the consent tick can be kept
+                          audio=req.inputs.get("audio", ""), on_trace=on_trace)
 
 
 def _describe(req) -> str:

@@ -93,6 +93,10 @@ STORAGE_MCP_PORT  = int(_e("STORAGE_MCP_PORT", "9300"))
 WORKFLOW_MCP_PORT = int(_e("WORKFLOW_MCP_PORT", "9400"))
 GRAPH_MCP_PORT    = int(_e("GRAPH_MCP_PORT", "9500"))
 SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
+# The voiceprint MODEL (speech -> speaker vector), its own service in its own image so the model's
+# runtime never weighs on the shared image. speech-mcp calls it on the private network.
+VOICEPRINT_PORT   = int(_e("VOICEPRINT_PORT", "9650"))
+VOICEPRINT_URL    = _e("VOICEPRINT_URL", "http://127.0.0.1:9650")
 #: The LIVE run view — not an MCP server: a page and its own event stream, served together so
 #: they are same-origin (the browser holds no Entra token, so it could never have watched
 #: through the gateway's /api).

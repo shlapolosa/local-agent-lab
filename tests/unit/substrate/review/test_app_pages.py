@@ -746,6 +746,44 @@ def test_the_same_approval_keeps_stable_widget_keys_across_reruns():
     assert once == [k for k in _widget_keys(st2) if k.startswith(("id_", "tag_"))]
 
 
+SUGGESTED_REQ = dict(QUESTION_REQ, request_id="apr-vp", payload=dict(
+    QUESTION_REQ["payload"],
+    question=dict(QUESTION_REQ["payload"]["question"], items=[
+        {"label": "SPEAKER_00", "seconds": 60.0, "turns": 9,
+         "suggestion": {"tag": "Nabeel", "display": "Nabeel", "score": 0.52}},
+        {"label": "SPEAKER_01", "seconds": 30.0, "turns": 4,
+         "suggestion": {"identity": "chair@contoso.com", "display": "chair", "score": 0.61}}])))
+CONSENT = "Consent — they agreed to have their voice remembered"
+
+
+def _suggested(**widgets):
+    ap = FakeApprovals(items=[SUGGESTED_REQ])
+    st = install(FakeSt(**{"✅ Approve — record the answer": True} | widgets), approvals=ap,
+                 store=_store_for(SUGGESTED_REQ))
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    return ap, st
+
+
+def test_a_recognised_voice_arrives_pre_filled_with_its_score_shown():
+    """A voiceprint match is a SUGGESTION: pre-filled so confirming is one click, editable so
+    correcting it is too, and scored so nobody mistakes it for a fact."""
+    ap, st = _suggested()
+    assert st.said("caption", "Recognised as **Nabeel** (voice match 0.52)")
+    assert ap.answers["apr-vp"] == {"SPEAKER_00": {"tag": "Nabeel"},
+                                    "SPEAKER_01": {"identity": "chair@contoso.com"}}
+
+
+def test_the_consent_tick_travels_with_the_answer_and_its_absence_means_no():
+    ap, _ = _suggested(**{CONSENT: True})
+    assert all(v.get("consent") == "yes" for v in ap.answers["apr-vp"].values())
+    ap2, _ = _suggested()
+    assert all("consent" not in v for v in ap2.answers["apr-vp"].values()), \
+        "an unticked box must not send consent at all — biometric data defaults to no"
+
+
 CANDIDATE_REQ = dict(QUESTION_REQ, request_id="apr-pick", payload=dict(
     QUESTION_REQ["payload"],
     question=dict(QUESTION_REQ["payload"]["question"],

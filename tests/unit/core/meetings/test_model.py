@@ -47,6 +47,14 @@ def test_the_wire_shape_a_human_s_answer_arrives_in_is_accepted_in_one_place():
     assert got.of("SPEAKER_01").tag == "guest"
 
 
+def test_consent_is_read_from_the_answer_and_absent_means_no():
+    """The card's consent tick. The answer carries only non-empty strings, so an unticked box
+    arrives as NO key at all — absence must read as refusal, never as a default yes."""
+    got = Speakers.from_answer({"S0": {"tag": "Ahmed", "consent": "yes"}, "S1": {"tag": "Nabeel"},
+                                "S2": {"identity": "a@b.com", "consent": "no"}})
+    assert [got.of(l).consent for l in ("S0", "S1", "S2")] == [True, False, False]
+
+
 def test_asking_for_an_unmapped_label_names_it():
     """An unattributed speaker must fail loudly here rather than reach the minutes as SPEAKER_03."""
     with pytest.raises(KeyError) as e:

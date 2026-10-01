@@ -31,6 +31,31 @@ def test_a_speaker_prompt_carries_what_a_human_needs_to_recognise_a_voice():
     assert C.SpeakerPrompt.from_dict(p.to_dict()) == p
 
 
+def test_a_voiceprint_suggestion_travels_on_the_prompt_in_the_answer_s_own_shape():
+    """So a card can PREFILL it: the suggestion is `identity` or `tag` exactly as a human would type
+    it, and an unrecognised voice carries no suggestion key at all — the card then looks as it did
+    before voiceprints existed."""
+    s = {"tag": "Nabeel", "display": "Nabeel", "score": 0.52}
+    p = C.SpeakerPrompt(label="SPEAKER_02", seconds=9.0, suggestion=s)
+    assert p.to_dict()["suggestion"] == s
+    assert C.SpeakerPrompt.from_dict(p.to_dict()) == p
+    assert "suggestion" not in C.SpeakerPrompt(label="SPEAKER_03").to_dict()
+
+
+def test_the_voiceprint_write_is_its_own_grant():
+    """Keeping a voice stores biometric data, so it is split from the reads: a team gets it only
+    by naming it."""
+    assert C.SpeechTools.enrol in C.SpeechTools.WRITE
+    assert C.SpeechTools.identify in C.SpeechTools.READ and C.SpeechTools.enrol not in C.SpeechTools.READ
+
+
+def test_the_minutes_run_may_be_told_which_recording_to_keep_voices_from():
+    spec = C.TRANSCRIPT_TO_MINUTES
+    assert not spec.field("audio").required
+    assert spec.validate({"transcript": "art://a1/t.json", "speaker_map": {"S": {"tag": "x"}},
+                          "audio": "art://b2/m.mp4"})["audio"] == "art://b2/m.mp4"
+
+
 def test_a_prompt_needs_a_label_because_that_is_what_the_answer_keys_on():
     with pytest.raises(ValueError):
         C.SpeakerPrompt(label="  ")

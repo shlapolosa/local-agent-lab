@@ -23,6 +23,9 @@ class Speaker:
     label: str
     identity: str = ""
     tag: str = ""
+    # The organiser attests that THIS person agreed to have their voiceprint kept. Naming someone is
+    # not their consent, so it is a separate tick on the card, and it defaults to no.
+    consent: bool = False
 
     def __post_init__(self) -> None:
         if not (self.label or "").strip():
@@ -46,7 +49,8 @@ class Speakers:
     def from_answer(cls, answer: dict) -> "Speakers":
         """The wire shape a human's answer arrives in — the one place the domain accepts it."""
         return cls(tuple(Speaker(label=k, identity=str((v or {}).get("identity") or ""),
-                                 tag=str((v or {}).get("tag") or ""))
+                                 tag=str((v or {}).get("tag") or ""),
+                                 consent=_yes((v or {}).get("consent")))
                          for k, v in (answer or {}).items()))
 
     def of(self, label: str) -> Speaker:
@@ -54,3 +58,10 @@ class Speakers:
             if e.label == label:
                 return e
         raise KeyError(f"{label} was never identified — every label the transcript uses must be answered")
+
+
+def _yes(value) -> bool:
+    """An answer carries strings (a card toggle sends "yes"; an empty one sends nothing at all), so
+    consent is an explicit affirmative or it is no. Anything unrecognised is NO — for biometric
+    data the safe reading of an ambiguous answer is refusal."""
+    return str(value or "").strip().lower() in ("yes", "true", "1")

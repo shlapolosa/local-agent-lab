@@ -1110,6 +1110,26 @@ that no vocabulary can match on, and munsit's summary confidently credited the w
 wrong half of the meeting. **A summary that reads well is not evidence of a transcript that is right;
 three of the four read well.**
 
+**Voiceprints suggest who a voice is; they never answer it (1 Oct 2026).** `speech_identify` scores
+each diarized label against a gallery of stored speaker vectors and returns a SUGGESTION that the
+`identify_voices` step pre-fills on the speaker card — "Recognised as X (voice match 0.52)" — for the
+organiser to confirm or correct. `keep_voices` (in `transcript_to_minutes`, i.e. only after a person
+answered) calls `speech_enrol`, which stores a voice ONLY where the card's **consent** toggle was ticked
+and the gallery did not already know that person; consent is absent from the answer when unticked, and
+absent reads as NO. The rules and their numbers live in `lab.core.speech.voiceprint` and were MEASURED
+on a real three-person meeting (docs/speech-voiceprint-gallery.md): threshold **0.40** gave no wrong
+name at all, including for a speaker missing from the gallery; **leave-one-out purity 0.25** drops a
+segment that does not sound like the rest of its label, because labels MIX people — the approved
+attribution of that meeting was right for only about half its words; 3 s of speech to suggest, 5 s to
+keep. The model (ECAPA-TDNN) runs as its own `voiceprint` service in its OWN image
+(`deploy/voiceprint/Dockerfile`, `ghcr.io/<repo>/voiceprint`) because PyTorch is ~1 GB and every other
+role pulls the shared image; it holds the shared bearer and nothing else, is opt-in (`VOICEPRINT_ENABLED`),
+and a code `release` never touches it (`topology.is_ours` matches `ghcr.io/<repo>:` only). The gallery
+is `lab_voiceprints` in the substrate's own Postgres — vectors, model id and who attested consent,
+never audio — reached only by speech-mcp. `speech_enrol` is `SpeechTools.WRITE`, granted to the
+minutes team alone. Both steps are best effort: no model, no gallery or no grant means a card with no
+suggestions, never a failed meeting.
+
 **The bake-off**: `scripts/speech_bakeoff.py <recording> [--reference teams.vtt] [--repeat N]` runs
 one recording through every CONFIGURED provider and writes per-provider transcripts, a side-by-side
 comparison and `digests.json` into `var/out/bakeoff/<stamp>/`. A provider with no API key is SKIPPED
