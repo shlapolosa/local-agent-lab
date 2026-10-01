@@ -180,3 +180,43 @@ def test_the_gallery_keeps_vectors_and_consent_and_reads_back_only_its_model():
 def test_a_gallery_without_postgres_is_a_typed_refusal():
     with pytest.raises(SpeechUnavailable, match="ARTIFACTS_URL"):
         PostgresGallery("file:///tmp/artifacts")
+
+
+# ------------------------------------------------------------------ threads: the container's quota, not the host's
+def files(**content):
+    def read(path):
+        if path in content:
+            return content[path]
+        raise OSError(path)
+    return read
+
+
+V2, V1Q, V1P = "/sys/fs/cgroup/cpu.max", "/sys/fs/cgroup/cpu/cpu.cfs_quota_us", "/sys/fs/cgroup/cpu/cpu.cfs_period_us"
+
+
+def test_a_cgroup_v2_quota_sets_the_threads_not_the_hosts_core_count():
+    """Measured 1 Oct 2026: torch sized its pool from the HOST's cores inside a 1-2 vCPU container
+    and one embedding call took ~6 minutes. The quota is what the model may actually use."""
+    assert service.cpu_threads(read=files(**{V2: "200000 100000"}), host_cores=48) == 2
+
+
+def test_a_cgroup_v1_quota_is_read_when_there_is_no_v2_one():
+    assert service.cpu_threads(read=files(**{V1Q: "100000", V1P: "100000"}), host_cores=48) == 1
+
+
+def test_no_quota_falls_back_to_the_host_but_never_past_the_cap():
+    assert service.cpu_threads(read=files(**{V2: "max 100000"}), host_cores=48) == service.MAX_THREADS
+    assert service.cpu_threads(read=files(), host_cores=2) == 2
+
+
+def test_a_fractional_quota_still_gets_one_thread_and_an_override_wins():
+    assert service.cpu_threads(read=files(**{V2: "50000 100000"}), host_cores=48) == 1
+    assert service.cpu_threads("3", read=files(**{V2: "100000 100000"})) == 3
+    assert service.cpu_threads("nonsense", read=files(**{V2: "100000 100000"})) == 1
+
+
+def test_every_request_logs_counts_and_time_but_never_audio_or_vectors(monkeypatch, capsys):
+    c, _ = client(monkeypatch)
+    c.post("/embed", json=b64(b"\0" * (44 + 32000 * 3)), headers={"Authorization": "Bearer shh"})
+    out = capsys.readouterr().out
+    assert "embedded 1 clip(s), 3s of audio, in" in out and "1.0, 0.0" not in out

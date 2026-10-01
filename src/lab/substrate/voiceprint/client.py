@@ -19,7 +19,10 @@ SETTING = "VOICEPRINT_URL"
 
 
 class HttpEmbedder:
-    def __init__(self, url: str, secret: str = "", *, timeout: float = 300.0,
+    # BELOW the gateway's MCP tool timeout (300 s): a slow model must surface as this adapter's
+    # sentence, not as the gateway abandoning the call and the caller hanging on a closed stream —
+    # which is exactly what a 300 s timeout here produced on 1 Oct 2026.
+    def __init__(self, url: str, secret: str = "", *, timeout: float = 240.0,
                  opener: Callable = urllib.request.urlopen) -> None:
         self.url, self._secret, self._timeout, self._open = (url or "").rstrip("/"), secret or "", timeout, opener
         self.model = ""                  # learned from the service's answer: it, not the caller, knows

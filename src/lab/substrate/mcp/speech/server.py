@@ -197,7 +197,7 @@ def speech_transcribe(audio_ref: str, languages: list[str] | None = None, diariz
 
 # ------------------------------------------------------------------ voiceprints
 MIN_SEGMENT_S = 1.0     # below a second an embedding is mostly noise (measured, 29 Sep 2026)
-MAX_LABEL_S = 120.0     # enough speech to know a voice; bounds one call on a long meeting
+MAX_LABEL_S = 60.0      # enough speech to know a voice (the POC's voiceprints used ≤44 s); bounds one call
 
 
 def _read(store, ref: str) -> bytes:

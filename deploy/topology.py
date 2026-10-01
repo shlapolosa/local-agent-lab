@@ -583,7 +583,7 @@ ROLE_ENV = {
     "embedder": [],                                # the embedding model: an image, no env, no secret
     # The voiceprint model: the shared bearer (its vectors are biometric data), where to listen, and
     # NOTHING else — no store, no bucket, no gallery, no provider credential. It cannot read what it embeds.
-    "voiceprint": ["MCP_SHARED_SECRET", "BIND_HOST", "VOICEPRINT_PORT", _OTLP],
+    "voiceprint": ["MCP_SHARED_SECRET", "BIND_HOST", "VOICEPRINT_PORT", "VOICEPRINT_THREADS", _OTLP],
     "jaeger": [],
 }
 

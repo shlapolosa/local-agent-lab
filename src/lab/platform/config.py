@@ -97,6 +97,7 @@ SPEECH_MCP_PORT   = int(_e("SPEECH_MCP_PORT", "9600"))
 # runtime never weighs on the shared image. speech-mcp calls it on the private network.
 VOICEPRINT_PORT   = int(_e("VOICEPRINT_PORT", "9650"))
 VOICEPRINT_URL    = _e("VOICEPRINT_URL", "http://127.0.0.1:9650")
+VOICEPRINT_THREADS = _e("VOICEPRINT_THREADS", "")   # unset = the container's CPU quota (see voiceprint.service.cpu_threads)
 #: The LIVE run view — not an MCP server: a page and its own event stream, served together so
 #: they are same-origin (the browser holds no Entra token, so it could never have watched
 #: through the gateway's /api).
