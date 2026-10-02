@@ -29,6 +29,7 @@ import argparse
 import asyncio
 import json
 import os
+import time
 
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
@@ -76,12 +77,15 @@ async def run(args) -> None:
     async with Client(StreamableHttpTransport(url, headers=headers)) as client:
         names = {t.name.split("-", 1)[-1]: t.name for t in await client.list_tools()}
         for c in calls:
+            t0 = time.monotonic()
             stored = (await client.call_tool(names[SemanticTools.store_spec], {
-                "spec": {"segments": c["segments"]}, "name": f"voiceprint-seed-{c['recording']}.segments.json"})).data
+                "spec": {"segments": c["segments"]}, "name": f"voiceprint-seed-{c['recording']}.segments.json"},
+                timeout=120)).data
             got = (await client.call_tool(names[SpeechTools.enrol], {
                 "audio_ref": c["audio_ref"], "segments_ref": stored["spec_ref"], "speaker_map": c["speaker_map"],
-                "consented_by": args.consented_by, "source": args.source})).data
-            print(f"{c['recording']}: enrolled {got.get('enrolled')} skipped {got.get('skipped')} (model {got.get('model')})")
+                "consented_by": args.consented_by, "source": args.source},
+                timeout=290)).data              # under the gateway's 300 s: a hang must end, not wait forever
+            print(f"{c['recording']}: {time.monotonic() - t0:.0f}s — enrolled {got.get('enrolled')} skipped {got.get('skipped')} (model {got.get('model')})")
 
 
 if __name__ == "__main__":
