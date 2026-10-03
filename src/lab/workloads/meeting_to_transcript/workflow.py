@@ -1,7 +1,7 @@
 """The `meeting_to_transcript` graph: a recording becomes a question its organiser can answer.
 
     fetch_recording [D] -> transcribe [D] -> speaker_digest [D] -> identify_voices [D]
-        -> resolve_candidates [D] -> ask_mapping [D, terminal]
+        -> resolve_candidates [D] -> fetch_reference [D] -> ask_mapping [D, terminal]
 
 DETERMINISTIC STEPS AND NO AGENT, deliberately. The obvious temptation is an agent that guesses
 who each speaker is from self-introductions. It is the wrong call: it anchors the human on exactly
@@ -138,8 +138,33 @@ async def _match(cfg, recording: str, candidates: list, answers: list) -> dict |
                 continue
             ranked = max(gap, 0.0)                  # inside the skew is as good as simultaneous
             if best_gap is None or ranked < best_gap:
-                best, best_gap = meeting, ranked
+                # WHEN this meeting's recording was made rides along: a recurring meeting has one
+                # transcript per occurrence, and this instant is what picks the right one.
+                best, best_gap = meeting | {"recorded_at": rec.get("created", "")}, ranked
     return best
+
+
+#: How far a meeting's own transcript may be from its recording and still be the same occurrence.
+#: Both are finalised when the meeting ends (measured 29 Sep 2026: transcript 07:22:00Z, recording
+#: object minutes later), while two occurrences of a recurring meeting are a day apart.
+REFERENCE_MAX_S = 4 * 60 * 60
+
+
+def _occurrence_transcript(items: list, recorded_at: str) -> dict | None:
+    """The tenant transcript of the SAME occurrence as this recording, or None.
+
+    A recurring meeting keeps one meeting id and accumulates one transcript per occurrence — measured
+    29 Sep 2026: the 28th's and the 29th's under one id. So the transcript is chosen by TIME, nearest
+    to when this recording was made; with no instant to compare, only an unambiguous single one is
+    taken. A wrong reference would make the comparison score a lane against a different meeting.
+    """
+    when = _instant(recorded_at)
+    dated = [(abs(_instant(i.get("created")) - when), i) for i in items
+             if when is not None and _instant(i.get("created")) is not None]
+    if dated:
+        gap, best = min(dated, key=lambda x: x[0])
+        return best if gap <= REFERENCE_MAX_S else None
+    return items[0] if len(items) == 1 and when is None else None
 
 
 async def _owning_meeting(cfg, state: dict) -> dict:
@@ -176,8 +201,9 @@ async def _owning_meeting(cfg, state: dict) -> dict:
         for m, recs in zip(candidates, answers):
             if isinstance(recs, BaseException):
                 continue
-            if any(r.get("handle") == state["recording"] for r in (recs or {}).get("items", [])):
-                return m
+            for r in (recs or {}).get("items", []):
+                if r.get("handle") == state["recording"]:
+                    return m | {"recorded_at": r.get("created", "")}
         # SAYING SO is the point. Only the exception path used to print, so "asked and matched
         # nothing" was indistinguishable from "never asked" and from "the meeting had no attendees":
         # the empty picker and the missing chat message looked like three different bugs and were
@@ -339,6 +365,30 @@ def build_workflow(cfg):
             state = state | {"meeting": meeting, "candidates": _candidates_of(meeting)}
         await ctx.send_message(state)
 
+    @executor(id="fetch_reference")
+    async def fetch_reference(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """The tenant's OWN transcript of this meeting, kept by reference for the comparison.
+
+        Every Teams meeting can have one at no cost, so it is the yardstick each provider lane is
+        scored against once the minutes are written — the reference travels to that run on the
+        approval, like the recording does. BEST EFFORT: no meeting resolved, transcription off, or no
+        grant means no comparison, never a failed run.
+        """
+        with gateway.node_span(cfg, "fetch_reference"):
+            meeting = state.get("meeting") or {}
+            try:
+                if meeting.get("id"):
+                    listed = await gateway.call(cfg, CollabTools.transcripts, {"meeting_id": meeting["id"]})
+                    pick = _occurrence_transcript((listed or {}).get("items") or [], meeting.get("recorded_at", ""))
+                    if pick and pick.get("handle"):
+                        got = await gateway.call(cfg, CollabTools.fetch, {"handle": pick["handle"]})
+                        state = state | {"reference": got["ref"]}
+                print(f"[fetch_reference] {'tenant transcript kept' if state.get('reference') else 'no tenant transcript'}",
+                      flush=True)
+            except Exception as e:                      # noqa: BLE001 - a yardstick never fails the run
+                print(f"[fetch_reference] none ({type(e).__name__}: {e})", flush=True)
+        await ctx.send_message(state)
+
     @executor(id="ask_mapping")
     async def ask_mapping(state: dict, ctx: WorkflowContext[dict]) -> None:
         """Ask the organiser, once, about every speaker — and finish.
@@ -383,6 +433,9 @@ def build_workflow(cfg):
                                         # the recording, so a voice the organiser names AND ticks
                                         # consent for can be kept as a voiceprint after approval
                                         "audio": state["recording_ref"],
+                                        # the tenant's own transcript, the yardstick each lane is
+                                        # scored against once its minutes are written
+                                        "reference": state.get("reference", ""),
                                         "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await gateway.call(cfg, ApprovalTools.ask, {
@@ -408,7 +461,7 @@ def build_workflow(cfg):
 
     return (WorkflowBuilder(start_executor=fetch_recording)
             .add_chain([fetch_recording, transcribe, speaker_digest, identify_voices,
-                        resolve_candidates, ask_mapping]).build())
+                        resolve_candidates, fetch_reference, ask_mapping]).build())
 
 
 async def run_workflow(cfg, inputs: dict):

@@ -39,7 +39,7 @@ def run_fields(out: dict) -> dict:
 
 async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
                    meeting: dict | None = None, recording: str = "", chat_id: str = "",
-                   provider: str = "", audio: str = "", on_trace=None) -> dict:
+                   provider: str = "", audio: str = "", reference: str = "", on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> minutes in the semantic layer.
 
     The span, the trace headers, the run-log entry and the one way a run is closed are the SHARED
@@ -75,7 +75,8 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
         # by the lab's own model — but it names every artifact this lane delivers, which is the only
         # thing stopping four lanes from overwriting one another beside the recording.
         inputs={"transcript": transcript, "speaker_map": speaker_map, "owner": owner,
-                "meeting": meeting, "recording": recording, "provider": provider, "audio": audio})
+                "meeting": meeting, "recording": recording, "provider": provider, "audio": audio,
+                "reference": reference})
 
 
 def _meeting_from(recording: str, transcript: str, chat_id: str = "") -> dict:

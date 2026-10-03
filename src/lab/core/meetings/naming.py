@@ -20,11 +20,13 @@ Pure: dicts and dataclasses in, dicts and strings out. No I/O, no gateway, no st
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import re
 
 from lab.core.meetings.model import Speakers
 
-__all__ = ["transcript_for_people", "named_minutes"]
+__all__ = ["Turn", "turns", "named_minutes"]
 
 #: The one field whose value is a LIST of speakers (`decisions[].decided_by`). It is named not to
 #: decide where substitution happens — that is everywhere — but because a list of people needs
@@ -36,8 +38,17 @@ def _name_of(speakers: Speakers) -> dict[str, str]:
     return {e.label: e.display for e in speakers.entries}
 
 
-def transcript_for_people(segments, speakers: Speakers) -> str:
-    """The transcript as a conversation between PEOPLE — one paragraph per turn, no labels.
+@dataclass(frozen=True)
+class Turn:
+    """One turn of a conversation between PEOPLE: who, when it began, and everything they said."""
+
+    name: str
+    start: float
+    text: str
+
+
+def turns(segments, speakers: Speakers) -> list[Turn]:
+    """The conversation as turns between people — the ONE place a transcript becomes turns.
 
     Consecutive segments by the same person are joined, because a diarizer breaks a turn wherever it
     hears a pause: those breaks are an artefact of the analysis, not of the conversation, and keeping
@@ -49,20 +60,18 @@ def transcript_for_people(segments, speakers: Speakers) -> str:
     words is not a turn (`Transcript.spoken` states the same rule for the domain's own model).
     """
     names = _name_of(speakers)
-    turns: list[list[str]] = []
-    who: list[str] = []
+    out: list[Turn] = []
     for s in segments or ():
         text = str(s.get("text") or "").strip()
         if not text:
             continue
         label = str(s.get("speaker") or "")
         name = names.get(label, label)
-        if who and who[-1] == name:
-            turns[-1].append(text)
+        if out and out[-1].name == name:
+            out[-1] = Turn(name, out[-1].start, f"{out[-1].text} {text}")
         else:
-            who.append(name)
-            turns.append([text])
-    return "\n".join(f"{name}: {' '.join(parts)}" for name, parts in zip(who, turns))
+            out.append(Turn(name, float(s.get("start") or 0.0), text))
+    return out
 
 
 def named_minutes(minutes, speakers: Speakers) -> dict:

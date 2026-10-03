@@ -1583,11 +1583,18 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
                    "from. It is what lets a voice the organiser named — and ticked consent for — be "
                    "kept as a voiceprint, so the next meeting can suggest who it is. Omitted, the "
                    "minutes are written exactly as before and no voice is kept.", required=False),
+        InputField("reference", InputKind.REF,
+                   "Optional art://<id>/<name> reference to the TENANT'S OWN transcript of the same "
+                   "meeting occurrence (a WebVTT file). Each provider lane's transcript is scored against "
+                   "it and the scores are written beside the recording. Omitted, nothing is compared.",
+                   required=False),
     ),
     outputs=("trace_id", "transcript_ref", "minutes_ref", "model_id", "keywords", "summary",
              "provider",
              # how many voices this run kept, and why not when it kept none — best effort, like delivery
              "voiceprints",
+             # the lanes compared against the tenant's own transcript so far, or why not
+             "comparison",
              # what reached the collaboration platform, where to announce it, and why not when it
              # did not — delivery is best effort, so its outcome is reported rather than raised
              "delivered", "chat_id", "delivery"),

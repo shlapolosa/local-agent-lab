@@ -1,7 +1,7 @@
 """The `transcript_to_minutes` graph: an attributed transcript becomes knowledge.
 
     attribute [D] -> minutes [A] -> minutes_gate [D] -> to_spec [D] -> load_semantic [D]
-        -> deliver [D] -> keep_voices [D] -> publish [D]
+        -> deliver [D] -> compare_with_reference [D] -> keep_voices [D] -> publish [D]
 
 ONE agent step, gated. Everything either side of it is deterministic, which is the lab's rule: an
 agent's output never flows onward un-validated, and the things a model must not decide — ids, IRIs,
@@ -27,8 +27,10 @@ import json
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 from jsonschema import Draft7Validator
 
-from lab.core.meetings import (Speakers, minutes_to_spec, named_minutes,
-                                 transcript_for_people)
+from lab.core.collab import ContentHandle
+from lab.core.meetings import Speakers, minutes_to_spec, named_minutes, render
+from lab.core.meetings.naming import turns
+from lab.core.speech import compare
 from lab.platform import runlog
 from lab.platform.contracts import CollabTools, SemanticTools, SpeechTools, StorageTools
 from lab.workloads import gateway, workflowviz
@@ -169,14 +171,14 @@ def gate(validator, minutes, labels: set[str]) -> list[str]:
 
 
 async def _deliver(cfg, state: dict, handle: str) -> dict:
-    """Upload the prose transcript and the minutes into the folder the recording sits in.
+    """Put the transcript and the minutes into the folder the recording sits in — as PLAIN TEXT,
+    laid out the way Teams lays out its own transcript.
 
-    Both files are the NAMED renderings (`lab.core.meetings.naming`): the transcript reads as a
-    conversation between people and the minutes name whoever decided or owes something, because a
-    person asked to identify the speakers must get back something that says who. The LABELLED
-    artifacts stay in the lab as the audit trail — they are what the gate validated and what the
-    semantic model is keyed on — and they also hold the directory addresses, which must not land in
-    a folder whose permissions are the recording's: a wider audience than the audit needs.
+    Both are the NAMED renderings: the transcript reads as a conversation between people and the
+    minutes name whoever decided or owes something, because a person asked to identify the speakers
+    must get back something that says who. The LABELLED artifacts stay in the lab as the audit trail —
+    they are what the gate validated and what the semantic model is keyed on — and they also hold the
+    directory addresses, which must not land in a folder whose permissions are the recording's.
     """
     item = await gateway.call(cfg, CollabTools.item, {"handle": handle})
     folder = item.get("parent_handle")
@@ -184,36 +186,75 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
         return {"delivery": f'{item.get("name") or handle} names no folder to write beside'}
     # The LANE is in the filename, and this is not cosmetic. `collab_put` REPLACES a file of the
     # same name in the same folder — deliberately, so a re-run corrects its own output — and every
-    # lane derives the same stem from the same recording. Four providers would therefore write four
-    # files called `<stem>.transcript.md`, the last one to finish would win, the other three would
-    # be gone, and nothing anywhere would report an error. A lane-less run keeps the original names,
-    # so a deployment running one provider sees no change.
-    stem = str(item.get("name") or "meeting").rsplit(".", 1)[0]
+    # lane derives the same stem from the same recording, so without it the last lane to finish
+    # would silently overwrite the others. A lane-less run keeps the plain names.
+    title = str(item.get("name") or "meeting").rsplit(".", 1)[0]
     lane = str(state.get("provider") or "").strip()
-    if lane:
-        stem = f"{stem}.{lane}"
-
-    prose_ref = await _store(cfg, f"{stem}.transcript.md", state["reading"].encode())
-    named = named_minutes(state["minutes"], state["map"])
-    named_ref = await _store(cfg, f"{stem}.minutes.json", json.dumps(named, ensure_ascii=False,
-                                                                    indent=1).encode())
-    written = []
-    for ref, name in ((prose_ref, f"{stem}.transcript.md"),
-                      (named_ref, f"{stem}.minutes.json")):
-        out = await gateway.call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
-        written.append({"name": out.get("name", name), "handle": out.get("handle", ""),
-                        # the address a person opens — without it the meeting gets a notice it
-                        # cannot act on, which is the same as no notice
-                        "url": out.get("url", ""), "bytes": out.get("bytes", 0)})
+    stem = f"{title}.{lane}" if lane else title
+    when = item.get("created", "")
+    said = turns(state["segments"], state["map"])
+    seconds = max((float(s.get("end") or 0.0) for s in state["segments"]), default=0.0)
+    transcript = render.transcript(said, title=title, when=when, seconds=seconds, lane=lane)
+    minutes = render.minutes(named_minutes(state["minutes"], state["map"]), title=title, when=when, lane=lane,
+                             people=list(dict.fromkeys(t.name for t in said)))
+    written = [await _put(cfg, folder, f"{stem}.transcript.txt", transcript),
+               await _put(cfg, folder, f"{stem}.minutes.txt", minutes)]
     return {"delivered": written, "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
-            "delivery": f"{len(written)} file(s) beside the recording"}
+            "delivery": f"{len(written)} file(s) beside the recording",
+            # what the comparison needs to find the sibling lanes beside the same recording
+            "beside": {"folder": folder, "drive": ContentHandle.parse(handle).scope,
+                       "path": item.get("path", ""), "title": title, "when": when, "lane": lane or "lab",
+                       "transcript": transcript}}
 
 
-async def _store(cfg, name: str, data: bytes) -> str:
-    """The prose transcript as an artifact, so the upload reads it the way everything else does —
-    by reference through the governed store, never as bytes on a tool argument."""
-    return gateway.ref_from(await gateway.call(cfg, SemanticTools.store_spec,
-                                       {"spec": {"text": data.decode()}, "name": name}))
+async def _put(cfg, folder: str, name: str, text: str) -> dict:
+    """ONE text document beside the recording: stored AS ITSELF (`semantic_store_page`, typed by its
+    name — the JSON-wrapping `store_spec` delivered `{"text": "\\u0627…"}` nobody could read), then
+    written by reference, so the upload reads it the way everything else does."""
+    ref = (await gateway.call(cfg, SemanticTools.store_page, {"text": text, "name": name}))["ref"]
+    out = await gateway.call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
+    # the address a person opens — without it the meeting gets a notice it cannot act on
+    return {"name": out.get("name", name), "handle": out.get("handle", ""), "url": out.get("url", ""),
+            "bytes": out.get("bytes", 0)}
+
+
+#: A transcript read back for scoring is read WHOLE: the default cap is sized for a model's turn,
+#: and a truncated hour-long meeting would score as a provider that lost half of it.
+READ_ALL = 2_000_000
+TRANSCRIPT_SUFFIX = ".transcript.txt"
+
+
+async def _compare(cfg, state: dict) -> dict:
+    """Score every lane delivered beside this recording against the tenant's own transcript, and
+    rewrite ONE comparison file. Each lane runs this when it finishes, so the last to finish leaves
+    the complete table — no lane waits for another, and a lane that never finishes is simply absent."""
+    b = state["beside"]
+    vtt = await gateway.call(cfg, StorageTools.read_document, {"ref": state["reference"], "max_chars": READ_ALL})
+    teams = compare.parse_vtt(vtt if isinstance(vtt, str) else (vtt or {}).get("text", ""))
+    if not teams.segments:
+        return {"note": "the tenant transcript has no speech in it"}
+    reference = " ".join(s.text for s in teams.segments)
+    texts = {b["lane"]: b["transcript"]}
+    listed = await gateway.call(cfg, CollabTools.list, {"drive_id": b["drive"], "path": b["path"], "limit": 200})
+    prefix = b["title"] + "."
+    for item in (listed or {}).get("items") or []:
+        name = str(item.get("name") or "")
+        if not (name.startswith(prefix) and name.endswith(TRANSCRIPT_SUFFIX) and item.get("handle")):
+            continue
+        lane = name[len(prefix):-len(TRANSCRIPT_SUFFIX)]
+        if not lane or "." in lane or lane in texts:      # a copy's files, or this lane's own
+            continue
+        got = await gateway.call(cfg, CollabTools.fetch, {"handle": item["handle"]})
+        texts[lane] = await gateway.call(cfg, StorageTools.read_document, {"ref": got["ref"], "max_chars": READ_ALL})
+    scores = {}
+    for lane, text in sorted(texts.items()):
+        said = render.read_transcript(text if isinstance(text, str) else "")
+        scores[lane] = compare.score(" ".join(t.text for t in said), len({t.name for t in said}), reference)
+    table = render.comparison(b["title"], compare.score(reference, len({s.speaker for s in teams.segments})),
+                              scores, when=b["when"])
+    written = await _put(cfg, b["folder"], f'{b["title"]}.comparison.txt', table)
+    return {"file": written, "lanes": sorted(scores)}
+
 
 def build_workflow(cfg):
     validator = Draft7Validator(cfg["schema"]) if cfg.get("schema") else None
@@ -254,8 +295,7 @@ def build_workflow(cfg):
             # that said SPEAKER_01 after a human had just said who SPEAKER_01 was, which is the whole
             # point of asking. Two renderings, because the two audiences need different things and
             # one artifact cannot serve both.
-            state = state | {"segments": segments, "labels": used, "map": mapping, "prose": prose,
-                             "reading": transcript_for_people(segments, mapping)}
+            state = state | {"segments": segments, "labels": used, "map": mapping, "prose": prose}
         await ctx.send_message(state)
 
     @executor(id="minutes")
@@ -326,7 +366,7 @@ def build_workflow(cfg):
         is the honest end of it rather than a guess at some default folder.
         """
         with gateway.node_span(cfg, "deliver"):
-            state = state | {"delivered": [], "chat_id": "", "delivery": ""}
+            state = state | {"delivered": [], "chat_id": "", "delivery": "", "beside": {}}
             handle = (state.get("meeting") or {}).get("recording") or ""
             if not handle:
                 state["delivery"] = "no recording handle: nowhere to put the outputs"
@@ -336,6 +376,30 @@ def build_workflow(cfg):
                 except Exception as e:              # noqa: BLE001 — delivery never costs the minutes
                     state["delivery"] = f"{type(e).__name__}: {e}"
                     print(f"[deliver] not delivered ({state['delivery']})", flush=True)
+        await ctx.send_message(state)
+
+    @executor(id="compare_with_reference")
+    async def compare_with_reference(state: dict, ctx: WorkflowContext[dict]) -> None:
+        """Score this lane — and every sibling lane already delivered — against the tenant's own
+        transcript, and leave the table beside the recording. BEST EFFORT, like delivery: the minutes
+        are written by now, and a comparison that could not be made is reported, never raised."""
+        with gateway.node_span(cfg, "compare_with_reference"):
+            if not state.get("reference"):
+                note = "no tenant transcript to compare with"
+            elif not state.get("beside"):
+                note = "nothing was delivered, so there is nothing to compare"
+            else:
+                try:
+                    got = await _compare(cfg, state)
+                    if got.get("file"):
+                        state = state | {"delivered": (state.get("delivered") or []) + [got["file"]]}
+                        note = f'{len(got["lanes"])} lane(s) compared: {", ".join(got["lanes"])}'
+                    else:
+                        note = got.get("note", "not compared")
+                except Exception as e:              # noqa: BLE001 - a comparison never costs the minutes
+                    note = f"{type(e).__name__}: {e}"
+            print(f"[compare_with_reference] {note}", flush=True)
+            state = state | {"comparison": note}
         await ctx.send_message(state)
 
     @executor(id="keep_voices")
@@ -386,6 +450,7 @@ def build_workflow(cfg):
                    "delivered": state.get("delivered") or [], "chat_id": state.get("chat_id", ""),
                    "delivery": state.get("delivery", ""),
                    "voiceprints": state.get("voiceprints") or {},
+                   "comparison": state.get("comparison", ""),
                    "summary": {"concepts": len(m.get("concepts") or []),
                                "decisions": len(m.get("decisions") or []),
                                "actions": len(m.get("actions") or []),
@@ -395,8 +460,8 @@ def build_workflow(cfg):
         await ctx.yield_output(out)
 
     return (WorkflowBuilder(start_executor=attribute)
-            .add_chain([attribute, minutes, to_spec, load_semantic, deliver, keep_voices,
-                        publish]).build())
+            .add_chain([attribute, minutes, to_spec, load_semantic, deliver, compare_with_reference,
+                        keep_voices, publish]).build())
 
 
 def _speaking_labels(segments) -> set[str]:

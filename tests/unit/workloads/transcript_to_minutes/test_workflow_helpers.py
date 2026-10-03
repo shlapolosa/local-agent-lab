@@ -2,7 +2,7 @@
 from unittest.mock import patch
 
 from lab.core.meetings import Speakers
-from lab.platform.contracts import CollabTools
+from lab.platform.contracts import CollabTools, SemanticTools
 from lab.workloads import gateway
 from lab.workloads.transcript_to_minutes import workflow as W
 
@@ -30,11 +30,12 @@ def test_each_lane_delivers_files_named_after_its_own_provider():
         if tool == CollabTools.put:
             return {"name": args["name"], "handle": "collab://item/d/x", "url": "https://x/y",
                     "bytes": 10}
-        return {"spec_ref": "art://a/b.json"}
+        return {"ref": "art://a/b.txt"}
 
     def deliver(provider):
         calls.clear()
-        state = {"reading": "maria: hello", "minutes": {"summary": "maria said hello"},
+        state = {"segments": [{"speaker": "SPEAKER_00", "start": 0.0, "end": 1.0, "text": "hello"}],
+                 "minutes": {"summary": "maria said hello"},
                  "map": Speakers.from_answer({"SPEAKER_00": {"identity": "maria@x.com"}}),
                  "minutes_ref": "art://m/m.json", "meeting": {}, "provider": provider}
         # `gateway.call`, not a per-workload `_call`: theseven workloads shared four
@@ -43,15 +44,15 @@ def test_each_lane_delivers_files_named_after_its_own_provider():
             asyncio.run(W._deliver({}, state, "collab://recording/m/r"))
         return [a["name"] for t, a in calls if t == CollabTools.put]
 
-    assert deliver("elevenlabs") == ["2 test-20260907-Meeting Recording.elevenlabs.transcript.md",
-                                     "2 test-20260907-Meeting Recording.elevenlabs.minutes.json"]
-    assert deliver("munsit") == ["2 test-20260907-Meeting Recording.munsit.transcript.md",
-                                 "2 test-20260907-Meeting Recording.munsit.minutes.json"]
+    assert deliver("elevenlabs") == ["2 test-20260907-Meeting Recording.elevenlabs.transcript.txt",
+                                     "2 test-20260907-Meeting Recording.elevenlabs.minutes.txt"]
+    assert deliver("munsit") == ["2 test-20260907-Meeting Recording.munsit.transcript.txt",
+                                 "2 test-20260907-Meeting Recording.munsit.minutes.txt"]
     # ...and four lanes therefore produce eight distinct names, not two
     assert not set(deliver("elevenlabs")) & set(deliver("munsit"))
-    # a deployment with one provider is untouched
-    assert deliver("") == ["2 test-20260907-Meeting Recording.transcript.md",
-                           "2 test-20260907-Meeting Recording.minutes.json"]
+    # a deployment with one provider keeps plain names
+    assert deliver("") == ["2 test-20260907-Meeting Recording.transcript.txt",
+                           "2 test-20260907-Meeting Recording.minutes.txt"]
 
 
 # ------------------------------------------------- a label that never spoke needs no attribution
@@ -98,41 +99,42 @@ def test_the_delivered_files_name_the_people_a_human_tagged__not_the_labels():
     import asyncio
     import json
 
-    put = []
+    put, stored = [], {}
 
     async def fake_call(cfg, tool, args):
         if tool == CollabTools.item:
-            return {"name": "sync.mp4", "parent_handle": "collab://item/d/F"}
+            return {"name": "sync.mp4", "parent_handle": "collab://item/d/F", "created": "2026-09-29T07:20:44Z"}
         if tool == CollabTools.put:
             put.append(args)
             return {"name": args["name"], "handle": "h", "url": "u", "bytes": 1}
-        return {"spec_ref": "art://a/x"}
-
-    stored = {}
-
-    async def fake_store(cfg, name, data):
-        stored[name] = data.decode()
-        return f"art://a/{name}"
+        if tool == SemanticTools.store_page:
+            stored[args["name"]] = args["text"]          # stored AS ITSELF, never wrapped in JSON
+            return {"ref": f"art://a/{args['name']}"}
+        raise AssertionError(tool)
 
     state = {
-        "reading": "maria: Morning all. Shall we start?",
+        "segments": [{"speaker": "SPEAKER_00", "start": 3.0, "end": 6.0, "text": "Morning all."},
+                     {"speaker": "SPEAKER_00", "start": 6.0, "end": 8.0, "text": "Shall we start?"}],
         "minutes": {"summary": "SPEAKER_00 opened the meeting.", "concepts": [], "decisions": [],
                     "actions": [{"id": "a1", "commitment": "send it", "owner": "SPEAKER_00",
                                  "concerns": []}], "keywords": []},
         "map": Speakers.from_answer({"SPEAKER_00": {"identity": "maria@x.com"}}),
         "minutes_ref": "art://m/labelled.json", "meeting": {}, "provider": "elevenlabs",
     }
-    with patch.object(gateway, "call", fake_call), patch.object(W, "_store", fake_store):
-        asyncio.run(W._deliver({}, state, "collab://recording/m/r"))
+    with patch.object(gateway, "call", fake_call):
+        out = asyncio.run(W._deliver({}, state, "collab://item/d/rec"))
 
-    transcript = stored["sync.elevenlabs.transcript.md"]
-    minutes = json.loads(stored["sync.elevenlabs.minutes.json"])
-    assert "SPEAKER_" not in transcript and transcript.startswith("maria:")
-    assert "SPEAKER_" not in json.dumps(minutes), "a label reached the reader's minutes"
-    assert minutes["summary"] == "maria opened the meeting."
-    assert minutes["actions"][0]["owner"] == "maria"
+    transcript = stored["sync.elevenlabs.transcript.txt"]
+    minutes = stored["sync.elevenlabs.minutes.txt"]
+    # Teams' own layout: title, date, duration, then `Name   m:ss` over the words
+    assert transcript.startswith("sync\n29 September 2026, 07:20 UTC\n8s\nTranscription: elevenlabs\n\n")
+    assert "maria   0:03\nMorning all. Shall we start?" in transcript
+    assert "SPEAKER_" not in transcript and "SPEAKER_" not in minutes, "a label reached the reader"
+    assert "maria opened the meeting." in minutes and "Owner: maria" in minutes
     # ...and the LABELLED minutes are still what the lab keeps: the gate validated them and the
     # semantic model is keyed on them, so delivery must not have rewritten them
     assert state["minutes"]["summary"] == "SPEAKER_00 opened the meeting."
-    assert [a["ref"] for a in put] == ["art://a/sync.elevenlabs.transcript.md",
-                                       "art://a/sync.elevenlabs.minutes.json"]
+    assert [a["ref"] for a in put] == ["art://a/sync.elevenlabs.transcript.txt",
+                                       "art://a/sync.elevenlabs.minutes.txt"]
+    # what the comparison needs to find the sibling lanes beside the same recording
+    assert out["beside"]["drive"] == "d" and out["beside"]["lane"] == "elevenlabs"

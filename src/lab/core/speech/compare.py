@@ -18,12 +18,14 @@ one for any Teams meeting — feed both through `side_by_side` and let a person 
 """
 from __future__ import annotations
 
+import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 
-from lab.core.speech.model import Transcript
+from lab.core.speech.model import Segment, Transcript
 
-__all__ = ["ScriptMix", "script_mix", "digest", "side_by_side"]
+__all__ = ["ScriptMix", "script_mix", "digest", "side_by_side", "Score", "score", "words", "parse_vtt"]
 
 
 @dataclass(frozen=True)
@@ -120,3 +122,74 @@ def _merged(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
         else:
             out.append((start, end))
     return out
+
+
+# ---------------------------------------------------------------------- against a reference transcript
+_WORD = re.compile(r"[\w\u0600-\u06FF']+")
+
+
+def words(text: str) -> list[str]:
+    """Lower-cased word tokens, Arabic and Latin alike. Apostrophes kept inside a word (`it's`)."""
+    return [w.strip("'").lower() for w in _WORD.findall(text or "") if w.strip("'")]
+
+
+@dataclass(frozen=True)
+class Score:
+    """One transcript, measured — and, when a reference was given, measured AGAINST it.
+
+    `reference_recall` is AGREEMENT, not accuracy: the share of the reference's words (as a multiset)
+    this transcript also contains. The tenant's own transcript is the reference because it exists for
+    every Teams meeting at no cost — but it silently drops speech it cannot handle (measured 12 and
+    29 Sep 2026: whole Arabic sentences, absent and unmarked), so a lane can match it fully and still
+    hold more. `of_reference` (word count as a share of the reference's) is what shows that surplus.
+    """
+
+    words: int
+    arabic_share: float
+    speakers: int
+    of_reference: float | None = None
+    reference_recall: float | None = None
+
+
+def score(text: str, speakers: int, reference: str | None = None) -> Score:
+    toks = words(text)
+    mix = script_mix(text).arabic_share
+    if reference is None:
+        return Score(len(toks), mix, speakers)
+    ref = words(reference)
+    if not ref:
+        return Score(len(toks), mix, speakers)
+    found = sum((Counter(toks) & Counter(ref)).values())
+    return Score(len(toks), mix, speakers, of_reference=len(toks) / len(ref), reference_recall=found / len(ref))
+
+
+# ---------------------------------------------------------------------- the tenant's own transcript
+_CUE = re.compile(r"(?P<h1>\d+):(?P<m1>\d+):(?P<s1>[\d.]+)\s*-->\s*(?P<h2>\d+):(?P<m2>\d+):(?P<s2>[\d.]+)")
+_VOICE = re.compile(r"<v\s+([^>]+)>(.*?)</v>", re.S)
+
+
+def parse_vtt(text: str) -> Transcript:
+    """A WebVTT transcript -> the domain's shape, so the tenant's own answer is just another column.
+
+    Microsoft names the speaker in a `<v ...>` tag, which is a REAL identity rather than an anonymous
+    label — the one transcript here that did not need a human to attribute it. A cue whose voice spans
+    several lines is read whole.
+    """
+    segments, start, end = [], None, None
+    for cue in re.split(r"\n\s*\n", text or ""):
+        when = _CUE.search(cue)
+        voice = _VOICE.search(cue)
+        if when and voice:
+            start = _secs(when.group("h1"), when.group("m1"), when.group("s1"))
+            end = _secs(when.group("h2"), when.group("m2"), when.group("s2"))
+            body = " ".join(voice.group(2).split())
+            if body:
+                segments.append(Segment(start=start, end=end, text=body,
+                                        speaker=voice.group(1).strip() or "SPEAKER_00"))
+    return Transcript(segments=tuple(segments),
+                      duration=round(max((s.end for s in segments), default=0.0), 3),
+                      model="TranscriptV2", provider="reference")
+
+
+def _secs(h: str, m: str, s: str) -> float:
+    return round(int(h) * 3600 + int(m) * 60 + float(s), 3)

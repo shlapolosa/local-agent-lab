@@ -20,7 +20,9 @@ async def _run(root, req, on_trace):
                           chat_id=req.inputs.get("chat_id", ""),
                           provider=req.inputs.get("provider", ""),
                           # the recording itself, so a voice named with the consent tick can be kept
-                          audio=req.inputs.get("audio", ""), on_trace=on_trace)
+                          audio=req.inputs.get("audio", ""),
+                          # the tenant's own transcript, the yardstick every lane is scored against
+                          reference=req.inputs.get("reference", ""), on_trace=on_trace)
 
 
 def _describe(req) -> str:

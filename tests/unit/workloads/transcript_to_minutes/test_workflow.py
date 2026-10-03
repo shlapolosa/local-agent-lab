@@ -68,7 +68,9 @@ class FakeGateway:
                         # implements tests nothing.
                         SemanticTools.store_spec: {"spec_ref": "art://s/x.json", "name": "x.json",
                                                    "elements": 4, "relations": 3, "views": 0},
-                        SemanticTools.load_model: {"triples": 42, "derived_relations": 0}} | overrides
+                        SemanticTools.load_model: {"triples": 42, "derived_relations": 0},
+                        # what `semantic_store_page` answers: the document stored as itself, by ref
+                        SemanticTools.store_page: {"ref": "art://p/x.txt", "name": "x.txt", "bytes": 10}} | overrides
         self.calls = []
 
     async def __call__(self, headers, mcp_url, calls):
@@ -423,7 +425,7 @@ def test_the_outputs_are_written_into_the_folder_the_recording_sits_in(gw):
     folders = {a["folder"] for a in gw.args_for(W.CollabTools.put)}
     assert folders == {"collab://item/b!d/01FOLDER"}, "the folder came from the item, not a guess"
     names = [a["name"] for a in gw.args_for(W.CollabTools.put)]
-    assert names == ["weekly sync.transcript.md", "weekly sync.minutes.json"]
+    assert names == ["weekly sync.transcript.txt", "weekly sync.minutes.txt"]
     assert len(out["delivered"]) == 2 and out["chat_id"] == "19:t@thread.v2"
     # each with the address a person opens, which is the whole point of announcing them: a chat
     # message can carry a link, and can carry neither a handle nor an id
@@ -436,9 +438,9 @@ def test_only_the_prose_transcript_leaves_the_lab(gw):
     audience than the audit needs. The prose form carries display names only."""
     _delivering(gw)
     _run(meeting={"id": "m", "recording": "collab://item/b!d/01FILE"})
-    stored = [a for a in gw.args_for(W.SemanticTools.store_spec) if "transcript" in a.get("name", "")]
+    stored = [a for a in gw.args_for(W.SemanticTools.store_page) if "transcript" in a.get("name", "")]
     assert stored, "the prose transcript was stored for upload"
-    assert "@" not in json.dumps(stored[0]["spec"]), "no directory address leaves the lab"
+    assert "@" not in stored[0]["text"], "no directory address leaves the lab"
 
 
 def test_delivery_never_costs_the_minutes(gw):

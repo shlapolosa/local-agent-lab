@@ -82,9 +82,10 @@ def test_neither_workload_can_reach_the_others_capabilities():
     writes the semantic model and cannot transcribe. Swapping them would let one process do the whole
     thing unobserved.
 
-    Both now touch the collaboration port, and the split is in WHICH verbs: the transcript side
-    FETCHES a recording (bytes in), the minutes side PUTS documents back (bytes out). Neither can do
-    the other's, which is the property worth asserting — the mere name of the server is not.
+    Both touch the collaboration port, and the split is in WHICH verbs: only the minutes side PUTS
+    documents back. (Since the provider comparison it may also FETCH — the sibling lanes' delivered
+    transcripts, to score them — which reads a folder and transcribes nothing.) The mere name of the
+    server is not the property; who can transcribe, and who can write, is.
 
     The SPEECH port is split the same way since voiceprints: the transcript side transcribes and
     identifies (it may suggest who a voice sounds like), the minutes side may only KEEP a voice —
@@ -94,7 +95,7 @@ def test_neither_workload_can_reach_the_others_capabilities():
     assert "semantic_mcp" not in transcript
     t_collab = set(P.TRANSCRIPT_TOOLS.get(CollabTools.SERVER, []))
     m_collab = set(P.MINUTES_TOOLS.get(CollabTools.SERVER, []))
-    assert CollabTools.fetch in t_collab and CollabTools.fetch not in m_collab
+    assert CollabTools.fetch in t_collab
     assert CollabTools.put in m_collab and CollabTools.put not in t_collab
     t_speech = set(P.TRANSCRIPT_TOOLS.get(SpeechTools.SERVER, []))
     m_speech = set(P.MINUTES_TOOLS.get(SpeechTools.SERVER, []))

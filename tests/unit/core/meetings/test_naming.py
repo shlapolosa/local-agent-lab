@@ -16,7 +16,13 @@ graph is keyed on. This module builds the SECOND rendering, the one people read.
 """
 import pytest
 
-from lab.core.meetings import Speakers, named_minutes, transcript_for_people
+from lab.core.meetings import Speakers, named_minutes
+from lab.core.meetings.naming import turns
+
+
+def transcript_for_people(segments, speakers):
+    """The turns as `Name: words` lines — what these assertions were written against."""
+    return "\n".join(f"{t.name}: {t.text}" for t in turns(segments, speakers))
 
 MAP = Speakers.from_answer({
     "SPEAKER_00": {"identity": "maria.rossi@contoso.com"},

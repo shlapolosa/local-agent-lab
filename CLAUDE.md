@@ -1130,6 +1130,20 @@ never audio — reached only by speech-mcp. `speech_enrol` is `SpeechTools.WRITE
 minutes team alone. Both steps are best effort: no model, no gallery or no grant means a card with no
 suggestions, never a failed meeting.
 
+**What a person receives is plain text in Teams' own layout, and every lane is scored against Teams
+(3 Oct 2026).** Each minutes run delivers `<recording>.<lane>.transcript.txt` (title, date, duration,
+then `Name   0:03` over each turn — `lab.core.meetings.render.transcript`, with `read_transcript` its
+exact inverse) and `<recording>.<lane>.minutes.txt`, stored AS THEMSELVES through `semantic_store_page`
+because the JSON-wrapping `semantic_store_spec` had delivered `{"text": "\u0627…"}` nobody could read. The transcript
+run fetches the tenant's OWN transcript of the same OCCURRENCE (a recurring meeting keeps one id and
+one transcript per day, so `_occurrence_transcript` picks by the matched recording's time) and carries
+it as `reference`; `compare_with_reference` then reads every sibling lane's delivered `.transcript.txt`
+beside the recording and rewrites ONE `<recording>.comparison.txt` — words, share of Teams' words,
+Teams' words also found (AGREEMENT, not accuracy: Teams drops speech it cannot handle), Arabic-script
+share, speakers. The last lane to finish leaves the full table; no lane waits for another. Measured on
+the 29 Sep meeting: munsit agreed with 21 % of Teams' words, both Soniox lanes 92–93 % while holding
+9–11 % MORE words than Teams (the Arabic it dropped). Best effort throughout.
+
 **The bake-off**: `scripts/speech_bakeoff.py <recording> [--reference teams.vtt] [--repeat N]` runs
 one recording through every CONFIGURED provider and writes per-provider transcripts, a side-by-side
 comparison and `digests.json` into `var/out/bakeoff/<stamp>/`. A provider with no API key is SKIPPED

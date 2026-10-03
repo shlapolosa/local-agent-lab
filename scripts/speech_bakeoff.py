@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -33,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lab.core.speech import AudioClip, SpeechError, Transcript, Segment      # noqa: E402
+from lab.core.speech import AudioClip, SpeechError, Transcript                 # noqa: E402
 from lab.core.speech import compare                                          # noqa: E402
 from lab.platform import config                                              # noqa: E402
 from lab.substrate import container                                          # noqa: E402
@@ -229,35 +228,7 @@ def comparison(results: dict[str, Transcript], digests: dict[str, dict]) -> str:
 
 
 # ---------------------------------------------------------------------- the reference column
-CUE = re.compile(r"(?P<h1>\d+):(?P<m1>\d+):(?P<s1>[\d.]+)\s*-->\s*(?P<h2>\d+):(?P<m2>\d+):(?P<s2>[\d.]+)")
-VOICE = re.compile(r"<v\s+([^>]+)>(.*?)</v>", re.S)
-
-
-def parse_vtt(text: str) -> Transcript:
-    """A WebVTT transcript -> the domain's shape, so the tenant's own answer is just another column.
-
-    Microsoft names the speaker in a `<v ...>` tag, which is a REAL identity rather than an
-    anonymous label — the one column here that did not need a human to attribute it.
-    """
-    segments, start, end = [], None, None
-    for line in text.splitlines():
-        cue = CUE.search(line)
-        if cue:
-            start = _secs(cue.group("h1"), cue.group("m1"), cue.group("s1"))
-            end = _secs(cue.group("h2"), cue.group("m2"), cue.group("s2"))
-            continue
-        voice = VOICE.search(line)
-        if voice and start is not None:
-            segments.append(Segment(start=start, end=end, text=voice.group(2).strip(),
-                                    speaker=voice.group(1).strip() or "SPEAKER_00"))
-            start = None
-    return Transcript(segments=tuple(segments),
-                      duration=round(max((s.end for s in segments), default=0.0), 3),
-                      model="TranscriptV2", provider="reference")
-
-
-def _secs(h: str, m: str, s: str) -> float:
-    return round(int(h) * 3600 + int(m) * 60 + float(s), 3)
+parse_vtt = compare.parse_vtt      # one reader of the tenant's transcript, shared with the pipeline
 
 
 if __name__ == "__main__":

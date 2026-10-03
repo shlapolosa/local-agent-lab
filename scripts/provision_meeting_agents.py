@@ -43,8 +43,9 @@ def _helpers():
 # The grants, spelled from the CONTRACT so a renamed tool breaks provisioning rather than silently
 # granting nothing (a key with no grant sees zero tools, which looks exactly like a broken server).
 TRANSCRIPT_TOOLS = {
+    # transcripts: the tenant's OWN transcript of the meeting, kept as the yardstick each lane is scored against
     CollabTools.SERVER: [CollabTools.fetch, CollabTools.item, CollabTools.meetings,
-                         CollabTools.recordings, CollabTools.capabilities],
+                         CollabTools.recordings, CollabTools.transcripts, CollabTools.capabilities],
     # identify: who a voice SOUNDS like, offered pre-filled. Never enrol — a workload that only asks
     # must not be able to keep anyone's voice.
     SpeechTools.SERVER: [SpeechTools.transcribe, SpeechTools.capabilities, SpeechTools.identify],
@@ -52,12 +53,16 @@ TRANSCRIPT_TOOLS = {
     WorkflowTools.SERVER: list(ApprovalTools.RAISE),      # ask, never answer
 }
 MINUTES_TOOLS = {
-    StorageTools.SERVER: [StorageTools.get, StorageTools.info, StorageTools.read_artifact],
+    # read_document: the tenant's transcript and the sibling lanes' transcripts, read back as text to score
+    StorageTools.SERVER: [StorageTools.get, StorageTools.info, StorageTools.read_artifact,
+                          StorageTools.read_document],
     # Delivery: read ONE item to find the folder it sits in, and write beside it. Never a
     # subscription — CollabTools splits SUBSCRIBE from PUT precisely so a workload can hold the
     # second without the first, and a governance test refuses a grant that mixes them.
-    CollabTools.SERVER: [CollabTools.item, CollabTools.put],
-    SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.load_model,
+    # list + fetch: the comparison reads back what the OTHER lanes delivered beside the same recording.
+    CollabTools.SERVER: [CollabTools.item, CollabTools.put, CollabTools.list, CollabTools.fetch],
+    # store_page: the plain-text documents a person receives (transcript, minutes, comparison)
+    SemanticTools.SERVER: [SemanticTools.store_spec, SemanticTools.store_page, SemanticTools.load_model,
                            SemanticTools.validate_model],
     # The voiceprint WRITE, and ONLY it: this run starts after a person answered, which is the only
     # moment a voice may be kept — and the speech service keeps one only where consent was ticked.
