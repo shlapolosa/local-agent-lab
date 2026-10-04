@@ -194,6 +194,9 @@ def models_policy(tenant: str, audience: str, keyed: dict[str, list[str]] | None
         # what this MODEL refuses (the overlay's additional_drop_params), and what the API has no field for
         'if (target["drop"] != null) { foreach (var p in target["drop"]) { body.Remove((string)p); } } '
         'if (responses) { body.Remove("seed"); } '
+        # max_tokens is refused on both APIs; each has its own name for it (LiteLLM's translation)
+        'if (body["max_tokens"] != null) { var cap = responses ? "max_output_tokens" : "max_completion_tokens"; '
+        '  if (body[cap] == null) { body[cap] = body["max_tokens"]; } body.Remove("max_tokens"); } '
         # The alias's effort wins over the caller's — the alias is what the gateway name MEANS.
         'var effort = target["reasoning_effort"] ?? body["reasoning_effort"]; '
         'if (effort != null) { '

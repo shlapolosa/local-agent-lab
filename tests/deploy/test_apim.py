@@ -70,6 +70,15 @@ def test_a_parameter_the_model_refuses_is_dropped_as_litellm_did():
     assert 'if (responses) { body.Remove("seed"); }' in code, "the Responses API has no seed, on any model"
 
 
+def test_max_tokens_is_renamed_to_what_each_api_calls_it():
+    # Foundry refuses `max_tokens` on both APIs (measured 4 Oct 2026); the fabric's agents send
+    # max_tokens=16000. LiteLLM translated it — the Responses API calls it max_output_tokens, Chat
+    # Completions max_completion_tokens — and a caller's explicit new-style value is never overwritten.
+    code = _code(apim.models_policy(TENANT, AUD))
+    assert 'responses ? "max_output_tokens" : "max_completion_tokens"' in code
+    assert 'body.Remove("max_tokens")' in code
+
+
 def _code(xml):
     """Every policy expression, decoded as APIM compiles it: attribute values and element text."""
     root = ET.fromstring(xml)
