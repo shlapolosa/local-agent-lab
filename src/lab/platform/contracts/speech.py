@@ -178,4 +178,10 @@ AGENTS: tuple[AgentSpec, ...] = (
               processes=("transcript_to_minutes",)),
 )
 
-__all__ = ["SpeechTools", "SPEECH_PROVIDERS", "MEETING_TO_TRANSCRIPT", "TRANSCRIPT_TO_MINUTES", "AGENTS"]
+# WHAT THIS SLICE CONTRIBUTES — the kernel's PROCESSES, AGENTS and SERVERS are assembled from these, so
+# a new process, agent or catalogue here is an edit to this file alone.
+PROCESSES: tuple[ProcessSpec, ...] = (MEETING_TO_TRANSCRIPT, TRANSCRIPT_TO_MINUTES)
+CATALOGUES: tuple[type[ToolCatalogue], ...] = (SpeechTools,)
+
+__all__ = ["SpeechTools", "SPEECH_PROVIDERS", "MEETING_TO_TRANSCRIPT", "TRANSCRIPT_TO_MINUTES",
+           "PROCESSES", "AGENTS", "CATALOGUES"]

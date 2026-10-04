@@ -1735,12 +1735,14 @@ class AgentSpec:
 #: The A2A spec version these cards declare, and the lab's own version for them. Both are stated
 #: rather than derived: a card is a published artifact, and a reader needs to know which spec it obeys.
 A2A_PROTOCOL_VERSION = "0.3.0"
-# The SPEECH feature's slice of the contract — its tool catalogue, its two processes and its agents —
-# declared in its own module and re-exported here, so every `from lab.platform.contracts import X`
-# keeps working. Imported HERE, not at the top: it builds on ToolCatalogue, ProcessSpec, InputField
-# and AgentSpec, all defined above, and PROCESSES / AGENTS / SERVERS below are assembled from it.
+# FEATURE SLICES. Each declares PROCESSES / AGENTS / CATALOGUES and the registries below splice them in,
+# so a slice grows without touching this file. Imported HERE, not at the top: a slice builds on
+# ToolCatalogue, ProcessSpec, InputField and AgentSpec, all defined above.
+# The named imports are RE-EXPORTS for callers that predate the split; a NEW public name is imported
+# from its slice (`from lab.platform.contracts.speech import X`), never added here.
+from lab.platform.contracts import speech as _speech  # noqa: E402
 from lab.platform.contracts.speech import (  # noqa: E402
-    AGENTS as _SPEECH_AGENTS, MEETING_TO_TRANSCRIPT, SPEECH_PROVIDERS, TRANSCRIPT_TO_MINUTES, SpeechTools,
+    MEETING_TO_TRANSCRIPT, SPEECH_PROVIDERS, TRANSCRIPT_TO_MINUTES, SpeechTools,
 )
 
 AGENT_CARD_VERSION = "1.0.0"
@@ -1761,7 +1763,7 @@ AGENTS: tuple[AgentSpec, ...] = (
               description="Turns a described system into a legal ArchiMate model.",
               skills=("archimate_modelling",), model="kimi-k3",
               processes=("visio_to_archimate",)),
-    *_SPEECH_AGENTS,                                  # lab.platform.contracts.speech
+    *_speech.AGENTS,
     AgentSpec(name="usecase-agent", prefix="USECASE_AGENT",
               description="Screens a submitted use case and designs it.",
               skills=("use_case_screening", "use_case_design"), model=config.USECASE_AGENT_MODEL,
@@ -1827,8 +1829,8 @@ AGENTS: tuple[AgentSpec, ...] = (
 
 #: Every process whose PRODUCTS the fabric ingests — derived from the specs' `products`, so declaring what a
 #: process makes is the one place that also makes it a producer (a governance test names the non-producers).
-PRODUCING_PROCESSES: tuple[str, ...] = tuple(p.name for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
-                                                              TRANSCRIPT_TO_MINUTES, USE_CASE_SCREENING,
+PRODUCING_PROCESSES: tuple[str, ...] = tuple(p.name for p in (VISIO_TO_ARCHIMATE, *_speech.PROCESSES,
+                                                              USE_CASE_SCREENING,
                                                               USE_CASE_DESIGN, USE_CASE_INVESTMENT,
                                                               USE_CASE_PROVISIONING) if p.products)
 
@@ -1884,8 +1886,7 @@ ARTIFACT_PUBLISH = ProcessSpec(
     external=False,
 )
 
-PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, MEETING_TO_TRANSCRIPT,
-                                                         TRANSCRIPT_TO_MINUTES,
+PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, *_speech.PROCESSES,
                                                          USE_CASE_SCREENING, USE_CASE_DESIGN,
                                                          USE_CASE_INVESTMENT,
                                                          USE_CASE_PROVISIONING,
@@ -1956,7 +1957,7 @@ class ArtifactChanged:
 # Last, because WorkflowTools' tool names are derived from PROCESSES above.
 SERVERS: dict[str, type[ToolCatalogue]] = {c.SERVER: c for c in (StorageTools, SemanticTools, EATools,
                                                                  WorkflowTools, CollabTools,
-                                                                 SpeechTools, ReferenceTools,
+                                                                 *_speech.CATALOGUES, ReferenceTools,
                                                                  DecisionTools,
                                                                  ValuationTools)}
 ALL_TOOLS: frozenset[str] = frozenset(n for c in SERVERS.values() for n in c.names())
