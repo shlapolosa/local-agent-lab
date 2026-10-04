@@ -326,3 +326,18 @@ def test_server_identity_and_main(server):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_a_table_input_survives_the_transport_as_plain_rows(server, redis):
+    # fastmcp validates each row against the generated `<field>_row` model and hands the tool a MODEL
+    # INSTANCE; the ProcessSpec validator reads mappings. Found by the production end-to-end test
+    # (25 Sep 2026): every submit carrying an effort table was refused "a row is an object, got
+    # effort_row", from every caller, because nothing had called the tool through a real client
+    # with a table.
+    spec = PROCESSES["use_case_screening"]
+    row = {"role": "mid", "headcount": 4, "frequency_per_week": 100, "current_minutes": 6, "expected_minutes": 2}
+    got = call(server, spec.tool("submit"), submission="art://abc/usecase.md",
+               submitter="someone@example.com", effort=[row]).data
+    assert got["accepted"] is True
+    inputs = workflows.status(got["request_id"], client=redis)
+    assert "effort" in str(inputs), "the table reached the queued request"

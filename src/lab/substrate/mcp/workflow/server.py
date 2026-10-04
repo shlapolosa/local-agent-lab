@@ -35,7 +35,7 @@ from __future__ import annotations
 import inspect
 from typing import Annotated, Any, Callable, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from lab.platform import config, workflows
 from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, InputKind, ProcessSpec,
@@ -118,13 +118,26 @@ def _state(server: LabServer, spec: ProcessSpec, request_id: str) -> dict:
     return st
 
 
+def _plain(value: Any) -> Any:
+    """Tool arguments as plain data. fastmcp validates a TABLE's rows against the generated row model
+    (`_row_model`) and passes the tool model INSTANCES, while the ProcessSpec validator — shared with
+    every other surface — reads mappings. The typed schema is for the caller; the contract is data."""
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
+
+
 def _submit(server: LabServer, spec: ProcessSpec, requester: str, values: dict,
             idempotency_key: str | None = None) -> dict:
     """Enqueue-and-acknowledge. The de-duplication itself is `lab.platform.workflows.submit` (SET NX EX,
     so two concurrent retries cannot both queue a run) — this surface only passes the caller's key
     through and TELLS the caller which of the two answers it got, so a connector can distinguish
     "queued" from "you already asked for this"."""
-    inputs = spec.validate(values)          # the ProcessSpec IS the validator (one impl, every surface)
+    inputs = spec.validate(_plain(values))  # the ProcessSpec IS the validator (one impl, every surface)
     r = _redis(server)
     # One submission may become several RUNS — one per configured lane. `request_id` stays the first,
     # so a caller written before lanes existed is unaffected, and `lanes` names them all.
