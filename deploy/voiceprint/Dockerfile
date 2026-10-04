@@ -28,6 +28,9 @@ run_opts={'device': 'cpu'})"
 
 WORKDIR /app
 COPY src/ /app/src/
+# Only src/ is here — no pyproject.toml or skills/ for config's root search to find — so the image
+# STATES its root rather than letting the search fail (it raises, by design) or guess.
+ENV LAB_REPO_ROOT=/app
 
 ARG LAB_BUILD_SHA=""
 ENV LAB_BUILD_SHA=${LAB_BUILD_SHA}
