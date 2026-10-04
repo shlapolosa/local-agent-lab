@@ -914,6 +914,23 @@ localhost, so `config/jaeger-railway.yaml` (0.0.0.0 receivers, memstore) is inje
 storage. **Both endpoints are public and unauthenticated** — acceptable for a lab whose spans
 carry no PII (a RULE now, not a hope: collab spans carry provider ids, counts and shapes only — never
 a principal, a UPN or caller free text — enforced by a test that fails if one reaches a span), not for anything else; front them with auth before workflow hosts emit real data.
+**That rule holds for the spans OUR code emits and is BROKEN by the gateway's (open, 29 Sep 2026).**
+LiteLLM copies every MCP tool call's ARGUMENTS onto its own `litellm_request` span
+(`metadata.mcp_tool_call_metadata`), so whatever a workload passes INLINE to a tool is readable on
+the public Jaeger for as long as the in-memory store keeps it. Measured twice: the fabric session put
+a unique marker in a `semantic_store_spec` argument and found it in the public trace JSON within
+seconds; and for one real three-person meeting the public spans held `approvals_ask` arguments
+(verbatim utterance samples, the organiser's UPN), `semantic_store_spec` arguments (the full minutes,
+naming two non-lab attendees), `semantic_validate_model` (the named meeting model) and
+`collab_meetings` (a UPN). By-reference arguments (`speech_transcribe`, `collab_put` — an `art://` ref)
+were clean, which is the pattern that protects. Since 1 Oct the voiceprint feature adds suggested
+names to the approval payload and the speaker map to `speech_enrol` — shipped with the leak known, by
+the user's decision. Until it is fixed, ASSUME ANY INLINE TOOL ARGUMENT IS PUBLIC. The fixes, any one
+of which closes it: stop the gateway emitting tool arguments on spans (a LiteLLM logging setting —
+verify it covers `mcp_tool_call_metadata` before relying on it); put Jaeger behind auth; pass the
+remaining inline payloads (the approval question, the minutes, page text) by reference. Restarting
+the Jaeger service wipes what is currently exposed (in-memory) but closes nothing. Detail:
+`docs/speech-voiceprint-gallery.md` §7.
 The native binary in `var/tools/jaeger/` is the local fallback: `lab.sh` starts it only when
 `OTEL_EXPORTER_OTLP_ENDPOINT` points at localhost. **Railway is metered (trial credit): stop it
 when not in use** — `lab.sh down` removes the Railway deployment and `lab.sh up` redeploys it
