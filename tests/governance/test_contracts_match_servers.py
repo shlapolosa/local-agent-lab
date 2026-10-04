@@ -114,7 +114,11 @@ def test_no_tool_or_alias_names_a_vendor():
 DOWNSTREAM = VENDORS + ("xlsx", "excel", "spreadsheet", "objects.xls")
 
 # The modules an approval passes THROUGH on its way from the adapter to the human who decides it.
-DOWNSTREAM_MODULES = ("src/lab/platform/contracts.py",
+#   The contract is a PACKAGE (a kernel `__init__` plus one module per feature slice), so every module
+#   in it is scanned — a slice is downstream of the port exactly as the kernel half is.
+_CONTRACTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                          "src", "lab", "platform", "contracts")
+DOWNSTREAM_MODULES = (*sorted(f"src/lab/platform/contracts/{n}" for n in os.listdir(_CONTRACTS) if n.endswith(".py")),
                       "src/lab/substrate/mcp/workflow/approval_tools.py",
                       "src/lab/substrate/review/app.py")
 

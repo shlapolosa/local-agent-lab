@@ -152,13 +152,16 @@ def test_the_contract_imports_no_semantic_layer_at_module_level():
     """`lab.platform.contracts` is imported by every tier and by CI steps that install no rdflib (the
     store-registration step died on `ModuleNotFoundError: rdflib` the day the contract reached through
     `lab.core.semantic`). The pointer id fields live in the stdlib-only `lab.core.ids` for that reason."""
-    import ast, inspect
+    import ast
+    from pathlib import Path
     from lab.platform import contracts
     from lab.core.ids import POINTER_ID_FIELDS
-    tree = ast.parse(inspect.getsource(contracts))
-    top = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
-    names = [getattr(n, "module", None) or "" for n in top] + [a.name for n in top if isinstance(n, ast.Import) for a in n.names]
-    assert not any(m.startswith("lab.core.semantic") for m in names), names
+    # Every module of the package, not just `__init__`: a feature slice is imported with it.
+    for module in sorted(Path(contracts.__file__).parent.glob("*.py")):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        top = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
+        names = [getattr(n, "module", None) or "" for n in top] + [a.name for n in top if isinstance(n, ast.Import) for a in n.names]
+        assert not any(m.startswith("lab.core.semantic") for m in names), (module.name, names)
     assert contracts.POINTER_ID_FIELDS is POINTER_ID_FIELDS
 
 
