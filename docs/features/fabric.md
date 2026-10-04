@@ -43,3 +43,46 @@ a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
   `scripts/export_capabilities.py <scheme> [root] [depth]` runs that chain via the gateway.
 - **Placement**: `semantic-mcp` is a separate, credential-free, read-only server granted to every
   team; `adoit-mcp` stays the governed EA-repository facade. Both import the same package.
+
+## Operating rules learned the hard way (4 Oct 2026)
+
+Each of these cost hours to find, and none is derivable from reading the code. They share one shape:
+**the failure is indistinguishable from success**, so nothing asks to be investigated.
+
+- **A grant needs THREE applies, and no test can see any of them.** Adding a tool to a
+  `ToolCatalogue` and to a grant table (`provision_fabric_agents.CURATOR_TOOLS`) grants it NOWHERE. The
+  declaration must be applied to (1) the dev LiteLLM team's per-tool ACL — `provision_fabric_agents.py`,
+  or `/team/update` with `_grants(TOOLS)`; (2) the prod APIM MCP policy — `deploy/apim.py apply mcp`,
+  which RENDERS from the table at apply time; (3) the image. Measured: the dev ACL carried the 25 Sep
+  tool set, so 13 tools were refused — `semantic_store_page` and `semantic_vocab_conflicts` among them —
+  and the measurements page silently stopped being written while the steward sweep failed every tick,
+  each swallowed by its caller's own guard. Prod was stale independently, in its own place. A governance
+  test compares a module's call sites with the SCRIPT's table, which is in git; the truth is in two
+  tenants, and it passed throughout both failures. `_reconcile`'s docstring already said it: *"A table is
+  only the truth if something applies it every time."*
+- **`FABRIC_SWEEP_LIMIT` ends the WHOLE walk, not a folder.** `fabric_reconciler.sweep` counts `seen`
+  across the entire sweep; `if seen >= limit: break` leaves the inner loop and `while stack and
+  seen < limit` then exits too, **with every unvisited subfolder still on the stack**. At `5`, the pilot
+  drive's 6-file root consumed the budget and no subfolder was EVER visited: 4 collab-file records
+  against 119 files, for weeks, while the log read `swept: 1 change(s) published` — four files already
+  known plus the fabric's own `fabric-metrics.md`, which the loop guard then drops. That is exactly what
+  a quiet, fully-ingested library looks like. Prod was the control case: a 2-file library stays under the
+  cap and descends correctly, so the same code was right there and wrong here, decided only by size.
+  A second, independent defect sits behind it: `collab_list` PAGES and the sweep reads one page per
+  folder, ignoring `more` and `cursor` (`Architectures` returns `50 items, more=True`). Raising the limit
+  is also a BACKFILL — each newly-seen file is one `artifact_intake` run, i.e. one LLM classification —
+  but it cannot double-queue: the ingress submits with `idempotency_key = pointer_key@version`, claimed
+  `SET NX EX` with a 24 h TTL.
+- **A deploy ships IMAGES, not SETTINGS.** CD and `deploy/railway.py release` move the image tag and
+  redeploy; neither hands an app a new `.env`/`.env.azure` value. `substrate up` (and `workload <n> up`)
+  is what writes each role's env slice. Measured: `FABRIC_VOCAB_REFS` sat correctly in `.env.azure`
+  through a successful prod deploy while prod served NO domain vocabulary — `semantic_schemes` simply
+  omitted `cafe`, and every subject term would have been a silent miss. Also: prod's artifact store is a
+  different database, so dev's `art://` refs are dead there and the masters must be uploaded per tier.
+- **Judge CD by the `deploy` JOB, never the run conclusion.** A run whose `deploy` succeeded reads
+  **"cancelled"** overall whenever `deploy-prod` is waiting on the production environment's required
+  reviewer — which it had been on every run since 28 Sep, leaving Azure 14 commits behind while each run
+  showed two greens and a grey. The mirror image also bites: a watcher gated on the RUN completing stayed
+  silent for 30 minutes while the deploy had succeeded 15 minutes in. Check the job, and confirm with
+  `deploy/railway.py substrate versions`, which compares what each service was ASKED to run with what it
+  SAYS it is running.
