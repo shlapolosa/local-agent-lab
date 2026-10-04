@@ -5,7 +5,9 @@ The rules that matter most are the ones a wrong render would break SILENTLY:
   * a value that came from the operator's profile is a Key Vault REFERENCE, never a plain value —
     including a coordinate that merely copies one (PG_VECTOR_API_KEY = MCP_SHARED_SECRET);
   * a service is reachable only as the topology says (public / internal / not at all);
-  * a workload can scale to zero, and wakes on the stream and group it actually consumes;
+  * a stream consumer carries a wake rule on the stream and group it actually consumes, but never
+    sits at a floor of zero while that rule cannot reach Redis (measured: it cannot);
+  * a server that tolerates a cold start scales to zero on HTTP; one a provider calls back does not;
   * every app runs the ONE image.
 """
 import importlib.util
@@ -162,10 +164,54 @@ def test_every_app_is_single_revision_on_the_consumption_profile_with_the_apps_i
     assert body["identity"] == {"type": "UserAssigned", "userAssignedIdentities": {TARGET.identity_id: {}}}
 
 
-def test_servers_and_substrate_consumers_run_exactly_one_replica():
-    for name in ("gateway", "semantic-mcp", "fabric-reconciler"):
+def test_a_server_outside_the_cold_start_table_and_a_timer_run_exactly_one_replica():
+    for name in ("gateway", "graph-mcp", "workflow-frontdoor", "review", "live", "fabric-reconciler"):
         scale = az.substrate_app(name, topology.SUBSTRATE[name], PROFILE, TARGET)["properties"]["template"]["scale"]
         assert scale == {"minReplicas": 1, "maxReplicas": 1}, name
+
+
+def _scale(name):
+    return az.substrate_app(name, topology.SUBSTRATE[name], PROFILE, TARGET)["properties"]["template"]["scale"]
+
+
+def test_a_server_that_tolerates_a_cold_start_scales_to_zero_and_wakes_on_its_first_request():
+    assert az.HTTP_WAKE, "the table is the saving; an empty one is a revert, not a refactor"
+    for name in az.HTTP_WAKE:
+        scale = _scale(name)
+        assert scale["minReplicas"] == 0 and scale["maxReplicas"] == 1, name
+        assert [r["http"]["metadata"]["concurrentRequests"] for r in scale["rules"]], name
+        # a gap between two tool calls of ONE run must not cost a second cold start
+        assert scale["cooldownPeriod"] >= az.WORKLOAD_COOLDOWN_S, name
+
+
+def test_only_a_server_with_ingress_can_be_woken_by_a_request():
+    """With no ingress there is no request to wake on: an app at zero would stay there for ever."""
+    for name in az.HTTP_WAKE:
+        assert name in topology.SERVICE_PORTS and not topology.SUBSTRATE[name].get("wakes_on"), name
+
+
+def test_a_server_a_provider_calls_back_or_a_person_opens_never_waits_on_a_cold_start():
+    """graph-mcp receives the provider's change notifications, which must be answered within seconds
+    or are retried and finally dropped; the gateway is being retired, not scaled; the front door is
+    what a connector and a person call, and review/live are pages a person waits on."""
+    assert not {"graph-mcp", "gateway", "workflow-frontdoor", "review", "live"} & az.HTTP_WAKE
+
+
+def test_a_stream_consumer_never_relies_on_a_wake_it_cannot_receive():
+    """MEASURED 4 Oct 2026: every redis-streams rule in production has failed since 24 Sep with
+    `connection to redis failed: dial tcp 100.100.248.205:6379: connect: connection refused`
+    (KEDAScalerFailed, ~930 per app) — the platform's scaler cannot reach an in-environment Redis app
+    (microsoft/azure-container-apps#1494). At a floor of zero a consumer is then held up only by the
+    replica its revision started with, billed at the ACTIVE rate, and one scale-in strands its queue.
+    At a floor of one it is billed IDLE between runs and nothing can strand work."""
+    assert az.STREAM_FLOOR == 1
+    for name, spec in topology.SUBSTRATE.items():
+        if spec.get("wakes_on"):
+            assert _scale(name)["minReplicas"] == az.STREAM_FLOOR, name
+    for name in topology.long_lived_workloads():
+        spec = topology.WORKLOADS[name]
+        assert az.workload_app(name, spec, PROFILE, TARGET)["properties"]["template"]["scale"]["minReplicas"] \
+            == az.STREAM_FLOOR, name
 
 
 # ------------------------------------------------------------------ workloads
@@ -178,10 +224,9 @@ def test_a_workload_reaches_the_substrate_only_through_the_gateway_and_holds_no_
     assert "ingress" not in body["properties"]["configuration"]
 
 
-def test_a_workload_scales_to_zero_and_wakes_on_its_own_group_of_the_request_stream():
+def test_a_workload_carries_a_wake_rule_on_its_own_group_of_the_request_stream():
     spec = topology.WORKLOADS["usecase-screening"]
     scale = az.workload_app("usecase-screening", spec, PROFILE, TARGET)["properties"]["template"]["scale"]
-    assert scale["minReplicas"] == 0
     rules = [r["custom"] for r in scale["rules"]]
     assert rules and all(r["type"] == "redis-streams" for r in rules)
     for r in rules:
@@ -284,9 +329,9 @@ def test_an_invalid_replica_count_is_refused_not_rounded_up():
         az.workload_scale({**topology.WORKLOADS["meeting"], "replicas": 0})
 
 
-def test_a_substrate_stream_consumer_scales_from_zero_on_every_stream_it_reads():
+def test_a_substrate_stream_consumer_carries_a_wake_rule_on_every_stream_it_reads():
     t = az.substrate_app("fabric-ingress", topology.SUBSTRATE["fabric-ingress"], PROFILE, TARGET)["properties"]["template"]
-    assert t["scale"]["minReplicas"] == 0 and t["scale"]["maxReplicas"] == 1
+    assert t["scale"]["maxReplicas"] == 1
     watched = {(r["custom"]["metadata"]["stream"], r["custom"]["metadata"]["consumerGroup"]) for r in t["scale"]["rules"]}
     assert watched == set(topology.SUBSTRATE["fabric-ingress"]["wakes_on"])
     kinds = {k for r in t["scale"]["rules"] for k in r["custom"]["metadata"] if k in ("lagCount", "pendingEntriesCount")}

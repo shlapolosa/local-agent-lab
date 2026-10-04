@@ -357,3 +357,17 @@ push main → test → build (ghcr sha-<short>) → deploy-dev (Railway, as toda
 - The same deploy gate as dev: wait for a quiet run board (`/api/runs/open`) before rolling the gateway.
 - Prod config is NOT in GitHub: Key Vault, written by a human. CD ships code; prod configuration stays a
   deliberate act.
+
+## Container Apps scale floors (amended 4 Oct 2026, measured)
+
+The KEDA redis-streams rules have NEVER worked here: every one
+has logged `KEDAScalerFailed — connection to redis failed: dial tcp 100.100.248.205:6379: connect:
+connection refused` since 24 Sep (~930 per app; microsoft/azure-container-apps#1494). Consumers
+process work only because each revision starts with one replica that nothing scales in — and a
+revision above its `minReplicas` is billed at the ACTIVE rate, so the 14 "scale-to-zero" consumers
+were 68 % of the Container Apps bill ($9.14 of $13.40/day, 2 Oct, by meter). So: consumers keep
+their rules over `STREAM_FLOOR = 1` (billed IDLE between runs; back to 0 only after a spike shows a
+rule reaching Redis), and the MCP servers that every caller reaches with a ≥120 s timeout scale to
+zero on an HTTP rule (`HTTP_WAKE`, cooldown 30 min; a cold start is ~25-40 s — image pull 13-30 s
+of a 790 MB image, ~6 s create, ~2 s to listen). graph-mcp, the front door, review and live stay up.
+One table, `deploy/aca.py substrate_scale`.

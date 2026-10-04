@@ -9,8 +9,9 @@ is a rule a wrong render would break silently:
   * SECRETS — a value taken from the operator's profile is a Key Vault REFERENCE read by the apps'
     managed identity; a coordinate is plain. GitHub holds no production secret: a person publishes
     them (`secrets sync`, also run by `substrate up`); CD only rolls the image (`release`).
-  * SCALE — servers and substrate consumers run one replica; a workload host scales to ZERO and is
-    woken by KEDA's redis-streams scaler on the stream and group it consumes.
+  * SCALE — a stream consumer (workload host or substrate role) carries KEDA redis-streams rules on
+    what it consumes, over a floor of ONE while that scaler cannot reach Redis (STREAM_FLOOR); a
+    server in HTTP_WAKE scales to ZERO and is woken by its first request; every other app runs one.
   * VERSIONS — "released" means the NEW revision is the one serving, not that the ARM write landed.
 
 Profile: `.env` (the `# CLOUD:` profile) overlaid by the git-ignored `.env.azure` (production values).
@@ -81,6 +82,24 @@ WORKLOAD_COOLDOWN_S = 600
 WORKLOAD_POLL_S = 30
 # The longest Container Apps allows: a replica being scaled in or replaced gets this long to finish.
 WORKLOAD_GRACE_S = 600
+# The floor under every stream consumer. ZERO is the design, and is only correct while KEDA can read the
+# stream: MEASURED 4 Oct 2026, every redis-streams rule here has failed since 24 Sep with "connection to
+# redis failed: dial tcp 100.100.248.205:6379: connect: connection refused" — the platform's scaler
+# cannot reach an in-environment Redis app (microsoft/azure-container-apps#1494, open). At zero, a
+# consumer is held up only by the replica its revision started with, billed at the ACTIVE rate (a
+# revision above its minimum is never idle), and a scale-in would strand its queue. At one it is billed
+# IDLE between runs. Back to 0 only after a spike shows a rule reaching Redis.
+STREAM_FLOOR = 1
+# Servers that may scale to ZERO and be woken by their first request: every caller reaches them through
+# an ingress (APIM, or a substrate peer over http://<app>) with a timeout far above a cold start (pull of
+# the ~790 MB image 13-30 s + container create ~6 s + ~2 s to listen, measured 28 Sep 2026; tool calls
+# allow TOOL_CALL_TIMEOUT_S = 1000 s, a vector search 120 s). Absent on purpose: graph-mcp (the
+# provider's change notifications must be answered within seconds), workflow-frontdoor, review and live
+# (a connector or a person waits on them), and the gateway (retired, not scaled).
+HTTP_WAKE = frozenset({"adoit-mcp", "storage-mcp", "speech-mcp", "reference-mcp", "decision-mcp",
+                       "valuation-mcp", "semantic-mcp"})
+# Above a run's longest gap between two calls to one server, so a run pays ONE cold start per server.
+SERVER_COOLDOWN_S = 1800
 
 PUBLIC = frozenset(n for n, s in topology.SUBSTRATE.items() if s.get("port"))
 
@@ -238,21 +257,31 @@ def _app(target: Target, *, name: str, command: str | list, env_entries: list, s
 ONE = {"minReplicas": 1, "maxReplicas": 1}
 
 
+def substrate_scale(name: str, spec: dict) -> dict:
+    """A pure stream consumer (`wakes_on`) scales on what it reads; a server in HTTP_WAKE scales from zero
+    on requests; a server or a timer outside it runs one."""
+    if spec.get("wakes_on"):
+        return stream_scale(spec["wakes_on"], 1, CONSUMER_COOLDOWN_S)
+    if name in HTTP_WAKE:
+        return {"minReplicas": 0, "maxReplicas": 1, "cooldownPeriod": SERVER_COOLDOWN_S,
+                "rules": [{"name": "http", "http": {"metadata": {"concurrentRequests": "10"}}}]}
+    return dict(ONE)
+
+
 def substrate_app(name: str, spec: dict, profile: dict, target: Target) -> dict:
-    """One substrate role as a Container App: its allowlisted env (secrets by reference), its ingress.
-    A pure stream consumer (`wakes_on`) scales from zero on what it reads; a server or a timer runs one."""
+    """One substrate role as a Container App: its allowlisted env (secrets by reference), its ingress,
+    its scale (substrate_scale)."""
     env = topology.substrate_env(name, spec, profile, network(target))
     entries, secrets = _env_and_secrets(env, profile, target)
-    scale = stream_scale(spec["wakes_on"], 1, CONSUMER_COOLDOWN_S) if spec.get("wakes_on") else dict(ONE)
     return _app(target, name=name, command=AZURE_CMD.get(name, spec["cmd"]), env_entries=entries,
-                secrets=secrets, ingress=_ingress(name, target), scale=scale,
+                secrets=secrets, ingress=_ingress(name, target), scale=substrate_scale(name, spec),
                 resources=RESOURCES.get(name, DEFAULT_RESOURCES))
 
 
 def stream_scale(reads, max_replicas: int, cooldown_s: int) -> dict:
-    """From ZERO, woken by KEDA's redis-streams scaler on every (stream, group) the app reads: `lagCount`
-    (undelivered entries) wakes it, `pendingEntriesCount` (delivered, not yet acked) keeps it up while
-    it works — without the second, a cool-down can scale it in mid-run."""
+    """From STREAM_FLOOR, scaled by KEDA's redis-streams scaler on every (stream, group) the app reads:
+    `lagCount` (undelivered entries) wakes it, `pendingEntriesCount` (delivered, not yet acked) keeps it
+    up while it works — without the second, a cool-down can scale it in mid-run."""
     rules = []
     for i, (stream, group) in enumerate(reads):
         on = {"address": REDIS_ADDRESS, "stream": stream, "consumerGroup": group}
@@ -261,7 +290,7 @@ def stream_scale(reads, max_replicas: int, cooldown_s: int) -> dict:
                                                           "metadata": {**on, "lagCount": "1", "activationLagCount": "0"}}})
         rules.append({"name": f"s{i}-running", "custom": {"type": "redis-streams",
                                                           "metadata": {**on, "pendingEntriesCount": "1"}}})
-    return {"minReplicas": 0, "maxReplicas": max_replicas, "cooldownPeriod": cooldown_s,
+    return {"minReplicas": STREAM_FLOOR, "maxReplicas": max_replicas, "cooldownPeriod": cooldown_s,
             "pollingInterval": WORKLOAD_POLL_S, "rules": rules}
 
 
@@ -279,7 +308,7 @@ def _workload_env(name: str, spec: dict, profile: dict, target: Target) -> dict:
 
 def workload_app(name: str, spec: dict, profile: dict, target: Target) -> dict:
     """One workload host. It reaches the substrate only through the gateway, holds its own allowlist
-    and nothing else, has no ingress, scales from zero on its group, and gets time to finish a run."""
+    and nothing else, has no ingress, scales on its group, and gets time to finish a run."""
     env = _workload_env(name, spec, profile, target)
     command = spec["cmd"]
     if "WF_CONSUMER" in env:
