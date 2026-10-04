@@ -660,3 +660,23 @@ def test_a_workload_receives_the_coverage_knobs_it_actually_reads():
     for name in ("COVERAGE_MATCHER", "COVERAGE_SAMPLES", "COVERAGE_VOTES"):
         assert any(p == name or (p.endswith("*") and name.startswith(p[:-1])) for p in allowed), \
             f"{name} is read by the workload and cannot reach it"
+
+
+def test_the_ingress_can_resolve_an_items_folder_because_the_allowlist_may_ask():
+    """`fabric_ingress._path_of` answers "which folder is this item in" — needed when the allow-list scopes a
+    drive by folder (`collab:<drive>/<prefix>`). The reconciler puts `path` on the pointer, but a FINISHED-RUN
+    event carries a handle and NO path, so the ingress makes ONE governed `collab_item` read; its own
+    docstring says exactly that.
+
+    The env table granted the ingress Redis alone, so that read would have raised and the event would have
+    dead-lettered rather than been admitted — a folder-scoped entry silently costing every lab-delivered file
+    in that drive. Asserted UNCONDITIONALLY, not only when the live allow-list is folder-scoped: the
+    allow-list is CONFIGURATION that changes without a commit, and a test that read it would be vacuous here
+    anyway (a test process loads no `.env`, and CI has none).
+    """
+    granted = set(railway.ROLE_ENV["fabric-ingress"])
+    missing = {"GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY"} - granted
+    assert not missing, ("a folder-scoped FABRIC_ALLOWLIST entry makes fabric_ingress._path_of resolve an "
+                         f"item's path through the gateway, but fabric-ingress lacks {sorted(missing)} — that "
+                         "read would raise and every lab-delivered file in that drive would dead-letter "
+                         "instead of being admitted")

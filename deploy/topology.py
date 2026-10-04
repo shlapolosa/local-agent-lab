@@ -498,9 +498,14 @@ ROLE_ENV = {
         "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",   # fabric_curator: a person's fabric decision applied at rung H
         _OTLP,                                     # NOTHING else: no store, no bucket, no model and no
     ],                                             # provider credential. It cannot read what it releases.
-    "fabric-ingress": [                            # src/lab/substrate/fabric_ingress.py + lab.platform.{fabric_events,workflows,delivery} — Redis ONLY
+    "fabric-ingress": [                            # src/lab/substrate/fabric_ingress.py + lab.platform.{fabric_events,workflows,delivery}
         "REDIS_URL", "FABRIC_EVENTS", "FABRIC_ALLOWLIST",
-        _OTLP,                                     # no store, no gateway, no credential: it reads run state and events, and submits requests
+        # ONE governed read, and only when the allow-list scopes a drive BY FOLDER: a finished-run event
+        # carries a handle and no path, so `_path_of` asks `collab_item` where the item sits. Without this
+        # the read raises and every lab-delivered file in that drive dead-letters instead of being admitted.
+        # Still no store and no model credential: it reads run state and events, and submits requests.
+        "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",
+        _OTLP,
     ],
     "fabric-projector": [                          # src/lab/substrate/fabric_projector.py — a published record becomes a wiki page
         "REDIS_URL", "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY", "FABRIC_WIKI_FOLDER",
