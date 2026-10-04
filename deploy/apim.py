@@ -61,7 +61,8 @@ STRIPPED = ("input_type",)
 
 # ------------------------------------------------------------------ models
 def model_aliases(config_path: Path = BASE_CONFIG, overlay_path: Path = OVERLAY) -> dict[str, dict]:
-    """Gateway name -> {deployment, reasoning_effort?}: what the overlay says serves each served name."""
+    """Gateway name -> {deployment, reasoning_effort?, drop?}: what the overlay says serves each served
+    name. `drop` is LiteLLM's own `additional_drop_params` — the parameters that model refuses."""
     served = [m["model_name"] for m in yaml.safe_load(open(config_path)).get("model_list", [])]
     overlay = yaml.safe_load(open(overlay_path))
     out = {}
@@ -73,7 +74,8 @@ def model_aliases(config_path: Path = BASE_CONFIG, overlay_path: Path = OVERLAY)
         if provider != "azure":
             raise ValueError(f"{name}: production serves Foundry deployments only, not {params['model']}")
         out[name] = {"deployment": deployment,
-                     **({"reasoning_effort": params["reasoning_effort"]} if "reasoning_effort" in params else {})}
+                     **({"reasoning_effort": params["reasoning_effort"]} if "reasoning_effort" in params else {}),
+                     **({"drop": list(params["additional_drop_params"])} if params.get("additional_drop_params") else {})}
     return out
 
 
@@ -189,6 +191,9 @@ def models_policy(tenant: str, audience: str, keyed: dict[str, list[str]] | None
         # The CALLER's URL decides the shape: by now the request is re-pointed at Foundry, so
         # `context.Request.Url` names the backend (measured: every Responses call got the Chat field).
         'var responses = context.Request.OriginalUrl.Path.EndsWith("/responses"); '
+        # what this MODEL refuses (the overlay's additional_drop_params), and what the API has no field for
+        'if (target["drop"] != null) { foreach (var p in target["drop"]) { body.Remove((string)p); } } '
+        'if (responses) { body.Remove("seed"); } '
         # The alias's effort wins over the caller's — the alias is what the gateway name MEANS.
         'var effort = target["reasoning_effort"] ?? body["reasoning_effort"]; '
         'if (effort != null) { '

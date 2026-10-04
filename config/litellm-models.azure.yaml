@@ -17,6 +17,9 @@ kimi-k3: &gpt5mini
   api_version: "2025-04-01-preview"
   input_cost_per_token: 2.5e-07
   output_cost_per_token: 2.0e-06
+  # gpt-5-mini is a reasoning model: it refuses `temperature` (only the default) — measured 4 Oct
+  # 2026 on both APIs. LiteLLM drops it with this key; APIM renders the same list (deploy/apim.py).
+  additional_drop_params: [temperature]
 
 kimi-k2.7-code: *gpt5mini            # target: gpt-5.3-codex
 gpt-5.4-mini: *gpt5mini              # target: gpt-5.4-mini

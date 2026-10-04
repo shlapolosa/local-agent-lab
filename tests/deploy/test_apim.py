@@ -26,8 +26,9 @@ TENANT, AUD = "b911f4d4-de30-405f-96e9-bb1c773fe2ff", "api://80baf376-3c49-49b9-
 # ------------------------------------------------------------------ model aliases
 def test_every_gateway_model_name_resolves_to_a_foundry_deployment():
     aliases = apim.model_aliases()
-    assert aliases["kimi-k3"] == {"deployment": "gpt-5-mini"}
-    assert aliases["gpt-5.4-mini-think"] == {"deployment": "gpt-5-mini", "reasoning_effort": "medium"}
+    assert aliases["kimi-k3"]["deployment"] == "gpt-5-mini" and "reasoning_effort" not in aliases["kimi-k3"]
+    assert aliases["gpt-5.4-mini-think"]["deployment"] == "gpt-5-mini"
+    assert aliases["gpt-5.4-mini-think"]["reasoning_effort"] == "medium"
     assert aliases["text-embedding-3-large"] == {"deployment": "text-embedding-3-large"}
     assert "nomic-embed-text" not in aliases, "a name the overlay drops is not served"
 
@@ -53,6 +54,20 @@ def test_reasoning_effort_reaches_the_responses_api_in_its_own_shape():
     assert "context.Request.Url.Path" not in code
     # a caller's own reasoning_effort is moved too — LiteLLM did that translation, so callers rely on it
     assert 'body.Remove("reasoning_effort")' in code
+
+
+def test_a_parameter_the_model_refuses_is_dropped_as_litellm_did():
+    # Production, 4 Oct 2026, the next failure after reasoning_effort: Foundry's gpt-5-mini refuses
+    # `temperature` ("not supported with this model") and the Responses API has no `seed` — both sent
+    # by the use-case agents for determinism. LiteLLM's drop_params removed them silently.
+    aliases = apim.model_aliases()
+    assert "temperature" in aliases["gpt-5.4-mini-think"]["drop"], \
+        "a model's refusals are declared on the model, in the overlay (LiteLLM's additional_drop_params)"
+    assert "temperature" in aliases["kimi-k3"]["drop"]
+    assert "drop" not in aliases["text-embedding-3-large"], "an embedding deployment declares none"
+    code = _code(apim.models_policy(TENANT, AUD))
+    assert 'target["drop"]' in code
+    assert 'if (responses) { body.Remove("seed"); }' in code, "the Responses API has no seed, on any model"
 
 
 def _code(xml):
