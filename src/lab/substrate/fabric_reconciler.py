@@ -104,8 +104,14 @@ async def sweep(*, call=None, allowlist: tuple[str, ...] | None = None, depth: i
         while stack and seen < limit:
             path, d = stack.pop()
             page = (await go([(CollabTools.list, {"drive_id": drive, "path": path})]))[0] or {}
+            listed = page.get("items") or []
+            # A listing PAGES, and this asks once per folder: an ignored `more` means the folder is swept in
+            # part for ever, and says nothing — indistinguishable from a folder that really holds that many.
+            if page.get("more"):
+                print(f"[reconciler] {drive[:12]}…/{path or '(root)'}: TRUNCATED — the listing says `more` and "
+                      f"the sweep reads one page, so {len(listed)} item(s) is not all of them", flush=True)
             files: list[dict] = []
-            for item in page.get("items") or []:
+            for item in listed:
                 if item.get("folder"):
                     if d < depth:
                         stack.append((f"{path}/{item['name']}".strip("/"), d + 1))
@@ -116,15 +122,26 @@ async def sweep(*, call=None, allowlist: tuple[str, ...] | None = None, depth: i
                 if ContentHandle.is_handle(item.get("handle")):
                     files.append(item)
             if not files:
+                # Said out loud: a folder of folders is ordinary, a folder whose files were all REJECTED is
+                # not, and a total cannot tell them apart.
+                if listed:
+                    print(f"[reconciler] {drive[:12]}…/{path or '(root)'}: listed {len(listed)}, files 0 "
+                          f"(folders, or handles the contract refused)", flush=True)
                 continue
             # ONE gateway session per page, not per file: the catalog is asked about every file at once
             rows = await go([(SemanticTools.catalog_get, {"pointer": {"source": "collab", "handle": f["handle"]}})
                              for f in files])
+            new = 0
             for item, row in zip(files, rows):
                 event = decide(item, row)
                 if event is not None:
                     fabric_events.publish(event, client=client)
                     published.append(event)
+                    new += 1
+            # Per FOLDER, not per file: enough to tell "listed nothing" from "all already known" from
+            # "truncated", which have different fixes, without a line per document on every tick.
+            print(f"[reconciler] {drive[:12]}…/{path or '(root)'}: listed {len(listed)}, files {len(files)}, "
+                  f"new {new}, already known {len(files) - new}", flush=True)
     return published
 
 

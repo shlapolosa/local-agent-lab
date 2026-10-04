@@ -162,3 +162,34 @@ def test_the_sweep_also_asks_the_steward_and_survives_a_question_that_fails(caps
     monkeypatch.setattr(R, "_ASKED", set())
     R.run_once(call=Gateway(), client=FakeRedis())
     assert "vocabulary questions failed" in capsys.readouterr().out
+
+
+def test_the_sweep_says_what_it_saw_and_what_it_published_per_folder(capsys):
+    """The instrument this needed. Measured 4 Oct 2026: four consecutive live ticks reported
+    `swept: 1 change(s) published` while `decide()`, run by hand against the same catalogue, said ~69 of the
+    listed files should have produced one — and there was no way to tell from outside which step lost them.
+    A total is not an instrument: it cannot distinguish "listed nothing", "every file already known",
+    "handles rejected" and "truncated at a page boundary", and those have different fixes."""
+    gw, r = Gateway(), FakeRedis()
+    asyncio.run(R.sweep(call=gw, allowlist=("collab:drive-1",), depth=2, limit=50, client=r))
+    out = capsys.readouterr().out
+    assert "drive-1" in out and "(root)" in out and "sub/deeper" in out   # names each folder reported on
+    for word in ("listed", "files", "new"):
+        assert word in out, f"the per-folder line must report {word}: {out!r}"
+    # the root: 3 items listed, 2 of them files, 1 new (b.docx is known at the same version)
+    assert "listed 3" in out and "files 2" in out and "new 1" in out
+
+
+def test_a_truncated_listing_is_reported_rather_than_silently_short(capsys):
+    """`collab_list` pages, and the sweep asks ONCE per folder and ignores `more`. A folder with more items
+    than one page is then swept in part, for ever, with nothing saying so — which is indistinguishable from
+    a folder that really holds that many."""
+    class Paged(Gateway):
+        async def __call__(self, calls):
+            out = await Gateway.__call__(self, calls)
+            return [{**o, "more": True, "cursor": "next"} if isinstance(o, dict) and "items" in o else o
+                    for o in out]
+    asyncio.run(R.sweep(call=Paged(), allowlist=("collab:drive-1",), depth=1, limit=50, client=FakeRedis()))
+    printed = capsys.readouterr().out
+    assert "TRUNCATED" in printed or "more" in printed, \
+        f"an ignored `more` must be reported: {printed!r}"
