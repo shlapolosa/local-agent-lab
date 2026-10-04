@@ -32,7 +32,26 @@ def _rows(name: str) -> tuple[dict, ...]:
         return ()
 
 # --- where the tree is (paths, not URLs): the repo root and the git-ignored runtime dir ---
-REPO_ROOT = Path(__file__).resolve().parents[3]            # src/lab/platform/config.py -> repo (editable install)
+def find_repo_root(start: Path) -> Path:
+    """The nearest directory at or above `start` that is the WORKSPACE root, not a member package.
+
+    Searched, not counted: `parents[3]` held only while this file sat exactly three levels down,
+    and a package move would have pointed var/, skills/ and config/ somewhere plausible and wrong.
+    Raises when nothing qualifies — a root that cannot be found must not be guessed."""
+    # pyproject.toml AND skills/: true in a checkout and in the image (/app has no .git), and false
+    # for a member package — packages/<f>/ carries its own pyproject.toml but never the skills.
+    for d in (start, *start.parents):
+        if (d / "pyproject.toml").is_file() and (d / "skills").is_dir():
+            return d
+    raise RuntimeError(f"no workspace root (pyproject.toml + skills/) at or above {start}; set LAB_REPO_ROOT")
+
+
+def repo_root() -> Path:
+    """`LAB_REPO_ROOT` when set (a deployment that knows better), else the search above."""
+    return Path(_e("LAB_REPO_ROOT") or find_repo_root(Path(__file__).resolve().parent))
+
+
+REPO_ROOT = repo_root()                                     # /app in the image (pyproject.toml is COPYed there)
 VAR_DIR = Path(_e("LAB_VAR_DIR") or REPO_ROOT / "var")     # logs/ run/ artifacts/ out/ inputs/ tools/ reference-sources/
 SKILLS_DIR = REPO_ROOT / "skills"                           # the registered skills (SKILL.md + engines); COPYed into the image
 
