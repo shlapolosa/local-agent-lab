@@ -45,6 +45,30 @@ def test_the_kernel_registries_contain_every_slice_member():
             assert contracts.SERVERS[c.SERVER] is c, (s.__name__, c.SERVER)
 
 
+def test_no_slice_code_reads_a_registry_name_its_own_tuple_shadows():
+    """Inside a slice, `PROCESSES` is the slice's OWN tuple — so code meaning the kernel's registry (every
+    process) must say `_kernel.PROCESSES`. Learned when the fabric split made `ArtifactChanged` refuse
+    `produced_by="transcript_to_minutes"`: the check silently narrowed from nine processes to two, and no
+    import-time check could see it, because the name was defined — just not the one the code meant."""
+    import ast, inspect
+    shadowed = {"PROCESSES", "AGENTS", "CATALOGUES", "SERVERS", "ALL_TOOLS"}
+    for s in SLICES:
+        for fn in (n for n in ast.walk(ast.parse(inspect.getsource(s)))
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            reads = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id in shadowed}
+            assert not reads, (s.__name__, fn.name, reads)
+
+
+def test_an_event_may_name_any_registered_process():
+    """The behavioural half of the guard above: every producer the kernel registers is accepted."""
+    from lab.core import ids
+    pointer = {"source": "collab", "handle": "collab://item/drive-1/01ABC", "version": "4.0"}
+    for name in contracts.PRODUCING_PROCESSES:
+        ev = contracts.ArtifactChanged(event_id=ids.ulid(), pointer=pointer, source_kind="collab", change="updated",
+                                       actor_oid="3f2a", occurred_at="2026-09-11T08:10:31Z", produced_by=name)
+        assert ev.produced_by == name
+
+
 def test_a_reexported_name_is_the_slice_object():
     for s in SLICES:
         for name in s.__all__:
