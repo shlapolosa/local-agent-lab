@@ -186,9 +186,13 @@ def models_policy(tenant: str, audience: str, keyed: dict[str, list[str]] | None
         'if (target == null) { return body.ToString(); } '
         'body["model"] = target["deployment"]; '
         + "".join(f'body.Remove("{f}"); ' for f in STRIPPED) +
-        'var effort = target["reasoning_effort"]; '
+        # The CALLER's URL decides the shape: by now the request is re-pointed at Foundry, so
+        # `context.Request.Url` names the backend (measured: every Responses call got the Chat field).
+        'var responses = context.Request.OriginalUrl.Path.EndsWith("/responses"); '
+        # The alias's effort wins over the caller's — the alias is what the gateway name MEANS.
+        'var effort = target["reasoning_effort"] ?? body["reasoning_effort"]; '
         'if (effort != null) { '
-        '  if (context.Request.Url.Path.EndsWith("/responses")) { body["reasoning"] = new JObject(new JProperty("effort", effort)); } '
+        '  if (responses) { body.Remove("reasoning_effort"); body["reasoning"] = new JObject(new JProperty("effort", effort)); } '
         '  else { body["reasoning_effort"] = effort; } } '
         'return body.ToString();')
     known = 'JObject.Parse(' + _cs(aliases) + ')'

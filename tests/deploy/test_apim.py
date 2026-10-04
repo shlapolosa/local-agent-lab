@@ -42,6 +42,19 @@ def test_the_model_policy_maps_names_in_the_request_body_and_calls_foundry_as_it
     assert "llm-token-limit" in xml and "llm-emit-token-metric" in xml
 
 
+def test_reasoning_effort_reaches_the_responses_api_in_its_own_shape():
+    # Production, 25 Sep 2026: every screening run died at its first model call with Foundry's 400
+    # "Unsupported parameter: 'reasoning_effort' … moved to 'reasoning.effort'". The alias
+    # gpt-5.4-mini-think carries an effort; the policy chose the shape from `context.Request.Url`,
+    # which by then named the BACKEND, so a Responses call got the Chat Completions field.
+    code = _code(apim.models_policy(TENANT, AUD))
+    assert 'context.Request.OriginalUrl.Path.EndsWith("/responses")' in code, \
+        "the caller's URL decides the shape, not the backend the request was re-pointed at"
+    assert "context.Request.Url.Path" not in code
+    # a caller's own reasoning_effort is moved too — LiteLLM did that translation, so callers rely on it
+    assert 'body.Remove("reasoning_effort")' in code
+
+
 def _code(xml):
     """Every policy expression, decoded as APIM compiles it: attribute values and element text."""
     root = ET.fromstring(xml)
