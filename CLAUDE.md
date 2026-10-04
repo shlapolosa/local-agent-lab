@@ -8,6 +8,21 @@ A local prototyping lab for enterprise agentic solutions targeting Azure, run en
 
 The goal is **pattern parity with Azure, not feature parity**: every prototype agent authenticates, egresses through a gateway, is metered, is PII-scanned, and is traced — exactly as in production. Application code uses the **Microsoft Agent Framework** so solutions migrate to Azure (Container Apps + APIM + AI Foundry) without rework.
 
+## Feature notes (loaded on demand)
+
+Feature-specific rules live beside the feature, not here. Each `docs/features/<feature>.md` is
+imported by a small `CLAUDE.md` in that feature's source directories, so it loads only when an agent
+works there. Read the file before changing a feature from somewhere else (a script, a test, the deploy
+tables). Shared rules stay in this file; a rule that applies to two features belongs here.
+
+| Feature | Notes | Covers |
+|---|---|---|
+| ea | `docs/features/ea.md` | ADOIT, ArchiMate, Visio/diagram ingestion for `visio_to_archimate` |
+| fabric | `docs/features/fabric.md` | the semantic layer, semantic-mcp, the fabric |
+| speech | `docs/features/speech.md` | speech-mcp, voiceprints, the meeting pipeline, the provider bake-off |
+| reference | `docs/features/reference.md` | reference-mcp, pins, vector stores, the capability map, cost as a join |
+| usecase | `docs/features/usecase.md` | the use-case pipeline, its ArchiMate model and CAFÉ views, declared defaults |
+
 ## Debugging & Error Resolution (methodology — follow on ANY error or failure)
 
 **Version skew is a first-class suspect.** A cloud run once died 320 s in with "tool
@@ -256,57 +271,7 @@ host, `deploy/railway.py WORKLOADS`, and the LiteLLM team grant. `workflow_mcp` 
 that TRIGGER processes (an orchestrator agent, a Copilot Studio connector) — never to a workload's own
 agents.
 
-**The use-case workflow grows ONE ArchiMate model, step by step, and its views are projections of
-it (14 Sep 2026).** After every step is recorded — the agent steps and the governed derivations
-alike — a deterministic MAPPER (`lab.workloads.usecase.mappers.MAPPERS`, keyed by step KEY, one
-entry per step) writes that step's output onto `lab.workloads.usecase.model.Model`: the frame as
-motivation, step 4's elements as actors/functions/objects, the coverage match as capabilities
-realised by functions, the workflow graph as processes (`bp-<node id>` — the ONE element steps 10,
-15, 17, 18 and 19 all land on, because they share the node id), obligations as constraints, the
-composition as family groupings carrying the CAFÉ archetype, step 21's components as
-ApplicationComponents tagged `cafe.zone`/`cafe.families` from the pinned catalogue. Ids are a pure
-function of the output (`ids.slug`, prefixed by kind) so a re-run UPDATES; every relation is checked
-against the published matrix (`relrepair.check`) at proposal and an illegal one is COUNTED under
-`dropped`, never raised — a mapper is bookkeeping and must not fail a 20-minute run (`mappers.apply`
-restores the model and records the failure on it if a mapper throws). The model rides the process
-records (`screening.json["model"]`, `design.package.json["model"]`) — no contract change — and the
-design re-records it into its own package. A later step reads it as `model_summary` (names by
-type, plus the composition's required families and which are realised), NEVER the spec: `message()`
-dumps a context entry whole. Consequences: **the composition (22) now runs BEFORE step 21** (its
-inputs are 17/19/20), so the selector is held to the families by a SOFT rule
-(`steps._families_realised`, `Step.soft`, `gates.run_gated(soft=)`: asked for once on the retry,
-then RECORDED under `unresolved` rather than raised — a family nobody selected is something the
-design owes, which a reviewer must see, not a reason to lose the run; a catalogue with no
-`families` column makes no claim, and that column is authored content still to publish). At the END
-of the design `render_views` stores the model by ref (`design.model.json`) and projects it twice —
-`archimate_render` (XML + one SVG per standard view) and the new semantic-mcp
-**`semantic_render_cafe`** (`lab.substrate.mcp.semantic.cafe`: ours only, `include_comps:
-["none"]`, every component in the CAFÉ zone its property names, on the archetype the composition
-put on the root; a component with no zone is `unplaced`, never guessed; the skill's engine is
-imported from `config.SKILLS_DIR` via `sys.path`, the one such seam) — refs into the package, SVGs
-onto the conformance approval as tabs, and **`architecture_ref` is the draw.io file** (the model
-when nothing drew, the package as a last resort). Neither render tool is REQUIRED: a design that
-cannot draw is still a design, and the warning it records is the visible degradation.
-**A step that answers for SOME of the workflow is the dangerous shape (15 Sep 2026).** Run 5 returned
-ONE facet vector for a ten-node graph: it validated, it derived cleanly, and the exposure, the
-obligations and the composition all came back describing that single node with max exposure 0 — a
-control set nine steps short that looks exactly like a complete one. `steps._covers_every_node` now
-holds steps 15 and 17 to the node ids the graph in their context carries: every node exactly once,
-no id the graph does not have (a readiness EVIDENCE record spells `nodes` as a count, so a non-list
-makes no claim). Two sibling rules, from the same run: a coverage map in which NO match is a
-`lookup` must say so in a gap flag — the confidence is never forced up, the map is made to state
-what it is — and step 21 carries a second SOFT rule, `_does_the_work`: a selection drawn entirely
-from the cross-cutting zones (`ident`, `obs`, `plat`) is a control plane with nothing inside it,
-recorded under `unresolved` rather than failing the run. Zones are the catalogue's own column, so it
-asks nothing the corpus does not already say.
-
-**The CAFÉ view reuses the reference architecture's OWN component ids** (`cafe.catalogue()`, matched
-on normalised name): our corpus components were extracted from the artifact the skill draws, so a
-selected component is usually the catalogue's own under the same name, and that is what lets the
-published edges between two selected components survive `include_comps: ["none"]`. Run 5 drew
-fifteen tiles and no lines because every id was minted; the same model now draws five. A minted id
-(and its M4-extension warning) is left only for what the reference architecture does not carry, and
-a view with tiles but no connections says so in a warning rather than passing as an architecture.
+*(Moved to `docs/features/usecase.md`, loaded automatically when working in that feature's code.)*
 
 **Every governed tool call is BOUNDED (`config.TOOL_CALL_TIMEOUT_S`, 1000 s, in
 `lab.platform.mcp_client.call_tools_raw`) — the FLOOR under every other bound, above speech's
@@ -323,23 +288,7 @@ while a bound that only wrapped `call_tool` watched. `gateway.preflight`'s listi
 way: a preflight exists to cost nothing and refuse early, and one that hangs holds the run open before
 it has done anything at all. A hung host is unstuck by restarting the service (`deploymentRestart`); its crash-hygiene pass
 marks the stale request failed rather than re-running it.
-**THROWAWAY test aid, on by `USECASE_MODEL_TRACE=true`** (`lab.workloads.usecase.modeltrace`, one
-module, one call in `modelling.grow`): every step that touched the model also stores and renders
-its DELTA (touched elements + the step's relations + their endpoints, one view), and both approvals
-show one tab per step in run order — "for the sake of proving the outputs of each step". Off by
-default (one store + one render per step); `model_trace` never enters a prompt.
-
-**A screening step whose tenant corpus is unpublished records a DECLARED default (13 Sep 2026).**
-Steps 6, 8 and 11 read corpora this tenant does not have (the as-is landscape, the business service
-levels, the source classification). Rather than stay pending and fail readiness gate C on every case,
-each records the conservative reading of not knowing — `lab.workloads.usecase.fallbacks`: nothing is
-realised, no service level is committed, every source contracted at the tightest classification —
-validated and gated exactly like an answer, and listed under `defaulted_steps` on the screening
-record and as `screening_defaulted_steps` on both design summaries. Defaulted is neither derived nor
-pending: a reader can see exactly which findings rest on an assumption. A published corpus gets the
-agent's grounded answer with no change. The full chain ran in the cloud on one submission that day:
-screening → criticality approval → design (proceed) → conformance approval → investment (escalated:
-no delegation-of-authority table) → authorisation approval → provisioning (6 work items, staged).
+*(Moved to `docs/features/usecase.md`, loaded automatically when working in that feature's code.)*
 
 **`ProcessSpec.external` (default true) says whether an OUTSIDE caller may START a process.** Some
 processes are a CONTINUATION of another: `transcript_to_minutes` takes the speaker mapping a HUMAN
@@ -352,24 +301,7 @@ master key. Status and result stay, deliberately — refusing to START is not re
 flow that cannot poll the run its own approval began cannot tell a person the minutes are ready. The
 continuation runner submits IN-PROCESS, so the legitimate path pays nothing.
 
-**A workflow graph is a DECOMPOSITION, and family membership is DERIVED (15 Sep 2026).** Two more
-run-8 findings. Step 10 returned ten nodes for ten functions, each node wearing its function's own
-name — and since the determinism tier, the facet vector, the exposure and the control set are all PER
-NODE, the whole risk chain came out exactly as coarse as the inventory it copied while looking like
-analysis. The prompt had literally asked for it ("one step per business function"); it now asks for a
-split wherever the ACTION changes (retrieving is not interpreting, interpreting is not deciding), and
-`steps._decomposes` refuses a graph whose every node is a function renamed, one-for-one. A function
-that genuinely is one step stays one node — what is refused is EVERY function being one.
-And step 21's family rule no longer waits on an authored column the reference architecture does not
-have: `lab.workloads.usecase.families` follows the published chain **family → guardrail (the
-composition's own enforcement map) → capability (`guardrails.cap`) → components
-(`ai-capability-map.components`)**, recorded before step 21 so the architect sees what each component
-would satisfy and the gate holds the selection to it. It is PARTIAL by nature — ten of twenty-six
-guardrails name a capability — so `unclaimed()` names the families the corpus is silent about and the
-rule demands nothing for them; a published catalogue column, if a tenant ever writes one, is believed
-over the derivation. On run 8's real design: five families carried, six unclaimed, none uncovered.
-The cost headline now carries `components_priced` beside `components`, because a year-one figure that
-priced five of sixteen and says so is evidence, and one that does not is the empty summary again.
+*(Moved to `docs/features/usecase.md`, loaded automatically when working in that feature's code.)*
 
 **An approval SAYS WHAT THE WORK LEFT OPEN, before the reviewer opens anything (15 Sep 2026).** Run 8
 proceeded with four obligations bound to no enforcement point, eleven components nobody could price
@@ -456,52 +388,8 @@ The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the refe
   a **deterministic fallback** (`_call_tools` by ref) guarantees the pipeline completes if a model
   skips a call on a given run. Both `archimate_render` and `semantic_validate_model` accept
   `spec`|`spec_ref` (and coerce a JSON-string spec → dict). Model: **kimi-k3**.
-- **BA inputs = a diagram + optional requirements documents, BY REFERENCE, read ONLY through the
-  gateway.** A person submits them on the review app's **Submit** mode (or `python -m
-  lab.substrate.review.uploads upload <files>`): files land in the **upload store**
-  (`UPLOADS_URL` — a Railway Bucket in the cloud, the Postgres artifact store locally; refs are
-  `art://<id>/<name>`) and an explicit **Run** publishes a durable `workflow:requests` event
-  (`src/lab/platform/workflows.py`, Redis Streams) that the long-lived `wf-visio` host
-  (`src/lab/workloads/visio_to_archimate/consumer.py`) consumes, writing status/trace/approval back.
-  **A workload holds NO object-store credentials**: refs are read through the gateway's
-  **storage-mcp** (`src/lab/substrate/mcp/storage/server.py`, read-only: `storage_read_vsdx`,
-  `storage_read_document`, `storage_get`, `storage_extract_figures`, `storage_list/info`), granted
-  per team and metered/traced like any tool; the BA's spec is stored via `semantic_store_spec`.
-  **Three input KINDS, and for a `.vsdx` TWO representations** — do not conflate them. A **`.vsdx`** is
-  structured OOXML parsed deterministically AND (when the host can render) rasterised to a page image,
-  so the BA RECONCILES structure with vision: the parse wins on element identity/text/native
-  connectors, vision wins on grouping/containment and missing connectors, conflicts become
-  `openQuestions`. Rendering is an OPTIONAL capability (`storage_render_vsdx`, LibreOffice + a
-  rasteriser on the storage-mcp host, `SOFFICE_BIN` in `.env`): absent, the run degrades to
-  structure-only AND SAYS SO in the BA message — it never fails. Only the rendered page carries an
-  image, and the message names which page that is.
-  **A Lucidchart export has NO `<Connects>` section at all** (verified on the real file — the old
-  "empty instance geometry" note was a library limitation, not the file), but every
-  `com.lucidchart.Line.*` shape carries `BeginX/Y`–`EndX/Y` in page coordinates. `lab.core.visio.geometry`
-  recovers `from`/`to` by matching each endpoint to the nearest element bounding box: tolerance is
-  **1.0 × the median element min-edge** (pages are inches at an arbitrary author scale, so an absolute
-  length is meaningless), group offsets folded in, and rotated/flipped subtrees are SKIPPED and counted
-  — a mis-placed relation survives the approval gate looking plausible, a missing one does not.
-  Recovered links carry `recovered: "geometry"` + `match_distance`, and the parse carries a `recovery`
-  block counting lines that yielded nothing, which the BA must raise in `openQuestions`. Measured:
-  Sahatna **0 → 44 connectors, 244 → 214 shapes**; Malaffi native output byte-identical.
-  A **diagram IMAGE** (png/jpg —
-  no XML) is fetched by the deterministic BA node via `storage_get` and attached inline to the
-  BA's message, read with vision (kimi-k3 / kimi-k2.7-code / glm-flash declare `vision` on Ollama
-  Cloud; image parts pass through the gateway both as message content and as MCP ImageContent —
-  verified; `supports_vision` is set in `litellm-config.yaml`); a **requirements document**
-  (docx/pdf/md/txt) becomes text via `storage_read_document`, and its **embedded figures** are
-  extracted server-side (`storage_extract_figures`) and attached as "figure N embedded in <doc>".
-  Image sizing is enforced in ONE place (`src/lab/platform/docparse.py`): **≤1600 px** for images and
-  document figures, **≤2400 px for a whole rendered page** (1600 px on a 16-inch page is ~100 dpi —
-  captions unreadable, defeating the point); PNG/JPEG, <2 KB / <64 px decorations dropped, ≤8 figures/doc and documented in the `visio-reader` skill. Local
-  paths still work for dev (parsed by the same helpers). Gotcha: fastmcp derives an outputSchema
-  from a tool's return annotation — image-returning tools must have NONE, or clients fail with
-  "outputSchema defined but no structured output returned". Requirements are evidence, not new
-  boxes: a requirements-only element is added only if plainly part of THIS system (marked
-  `source: requirements`), otherwise it is an `openQuestion`. Per-element **`provenance`
-  `{source, representation}` is REQUIRED** by `ba_output.schema.json` and by the `[D]` gate (which
-  expands the bare-string shorthand to the object form; both BA modes share one normaliser).
+*(Moved to `docs/features/ea.md`, loaded automatically when working in that feature's code.)*
+
 - **Agents never call each other directly — the workflow mediates via a typed contract.** The BA
   emits schema-validated JSON (`jsonschema`); a **deterministic gate rejects incomplete output**
   (one BA retry) before the Architect sees it. A2A-through-the-gateway is the future upgrade when
@@ -523,56 +411,7 @@ The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the refe
   LiteLLM is still mandatory (governance/discoverability) — `scripts/register_skill.sh <team_id>
   [skill] [env_var]` is now generalized (default `archimate-adoit`; also registers `visio-reader`).
 
-## ADOIT MCP Server (own-built)
-
-The ADOIT EA integration wraps the ADOIT REST API (Community Edition has no built-in MCP), built on the existing internal Python ArchiMate library (61 element types, role-based architect agents). FastMCP exposes typed create/read/update tools; validation runs against the library before any repository write. Read/query tools may be shared across processes; write tools are ACL-restricted to a dedicated EA Modeling Agent. ADOIT credentials live in `.env` (`ADOIT_USERNAME`/`ADOIT_PASSWORD`, plus `ADOIT_BASE_URL` and `ADOIT_REPO_ID`), alongside `OLLAMA_API_KEY`.
-
-**The tenant runs ADOIT 18 (`GET /rest/2.0/version` → `productVersion 18.0.0`) but is BOC's hosted
-Community Edition (`adoit-ce.boc-cloud.com`). REST *reads* work; REST *writes* are BLOCKED at the CE
-edge (verified live Sep 3 2026).** Search and object read over REST work fully and power the
-existing-architecture-aware step. But `POST/PATCH/DELETE /objects` return a BOC edge **block page**
-("URL not available on this server") even though `OPTIONS` advertises the verbs and the same
-credentials/IP read fine — it is a hosted-CE edge policy, not auth, not IP allowlist, not the request
-body. So **true in-place REST writes are not available on this tenant**; the write path is human-gated
-**file-import** (below). The granular REST write facade (`adoit_rest.create_object/patch_object/
-delete_object/create_relation`, bodies verified against the tenant OpenAPI + BOC examples) is built but
-**dormant behind `.env` `ADOIT_REST_WRITE`** (default false) — flip it only on a full/licensed ADOIT or
-the Azure/Foundry target. The verified read surface (`src/lab/substrate/mcp/adoit/adoit_rest.py`):
-- **Search** — `GET /rest/2.0/repos/{repo}/search?query=<url-encoded JSON>` (Basic auth). Query =
-  `{"filters":[{"className":"C_APPLICATION_COMPONENT"} | {"attrName":"NAME","op":"OP_LIKE","value":"x"}],
-   "scope":{"repoObjects":true,"models":true,"modObjects":true}}` — **a non-empty filter is required**
-  (empty → 400). Items: `{id,name,type,artefactType(REPOSITORY_OBJECT|DIAGRAM|MODINST),metaName(C_*),
-  groupId,modelId,modelName}`. Exposed as the read-only tool **`ea_search(name_like, class_name, scope, limit)`**.
-- **Object detail** — `GET /rest/2.0/repos/{repo}/objects/{objId}` → attributes + relation slots
-  (`{name, metaName(RC_*), targets:[{id,name,metaName,direction}]}`). Tool **`ea_object(object_id)`**.
-- **Write (edge-blocked on CE)** — `OPTIONS` advertises `POST /objects` and `PATCH,DELETE /objects/{id}`,
-  but the actual verbs return the CE edge block page. className/relclass maps are deterministic
-  (CamelCase ↔ `C_UPPER_SNAKE`; relation ↔ `RC_UPPER_SNAKE`). The facade is ready for a write-capable tenant.
-
-**Write path = human-gated file-import, TWO files, TWO purposes** (`ea_import_instructions`):
-- **OBJECTS → Excel object-import** (the adapter's PRIVATE object-import file → `.xlsx`, `src/lab/substrate/mcp/adoit/adoit_excel.py`,
-  bundled ENGLISH tenant template in `src/lab/substrate/mcp/adoit/templates/`). ADOIT's "Import objects from Excel"
-  both **creates and updates** objects, matching each row on its **NAME** (found once → UPDATE in place,
-  absent → CREATE, found twice → error). One sheet per element type; the generator fills the tenant's
-  own template. **Relationships** are written on the source object's row in the `<Relation> (->TargetSheet)`
-  column, value = target name (`;`-joined for several); ADOIT-specific roles (RACI/Vendor/Predecessor)
-  are left unset. Both maps are **derived from the template at runtime** by normalized name-match
-  (`_norm`) — the EN template's sheet names ARE the ArchiMate types ("Application Component", "Course of
-  Action") and its relation labels ARE the ArchiMate relation names — so there is no hardcoded map to
-  drift (swapping locales re-derives the sheet map; only non-English relation *labels* need `REL_ALIAS`).
-  This is why object **names must stay unique** — the existing-aware step's job.
-- **VIEWS → ArchiMate Model Exchange XML** (`archimate_render` → `.archimate.xml`). Imports the
-  diagram/geometry. NOTE: ArchiMate import **always creates** objects in a new group — it does NOT
-  match on identifier (verified: even with the native `id_<uuid>` identifier it duplicated). So it is
-  the *views* path; the Excel file is what keeps objects de-duplicated and updatable. (The engine
-  still emits ADOIT-native `id_<uuid>` identifiers — `_ident()` in `archimate_engine.py` — for valid
-  XML and forward-compat with a tenant that does match on identifier.)
-
-The repo already holds a real ~134-object landscape. The workflow is **existing-architecture-aware**:
-a `resolve_existing` node searches ADOIT, an agent decides NEW vs UPDATE + matches BA elements to
-existing object ids, the Architect **reuses those ids** (no duplicates) and folders by domain, and
-the reviewer confirms update-vs-new at the approval gate; the run stages BOTH the Excel object file
-and the ArchiMate views file for import.
+*(Moved to `docs/features/ea.md`, loaded automatically when working in that feature's code.)*
 
 ## Local-first vs cloud toggles
 
@@ -702,13 +541,7 @@ not reached is not an instrument. **After any deploy that did not end green, rea
   (`docker build -f deploy/Dockerfile .`, then import every role's module) before pushing; that is how
   the prisma/npm defect was found instead of failing a cloud build.
 
-## Architecture Modelling
-
-Use the project skill `archimate-adoit` (`skills/archimate-adoit/`) for all ArchiMate
-modelling and ADOIT export: it bundles a deterministic layout engine (orthogonal parallel
-routing, layer bands, interfaces as icons), the ArchiMate 3.1 vocabulary, and the ADOIT:CE
-import procedure. Keep generator scripts under `scripts/` so views are regenerable.
-The engine originates from `~/Development/health-service-idp` (archi_layout.py / drawio_c4.py).
+*(Moved to `docs/features/ea.md`, loaded automatically when working in that feature's code.)*
 
 ## Repository Layout & Tiers (restructured Sep 4 2026 — `src/lab` package, four tiers)
 
@@ -947,230 +780,9 @@ Claude Code via the gateway) and the agentic solutions.
 - **Boundary**: regex cannot catch names or free-text clinical PII — that is the second,
   NER tier: Presidio in-process middleware in the workflow hosts (docx §6), still to build.
 
-## Semantic Layer (`src/lab/core/semantic/`, served by `semantic-mcp` :9200)
+*(Moved to `docs/features/fabric.md`, loaded automatically when working in that feature's code.)*
 
-Vocabularies as **data**, not prose: a `Vocabulary` (classes with layer/aspect facets and
-definitions, relation types, the permitted source→relation→target matrix, modelling rules)
-renders to RDF; a `Registry` holds many; a `SemanticStore` (rdflib, in-process, named graphs)
-holds vocabularies + instance models and answers SPARQL over all of them. ArchiMate 3.1 is the
-first vocabulary: `src/lab/core/semantic/archimate/taxonomy.json` (classification, distilled from the cheat
-sheet) + `archi-relationships.xml` (Archi's machine-readable complete Appendix B matrix, 62
-concepts / 3,844 pairs, letter key in `vocab.py`). Add a vocabulary = a JSON/XML data file +
-a `build()`; add a question = a SPARQL template in `service.QUESTIONS`.
-
-- **Why not vector search**: the cheat sheet is a taxonomy + a relationship matrix — tables and
-  rules, not prose at scale. Deterministic lookup/validation beats retrieval, and Ollama Cloud has
-  no embedding models anyway. Vector stores stay reserved for large text corpora later.
-- **Derivation** (`model_rdf.py`): structural chains derive the weakest relation; structural
-  chain + dependency derives that dependency (`am:derivedRealization`, `am:derivedServing`…).
-  This is what makes "which goals are realized by components on node X" answerable.
-- **The skill engine uses it**: `validate_relations()` is exact (full matrix + interface-exposure
-  semantics) when `src/lab/core/semantic/` is importable, coarse otherwise; every exported element's
-  documentation is prefixed with its `[Layer · aspect — Type]` classification.
-- **Interfaces have their strict meaning**: an interface is the access point of a service —
-  `Composition owner→interface` plus **`Assignment interface→service`**; a consumed service without
-  an assigned interface is a warning. Functions are the decomposition unit (component assigned
-  to function, function realizes service); business channels are `BusinessInterface`s realized by
-  the `ApplicationInterface` that implements them.
-- **Reference models are a second KIND of vocabulary — SKOS concept schemes** (`src/lab/core/semantic/skos.py`,
-  `src/lab/core/semantic/reference/baguild.py`): the BA Guild Healthcare Provider v2.0 and Insurance v5.0
-  models are loaded from their ORIGIN workbooks (capability map L1–L4 with tiers, value streams,
-  and — insurance — organisation, stakeholder and information maps). The workbooks are licensed:
-  they live in `var/reference-sources/` (git-ignored) or `REFERENCE_MODELS_DIR`; only derived
-  RDF exists at runtime. Same-label top capabilities across schemes are linked by
-  `skos:exactMatch` in a mappings graph — schemes are never merged. Stable concept ids are
-  hashes of the full label path (the workbooks carry no ids).
-- **Writing reference capabilities into ADOIT is a two-server operation**: `semantic-mcp`
-  `semantic_export_archimate(scheme, root_label, depth)` projects a subtree to an ArchiMate spec
-  (Capability + Composition, an L1 overview view in rows, one nested view per top concept —
-  capability maps nest by convention, the one sanctioned use of containers); then `adoit-mcp`
-  `archimate_render` + `ea_stage_import` render and stage it for approval like any model.
-  `scripts/export_capabilities.py <scheme> [root] [depth]` runs that chain via the gateway.
-- **Placement**: `semantic-mcp` is a separate, credential-free, read-only server granted to every
-  team; `adoit-mcp` stays the governed EA-repository facade. Both import the same package.
-
-## Speech (`lab.core.speech`, served by `speech-mcp` :9600) — and the provider bake-off
-
-The domain port is **`Transcriber`** (`lab.core.speech.port`): a `Protocol`, so an adapter is free of
-us and a test double is a plain object. It states four things a provider must honour — **languages
-are a plural HINT** (declaring one language is the documented way to make a switching engine worse),
-the **recognised language comes back PER SEGMENT** (without it, a span rendered in the wrong language
-is indistinguishable from a correct answer), **speaker labels are ANONYMOUS and per request**
-(mapping a label to a human is a separate, human-gated act), and **a refusal is TYPED**.
-Summarisation is deliberately absent: this port returns words and labels, and minutes are produced
-by the lab's own governed model — which is what makes "the vendor does not summarise our meetings"
-structural rather than a promise.
-
-**A speaker is someone who said something.** A diarizer segments AUDIO, not speech, so it can
-attribute a breath or a keyboard to a voice it thinks is new and return that segment with EMPTY
-text. Measured 7 Sep 2026: a one-person meeting produced three empty `SPEAKER_01` segments, and a
-human was asked at the approval gate to name a person who never spoke. `Transcript.spoken` is the
-basis of every speaker-facing derivation; the empty segments STAY in `segments` (a provider's
-timeline is evidence) and a silent span belonging to a speaker who DID talk still counts toward
-their share — a pause inside a turn is their time. Only the label minted by silence alone is excluded.
-
-**Adapters, one line each in `lab.substrate.container.SPEECH_PROVIDERS`** — three files per provider
-(`*_map.py` pure mapper, `*_rest.py` transport, `*_repository.py` adapter), with the generic parts
-shared: `http.py` (injected transport, multipart, `poll_until`), `refusal.py` (provider status -> the
-domain's typed refusal), `tokenmap.py` (a word/token stream -> speaker turns, breaking a run at a
-change of speaker OR of language, because that switch is the evidence). `soniox-en` is the same
-provider asked for the English half of its unified token stream — a separate registry entry, not a
-flag, because the verbatim record and the rendering are different artifacts.
-
-**`enable_language_identification` is not optional on Soniox, and leaving it off cost five distinct
-defects** (root-caused 12 Sep 2026 by sending the SAME 91.8-second bilingual recording twice,
-differing only in that boolean). Without it the provider returns **no `language` field at all** — so
-the port's per-segment language is empty, and `tokenmap`, which breaks a speaker's run at a change of
-language, could not see the code-switch this lab exists to make visible. Worse, it also stopped
-marking the translated Arabic as `original`, returning it under `translation_status: none` in Arabic
-script with a `translation` run after it: a payload in which NOTHING says which words the rendering
-replaces, and no heuristic recovers it. With the flag on, the same audio came back clean — 335
-`none`/en, 53 `original`/ar, 47 `translation`/en, strictly alternating. **One missing boolean;
-`request_body` now always sends it.**
-
-**The stream has THREE kinds of token, and the `soniox-en` lane asked for the wrong one.**
-`soniox_map.WANTED` names the three renderings: `original` = `none + original`, the verbatim record;
-**`english` = `none + translation`, every word in English — what a person reads and what minutes are
-written from**; `translation` = the rendered spans ALONE, a side-by-side column and nothing more. The
-lane asked for the last, so a mostly-English meeting came back as 21 words of 219 and read like a bad
-recording rather than a wrong filter. Four further rules the live payload settled, none of them in
-the published schema:
-- **The tokens are SUB-WORD and carry their own leading space** (`"Ass"`, `"al"`, `"amu"`, `" al"`),
-  so they CONCATENATE — `group_into_segments(concat=True)`, per provider, because ElevenLabs drops
-  its own `spacing` entries and needs the spaces put back. Getting it backwards is silent and still
-  looks like a transcript: the space join turned "Peace be upon you" into "Pe ace be up on y ou".
-  A **whitespace-only token is a word BOUNDARY** in that stream, not noise — the blank-token filter
-  written for word streams deleted one and shipped "going to theright direction".
-- **A rendering carries NO timestamps** (`start_ms: 0, end_ms: 0`) and is emitted right after the run
-  it renders, so it BORROWS that run's span — the run IMMEDIATELY before, one contiguous group of the
-  same status AND speaker. Without the borrow the English rendering rewinds to zero on every Arabic
-  span and `Transcript.__post_init__` refuses it. Keyed on status alone, two translated turns by
-  different speakers pool into one span and each rendering is laid over the other's talk — which
-  raises nothing, and doubles both speakers' share of the recording.
-- **A rendering never shares a segment with speech** (`Tok.kind`). Both carry the same speaker and,
-  once translated, the same language, so kind is the only thing left holding them apart — and a
-  segment is quoted to a human at the speaker-naming approval as words that speaker said.
-- **Speech nothing rendered is KEPT** in the English transcript. Its script then shows in the digest,
-  which is a visible imperfection; silently losing speech is not — and because the mode's success
-  metric is "no Arabic script", losing it would read as a win.
-
-**Measured, five lanes plus Microsoft's own transcript, one 91.8 s recording**
-(`var/out/bakeoff/20260912_114824/`): reference 194 words · munsit 131 · assemblyai 198 ·
-elevenlabs 203 · **soniox 216 at 7.6 % Arabic script, the only lane reporting `code_switched`** ·
-**soniox-en 223 at 0.0 %**. The decisive span is the Arabic question at 52 s: Microsoft's transcript
-DROPS it, munsit returns fragments ("Attia", "thing um"), ElevenLabs and AssemblyAI each keep the
-English words around it and lose the Arabic half — **Soniox is the only provider that captured it**,
-verbatim in Arabic and rendered in English. **So the planned governed translate step is not needed
-for this provider**: it is one call, and the speaker survives onto the translated tokens, which is
-what keeps a rendered transcript attributable.
-
-**Every Soniox fixture in this repo had been typed from the published schema, and that is how three
-of the defects above passed review** — the code and the tests shared the same wrong assumptions and
-agreed with each other. Two things changed: `tests/fixtures/soniox_response.json` is 111 contiguous
-tokens of a REAL response (contiguous because a spliced slice invents word boundaries the stream does
-not have), guarded by a test that fails if a later trim removes the sub-word tokens, the `none` bulk,
-the timestamp-less renderings or the whitespace boundary; and `scripts/speech_bakeoff.py` now saves
-`<provider>.raw.json` per lane, in a `finally` — the payload is worth most on the run that failed to
-map.
-
-**The transliteration finding (7 Sep 2026), which drives the whole comparison.** Munsit heard
-English correctly and wrote it in ARABIC LETTERS: `اكشن ايتمز` is a faithful phonetic rendering of
-"action items". Verified against Microsoft's own transcript of the same recording. This is
-orthographic, not semantic — every word right, every letter wrong — and it is a KNOWN general
-behaviour, not a Munsit defect: the only independent benchmark of code-switched Arabic
-(arXiv 2605.19069, May 2026) reports **WER overstates such gaps ~3x by scoring semantically correct
-transliteration as error**, and puts ElevenLabs Scribe v2 first on all four pairs (13.2% vs 38.6%
-for the next system). **So never rank speech providers on WER here.** `lab.core.speech.compare`
-holds the metric that matters — **script mix**, the share of LETTERS in Arabic script, which needs no
-reference transcript — plus `digest` and a timeline-aligned `side_by_side`.
-
-**The tenant's own transcript SILENTLY DROPS a language, and that is the finding the whole exercise
-was for** (measured 12 Sep 2026 on a deliberately bilingual meeting, two speakers, one describing a
-building in Arabic while the other spoke English). Microsoft's Teams transcript returned **53 words:
-the English turns only**. Both of the Arabic speaker's turns — the gym, the facilities, the pool, nine
-floors, the room converting to two bedrooms, fully furnished — are absent, and nothing marks the
-omission: it reads as a complete, fluent transcript of a shorter meeting. Its 0 % Arabic script is
-ABSENCE, not translation. The same audio, same minute, through this lab:
-
-| source | words | Arabic script | the Arabic speaker's turns |
-|---|---|---|---|
-| **soniox-en** | **97** | 0.0 % | **both, rendered into English** |
-| elevenlabs | 87 | 25.8 % | both, verbatim in Arabic |
-| assemblyai | 86 | 30.2 % | both, verbatim in Arabic |
-| **Teams (the tenant)** | **53** | 0.0 % | **neither** |
-| munsit | 25 | 84.5 % | partial, and attributed to the WRONG speaker |
-
-Note what the two 0 % rows mean — one translated everything, the other lost it — which is why the
-metric is never read alone: **script mix says what SCRIPT the words are in, coverage says whether the
-words are there at all, and a provider can score perfectly on the first by failing the second.** The
-minutes make the same point one layer up: every lane produced a plausible summary and correctly found
-0 decisions and 0 actions, but only the English rendering produced CONCEPTS a person or a downstream
-join can use — the verbatim lanes emitted `المسبح` and, from ElevenLabs, hybrids like `the العمارة`
-that no vocabulary can match on, and munsit's summary confidently credited the wrong speaker with the
-wrong half of the meeting. **A summary that reads well is not evidence of a transcript that is right;
-three of the four read well.**
-
-**Voiceprints suggest who a voice is; they never answer it (1 Oct 2026).** `speech_identify` scores
-each diarized label against a gallery of stored speaker vectors and returns a SUGGESTION that the
-`identify_voices` step pre-fills on the speaker card — "Recognised as X (voice match 0.52)" — for the
-organiser to confirm or correct. `keep_voices` (in `transcript_to_minutes`, i.e. only after a person
-answered) calls `speech_enrol`, which stores a voice ONLY where the card's **consent** toggle was ticked
-and the gallery did not already know that person; consent is absent from the answer when unticked, and
-absent reads as NO. The rules and their numbers live in `lab.core.speech.voiceprint` and were MEASURED
-on a real three-person meeting (docs/speech-voiceprint-gallery.md): threshold **0.40** gave no wrong
-name at all, including for a speaker missing from the gallery; **leave-one-out purity 0.25** drops a
-segment that does not sound like the rest of its label, because labels MIX people — the approved
-attribution of that meeting was right for only about half its words; 3 s of speech to suggest, 5 s to
-keep. The model (ECAPA-TDNN) runs as its own `voiceprint` service in its OWN image
-(`deploy/voiceprint/Dockerfile`, `ghcr.io/<repo>/voiceprint`) because PyTorch is ~1 GB and every other
-role pulls the shared image; it holds the shared bearer and nothing else, is opt-in (`VOICEPRINT_ENABLED`),
-and a code `release` never touches it (`topology.is_ours` matches `ghcr.io/<repo>:` only). The gallery
-is `lab_voiceprints` in the substrate's own Postgres — vectors, model id and who attested consent,
-never audio — reached only by speech-mcp. `speech_enrol` is `SpeechTools.WRITE`, granted to the
-minutes team alone. Both steps are best effort: no model, no gallery or no grant means a card with no
-suggestions, never a failed meeting.
-
-**What a person receives is plain text in Teams' own layout, and every lane is scored against Teams
-(3 Oct 2026).** Each minutes run delivers `<recording>.<lane>.transcript.txt` (title, date, duration,
-then `Name   0:03` over each turn — `lab.core.meetings.render.transcript`, with `read_transcript` its
-exact inverse) and `<recording>.<lane>.minutes.txt`, stored AS THEMSELVES through `semantic_store_page`
-because the JSON-wrapping `semantic_store_spec` had delivered `{"text": "\u0627…"}` nobody could read. The transcript
-run fetches the tenant's OWN transcript of the same OCCURRENCE (a recurring meeting keeps one id and
-one transcript per day, so `_occurrence_transcript` picks by the matched recording's time) and carries
-it as `reference`; `compare_with_reference` then reads every sibling lane's delivered `.transcript.txt`
-beside the recording and rewrites ONE `<recording>.comparison.txt` — words, share of Teams' words,
-Teams' words also found (AGREEMENT, not accuracy: Teams drops speech it cannot handle), Arabic-script
-share, speakers. The last lane to finish leaves the full table; no lane waits for another. Measured on
-the 29 Sep meeting: munsit agreed with 21 % of Teams' words, both Soniox lanes 92–93 % while holding
-9–11 % MORE words than Teams (the Arabic it dropped). Best effort throughout.
-
-**The bake-off**: `scripts/speech_bakeoff.py <recording> [--reference teams.vtt] [--repeat N]` runs
-one recording through every CONFIGURED provider and writes per-provider transcripts, a side-by-side
-comparison and `digests.json` into `var/out/bakeoff/<stamp>/`. A provider with no API key is SKIPPED
-by name with the setting it wants, so one credential still produces a usable run. `--reference` adds
-Microsoft's own `.vtt` as a column — for a Teams meeting it is the honest yardstick and it costs
-nothing. **`--repeat` is earned, not cautious**: three runs on IDENTICAL bytes returned 38, 55 and 38
-words, so a single run cannot tell a provider's behaviour from one sample of it.
-
-**Lanes run in PARALLEL by replica, not by thread.** A consumer group hands each stream entry to
-exactly one consumer, so N replicas of a workload process N lanes at once with no locking and no
-change to the workflow — and that is the shape Container Apps scales, which is the point of the
-lab. `WORKLOADS["meeting"]["replicas"]` creates one service per replica, the FIRST keeping the plain
-name (renaming it would orphan its variables and logs), each with its own `WF_CONSUMER`: two
-consumers sharing a name share a pending list, and XAUTOCLAIM could no longer tell whose in-flight
-work is whose. `up`, `down` and `status` all iterate replicas — stopping only the first would leave
-the others consuming the stream, which looks like "I stopped the workload" and is not.
-Failure is isolated per lane at every stage (submit, run, continuation, delivery, notification), but
-a lane that HANGS rather than fails still blocks whatever is queued behind it for the provider
-timeout (900 s) — which is what replicas buy down, and why `meeting` runs two.
-
-**Data residency is a property of the DEPLOYMENT MODE, not the vendor** (UAE Federal Law No. 2/2019
-Art. 13 forbids processing UAE health data abroad; AED 500-700k). All four candidates can run inside
-the boundary, but only Munsit (CNTXT AI, Dubai) has a UAE/KSA **sovereign SaaS** — everyone else buys
-residency with GPU infrastructure (ElevenLabs, Soniox and AssemblyAI all sell on-prem; Meta Seamless
-self-hosts but is CC BY-NC and does not diarize). **Azure OpenAI in UAE North is NOT an answer**: it
-provisions in-region but routes inference to West Europe / France Central, so a "governed gateway
-text step" there would itself be an export.
+*(Moved to `docs/features/speech.md`, loaded automatically when working in that feature's code.)*
 
 ## Approval Gate (human-in-the-loop for EA repository writes)
 
@@ -1225,33 +837,8 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   fresh consumer must not announce every run the lab ever completed). **Domain policy stays with the
   domain** — `approvals.channel_events` still drops and acks requests a person has already decided,
   because a channel announces what needs somebody NOW.
-  **A recording is matched to its meeting DIRECTIONALLY, because the gap IS the meeting's length.**
-  A drive file is created when recording STARTS and the provider's recording object when it STOPS, so
-  the object always arrives later, by however long the meeting ran. `_match` compared the two with a
-  SYMMETRIC 60 s tolerance, which therefore refused every meeting longer than a minute — measured
-  live 12 Sep 2026: file 14:01:38Z, recording object 14:02:54Z, 77 seconds apart, while the
-  next-nearest candidate was three days away. The right meeting lost by 17 seconds against a rival
-  3,300x worse. Widening the window would only have moved the cliff; the fix is direction — an object
-  that stopped BEFORE this file existed cannot be this file's, which is also what separates
-  back-to-back meetings — with the soonest-stopping winner inside a generous four-hour window.
-  **One failed match cost TWO things and looked like three bugs**: `_owning_meeting` returns the
-  participants AND the `chat_id`, so the speaker picker was empty AND the minutes were never announced
-  in the meeting's chat. It read like a Graph failure and was not: calling the same tools by hand with
-  the workload's own credential returned two meetings, eleven recordings, participants and chat_id.
-  The lookup succeeded and the arithmetic discarded the answer. **Only the exception path logged**, so
-  "asked and matched nothing" was indistinguishable from "never asked" and from "the meeting had no
-  attendees"; both outcomes now print, with the candidates considered and whether a chat_id came back.
-  The old tests passed throughout because their fixture used a FIVE-SECOND gap — a recording that
-  stopped five seconds after it started, which is not a meeting.
+  *(Moved to `docs/features/speech.md`, loaded automatically when working in that feature's code.)*
 
-  **A speaker question may carry CANDIDATES** — `contracts.SpeakerCandidate` /
-  `speaker_candidates`, resolved by the transcript workload from the meeting that OWNS the recording
-  (matched by HANDLE, never by parsing a provider filename). Every surface offers them as a pick
-  BESIDE free text and never instead of it: attending is not speaking, one device in a room is one
-  participant, and a picker-only form would make the honest case impossible. Best effort —
-  `collab_meetings`/`collab_recordings` are NOT in the workload's `REQUIRED_TOOLS`, so a deployment
-  without the grant degrades to no picker instead of being refused by preflight. A typed identity
-  always beats a pick.
   **A channel is told only about approvals still awaiting a person** — `approvals.channel_events`
   filters (and acks) anything already decided, in the ONE reader every channel shares. A channel that
   has been off accumulates a backlog decided through some other channel, and announcing those buries
@@ -1310,134 +897,7 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
 - Requests carry the OTel `trace_id` of the run that produced the model, so a reviewer can
   open the exact trace from the review app.
 
-## Reference Corpus (`reference-mcp` :9700 — the governed artifacts every derivation reads)
-
-**The corpus IS Postgres** (Neon, `ref_*` tables, `src/lab/substrate/reference/schema.py`): signed
-versions (`ref_artifact_version`, Ed25519, `CHECK derived_from = master_sha256`), released per ring
-(`ref_release`), records by natural key (`ref_record`, JSONB) and passages with pgvector
-(`ref_passage`, undimensioned column, exact cosine, **no ANN index by design**), read ONLY under a
-pin (`ref_pin`) with every read written to `ref_consumption` inside the call (FR-44). The server runs
-as `lab_reference_reader` (SELECT + INSERT on pin/consumption only — DR-03 as a GRANT); publishing is
-the operator CLI `python -m lab.substrate.reference.publish` holding the signing seed
-(`var/run/reference_signing_key`, NEVER `.env`/`LAB_ENV`) and the publisher DSN. **Deterministic data
-in `ref_record`, relevance in `ref_passage`, nothing reference-shaped in memory or Redis.**
-
-- **Retrieval mode is DATA on the artifact** (`ref_artifact.retrieval`, `lab.core.reference.model.
-  Retrieval`): `whole` (a small complete register — read every record, never "the relevant rows"),
-  `key` (exact by natural key), `vector` (also indexed; a RECORD artifact can be both — the capability
-  map is exact by `parent`/`level` AND searchable). Undeclared = the kind's default (prose ⇒ vector).
-  The catalogue and the pin tell a caller the mode; **a consumer reads the way it is told and never
-  infers it from size** — baseline artifacts grow, and the consumer must not be what changes when
-  they do. A `vector` record artifact publishes one passage per record (`derive.record_passages`,
-  `ref_passage.record_id` → the row), so a relevance hit resolves to the exact record.
-- **Search is scoped by declared mode** (`pg_library._searchable`): a whole-pin search covers the
-  vector-mode artifacts and skips the exact ones; NAMING an exact artifact refuses ("read it with
-  reference_lookup"); naming one not in the pin refuses; a vector artifact with no completed index
-  still refuses (CR-12 — an empty list is the most dangerous return value in this layer).
-- **Relevance retrieval goes THROUGH LiteLLM**: one VECTOR STORE per vector-mode artifact (**store
-  id = artifact id**, so a team is granted ONE map), declared in `lab.platform.contracts.VectorStores`
-  and reconciled into the gateway's DATABASE on every push by `scripts/register_vector_stores.py`
-  (CD step after `verify`). **Not a yaml `vector_store_registry`**: that loads into memory, and with
-  a database configured the list endpoint DELETES any in-memory store the database lacks — verified
-  live, the block loaded and one `GET /vector_store/list` later a search fell through to OpenAI's
-  own vector-store API. Provider `pg_vector` is an HTTP client, NOT a Postgres client, pointed at
-  reference-mcp's **OpenAI vector-store façade** (`lab.substrate.mcp.reference.vectorstore`, `POST
-  /v1/vector_stores/<id>/search`, mounted beside `/mcp` via `LabServer.serve(routes=)`, behind the same
-  bearer). It is a second TRANSPORT over the one `pg_library.search`, not a second implementation:
-  a workload's search carries `pin_id/run_id/process/field` in `filters` (a pin with no field is 400)
-  so it is attributed exactly like one through the tool; a search with NO pin — the gateway UI, a
-  person with a key — is served AD HOC under a pin the façade takes of that store, recorded as
-  `adhoc`/`gateway-<date>`/`search` (user decision 10 Sep 2026: exploration stays governed and in
-  the trail, only workloads must name a field). A team is granted stores with
-  `object_permission.vector_stores` — **LiteLLM reads an absent OR EMPTY list as "every store"**, so
-  `provision_usecase_agents._grants` always writes it and spells "none" as the sentinel `["-"]`.
-  `file_search` injection stays OFF (no pin travels with it). **No credential on the store**: LiteLLM
-  1.98 resolves no `os.environ/` on this path (verified in `vector_stores/main.py`), so the provider's
-  own `PG_VECTOR_API_BASE` (reference-mcp's ORIGIN) / `PG_VECTOR_API_KEY` (= `MCP_SHARED_SECRET`) are
-  set in the gateway's PROCESS env by `lab.sh`, `deploy/railway.py substrate_env` and compose.
-  Workloads call `lab.workloads.gateway.vector_search` and preflight with `preflight_stores`
-  (`/vector_store/list`), the same zero-token contract as `REQUIRED_TOOLS`.
-- **Embedding is the substrate's OWN model** — service `embedder` (`deploy/railway.py ensure_embedder`:
-  `ollama/ollama` image, `nomic-embed-text`, weights on a `/root/.ollama` volume, bound `[::]`, no
-  domain, no credential — the private network is the trust boundary, as for Redis; `EMBED_URL` is set
-  per tier by `substrate_env`/`lab.sh`/compose). Decided 10 Sep 2026 after the alternatives were
-  tried: Ollama Cloud, OpenRouter and Anthropic serve NO embedding model (listed live) and the OpenAI
-  account answered `credit_balance_exhausted` on the first call. The gateway's `model_list` entry
-  `nomic-embed-text` (`ollama/…`, `api_base: os.environ/EMBED_URL`) is the ONE place a vendor
-  change lands; `REFERENCE_EMBED_DIM=768` is held equal to its `output_vector_size` by a governance
-  test. The corpus embeds with a VIRTUAL key, `REFERENCE_EMBED_KEY` (team `reference-corpus`, that
-  one model, zero tools; `scripts/provision_reference_embedder.py` mints it once and reconciles the
-  allowed model after). `REFERENCE_EMBED_MODEL` unset ⇒ every search refuses and publishing a vector
-  artifact defers by name — fail closed, never an empty answer.
-- **Every workload PINS before its first derivation** (`lab.workloads.usecase.reference`): exactly
-  its `REFERENCE_ARTIFACTS` — what its own steps read plus `DecisionTools.READS` /
-  `ValuationTools.READS`, the artifacts the governed derivations read on its behalf (decision-mcp
-  REFUSES without a pin; there is no packaged fallback any more). The pin id, the frozen versions and
-  the DRIFT ride the run board, the screening record and the design package: the design run re-pins
-  (the approval can wait days) and states "screened at v0.26, designed at v0.27" per artifact —
-  recorded, never blocked on (user decision). Reads are attributed to the DERIVED FIELD
-  (`reference.attribution`), and `cells.rows` is the one corpus-to-domain mapper.
-- **Stated exception to gateway-only egress, the third**: decision-mcp, valuation-mcp and the review
-  app read the corpus by calling reference-mcp DIRECTLY — substrate to substrate, on the private
-  network, bearer-authenticated with `MCP_SHARED_SECRET`, `REFERENCE_PROVIDER=mcp`
-  (`lab.substrate.reference.mcp_library`, the reference port over reference-mcp's tools). Bounds: a
-  substrate server reading published rules under a pin, no model content, no caller credential, and
-  every read still lands in `ref_consumption`. What it forgoes is the gateway's metering and span
-  for those reads; routing them through the gateway would mean a virtual key per substrate server —
-  deliberately not done yet, recorded here so the rule erodes by decision and not by accident.
-- **"Capability map" is BANNED unqualified — there are two, answering different questions**
-  (`docs/decisions/2026-09-18-two-capability-maps.md`, 18 Sep 2026). The **business** map
-  (`healthcare-provider-v2.0`, matched at L3 by a MODEL) answers *what ability does this exercise*;
-  the **technology** map (`ai-capability-map`, CAFÉ M4, 2 levels) answers *how would we do it*.
-  Measured: **836 of the business map's 1,042 L3 concepts — 80% — name nothing clinical**, and a
-  negative-control chat bot that tells the time matched it 3-4 times on every run with entries whose
-  definitions are literally true of it. So **a business-capability match is a classification, not a
-  justification**: it may inform a gate and a prompt, and must never on its own select a component,
-  attach a guardrail or price anything. Identity matters on the technology map (guardrails and cost
-  dispatch on it, so that path is an exact key join with an id gate, G04) and does NOT on the
-  business map (no consumer distinguishes siblings) — so near-synonym choice there is not a defect
-  and must not be scored as one. Two labels are acceptable substitutes when **nothing downstream can
-  tell them apart**, a property of the CODE; two siblings no consumer distinguishes carry no
-  information, which is a defect in the MAP. The matching GRAIN belongs to the map —
-  `coverage.leaves` takes `deepest` as a parameter because the constant silently returns zero
-  candidates against a shallower map, and zero candidates reads downstream as "nothing is relevant"
-  (`match`/`resolve` forward it now; they did not, so every live run matched at the constant 3).
-  **Step 5 matches the TECHNOLOGY map** (18 Sep 2026): `ai-capability-map` + `capability-domains`,
-  read WHOLE from the corpus under the pin, projected by `lab.core.usecase.capabilities.concepts` —
-  74 candidates, ~5,700 tokens, so `leaves` needs no retrieval. **The concept id IS the natural key
-  `"Domain · Capability"`**, so a match reaches its guardrails and its components with no further
-  resolution. The business map is retired behind `config.BUSINESS_CAPABILITY_SCHEME` (empty), step 5
-  records a declared default without one, and `Feasibility.ESCALATE` asks a human rather than
-  rejecting every use case for a map nobody published. **Guardrail bindings**: `guardrails.cap` ->
-  a capability -> its components is checked with NO ratchet by
-  `tests/governance/test_guardrail_bindings_resolve.py` (20 of 24 dangled until 18 Sep 2026, reported
-  by `families.unclaimed()` as corpus silence and therefore invisible); composition move 5 —
-  obligation bound to a SELECTED component — is `lab.core.usecase.enforcement`, keeping `unbound`
-  (the design's fault) apart from `unenforceable` (the corpus's). **Artifact content never lives in
-  code**: `tests/governance/test_no_artifact_content_in_code.py` ratchets the seeding scripts'
-  translation tables downward — put the fact in the CAFÉ artifact, where its author owns it.
-- **The capability map is read from the corpus, searched through a store, matched three ways.**
-  Screening pins its map (`VectorStores.for_scheme(SCHEME)` = the artifact id), fetches L1 and L3
-  rows under the pin (`id, parent, level, label, path`) and hands the matchers two SEAMS —
-  `children(ids, level)` (rows by parent through `reference_lookup`) and `search(query, k)` (the
-  store through the gateway, under the pin, attributed to the coverage map). `coverage.MATCHERS`
-  = `drill` | `leaves` | `vector` (one query per behavioural element, record-backed hits unioned,
-  one pass of step 5); `COVERAGE_MATCHER` picks, `scripts/eval_coverage.py` scores all three over
-  the same seams — the harness decides, not the plan. `semantic_concepts` is no longer an intake
-  grant; the intake team holds exactly the two map stores.
-- **Cost is a JOIN, not an estimate** (user decision). Step 21 selects components BY CATALOGUE ID
-  (`reference-architecture-components`, keyed by `content_id("cmp-", zone, name)`; the AI
-  capability map's `components` column says which realise each capability) and its gate refuses an
-  id the pinned catalogue lacks — G04 as a gate. `valuation_cost(component_ids, envelope, volume,
-  …, pin_id)` joins them onto `component-prices` (`(component, variant)`; opex three-point,
-  `envelope_in`, `volume_driver` + `expected_at`/`high_at`) at the pinned version: the envelope
-  FOLLOWS the confirmed criticality class (`cost.envelope_for`), the volume is what intake captured
-  (`cost.volume_from_intake`, the "Volume assumptions" group), a driven line with no captured volume
-  is EXCLUDED and named, a component with no line is a gap flag, capex the catalogue lacks is
-  named. Step 23's agent is left with the build cost and its provenance. decision-mcp and
-  valuation-mcp read the corpus THROUGH reference-mcp (`REFERENCE_PROVIDER=mcp`,
-  `lab.substrate.reference.mcp_library`, the shared `lab.substrate.mcp.pinned.rules` policy): no
-  DSN, no packaged fallback — no pin, no derivation.
+*(Moved to `docs/features/reference.md`, loaded automatically when working in that feature's code.)*
 
 ## Observability (Foundry observability analogue; traces double as the audit trail)
 
