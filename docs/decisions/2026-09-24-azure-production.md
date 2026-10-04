@@ -1,6 +1,6 @@
 # Azure as production, Railway as development (24 Sep 2026)
 
-Status: ACCEPTED 24 Sep 2026 — Phases 0 and 1 live; Phase 2 (APIM) cut over 25 Sep 2026.
+Status: ACCEPTED 24 Sep 2026 — Phases 0 and 1 live; Phase 2 (APIM) cut over 25 Sep, exit-tested end to end and the prod LiteLLM app retired 4 Oct 2026.
 
 ## Decisions taken (user, 24 Sep 2026)
 
@@ -254,7 +254,53 @@ The prod LiteLLM app still runs, carrying nothing — retiring it is its own del
   exchange, which reads like a broken connection and is not.
 - **Still open**: the operator's quiet gate sends a credential APIM rightly refuses, so a local
   `substrate up`/`workload up` proceeds unasked — it should ask with `lab-deployer`'s Entra token, as
-  CI does; retire the prod LiteLLM app; one use-case chain end to end through APIM.
+  CI does.
+
+### Exit test (4 Oct 2026) — one use case, end to end, in production through APIM
+
+Submitted through APIM exactly as the Use Case Desk connector does (its subscription key, `workflow_mcp`),
+every human gate decided through `approvals_decide` relaying the user's answer (`mcp:e2e-test`):
+screening `wfr-88b700c5776e` (7 min, `safety-of-life`) → criticality approved → design `wfr-82ec6c0d84af`
+(9 min, started within a second of the decision) → conformance approved with conditions → investment
+`wfr-a3c96a9b0494` (escalated: no delegation-of-authority table) → authorisation approved with conditions →
+provisioning `wfr-a58801f6b71f`. The fabric ingested the test upload and every artifact the chain wrote. Then
+the prod LiteLLM app was deleted (its `litellm` database and Key Vault secrets kept): one request in its last
+six hours, a probe's 401.
+
+**APIM does what LiteLLM did silently only when told to — four translations, each found by a failing run.**
+LiteLLM's `drop_params` and its Responses mapping hid them; every one surfaced as a Foundry 400 at a
+workload's first model call, so each costs one call to find. Measured on `gpt-5-mini`:
+- reasoning effort reaches the Responses API as `reasoning.effort` — the shape is chosen from
+  `context.Request.OriginalUrl`; after `set-backend-service`, `context.Request.Url` names the BACKEND;
+- `temperature` is refused by the model (declared on it in the overlay as LiteLLM's own
+  `additional_drop_params`), `seed` does not exist on the Responses API (a policy rule for every model);
+- `max_tokens` is refused on both APIs and renamed (`max_output_tokens` / `max_completion_tokens`);
+- function tools pass through unchanged on both APIs (verified as the fabric's classifier).
+A newly applied model policy took about a minute to answer consistently; one probe straight after the
+apply read the old behaviour.
+
+**A grant is applied in THREE places, and CI sees none of them** (found by the fabric session in dev and
+here in prod on the same day): the dev LiteLLM team ACL (the provisioning script), the prod APIM MCP policy
+(`apim.py apply mcp` — it renders `deploy/grants.py` at apply time, so a grant added after the last apply
+is refused in prod as "not exposed by gateway"), and the image. Adding a tool to a grant is not done until
+all three are.
+
+**A deploy ships images, not settings.** `release` (CD) never touches an app's environment; a value added
+to `.env.azure` reaches an app only through `substrate up`/`workload up`. Measured: the fabric's
+`FABRIC_VOCAB_REFS` sat in the profile while prod's semantic-mcp served no `cafe` scheme, and appeared
+(123 concepts) on the next `substrate up`.
+
+**A waiting `deploy-prod` is cancelled by the next push.** `image.yml`'s workflow-level concurrency
+(`cancel-in-progress: true`) treats a run whose `deploy-prod` waits on the reviewer as in progress, so with
+several sessions pushing, every prod deploy from 28 Sep to 4 Oct was cancelled before anyone could approve
+it, and Azure fell thirteen commits behind. Until `deploy-prod` has its own concurrency, approve with
+pushes held.
+
+**Also found**: a TABLE input reached the validator as the transport's model instances and every submit
+carrying an effort table was refused (both tiers; fixed in `workflow-mcp`); a submission by `collab://`
+handle fails at `collab_fetch` because the screening team deliberately holds no collab grant while the Use
+Case Desk still offers the handle — decide which; four apps (`semantic-mcp`, `graph-mcp`, `reference-mcp`,
+the workloads) intermittently fail to resolve `otel-collector`, so traces are incomplete — open.
 
 ## Phase 2 as first planned (superseded above): APIM as the governance plane
 
