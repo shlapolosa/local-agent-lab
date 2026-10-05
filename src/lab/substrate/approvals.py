@@ -38,7 +38,7 @@ from lab.platform.contracts import APPROVAL_FINAL, ApprovalStatus, Decision, che
 
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
-CHANNELS = ("review-app", "telegram", "teams")
+CHANNELS = ("review-app", "telegram", "teams", "teams-app")
 # Consumer groups on the DECISIONS stream. The request stream feeds humans; this one is where
 # something ACTS on what a human said, and until now nothing consumed it at all. It is the only
 # place where "a person answered, from whichever channel they happened to use" is a single fact,

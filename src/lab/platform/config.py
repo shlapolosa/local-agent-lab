@@ -297,6 +297,12 @@ GRAPH_WRITER_CLIENT_SECRET = _e("GRAPH_WRITER_CLIENT_SECRET", "")
 # are read only for the configured mailboxes, exactly as before.
 MEETING_APP_ID = _e("MEETING_APP_ID", "")
 MEETING_APP_SECRET = _e("MEETING_APP_SECRET", "")
+# The meeting app's own service: where Teams and Graph reach it, the org-catalog id its one Graph
+# subscription is scoped to, and the shared secret that subscription's notifications must carry.
+MEETING_APP_PORT = int(_e("MEETING_APP_PORT", "3978"))
+MEETING_APP_PUBLIC_URL = _e("MEETING_APP_PUBLIC_URL", "")
+MEETING_APP_CATALOG_ID = _e("MEETING_APP_CATALOG_ID", "")
+MEETING_APP_NOTIFY_STATE = _e("MEETING_APP_NOTIFY_STATE", "")
 
 # Change-notification destinations: egress to a caller-supplied URL, so an EMPTY list REFUSES every
 # subscription rather than allowing all. Comma-separated URL prefixes.
