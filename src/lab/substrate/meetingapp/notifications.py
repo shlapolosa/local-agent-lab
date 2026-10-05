@@ -11,6 +11,7 @@ meeting fans out into the configured provider lanes; the idempotency key is the 
 Graph redelivers and a redelivery must not start a second transcription."""
 from __future__ import annotations
 
+import hmac
 import re
 from typing import Callable
 
@@ -41,23 +42,29 @@ def handle(body: dict, *, client_state: str, submit: Callable = workflows.submit
     lanes = config.SPEECH_LANES if lanes is None else lanes
     started = []
     for value in (body or {}).get("value") or []:
-        if not client_state or value.get("clientState") != client_state:
+        if not client_state or not hmac.compare_digest(str(value.get("clientState") or ""), client_state):
             continue
         parsed = parse(value)
         if parsed is None or parsed[0] != "recordings":
             continue
         _, organiser, meeting_id, recording_id = parsed
-        meeting = registry.by_meeting(organiser, meeting_id, client=client)
-        if meeting is None or meeting.paused:
-            print(f"[meeting-app] recording not started ({'paused' if meeting else 'meeting not registered'})",
-                  flush=True)
-            continue
-        inputs = {"owner": organiser, "chat_id": meeting.chat_id,
-                  "recording": str(ContentHandle.recording(graph_map.meeting_ref(organiser, meeting_id),
-                                                          recording_id))}
-        rows = submit(MEETING_TO_TRANSCRIPT.name, inputs, REQUESTER,
-                      lanes=workflows.lanes_for(MEETING_TO_TRANSCRIPT, inputs, lanes),
-                      idempotency_key=f"recording:{recording_id}", client=client)
-        started += rows
-        print(f"[meeting-app] recording -> {len(rows)} run(s)", flush=True)
+        try:
+            started += _start(organiser, meeting_id, recording_id, submit, lanes, client)
+        except Exception as e:                  # noqa: BLE001 — one entry must not cost the rest of the batch
+            print(f"[meeting-app] recording {recording_id} NOT started ({type(e).__name__}: {e})", flush=True)
     return started
+
+
+def _start(organiser: str, meeting_id: str, recording_id: str, submit: Callable, lanes, client) -> list[dict]:
+    meeting = registry.by_meeting(organiser, meeting_id, client=client)
+    if meeting is None or meeting.paused:
+        print(f"[meeting-app] recording {recording_id} not started "
+              f"({'paused' if meeting else 'meeting not registered'})", flush=True)
+        return []
+    inputs = {"owner": organiser, "chat_id": meeting.chat_id,
+              "recording": str(ContentHandle.recording(graph_map.meeting_ref(organiser, meeting_id), recording_id))}
+    rows = submit(MEETING_TO_TRANSCRIPT.name, inputs, REQUESTER,
+                  lanes=workflows.lanes_for(MEETING_TO_TRANSCRIPT, inputs, lanes),
+                  idempotency_key=f"recording:{recording_id}", client=client)
+    print(f"[meeting-app] recording {recording_id} -> {len(rows)} run(s)", flush=True)
+    return rows

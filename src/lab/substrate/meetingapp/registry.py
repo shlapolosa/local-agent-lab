@@ -12,9 +12,12 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, replace
 
+from lab.core.collab import ContentHandle, HandleKind
 from lab.platform import redis_client
+from lab.substrate.mcp.graph import graph_map
 
-__all__ = ["Meeting", "save", "by_chat", "by_meeting", "set_paused", "remember_card", "card_of", "TTL_S"]
+__all__ = ["Meeting", "save", "by_chat", "by_meeting", "owner_of", "set_paused", "remember_card", "card_of",
+           "TTL_S"]
 
 TTL_S = 90 * 24 * 3600          # a quarter: longer than any series' gap, shorter than forever
 _PREFIX = "meetingapp"
@@ -67,6 +70,27 @@ def by_meeting(organiser_oid: str, graph_meeting_id: str, *, client=None) -> Mee
     r = _r(client)
     chat_id = _decode(r.get(_meeting_key(organiser_oid, graph_meeting_id)))
     return by_chat(chat_id, client=r) if chat_id else None
+
+
+def owner_of(chat_id: str, recording: str, *, client=None) -> Meeting | None:
+    """The registered meeting a run BELONGS to — or None.
+
+    A run names a chat (the submitter's word) and a recording (whose scope is the meeting it came
+    from). Only when both point at the SAME registered meeting may anything about the run go to that
+    chat: otherwise a submitter could have one meeting's voices offered to another meeting's
+    organiser, or its minutes posted in another meeting. One predicate, used wherever the bot shows,
+    decides or posts."""
+    meeting = by_chat(chat_id, client=client) if chat_id else None
+    if meeting is None:
+        return None
+    try:
+        handle = ContentHandle.parse(recording)
+        organiser, meeting_id = graph_map.split_meeting_ref(handle.scope)
+    except ValueError:
+        return None
+    if handle.kind is not HandleKind.RECORDING:
+        return None
+    return meeting if (organiser, meeting_id) == (meeting.organiser_oid, meeting.graph_meeting_id) else None
 
 
 def set_paused(chat_id: str, paused: bool, *, client=None) -> Meeting | None:

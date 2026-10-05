@@ -50,7 +50,7 @@ from lab.substrate.artifacts import CHUNK          # the one home for "how much 
 from lab.substrate.mcp.graph import graph_auth, graph_map, graph_probe
 from lab.substrate.mcp.graph.graph_rest import Content, GraphClient, GraphError
 
-__all__ = ["GraphCollabRepository", "build", "DEFAULT_WINDOW_DAYS"]
+__all__ = ["GraphCollabRepository", "build", "app_client", "DEFAULT_WINDOW_DAYS", "PROOF_TTL"]
 
 DEFAULT_WINDOW_DAYS = 30           # how far back an unstated meeting window reaches
 RESOLVED_CACHE = 512               # join URL -> meeting id, bounded: this object outlives every call
@@ -60,6 +60,10 @@ _PROBE_MEETING = "probe"           # a meeting id that cannot exist: the deep pr
 # on authorisation grounds, which is the only thing a probe is asking.
 _PROBE_REACHED = (400, 404)
 _EVENT_FIELDS = "id,subject,start,end,organizer,attendees,isOnlineMeeting,onlineMeeting"
+# How long a meeting stays proven opted-in. An organiser who removes the app withdraws the meeting; a
+# proof remembered for the life of the server would keep it readable long after. Minutes, not hours:
+# re-proving costs one small call per meeting per window.
+PROOF_TTL = timedelta(minutes=10)
 
 
 def _origin(url: str) -> tuple[str, str]:
@@ -129,7 +133,7 @@ class GraphCollabRepository:
         self._user_ids: dict[str, str] = {}
         # (organiser, meeting) pairs the meeting app has been seen to hold. Bounded like `_resolved`:
         # a long-lived server would otherwise remember every meeting it ever proved.
-        self._proven: OrderedDict[tuple[str, str], None] = OrderedDict()
+        self._proven: OrderedDict[tuple[str, str], datetime] = OrderedDict()
 
     # ------------------------------------------------------------------ capabilities
     def capabilities(self, deep: bool = False) -> dict[str, CollabUnavailable | None]:
@@ -369,7 +373,8 @@ class GraphCollabRepository:
                 "pass the organiser's object id and the online meeting id, as the meeting app reports them")
         path = f"/users/{_seg(organiser)}/onlineMeetings/{_seg(meeting)}"
         key = (organiser, meeting)
-        if key in self._proven:
+        proven_at = self._proven.get(key)
+        if proven_at is not None and self._now() - proven_at < PROOF_TTL:
             self._proven.move_to_end(key)
             return path
         try:
@@ -381,7 +386,8 @@ class GraphCollabRepository:
                     "add the app to the meeting in Teams — that is how a meeting opts in") from e
             raise (graph_probe.refusal(e.status, e.code, e.detail, capability, e.retry_after)
                    or CollabUnavailable(capability, e.detail, "retry; the proof call did not complete")) from e
-        self._proven[key] = None
+        self._proven[key] = self._now()
+        self._proven.move_to_end(key)
         while len(self._proven) > RESOLVED_CACHE:
             self._proven.popitem(last=False)
         return path
@@ -523,6 +529,18 @@ class GraphCollabRepository:
                                         "check what sits between the lab and Microsoft Graph")) from e
 
 
+def app_client(client_id: str, client_secret: str, *, tenant_id: str, base_url: str | None = None,
+               client_factory: Callable | None = None, **client_kwargs) -> GraphClient | None:
+    """A Graph client for ONE app registration, app-only — what a distinct identity is. None unless both
+    halves are given. The one place such a client is made: graph-mcp's proof identity and the meeting
+    app's own subscription keeper both come from here."""
+    if not (client_id and client_secret):
+        return None
+    return GraphClient(graph_auth.token_source("app", tenant_id=tenant_id, client_id=client_id,
+                                               client_secret=client_secret, client_factory=client_factory),
+                       base_url=base_url or config.GRAPH_BASE_URL, **client_kwargs)
+
+
 def build(*, tenant_id: str | None = None, client_id: str | None = None, client_secret: str | None = None,
           auth_mode: str | None = None, static_token: str | None = None, base_url: str | None = None,
           meeting_user: str | None = None, meeting_users: tuple[str, ...] | None = None,
@@ -564,8 +582,16 @@ def build(*, tenant_id: str | None = None, client_id: str | None = None, client_
 
     write_client = second(pick(writer_client_id, config.GRAPH_WRITER_CLIENT_ID),
                           pick(writer_client_secret, config.GRAPH_WRITER_CLIENT_SECRET))
-    meeting_app_client = second(pick(meeting_app_client_id, config.MEETING_APP_ID),
-                                pick(meeting_app_client_secret, config.MEETING_APP_SECRET))
+    # The PROOF identity must be a distinct app, or the bound is the reader proving itself: in a
+    # static-token mode every client holds the same token, and an app id equal to the reader's is the
+    # reader. Either way there is no proof client, so an unconfigured organiser stays unreadable.
+    app_id = pick(meeting_app_client_id, config.MEETING_APP_ID)
+    meeting_app_client = None
+    if (pick(auth_mode, config.GRAPH_AUTH_MODE) == "app" and app_id
+            and app_id != pick(client_id, config.GRAPH_CLIENT_ID)):
+        meeting_app_client = app_client(app_id, pick(meeting_app_client_secret, config.MEETING_APP_SECRET),
+                                        tenant_id=pick(tenant_id, config.ENTRA_TENANT_ID), base_url=base,
+                                        client_factory=client_factory, **client_kwargs)
     return GraphCollabRepository(
         client, tokens, meeting_user=pick(meeting_user, config.GRAPH_MEETING_USER) or "",
         meeting_users=tuple(pick(meeting_users, config.GRAPH_MEETING_USERS)),

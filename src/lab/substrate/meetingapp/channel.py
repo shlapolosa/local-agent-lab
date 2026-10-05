@@ -18,9 +18,8 @@ from __future__ import annotations
 from typing import Awaitable, Callable
 
 from lab.platform import redis_client, workflows
-from lab.platform.contracts import (TRANSCRIPT_TO_MINUTES, ApprovalKind, WorkflowStatus, continuation_of,
-                                    speaker_prompts)
-from lab.substrate import approvals
+from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, WorkflowStatus, continuation_of, speaker_prompts
+from lab.substrate import approvals, meeting_notifier
 from lab.substrate.meetingapp import bot, cards, registry
 from lab.substrate.meetingapp.registry import Meeting
 
@@ -41,18 +40,16 @@ def ensure(*, client=None) -> None:
 
 
 def _question_target(st: dict, client) -> tuple[Meeting, dict] | None:
-    """The meeting and neutral card for an OPEN speaker question in a meeting the app is in."""
-    if st.get("kind") != ApprovalKind.SPEAKER_MAPPING.value:
+    """The meeting and neutral card for an OPEN speaker question that belongs to a meeting the app is in
+    — by the SAME test the bot applies before showing or deciding anything (`bot.question_meeting`)."""
+    meeting = bot.question_meeting(st, client=client)
+    if meeting is None:
         return None
     payload = st.get("payload") or {}
     cont = continuation_of(payload)
-    chat_id = str((cont.inputs if cont else {}).get("chat_id") or "")
-    meeting = registry.by_chat(chat_id, client=client) if chat_id else None
-    if meeting is None:
-        return None
     return meeting, cards.awaiting(st["request_id"], meeting.organiser_mri,
                                    speakers=len(speaker_prompts(payload)),
-                                   lane=str(cont.inputs.get("provider") or ""))
+                                   lane=str((cont.inputs if cont else {}).get("provider") or ""))
 
 
 async def approvals_pass(post: Post, *, client=None) -> int:
@@ -82,10 +79,13 @@ async def minutes_pass(post: Post, *, client=None) -> int:
         try:
             if fields.get("process") == TRANSCRIPT_TO_MINUTES.name:
                 st = workflows.status(rid, client=client)
-                kept = [f for f in st.get("delivered") or [] if isinstance(f, dict) and not f.get("url")]
-                meeting = registry.by_chat(str(st.get("chat_id") or ""), client=client) if st.get("chat_id") else None
-                fresh = _r(client).set(_announced_key(rid), "1", nx=True, ex=registry.TTL_S)
-                if st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None and fresh:
+                _, kept = meeting_notifier.partition(st.get("delivered"))
+                inputs = st.get("inputs") or {}
+                meeting = registry.owner_of(str(st.get("chat_id") or ""), str(inputs.get("recording") or ""),
+                                            client=client)
+                # the marker is claimed only for a run THIS sink announces, and released if the post fails
+                if (st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None
+                        and _r(client).set(_announced_key(rid), "1", nx=True, ex=registry.TTL_S)):
                     summary = st.get("summary") or {}
                     try:
                         await post(meeting, cards.minutes(
@@ -93,7 +93,7 @@ async def minutes_pass(post: Post, *, client=None) -> int:
                             actions=int(summary.get("actions") or 0), files=[f.get("name", "") for f in kept],
                             lane=str(st.get("provider") or "")))
                     except Exception:
-                        _r(client).delete(_announced_key(rid))    # say it on the retry
+                        _r(client).delete(_announced_key(rid))                 # say it on the retry
                         raise
                     posted += 1
             workflows.ack_finished(GROUP, eid, client=client)

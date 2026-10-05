@@ -134,3 +134,33 @@ def test_a_throttled_proof_is_reported_as_throttled_not_as_a_meeting_that_did_no
     with pytest.raises(CollabThrottled):
         repo.recordings(ref())
     assert reader_t.calls == []
+
+
+
+def test_the_proof_is_taken_again_after_it_ages_so_removing_the_app_takes_effect():
+    """An organiser who removes the app withdraws the meeting. A proof remembered forever would keep it
+    readable for the life of the server."""
+    from datetime import datetime, timedelta, timezone
+    clock = {"t": datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)}
+    app_t = FakeTransport().expect("/recordings", body={"value": []})
+    app_t.expect("/recordings", status=403, body={"error": {"code": "Forbidden"}})
+    reader_t = FakeTransport().expect("/transcripts", body={"value": []}, times=None)
+    repo = graph_repository.GraphCollabRepository(
+        client("reader-token", reader_t), FakeTokens("reader-token", ()), meeting_user="chair@lab.example",
+        meeting_app_client=client("app-token", app_t), now=lambda: clock["t"])
+    repo.transcripts(ref())
+    clock["t"] += graph_repository.PROOF_TTL + timedelta(seconds=1)
+    with pytest.raises(CollabUnavailable):
+        repo.transcripts(ref())
+    assert len(app_t.calls) == 2
+
+
+def test_the_proof_identity_is_never_the_readers_own():
+    """In static-token mode every client holds the SAME token, so a 'proof' would be the reader proving
+    itself — and every meeting would pass. The proof client exists only as a distinct app."""
+    factory = {"client_factory": lambda *a, **k: None}
+    for kw in ({"auth_mode": "static", "static_token": "tok"},
+               {"auth_mode": "app", "client_id": "same", "meeting_app_client_id": "same", **factory}):
+        built = graph_repository.build(**({"tenant_id": "t", "client_id": "c", "client_secret": "s",
+                                           "meeting_app_client_id": "app", "meeting_app_client_secret": "sec"} | kw))
+        assert built.meeting_app_client is None, kw

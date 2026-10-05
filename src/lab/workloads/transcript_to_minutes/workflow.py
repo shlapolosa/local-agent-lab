@@ -171,8 +171,9 @@ def gate(validator, minutes, labels: set[str]) -> list[str]:
 
 
 async def _deliver(cfg, state: dict, handle: str) -> dict:
-    """Put the transcript and the minutes into the folder the recording sits in — as PLAIN TEXT,
-    laid out the way Teams lays out its own transcript.
+    """Put the transcript and the minutes where a person will find them — as PLAIN TEXT, laid out the
+    way Teams lays out its own transcript: beside a recording FILE in its folder, or, for an opted-in
+    meeting's recording (no folder, by design), kept in the lab for the meeting app to post (`_keep`).
 
     Both are the NAMED renderings: the transcript reads as a conversation between people and the
     minutes name whoever decided or owes something, because a person asked to identify the speakers
@@ -181,6 +182,11 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     directory addresses, which must not land in a folder whose permissions are the recording's.
     """
     if ContentHandle.parse(handle).kind is not HandleKind.ITEM:
+        # A meeting's recording has no folder to write beside. Its outputs are KEPT only for a meeting
+        # whose chat will hear about them (the meeting app's); with no chat nobody would ever be told,
+        # so the run says why it delivered nothing rather than keeping files no one hears about.
+        if not (state.get("meeting") or {}).get("chat_id"):
+            return {"delivery": "a meeting recording with no meeting chat: nowhere to deliver or announce"}
         return await _keep(cfg, state)
     item = await gateway.call(cfg, CollabTools.item, {"handle": handle})
     folder = item.get("parent_handle")
@@ -417,8 +423,9 @@ def build_workflow(cfg):
 
         The destination is the FOLDER the recording sits in, which is what "beside the recording"
         means: a person who goes looking for the recording finds these next to it, and the provider
-        indexes them for search. Without a recording handle there is nowhere to put them, and that
-        is the honest end of it rather than a guess at some default folder.
+        indexes them for search. An opted-in meeting has no such folder; its outputs are kept for the
+        meeting app to post in the meeting chat. Without a recording handle there is nowhere to put
+        them, and that is the honest end of it rather than a guess at some default folder.
         """
         with gateway.node_span(cfg, "deliver"):
             state = state | {"delivered": [], "chat_id": "", "delivery": "", "beside": {}}

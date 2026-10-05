@@ -73,7 +73,8 @@ def web(*, client_state: str, handle=notifications.handle) -> FastAPI:
             body = await request.json()
         except ValueError:
             return Response(status_code=400)
-        asyncio.get_running_loop().run_in_executor(None, lambda: handle(body, client_state=client_state))
+        done = asyncio.get_running_loop().run_in_executor(None, lambda: handle(body, client_state=client_state))
+        done.add_done_callback(_said_if_failed)
         return Response(status_code=202)
 
     @app.get("/healthz")
@@ -81,6 +82,14 @@ def web(*, client_state: str, handle=notifications.handle) -> FastAPI:
         return {"ok": True}
 
     return app
+
+
+def _said_if_failed(future) -> None:
+    """Graph already has its 202, so a notification that fails afterwards must at least SAY so — an
+    instrument that cannot fail loudly is not an instrument."""
+    if future.exception() is not None:
+        print(f"[meeting-app] notification not handled ({type(future.exception()).__name__}: "
+              f"{future.exception()})", flush=True)
 
 
 def _dump(model) -> dict:
@@ -102,8 +111,8 @@ def teams(web_app: FastAPI):  # pragma: no cover — SDK wiring; the decisions a
     def card(spec: dict) -> AdaptiveCard:
         return AdaptiveCard.model_validate(spec)
 
-    def registered(ctx):
-        m = registry.by_chat(ctx.activity.conversation.id)
+    async def registered(ctx):
+        m = await asyncio.to_thread(registry.by_chat, ctx.activity.conversation.id)
         return m if m is not None and not m.paused else None
 
     @app.on_conversation_update
@@ -120,12 +129,12 @@ def teams(web_app: FastAPI):  # pragma: no cover — SDK wiring; the decisions a
 
     @app.on_meeting_start
     async def started(ctx):
-        if registered(ctx):
+        if await registered(ctx):
             await ctx.send("Meeting Notes is on. Press **Record** (with transcription) for the minutes.")
 
     @app.on_meeting_end
     async def ended(ctx):
-        if registered(ctx):
+        if await registered(ctx):
             await ctx.send("Meeting ended. If it was recorded, the speaker question follows here shortly.")
 
     @app.on_message
@@ -137,14 +146,15 @@ def teams(web_app: FastAPI):  # pragma: no cover — SDK wiring; the decisions a
     @app.on_card_action_execute
     async def execute(ctx):
         act = _dump(ctx.activity)
-        verb = ((act.get("value") or {}).get("action") or {}).get("verb")
+        action = (act.get("value") or {}).get("action") or {}
         actor = ""
-        if verb == "submit":
-            member = await ctx.api.conversations.get_member_by_id(ctx.activity.conversation.id, ctx.activity.from_.id)
-            actor = member.user_principal_name or member.email or ctx.activity.from_.aad_object_id or ""
-        shown = await asyncio.to_thread(lambda: bot.on_card(act, actor=actor))
-        approval_id = (((act.get("value") or {}).get("action") or {}).get("data") or {}).get("approval_id", "")
-        posted = registry.card_of(approval_id) if verb == "submit" and "refresh" not in shown else None
+        if action.get("verb") == "submit":
+            member = _dump(await ctx.api.conversations.get_member_by_id(ctx.activity.conversation.id,
+                                                                        ctx.activity.from_.id))
+            actor = bot.actor_of(member, ctx.activity.from_.aad_object_id or "")
+        shown, closed = await asyncio.to_thread(lambda: bot.on_card(act, actor=actor))
+        posted = (await asyncio.to_thread(registry.card_of, str((action.get("data") or {}).get("approval_id") or ""))
+                  if closed else None)
         if posted:
             # close the card for EVERYONE, not only the organiser who answered it
             await ctx.api.conversations.update_activity(posted[0], posted[1],
@@ -170,12 +180,8 @@ async def _listen(post) -> None:  # pragma: no cover — a timer around two test
 
 
 async def _renew() -> None:  # pragma: no cover — a timer around tested `subscriptions.ensure`
-    from lab.substrate.mcp.graph import graph_auth
-    from lab.substrate.mcp.graph.graph_rest import GraphClient
-    client = GraphClient(graph_auth.token_source("app", tenant_id=config.ENTRA_TENANT_ID,
-                                                 client_id=config.MEETING_APP_ID,
-                                                 client_secret=config.MEETING_APP_SECRET),
-                         base_url=config.GRAPH_BASE_URL)
+    from lab.substrate.mcp.graph.graph_repository import app_client
+    client = app_client(config.MEETING_APP_ID, config.MEETING_APP_SECRET, tenant_id=config.ENTRA_TENANT_ID)
     while True:
         try:
             said = await asyncio.to_thread(subscriptions.ensure, client, catalog_id=config.MEETING_APP_CATALOG_ID,

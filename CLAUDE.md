@@ -894,6 +894,18 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   (`config/clients/power-automate/notify.template.json`); UPLOADING needs only `Files.ReadWrite.All`,
   so the lab does that itself via `collab_put`. Unset `MEETING_WEBHOOK_URL` = it logs what it would
   post, which is how to watch it before wiring a destination.
+  **`src/lab/substrate/meetingapp/` (the opt-in Teams meeting app) is the third, and the first that
+  carries CONTENT** — the speaker form's verbatim samples and the minutes' summary text go back into
+  Teams through the Bot Connector. Bounded tighter than the notifier because of it: only into a meeting
+  chat the app was ADDED to; only for a run whose recording IS that chat's meeting
+  (`registry.owner_of` — the chat a submitter names is checked against the recording, never trusted);
+  samples only in the ORGANISER's refreshed view (everyone else's card shows a count), decided from the
+  registry on every refresh and submit, never from client data; only speaker-mapping approvals are
+  shown or decided there (`bot.question_meeting`); minutes only for runs whose outputs the lab KEPT
+  (`meeting_notifier.partition` — folder-delivered runs stay the webhook's). Graph access is graph-mcp's:
+  the app's own resource-specific grant PROVES a meeting opted in (`graph_repository._opted_in_path`,
+  re-proved every `PROOF_TTL`) and the reader fetches the bytes, because Microsoft cannot download a
+  recording by RSC (measured 5 Oct 2026).
 - Requests carry the OTel `trace_id` of the run that produced the model, so a reviewer can
   open the exact trace from the review app.
 

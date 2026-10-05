@@ -15,7 +15,7 @@ from typing import Iterable
 
 from lab.platform.contracts import SpeakerPrompt
 
-__all__ = ["welcome", "awaiting", "speaker_form", "recorded", "minutes"]
+__all__ = ["welcome", "awaiting", "speaker_form", "recorded", "not_here", "minutes"]
 
 VERSION = "1.5"
 
@@ -91,6 +91,11 @@ def recorded(actor_display: str) -> dict:
     """After the answer: for everyone, with no refresh — the question is closed."""
     return _card([_text("Speakers named", weight="Bolder"),
                   _text(f"Answered by {actor_display}. The minutes will be posted here.")])
+
+
+def not_here() -> dict:
+    """For a card whose question is not this meeting's — never says whose it is, or what."""
+    return _card([_text("This question is not one for this meeting.", isSubtle=True)])
 
 
 def minutes(*, summary: str, decisions: int, actions: int, files: list[str], lane: str = "") -> dict:

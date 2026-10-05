@@ -19,9 +19,11 @@ from lab.substrate.meetingapp.registry import Meeting
 CHAT = "19:meeting_x@thread.v2"
 M = Meeting(chat_id=CHAT, organiser_oid="org", organiser_mri="29:org", graph_meeting_id="MSo",
             service_url="https://smba/", tenant_id="t")
+RECORDING = "collab://recording/org~MSo/rec-1"
 QUESTION = {"question": {"items": [{"label": "SPEAKER_00", "samples": ["secret words"], "seconds": 9, "turns": 1}]},
             "continuation": {"process": "transcript_to_minutes",
-                             "inputs": {"chat_id": CHAT, "provider": "soniox-en", "transcript": "art://t/x.json"}}}
+                             "inputs": {"chat_id": CHAT, "provider": "soniox-en", "transcript": "art://t/x.json",
+                                        "recording": RECORDING}}}
 
 
 class Poster:
@@ -74,7 +76,8 @@ def test_a_failed_post_is_left_pending_to_be_tried_again():
 
 def finish(r, **outputs):
     channel.ensure(client=r)                    # what the service does at startup
-    rid, _ = workflows.submit(TRANSCRIPT_TO_MINUTES.name, {"transcript": "art://t/x.json",
+    rid, _ = workflows.submit(TRANSCRIPT_TO_MINUTES.name, {"transcript": "art://t/x.json", "recording": RECORDING,
+                                                          "chat_id": CHAT,
                                                           "speaker_map": {"SPEAKER_00": {"tag": "M"}}},
                               "continuation-runner", client=r)
     workflows.mark(rid, WorkflowStatus.DONE.value, client=r, **outputs)
@@ -101,5 +104,29 @@ def test_minutes_delivered_to_a_folder_are_left_to_the_webhook_notifier():
     registry.save(M, client=r)
     folder = [{"name": "x.minutes.txt", "ref": "art://s/m.txt", "url": "https://tenant/x.minutes.txt"}]
     finish(r, chat_id=CHAT, delivered=json.dumps(folder), summary=json.dumps(SUMMARY))
+    asyncio.run(channel.minutes_pass(post, client=r))
+    assert post.sent == []
+
+
+def test_a_question_about_another_meetings_recording_is_not_posted_in_this_chat():
+    """A submitter names the chat; the recording names the meeting. Only when they agree is anything
+    posted — otherwise one meeting's voices would be offered to another meeting's organiser."""
+    r, post = FakeRedis(), Poster()
+    registry.save(M, client=r)
+    elsewhere = QUESTION | {"continuation": {"process": "transcript_to_minutes", "inputs": {
+        "chat_id": CHAT, "recording": "collab://recording/other~MSo/rec-9"}}}
+    ask(r, payload=elsewhere)
+    asyncio.run(channel.approvals_pass(post, client=r))
+    assert post.sent == []
+
+
+def test_minutes_of_another_meetings_recording_are_not_posted_in_this_chat():
+    r, post = FakeRedis(), Poster()
+    registry.save(M, client=r)
+    channel.ensure(client=r)
+    rid, _ = workflows.submit(TRANSCRIPT_TO_MINUTES.name, {
+        "transcript": "art://t/x.json", "chat_id": CHAT, "recording": "collab://recording/other~MSo/rec-9",
+        "speaker_map": {"SPEAKER_00": {"tag": "M"}}}, "continuation-runner", client=r)
+    workflows.mark(rid, WorkflowStatus.DONE.value, client=r, chat_id=CHAT, delivered=KEPT, summary=SUMMARY)
     asyncio.run(channel.minutes_pass(post, client=r))
     assert post.sent == []

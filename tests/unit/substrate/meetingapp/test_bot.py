@@ -14,9 +14,11 @@ CHAT = "19:meeting_x@thread.v2"
 ORG_OID, ORG_MRI = "org-oid", "29:org"
 M = Meeting(chat_id=CHAT, organiser_oid=ORG_OID, organiser_mri=ORG_MRI, graph_meeting_id="MSo",
             service_url="https://smba/", tenant_id="t")
+RECORDING = "collab://recording/org-oid~MSo/rec-1"
 PAYLOAD = {"question": {"items": [{"label": "SPEAKER_00", "samples": ["shall we start"], "seconds": 30, "turns": 2},
                                   {"label": "SPEAKER_01", "samples": ["agreed"], "seconds": 3, "turns": 1}]},
-           "continuation": {"process": "transcript_to_minutes", "inputs": {"provider": "soniox-en"}}}
+           "continuation": {"process": "transcript_to_minutes",
+                            "inputs": {"provider": "soniox-en", "chat_id": CHAT, "recording": RECORDING}}}
 OPEN = {"request_id": "apr-1", "status": "pending", "kind": ApprovalKind.SPEAKER_MAPPING.value, "payload": PAYLOAD}
 
 
@@ -29,8 +31,8 @@ def card(act, st=OPEN):
     decided = []
     r = FakeRedis()
     registry.save(M, client=r)
-    out = bot.on_card(act, actor="maria@contoso.com", status=lambda rid, **kw: st,
-                      decide=lambda *a, **kw: decided.append((a, kw)), client=r)
+    out, _closed = bot.on_card(act, actor="maria@contoso.com", status=lambda rid, **kw: st,
+                               decide=lambda *a, **kw: decided.append((a, kw)), client=r)
     return out, decided
 
 
@@ -70,8 +72,8 @@ def test_an_already_answered_question_shows_who_answered_it_to_everyone():
 
 def test_a_meeting_the_bot_does_not_know_shows_nobody_the_form():
     decided = []
-    out = bot.on_card(activity("refresh"), actor="maria@contoso.com", status=lambda rid, **kw: OPEN,
-                      decide=lambda *a, **kw: decided.append(a), client=FakeRedis())
+    out, _ = bot.on_card(activity("refresh"), actor="maria@contoso.com", status=lambda rid, **kw: OPEN,
+                         decide=lambda *a, **kw: decided.append(a), client=FakeRedis())
     assert "shall we start" not in str(out) and decided == []
 
 
@@ -100,3 +102,60 @@ def test_only_the_organiser_can_pause_and_anyone_can_ask_the_status():
     assert registry.by_chat(CHAT, client=r).paused
     assert "paused" in bot.on_command({"conversation": {"id": CHAT}, "from": {"aadObjectId": "x"},
                                        "text": "status"}, client=r).lower()
+
+
+def test_recording_ref_in_these_tests_is_the_adapters_own_encoding():
+    from lab.substrate.mcp.graph import graph_map
+    assert RECORDING == f"collab://recording/{graph_map.meeting_ref('org-oid', 'MSo')}/rec-1"
+
+
+def test_an_approval_of_another_meeting_is_neither_shown_nor_decided():
+    """The approval id arrives in client data. The organiser of THIS meeting must not see — or answer —
+    a question about another meeting's voices by sending its id."""
+    other = OPEN | {"payload": PAYLOAD | {"continuation": {"process": "transcript_to_minutes", "inputs": {
+        "chat_id": CHAT, "recording": "collab://recording/other~MSo/rec-9"}}}}
+    for verb in ("refresh", "submit"):
+        out, decided = card(activity(verb, identity_SPEAKER_00="m@x.com", tag_SPEAKER_01="z"), st=other)
+        assert "shall we start" not in str(out) and decided == []
+
+
+def test_an_approval_that_is_not_a_speaker_question_is_never_decided_here():
+    """An EA import or an investment authorisation has no speakers, so an empty answer would 'complete'
+    it — this channel decides speaker questions and nothing else."""
+    ea = OPEN | {"kind": "ea-import", "payload": {"continuation": PAYLOAD["continuation"]}}
+    out, decided = card(activity("submit"), st=ea)
+    assert decided == []
+
+
+def test_a_question_answered_meanwhile_elsewhere_shows_who_answered_instead_of_failing():
+    r = FakeRedis()
+    registry.save(M, client=r)
+
+    def lost_race(*a, **kw):
+        raise ValueError("apr-1 is already approve (by someone)")
+    out, closed = bot.on_card(activity("submit", identity_SPEAKER_00="m@x.com", tag_SPEAKER_01="z"),
+                              actor="m@x.com", status=lambda rid, **kw: OPEN, decide=lost_race, client=r)
+    assert "answered" in str(out).lower() and closed
+
+
+def test_closing_the_card_for_everyone_is_said_explicitly():
+    r = FakeRedis()
+    registry.save(M, client=r)
+    assert bot.on_card(activity("submit", identity_SPEAKER_00="m@x.com", tag_SPEAKER_01="z"),
+                       actor="m@x.com", status=lambda rid, **kw: OPEN, decide=lambda *a, **kw: None, client=r)[1]
+    assert not bot.on_card(activity("refresh"), actor="", status=lambda rid, **kw: OPEN,
+                           decide=lambda *a, **kw: None, client=r)[1]
+
+
+def test_a_command_is_the_first_word_said_to_the_bot_not_any_word_in_the_sentence():
+    r = FakeRedis()
+    registry.save(M, client=r)
+    bot.on_command({"conversation": {"id": CHAT}, "from": {"aadObjectId": ORG_OID},
+                    "text": "<at>Meeting Notes</at> status — don't pause yet"}, client=r)
+    assert not registry.by_chat(CHAT, client=r).paused
+
+
+def test_the_actor_is_the_directory_name_when_teams_gives_one():
+    assert bot.actor_of({"userPrincipalName": "m@x.com", "email": "e@x.com"}, "oid") == "m@x.com"
+    assert bot.actor_of({"email": "e@x.com"}, "oid") == "e@x.com"
+    assert bot.actor_of({}, "oid") == "oid"

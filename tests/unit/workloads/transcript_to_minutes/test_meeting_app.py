@@ -59,3 +59,15 @@ def test_an_app_meeting_is_compared_with_the_tenant_transcript_and_the_table_is_
     assert got["lanes"] == ["soniox-en"] and got["file"]["name"] == "Meeting.comparison.txt"
     assert got["file"]["ref"] == "art://s/Meeting.comparison.txt"
     assert CollabTools.list not in [t for t, _ in calls], "no folder to find sibling lanes in"
+
+
+def test_a_recording_handle_with_no_meeting_chat_is_not_silently_kept():
+    """Keeping is for meetings the app announces in their chat. Without one nobody would ever be told,
+    so the run reports why it delivered nothing instead of keeping files no one hears about."""
+    calls, stored, fake = harness()
+    with patch.object(gateway, "call", fake):
+        try:
+            out = asyncio.run(W._deliver({}, state(meeting={"id": "x", "recording": RECORDING}), RECORDING))
+        except AssertionError as e:                 # the harness refuses any folder lookup
+            out = {"delivery": str(e)}
+    assert not stored and not out.get("delivered")

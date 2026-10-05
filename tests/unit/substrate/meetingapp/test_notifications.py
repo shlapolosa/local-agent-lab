@@ -77,3 +77,18 @@ def test_a_malformed_resource_is_skipped_not_raised():
     body = {"value": [{"clientState": SECRET, "resource": "users/x/somethingElse"}, *note()["value"]]}
     started, _ = run(body, r)
     assert len(started) == 1
+
+
+def test_one_entry_that_cannot_be_submitted_does_not_stop_the_next():
+    r = FakeRedis()
+    registry.save(M, client=r)
+    calls = []
+
+    def submit(process, inputs, requester, **kw):
+        calls.append(inputs["recording"])
+        if len(calls) == 1:
+            raise ValueError("invalid input")
+        return [{"request_id": "wfr-2"}]
+    body = {"value": note(rid="first")["value"] + note(rid="second")["value"]}
+    started = notifications.handle(body, client_state=SECRET, submit=submit, lanes=(), client=r)
+    assert len(calls) == 2 and started == [{"request_id": "wfr-2"}]

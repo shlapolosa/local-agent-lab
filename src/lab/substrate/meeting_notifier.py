@@ -55,6 +55,15 @@ TRIES_TTL_S = 86400
 RETRY_4XX = (408, 429)
 
 
+def partition(delivered) -> tuple[list[dict], list[dict]]:
+    """(addressable, kept): the ONE rule for who announces a finished run's files. Files with an
+    address a person can open were written into the tenant and are announced HERE, through the webhook;
+    files kept in the lab (an opted-in meeting's) are announced by the meeting app in the chat itself.
+    Both sinks call this, so the two can never both — or neither — speak."""
+    files = [f for f in delivered or [] if isinstance(f, dict)]
+    return [f for f in files if f.get("url")], [f for f in files if not f.get("url")]
+
+
 def announcement(state: dict) -> dict | None:
     """What to POST for one finished run, or None when there is nothing to say.
 
@@ -64,10 +73,7 @@ def announcement(state: dict) -> dict | None:
     if state.get("status") != WorkflowStatus.DONE.value:
         return None
     chat_id = str(state.get("chat_id") or "").strip()
-    # Only files a person can OPEN. An opted-in meeting's files are kept in the lab with no address,
-    # because the meeting app posts them in the chat itself — announcing them here too would be a
-    # second, dead message about the same minutes.
-    delivered = [f for f in state.get("delivered") or [] if f.get("url")]
+    delivered, _kept = partition(state.get("delivered"))
     if not chat_id or not delivered:
         return None
     summary = state.get("summary") or {}
