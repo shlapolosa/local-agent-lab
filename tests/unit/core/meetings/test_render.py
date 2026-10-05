@@ -38,6 +38,11 @@ def test_reading_a_delivered_transcript_gives_back_its_turns():
     assert [t.start for t in back] == [3.0, 75.0]
 
 
+def test_a_delivered_file_s_utf8_mark_does_not_disturb_reading_it_back():
+    text = "\ufeff" + R.transcript(turns(SEGMENTS, PEOPLE), title="t", seconds=80)
+    assert [t.name for t in R.read_transcript(text)] == ["maria", "Nabeel"]
+
+
 def test_clock_and_length_use_teams_units():
     assert (R.clock(3.9), R.clock(754), R.clock(3723)) == ("0:03", "12:34", "1:02:03")
     assert (R.length(45), R.length(128), R.length(3785)) == ("45s", "2m 8s", "1h 3m 5s")

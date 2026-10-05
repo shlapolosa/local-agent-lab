@@ -126,8 +126,11 @@ def test_the_delivered_files_name_the_people_a_human_tagged__not_the_labels():
 
     transcript = stored["sync.elevenlabs.transcript.txt"]
     minutes = stored["sync.elevenlabs.minutes.txt"]
+    # The UTF-8 mark first: SharePoint serves .txt with no charset and a browser then shows Arabic as
+    # mojibake (measured 5 Oct 2026) — the mark is what tells every reader the bytes are UTF-8
+    assert transcript.startswith("\ufeff") and minutes.startswith("\ufeff")
     # Teams' own layout: title, date, duration, then `Name   m:ss` over the words
-    assert transcript.startswith("sync\n29 September 2026, 07:20 UTC\n8s\nTranscription: elevenlabs\n\n")
+    assert transcript.startswith("\ufeffsync\n29 September 2026, 07:20 UTC\n8s\nTranscription: elevenlabs\n\n")
     assert "maria   0:03\nMorning all. Shall we start?" in transcript
     assert "SPEAKER_" not in transcript and "SPEAKER_" not in minutes, "a label reached the reader"
     assert "maria opened the meeting." in minutes and "Owner: maria" in minutes

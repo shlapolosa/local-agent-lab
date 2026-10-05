@@ -63,7 +63,7 @@ def transcript(turns: list[Turn], *, title: str, when: str = "", seconds: float 
 def read_transcript(text: str) -> list[Turn]:
     """The turns back out of `transcript()` — the inverse, so a lane is scored from what was delivered."""
     out: list[Turn] = []
-    lines = (text or "").splitlines()
+    lines = (text or "").lstrip("\ufeff").splitlines()      # a delivered file starts with the UTF-8 mark
     i = 0
     while i < len(lines):
         m = _HEADER.match(lines[i])

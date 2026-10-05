@@ -207,10 +207,21 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
                        "transcript": transcript}}
 
 
+#: The UTF-8 byte-order mark. SharePoint serves a `.txt` as `text/plain` with NO charset (measured
+#: 5 Oct 2026), so a browser falls back to Windows-1252 and every Arabic letter's two UTF-8 bytes
+#: render as Latin junk — `Ù…` for `م`. The bytes were right; nothing said what they were. The mark
+#: says it inside the file, which is the one place every reader looks: browsers, Notepad and Excel all
+#: honour it, and it cannot be lost by a server that ignores a header.
+BOM = "\ufeff"
+
+
 async def _put(cfg, folder: str, name: str, text: str) -> dict:
     """ONE text document beside the recording: stored AS ITSELF (`semantic_store_page`, typed by its
     name — the JSON-wrapping `store_spec` delivered `{"text": "\\u0627…"}` nobody could read), then
-    written by reference, so the upload reads it the way everything else does."""
+    written by reference, so the upload reads it the way everything else does. Plain text gets the
+    UTF-8 mark first, or Arabic arrives as mojibake (see `BOM`)."""
+    if name.endswith(".txt") and not text.startswith(BOM):
+        text = BOM + text
     ref = (await gateway.call(cfg, SemanticTools.store_page, {"text": text, "name": name}))["ref"]
     out = await gateway.call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
     # the address a person opens — without it the meeting gets a notice it cannot act on
