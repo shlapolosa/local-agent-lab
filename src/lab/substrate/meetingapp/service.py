@@ -183,6 +183,11 @@ async def _renew() -> None:  # pragma: no cover — a timer around tested `subsc
     from lab.substrate.mcp.graph.graph_repository import app_client
     client = app_client(config.MEETING_APP_ID, config.MEETING_APP_SECRET, tenant_id=config.ENTRA_TENANT_ID)
     while True:
+        if not config.MEETING_APP_PUBLIC_URL:
+            # the domain exists only after the first deploy; until it is set, no recording is announced
+            print("[meeting-app] MEETING_APP_PUBLIC_URL unset: recordings subscription NOT kept", flush=True)
+            await asyncio.sleep(RENEW_EVERY_S)
+            continue
         try:
             said = await asyncio.to_thread(subscriptions.ensure, client, catalog_id=config.MEETING_APP_CATALOG_ID,
                                            base_url=config.MEETING_APP_PUBLIC_URL,
@@ -194,8 +199,8 @@ async def _renew() -> None:  # pragma: no cover — a timer around tested `subsc
 
 
 def main() -> None:  # pragma: no cover — composition root of the process
-    missing = [k for k in ("MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_PUBLIC_URL",
-                           "MEETING_APP_CATALOG_ID", "MEETING_APP_NOTIFY_STATE") if not getattr(config, k)]
+    missing = [k for k in ("MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_CATALOG_ID",
+                           "MEETING_APP_NOTIFY_STATE") if not getattr(config, k)]
     if missing:
         raise SystemExit(f"meeting-app is not configured: set {', '.join(missing)}")
     web_app = web(client_state=config.MEETING_APP_NOTIFY_STATE)

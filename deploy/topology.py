@@ -223,7 +223,7 @@ CHANNELS = {
     # The opt-in Teams meeting app (lab.substrate.meetingapp): an approval channel that is ALSO a bot,
     # so it is the one channel with a public port — Teams posts activities to it and Graph posts the
     # recording notifications. MEETING_APP_PUBLIC_URL is not a gate: it is that domain, known only
-    # after the first deploy creates it, and the service refuses to start until it is set.
+    # after the first deploy creates it; until it is set the service runs but keeps no subscription.
     "meeting-app": {"cmd": "python -m lab.substrate.meetingapp.service", "port": 3978, "restart": "ALWAYS",
                     "requires": ("MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_CATALOG_ID",
                                  "MEETING_APP_NOTIFY_STATE")},
