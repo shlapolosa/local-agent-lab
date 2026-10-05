@@ -64,7 +64,10 @@ def announcement(state: dict) -> dict | None:
     if state.get("status") != WorkflowStatus.DONE.value:
         return None
     chat_id = str(state.get("chat_id") or "").strip()
-    delivered = state.get("delivered") or []
+    # Only files a person can OPEN. An opted-in meeting's files are kept in the lab with no address,
+    # because the meeting app posts them in the chat itself — announcing them here too would be a
+    # second, dead message about the same minutes.
+    delivered = [f for f in state.get("delivered") or [] if f.get("url")]
     if not chat_id or not delivered:
         return None
     summary = state.get("summary") or {}

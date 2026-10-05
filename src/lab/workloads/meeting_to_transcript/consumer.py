@@ -21,7 +21,8 @@ async def _run(root, req, on_trace):
     # the run SUCCEEDS, transcribed by the default, and every lane returns the same provider's
     # answer while the outputs claim to be a comparison.
     return await run_once(root, req.inputs["recording"], req.inputs["owner"],
-                          provider=req.inputs.get("provider", ""), on_trace=on_trace)
+                          provider=req.inputs.get("provider", ""),
+                          chat_id=req.inputs.get("chat_id", ""), on_trace=on_trace)
 
 
 def _describe(req) -> str:

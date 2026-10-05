@@ -55,6 +55,14 @@ def test_a_run_that_delivered_nothing_says_nothing():
     assert N.announcement(DONE_RUN | {"delivered": []}) is None
 
 
+def test_a_meeting_the_app_owns_is_not_announced_through_the_webhook():
+    """An opted-in meeting's files are KEPT in the lab, with no address a person could open — the
+    meeting app posts them in the chat itself. A webhook message of names without links would be a
+    second, dead announcement of the same minutes."""
+    kept = [{"name": "Meeting.soniox-en.minutes.txt", "ref": "art://s/m.txt", "url": "", "handle": ""}]
+    assert N.announcement(DONE_RUN | {"delivered": kept}) is None
+
+
 def test_a_failed_run_says_nothing():
     assert N.announcement(DONE_RUN | {"status": WorkflowStatus.FAILED.value}) is None
 

@@ -26,6 +26,7 @@ from datetime import datetime
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
+from lab.core.collab import ContentHandle, HandleKind
 from lab.platform import runlog
 from lab.platform.contracts import (ApprovalTools, CollabTools, Continuation, SpeechTools,
                                     TRANSCRIPT_TO_MINUTES)
@@ -179,6 +180,9 @@ async def _owning_meeting(cfg, state: dict) -> dict:
     the caller wants from it are `participants` (who to offer the human) and `chat_id` (where the
     outputs belong afterwards), and both come from the same single lookup.
     """
+    named = _named_meeting(state)
+    if named is not None:
+        return await _recorded_at(cfg, state, named)
     try:
         meetings = await gateway.call(cfg, CollabTools.meetings, {"organizer": state.get("owner", ""),
                                                            "limit": CANDIDATE_MEETINGS})
@@ -214,6 +218,41 @@ async def _owning_meeting(cfg, state: dict) -> dict:
     except Exception as e:                      # noqa: BLE001 — a picker is never worth a failed run
         print(f"[resolve_candidates] no meeting resolved ({type(e).__name__}: {e})", flush=True)
     return {}
+
+
+def _named_meeting(state: dict) -> dict | None:
+    """The meeting the CALLER vouches for, or None to look it up.
+
+    The meeting app submits a `collab://recording/<meeting>/<id>` handle — its scope IS the meeting —
+    together with the meeting chat it lives in. Both halves are needed: the chat is the caller saying
+    "this is the meeting, I am in it", and without it a recording handle still goes through the
+    calendar, which is what yields the participants for the picker. Searching for the app's meeting
+    would be worse than useless anyway — the calendar is read per configured mailbox, and an opted-in
+    organiser need not be one. So the picker is empty here and the question still works, as it does
+    whenever no meeting resolves."""
+    if not state.get("chat_id"):
+        return None
+    try:
+        handle = ContentHandle.parse(state.get("recording", ""))
+    except ValueError:
+        return None
+    if handle.kind is not HandleKind.RECORDING:
+        return None
+    return {"id": handle.scope, "chat_id": state.get("chat_id", ""), "participants": [], "recorded_at": ""}
+
+
+async def _recorded_at(cfg, state: dict, meeting: dict) -> dict:
+    """When this recording was made — which picks the occurrence whose tenant transcript to compare
+    with. BEST EFFORT: the meeting and its chat are already known, and losing a timestamp must not
+    lose them."""
+    try:
+        listed = await gateway.call(cfg, CollabTools.recordings, {"meeting_id": meeting["id"]})
+        for r in (listed or {}).get("items", []):
+            if r.get("handle") == state["recording"]:
+                return meeting | {"recorded_at": r.get("created", "")}
+    except Exception as e:                      # noqa: BLE001 — a timestamp is never worth the run
+        print(f"[resolve_candidates] recording time unknown ({type(e).__name__}: {e})", flush=True)
+    return meeting
 
 
 def _candidates_of(meeting: dict) -> list[dict]:

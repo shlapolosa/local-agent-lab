@@ -27,7 +27,7 @@ import json
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 from jsonschema import Draft7Validator
 
-from lab.core.collab import ContentHandle
+from lab.core.collab import ContentHandle, HandleKind
 from lab.core.meetings import Speakers, minutes_to_spec, named_minutes, render
 from lab.core.meetings.naming import turns
 from lab.core.speech import compare
@@ -180,6 +180,8 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     they are what the gate validated and what the semantic model is keyed on — and they also hold the
     directory addresses, which must not land in a folder whose permissions are the recording's.
     """
+    if ContentHandle.parse(handle).kind is not HandleKind.ITEM:
+        return await _keep(cfg, state)
     item = await gateway.call(cfg, CollabTools.item, {"handle": handle})
     folder = item.get("parent_handle")
     if not folder:
@@ -192,11 +194,7 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
     lane = str(state.get("provider") or "").strip()
     stem = f"{title}.{lane}" if lane else title
     when = item.get("created", "")
-    said = turns(state["segments"], state["map"])
-    seconds = max((float(s.get("end") or 0.0) for s in state["segments"]), default=0.0)
-    transcript = render.transcript(said, title=title, when=when, seconds=seconds, lane=lane)
-    minutes = render.minutes(named_minutes(state["minutes"], state["map"]), title=title, when=when, lane=lane,
-                             people=list(dict.fromkeys(t.name for t in said)))
+    transcript, minutes = _render(state, title, when, lane)
     written = [await _put(cfg, folder, f"{stem}.transcript.txt", transcript),
                await _put(cfg, folder, f"{stem}.minutes.txt", minutes)]
     return {"delivered": written, "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
@@ -204,6 +202,40 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
             # what the comparison needs to find the sibling lanes beside the same recording
             "beside": {"folder": folder, "drive": ContentHandle.parse(handle).scope,
                        "path": item.get("path", ""), "title": title, "when": when, "lane": lane or "lab",
+                       "transcript": transcript}}
+
+
+def _render(state: dict, title: str, when: str, lane: str) -> tuple[str, str]:
+    """The transcript and the minutes as a person reads them — the same text whichever destination
+    receives it."""
+    said = turns(state["segments"], state["map"])
+    seconds = max((float(s.get("end") or 0.0) for s in state["segments"]), default=0.0)
+    transcript = render.transcript(said, title=title, when=when, seconds=seconds, lane=lane)
+    minutes = render.minutes(named_minutes(state["minutes"], state["map"]), title=title, when=when, lane=lane,
+                             people=list(dict.fromkeys(t.name for t in said)))
+    return transcript, minutes
+
+
+#: What an opted-in meeting's documents are called. There is no file name to derive one from, and the
+#: meeting's subject is free text this path deliberately never carries — the chat they are posted in
+#: already shows it.
+APP_TITLE = "Meeting"
+
+
+async def _keep(cfg, state: dict) -> dict:
+    """An opted-in meeting's documents, KEPT in the lab by reference rather than written anywhere.
+
+    A meeting the meeting app was added to has no folder the lab may write into: the app holds no
+    file permission, by design, so the whole of its access stays bounded by that one meeting. The
+    app posts these in the meeting's own chat instead, and serves them to the people in it."""
+    lane = str(state.get("provider") or "").strip()
+    stem = f"{APP_TITLE}.{lane}" if lane else APP_TITLE
+    transcript, minutes = _render(state, APP_TITLE, "", lane)
+    kept = [await _store(cfg, f"{stem}.transcript.txt", transcript),
+            await _store(cfg, f"{stem}.minutes.txt", minutes)]
+    return {"delivered": kept, "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
+            "delivery": f"{len(kept)} file(s) kept for the meeting app to post",
+            "beside": {"folder": "", "title": APP_TITLE, "when": "", "lane": lane or "lab",
                        "transcript": transcript}}
 
 
@@ -215,18 +247,27 @@ async def _deliver(cfg, state: dict, handle: str) -> dict:
 BOM = "\ufeff"
 
 
+async def _store(cfg, name: str, text: str) -> dict:
+    """ONE text document stored AS ITSELF in the lab (`semantic_store_page`, typed by its name — the
+    JSON-wrapping `store_spec` delivered `{"text": "\\u0627…"}` nobody could read). Plain text gets
+    the UTF-8 mark first, or Arabic arrives as mojibake (see `BOM`). The shape is a delivered file's,
+    with no address yet: `_put` adds one when the document is also written into a folder."""
+    if name.endswith(".txt") and not text.startswith(BOM):
+        text = BOM + text
+    ref = (await gateway.call(cfg, SemanticTools.store_page, {"text": text, "name": name}))["ref"]
+    return {"name": name, "ref": ref, "handle": "", "url": "", "bytes": len(text.encode())}
+
+
 async def _put(cfg, folder: str, name: str, text: str) -> dict:
     """ONE text document beside the recording: stored AS ITSELF (`semantic_store_page`, typed by its
     name — the JSON-wrapping `store_spec` delivered `{"text": "\\u0627…"}` nobody could read), then
     written by reference, so the upload reads it the way everything else does. Plain text gets the
     UTF-8 mark first, or Arabic arrives as mojibake (see `BOM`)."""
-    if name.endswith(".txt") and not text.startswith(BOM):
-        text = BOM + text
-    ref = (await gateway.call(cfg, SemanticTools.store_page, {"text": text, "name": name}))["ref"]
+    ref = (await _store(cfg, name, text))["ref"]
     out = await gateway.call(cfg, CollabTools.put, {"folder": folder, "ref": ref, "name": name})
     # the address a person opens — without it the meeting gets a notice it cannot act on
-    return {"name": out.get("name", name), "handle": out.get("handle", ""), "url": out.get("url", ""),
-            "bytes": out.get("bytes", 0)}
+    return {"name": out.get("name", name), "ref": ref, "handle": out.get("handle", ""),
+            "url": out.get("url", ""), "bytes": out.get("bytes", 0)}
 
 
 #: A transcript read back for scoring is read WHOLE: the default cap is sized for a model's turn,
@@ -246,7 +287,9 @@ async def _compare(cfg, state: dict) -> dict:
         return {"note": "the tenant transcript has no speech in it"}
     reference = " ".join(s.text for s in teams.segments)
     texts = {b["lane"]: b["transcript"]}
-    listed = await gateway.call(cfg, CollabTools.list, {"drive_id": b["drive"], "path": b["path"], "limit": 200})
+    # Sibling lanes are found beside the recording; a meeting with no folder has only this lane.
+    listed = (await gateway.call(cfg, CollabTools.list, {"drive_id": b["drive"], "path": b["path"], "limit": 200})
+              if b["folder"] else None)
     prefix = b["title"] + "."
     for item in (listed or {}).get("items") or []:
         name = str(item.get("name") or "")
@@ -263,7 +306,8 @@ async def _compare(cfg, state: dict) -> dict:
         scores[lane] = compare.score(" ".join(t.text for t in said), len({t.name for t in said}), reference)
     table = render.comparison(b["title"], compare.score(reference, len({s.speaker for s in teams.segments})),
                               scores, when=b["when"])
-    written = await _put(cfg, b["folder"], f'{b["title"]}.comparison.txt', table)
+    name = f'{b["title"]}.comparison.txt'
+    written = await (_put(cfg, b["folder"], name, table) if b["folder"] else _store(cfg, name, table))
     return {"file": written, "lanes": sorted(scores)}
 
 

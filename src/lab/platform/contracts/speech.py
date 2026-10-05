@@ -89,6 +89,11 @@ MEETING_TO_TRANSCRIPT = ProcessSpec(
                    "through the governed gateway. Video is fine; its audio is extracted."),
         InputField("provider", InputKind.CHOICE, _LANE, required=False,
                    choices=SPEECH_PROVIDERS),
+        InputField("chat_id", InputKind.CONVERSATION,
+                   "Optional id of the meeting's own conversation, when the caller already knows it "
+                   "— the meeting app does, because it was added to that conversation. It is where the "
+                   "finished minutes are announced. Omitted, the run looks the meeting up itself.",
+                   required=False),
     ),
     outputs=("trace_id", "approval_id", "review_app", "recording_ref", "transcript_ref",
              "speakers", "candidates", "summary", "provider"),

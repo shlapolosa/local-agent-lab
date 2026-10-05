@@ -41,7 +41,7 @@ def test_each_lane_delivers_files_named_after_its_own_provider():
         # `gateway.call`, not a per-workload `_call`: theseven workloads shared four
         # identical helpers and they now live in one place, so the seam moved with them.
         with patch.object(gateway, "call", fake_call):
-            asyncio.run(W._deliver({}, state, "collab://recording/m/r"))
+            asyncio.run(W._deliver({}, state, "collab://item/d/r"))
         return [a["name"] for t, a in calls if t == CollabTools.put]
 
     assert deliver("elevenlabs") == ["2 test-20260907-Meeting Recording.elevenlabs.transcript.txt",
