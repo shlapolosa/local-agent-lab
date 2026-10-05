@@ -157,3 +157,29 @@ def test_vsdx_page_image_rejects_an_unknown_page_name():
     import pytest
     with pytest.raises(ValueError, match="no page named"):
         docparse.vsdx_page_image(_vsdx_bytes(), "lab-system.vsdx#Nope", render=lambda *a, **k: None)
+
+
+def test_a_byte_order_mark_is_consumed_not_carried_into_the_text():
+    """A UTF-8 BOM is an ENCODING mark, not content. The meeting pipeline began writing one at the start of
+    every delivered `.txt` on 4 Oct 2026 so Arabic renders in SharePoint instead of mojibake — a good reason,
+    and `utf-8-sig` decodes a BOM-less file identically, so reading that way is strictly safer.
+
+    Carried through, U+FEFF is a zero-width character at position 0 of the extracted text: invisible in a log,
+    a diff, a card and a review form, and able to make a term that should match silently not match. The
+    failure would surface weeks later as "the classifier found nothing" rather than as an encoding bug.
+    """
+    body = "Decisions\n\n- ship the thing"
+    with_bom = "﻿".encode() + body.encode()
+    assert docparse.document_text(with_bom, ".txt") == body
+    assert not docparse.document_text(with_bom, ".txt").startswith("﻿")
+    # a BOM-less file is unchanged, which is what makes this safe to apply everywhere
+    assert docparse.document_text(body.encode(), ".txt") == body
+    # and the same holds for the other text extensions the contract carries
+    for ext in (".md", ".markdown", ".rst", ".csv", ".vtt"):
+        assert docparse.document_text(with_bom, ext) == body, ext
+
+
+def test_arabic_survives_the_mark_being_stripped():
+    """The BOM exists FOR this case, so stripping it must not disturb the text it was added to protect."""
+    body = "القرارات\n\n- نشر الإصدار"
+    assert docparse.document_text("﻿".encode() + body.encode(), ".txt") == body

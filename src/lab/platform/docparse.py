@@ -74,7 +74,13 @@ def document_text(data: bytes, ext: str, max_chars: int = MAX_DOC_CHARS) -> str:
         from pypdf import PdfReader
         text = "\n\n".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(data)).pages)
     else:
-        text = data.decode("utf-8", errors="replace")
+        # `utf-8-sig`, not `utf-8`: a UTF-8 BOM is an ENCODING mark, not content, and the meeting pipeline
+        # writes one at the start of every delivered `.txt` so Arabic renders in SharePoint rather than as
+        # mojibake. Carried through, U+FEFF sits at position 0 of the extracted text — zero-width, so
+        # invisible in a log, a diff, a card and a review form, and able to stop a term matching with no
+        # symptom but "the classifier found nothing". A BOM-less file decodes identically, which is what
+        # makes this strictly safer than the alternative of asking the writer not to emit one.
+        text = data.decode("utf-8-sig", errors="replace")
     if len(text) > max_chars:
         text = text[:max_chars] + f"\n\n[truncated: {len(text)} chars in total, first {max_chars} shown]"
     return text
