@@ -291,6 +291,12 @@ GRAPH_MAX_UPLOAD_BYTES = int(_e("GRAPH_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
 # is used, which simply means uploads refuse for want of the permission.
 GRAPH_WRITER_CLIENT_ID = _e("GRAPH_WRITER_CLIENT_ID", "")
 GRAPH_WRITER_CLIENT_SECRET = _e("GRAPH_WRITER_CLIENT_SECRET", "")
+# The opt-in Teams meeting app (scripts/provision_meeting_app.py): ONE app registration that is the
+# bot, the resource-specific-consent principal and the front-door caller. graph-mcp uses it to PROVE a
+# meeting opted in (the app was added to it) before the reader touches that meeting. Unset = meetings
+# are read only for the configured mailboxes, exactly as before.
+MEETING_APP_ID = _e("MEETING_APP_ID", "")
+MEETING_APP_SECRET = _e("MEETING_APP_SECRET", "")
 
 # Change-notification destinations: egress to a caller-supplied URL, so an EMPTY list REFUSES every
 # subscription rather than allowing all. Comma-separated URL prefixes.

@@ -98,6 +98,7 @@ class GraphCollabRepository:
                  meeting_users: tuple[str, ...] = (), allow_metered: bool = False,
                  notification_allowlist: tuple[str, ...] = (), max_fetch_bytes: int = 0,
                  max_upload_bytes: int = 0, write_client: GraphClient | None = None,
+                 meeting_app_client: GraphClient | None = None,
                  now: Callable[[], datetime] | None = None) -> None:
         self.client, self.tokens = client, tokens
         self.meeting_user = meeting_user
@@ -113,6 +114,11 @@ class GraphCollabRepository:
         # an honest default: without a writer credential an upload refuses for want of the
         # permission, and the refusal names it — better than a second silent code path.
         self.write_client = write_client or client
+        # The opt-in meeting app. Its grant is resource-specific: Microsoft gives it a meeting's
+        # recordings only where an organiser ADDED it, so its being able to list them is the proof a
+        # meeting opted in. It cannot download them (measured 5 Oct 2026: a known Microsoft limit on
+        # resource-specific consent), so it proves and the reader fetches — see `_opted_in_path`.
+        self.meeting_app_client = meeting_app_client
         self._now = now or (lambda: datetime.now(timezone.utc))
         # Bounded on purpose: the container binds this repository as a SINGLETON in a long-lived
         # server, so an unbounded dict keyed on every join URL ever seen grows for the life of the
@@ -121,6 +127,9 @@ class GraphCollabRepository:
         # UPN -> directory object id. Bounded by `meeting_users`, so it cannot grow: a deployment
         # reads a fixed, configured set of mailboxes.
         self._user_ids: dict[str, str] = {}
+        # (organiser, meeting) pairs the meeting app has been seen to hold. Bounded like `_resolved`:
+        # a long-lived server would otherwise remember every meeting it ever proved.
+        self._proven: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # ------------------------------------------------------------------ capabilities
     def capabilities(self, deep: bool = False) -> dict[str, CollabUnavailable | None]:
@@ -340,9 +349,42 @@ class GraphCollabRepository:
 
     def _meeting_path(self, ref: str, capability: str = "meetings") -> str:
         user, token = graph_map.split_meeting_ref(ref)
+        if user and user not in self.meeting_users and self.meeting_app_client is not None:
+            return self._opted_in_path(user, token, capability)
         user = self._user(user)
         return (f"/users/{_seg(self._user_id(user, capability))}/onlineMeetings/"
                 f"{_seg(self._resolve(user, token))}")
+
+    def _opted_in_path(self, organiser: str, meeting: str, capability: str) -> str:
+        """The path to a meeting of an organiser this deployment does NOT read by configuration —
+        allowed only once the meeting app proves it was added to that meeting.
+
+        The reader's grant is tenant-wide, so the proof is the whole bound and must come BEFORE the
+        reader is asked anything. Hence ids only: a UPN would need a directory lookup and a join URL
+        a meeting search, both on the reader's grant, both before any proof. The app is told meeting
+        ids by its own notifications, so it never needs either."""
+        if "@" in organiser or meeting.startswith("http"):
+            raise CollabUnavailable(
+                capability, "a meeting outside the configured mailboxes is addressed by object ids only",
+                "pass the organiser's object id and the online meeting id, as the meeting app reports them")
+        path = f"/users/{_seg(organiser)}/onlineMeetings/{_seg(meeting)}"
+        key = (organiser, meeting)
+        if key in self._proven:
+            self._proven.move_to_end(key)
+            return path
+        try:
+            self.meeting_app_client.get(f"{path}/recordings")
+        except GraphError as e:
+            if e.status in (401, 403, 404):
+                raise CollabUnavailable(
+                    capability, "the meeting app has not been added to this meeting",
+                    "add the app to the meeting in Teams — that is how a meeting opts in") from e
+            raise (graph_probe.refusal(e.status, e.code, e.detail, capability, e.retry_after)
+                   or CollabUnavailable(capability, e.detail, "retry; the proof call did not complete")) from e
+        self._proven[key] = None
+        while len(self._proven) > RESOLVED_CACHE:
+            self._proven.popitem(last=False)
+        return path
 
     def _resolve(self, user: str, token: str) -> str:
         """A calendar event knows only the JOIN URL; `/users/{u}/onlineMeetings` can be filtered by
@@ -488,7 +530,8 @@ def build(*, tenant_id: str | None = None, client_id: str | None = None, client_
           notification_allowlist: tuple[str, ...] | None = None, max_fetch_bytes: int | None = None,
           max_upload_bytes: int | None = None,
           client_factory: Callable | None = None, writer_client_id: str | None = None,
-          writer_client_secret: str | None = None, now: Callable[[], datetime] | None = None,
+          writer_client_secret: str | None = None, meeting_app_client_id: str | None = None,
+          meeting_app_client_secret: str | None = None, now: Callable[[], datetime] | None = None,
           **client_kwargs) -> GraphCollabRepository:
     """The ONE place this adapter is assembled — what a composition root names. Every value defaults
     to `lab.platform.config` (the single env reader) and can be overridden for a test or a second
@@ -507,16 +550,22 @@ def build(*, tenant_id: str | None = None, client_id: str | None = None, client_
     client = GraphClient(tokens, base_url=base, **client_kwargs)
     # A second credential ONLY when one is configured. Same mode and tenant — it differs in exactly
     # one thing, the app registration, and therefore in what Microsoft will let it do.
-    writer_id = pick(writer_client_id, config.GRAPH_WRITER_CLIENT_ID)
-    writer_secret = pick(writer_client_secret, config.GRAPH_WRITER_CLIENT_SECRET)
-    write_client = None
-    if writer_id and writer_secret:
-        write_client = GraphClient(graph_auth.token_source(
+    def second(app_id, secret):
+        """Another app registration, same mode and tenant — it differs in exactly one thing, and
+        therefore in what Microsoft will let it do. None unless both halves are configured."""
+        if not (app_id and secret):
+            return None
+        return GraphClient(graph_auth.token_source(
             pick(auth_mode, config.GRAPH_AUTH_MODE),
             tenant_id=pick(tenant_id, config.ENTRA_TENANT_ID),
-            client_id=writer_id, client_secret=writer_secret,
+            client_id=app_id, client_secret=secret,
             static_token=pick(static_token, config.GRAPH_ACCESS_TOKEN),
             client_factory=client_factory), base_url=base, **client_kwargs)
+
+    write_client = second(pick(writer_client_id, config.GRAPH_WRITER_CLIENT_ID),
+                          pick(writer_client_secret, config.GRAPH_WRITER_CLIENT_SECRET))
+    meeting_app_client = second(pick(meeting_app_client_id, config.MEETING_APP_ID),
+                                pick(meeting_app_client_secret, config.MEETING_APP_SECRET))
     return GraphCollabRepository(
         client, tokens, meeting_user=pick(meeting_user, config.GRAPH_MEETING_USER) or "",
         meeting_users=tuple(pick(meeting_users, config.GRAPH_MEETING_USERS)),
@@ -524,4 +573,4 @@ def build(*, tenant_id: str | None = None, client_id: str | None = None, client_
         notification_allowlist=tuple(pick(notification_allowlist, config.GRAPH_NOTIFICATION_ALLOWLIST)),
         max_fetch_bytes=int(pick(max_fetch_bytes, config.GRAPH_MAX_FETCH_BYTES)),
         max_upload_bytes=int(pick(max_upload_bytes, config.GRAPH_MAX_UPLOAD_BYTES)),
-        write_client=write_client, now=now)
+        write_client=write_client, meeting_app_client=meeting_app_client, now=now)

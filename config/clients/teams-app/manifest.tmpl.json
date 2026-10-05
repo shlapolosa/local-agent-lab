@@ -1,0 +1,45 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "${VERSION}",
+  "id": "${TEAMS_APP_ID}",
+  "developer": {
+    "name": "Lab",
+    "websiteUrl": "https://${HOST}",
+    "privacyUrl": "https://${HOST}/tab/privacy",
+    "termsOfUseUrl": "https://${HOST}/tab/terms"
+  },
+  "name": {"short": "${NAME}", "full": "${NAME} — transcript, speakers and minutes after the meeting"},
+  "description": {
+    "short": "Transcript, named speakers and minutes, after the meeting.",
+    "full": "Add this app to a meeting to opt it in. After the meeting, the recording is transcribed (Arabic and English), the organiser is asked to name each speaker and may consent to keep their voiceprint, and the minutes are posted in the meeting chat. Meetings without the app are never read."
+  },
+  "icons": {"color": "color.png", "outline": "outline.png"},
+  "accentColor": "#2F5D8A",
+  "bots": [{
+    "botId": "${BOT_ID}",
+    "scopes": ["groupChat", "personal"],
+    "supportsFiles": true,
+    "isNotificationOnly": false
+  }],
+  "configurableTabs": [{
+    "configurationUrl": "https://${HOST}/tab/config",
+    "canUpdateConfiguration": false,
+    "scopes": ["groupChat"],
+    "context": ["meetingSidePanel", "meetingDetailsTab", "meetingChatTab"]
+  }],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["${HOST}"],
+  "webApplicationInfo": {"id": "${BOT_ID}", "resource": "api://${HOST}/${BOT_ID}"},
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {"name": "OnlineMeeting.ReadBasic.Chat", "type": "Application"},
+        {"name": "OnlineMeetingRecording.Read.Chat", "type": "Application"},
+        {"name": "OnlineMeetingTranscript.Read.Chat", "type": "Application"},
+        {"name": "OnlineMeetingParticipant.Read.Chat", "type": "Application"},
+        {"name": "ChatMember.Read.Chat", "type": "Application"}
+      ]
+    }
+  }
+}

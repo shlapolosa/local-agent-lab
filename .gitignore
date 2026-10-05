@@ -32,5 +32,8 @@ var/
 # TEMPLATES tracked: they end in .template.json, which the first pattern would otherwise swallow.
 config/clients/**/*.json
 !config/clients/**/*.template.json
+# The Teams app manifest is rendered PER TIER by scripts/package_teams_app.py (it names the host),
+# not by `./lab.sh clients`, so it is deliberately not a *.template.json.
+!config/clients/teams-app/manifest.tmpl.json
 config/clients/**/*.yaml
 !config/clients/**/*.template.yaml
