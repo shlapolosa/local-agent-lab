@@ -18,6 +18,7 @@ import json
 from fastapi import FastAPI, Request, Response
 
 from lab.platform import config
+from lab.substrate import netbind
 from lab.substrate.meetingapp import bot, channel, notifications, registry, subscriptions
 
 __all__ = ["AutomaticRefresh", "web", "main"]
@@ -103,7 +104,17 @@ def teams(web_app: FastAPI):  # pragma: no cover — SDK wiring; the decisions a
     from microsoft_teams.apps.http.fastapi_adapter import FastAPIAdapter
     from microsoft_teams.cards import AdaptiveCard
 
-    adapter = FastAPIAdapter(app=web_app, server_factory=lambda fa: uvicorn.Server(
+    class DualStack(uvicorn.Server):
+        """Teams and Graph reach this over the PUBLIC edge, which is IPv4, while asyncio makes a `::`
+        listener IPv6-only — the same 502 graph-mcp's public domain gave on 11 Sep 2026 (and this
+        service gave on its first deploy). On a network bind, serve one socket per family."""
+
+        async def serve(self, sockets=None):
+            if sockets is None and config.BIND_HOST not in netbind.LOOPBACK:
+                sockets = netbind.dual_stack_sockets(self.config.port)
+            return await super().serve(sockets=sockets)
+
+    adapter = FastAPIAdapter(app=web_app, server_factory=lambda fa: DualStack(
         uvicorn.Config(app=fa, host=config.BIND_HOST, port=config.MEETING_APP_PORT, log_level="info")))
     app = App(client_id=config.MEETING_APP_ID, client_secret=config.MEETING_APP_SECRET,
               tenant_id=config.ENTRA_TENANT_ID, http_server_adapter=adapter)
@@ -210,7 +221,7 @@ def main() -> None:  # pragma: no cover — composition root of the process
         await app.initialize()
         await asyncio.gather(app.start(config.MEETING_APP_PORT), _listen(post), _renew())
     # "channel: enabled" is the readiness line lab.sh waits for, as for every approval channel
-    print(f"meeting-app channel: enabled (build {config.BUILD_SHA or '?'}, :{config.MEETING_APP_PORT})", flush=True)
+    print(f"meeting-app channel: enabled ({config.build_id()}, :{config.MEETING_APP_PORT})", flush=True)
     asyncio.run(run())
 
 
