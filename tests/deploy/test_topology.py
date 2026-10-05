@@ -51,7 +51,10 @@ def test_every_server_the_substrate_addresses_has_a_listen_port():
     for name in ("adoit-mcp", "semantic-mcp", "storage-mcp", "workflow-frontdoor", "graph-mcp", "speech-mcp",
                  "reference-mcp", "decision-mcp", "valuation-mcp", "gateway", "review"):
         assert isinstance(topology.SERVICE_PORTS[name], int)
-    assert set(topology.SERVICE_PORTS) <= set(topology.SUBSTRATE), "a port for a service nobody deploys"
+    assert set(topology.SERVICE_PORTS) <= set(topology.SUBSTRATE) | set(topology.CHANNELS), \
+        "a port for a service nobody deploys"
+    for name, spec in topology.CHANNELS.items():           # a channel that listens is addressable
+        assert not spec.get("port") or topology.SERVICE_PORTS[name] == spec["port"], name
 
 
 def test_the_same_role_gets_the_same_keys_on_every_network():

@@ -326,24 +326,39 @@ def test_the_meeting_notifier_gets_redis_and_one_url_and_nothing_else():
                     "GATEWAY_URL", "TEAMS_WEBHOOK_URL", "TELEGRAM_")
 
 
+def test_the_meeting_app_holds_its_own_identity_and_redis_and_no_data_credential():
+    """A PUBLIC service — Teams and Graph post to it — so its slice is its blast radius. It decides and
+    posts: its own app identity (bot + resource-specific consent), Redis, the lanes it fans out into.
+    Never the Graph reader or writer (graph-mcp reads, after the proof it allows), never a store, bucket,
+    database, gateway or model key."""
+    env = railway.env_for_role("meeting-app", FAKE | {"MEETING_APP_ID": "a", "MEETING_APP_SECRET": "s",
+                                                      "MEETING_APP_PUBLIC_URL": "https://m", "SPEECH_LANES": "x"})
+    assert {"MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_PUBLIC_URL", "REDIS_URL"} <= set(env)
+    assert not _has(env, "GRAPH_", "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
+                    "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "GATEWAY_URL", "TEAMS_WEBHOOK_URL",
+                    "TELEGRAM_", "MEETING_WEBHOOK_URL")
+
+
 def test_a_channel_is_a_substrate_service_only_while_it_is_configured():
     """An unconfigured channel exits immediately by design, so it is never deployed (lab.sh skips it
     for the same reason). Partial settings do not count."""
-    assert set(railway.CHANNELS) == {"telegram", "teams"}
+    assert {"telegram", "teams", "meeting-app"} <= set(railway.CHANNELS)
     assert set(railway.substrate_services({})) == set(railway.SUBSTRATE)
     assert set(railway.substrate_services({"TELEGRAM_BOT_TOKEN": "t"})) == set(railway.SUBSTRATE)
-    both = railway.substrate_services(FAKE)
-    assert set(both) == set(railway.SUBSTRATE) | {"telegram", "teams"}
+    aca = _load("lab_aca_for_channels", "deploy/aca.py")
+    configured = {k: "x" for s in railway.CHANNELS.values() for k in s["requires"]}
+    assert set(railway.substrate_services(configured)) == set(railway.SUBSTRATE) | set(railway.CHANNELS)
     for name, spec in railway.CHANNELS.items():
-        assert spec["cmd"] == f"python -m lab.substrate.channels.{name}"
-        assert spec["port"] is None and spec["restart"] == "ALWAYS"   # a loop, and nothing calls it
-        assert not spec.get("s3")
+        assert spec["cmd"].startswith("python -m lab.substrate."), name
+        assert spec["restart"] == "ALWAYS" and not spec.get("s3"), name   # a long-lived loop, no bucket
+        # A channel that LISTENS is public on every target — otherwise it deploys healthy and unreachable.
+        assert not spec.get("port") or name in aca.PUBLIC, name
     # deploy order + what down/status walk: redis first, jaeger last, a channel in between when it is
     # configured OR still deployed (settings removed from .env must not orphan a running service)
     assert railway.substrate_names({}) == ["redis", "embedder"] + list(railway.SUBSTRATE) + ["local-agent-lab"]
     assert railway.substrate_names({}, {"teams": "svc-teams"}) == \
         ["redis", "embedder"] + list(railway.SUBSTRATE) + ["teams", "local-agent-lab"]
-    assert railway.substrate_names(FAKE)[-3:] == ["telegram", "teams", "local-agent-lab"]
+    assert railway.substrate_names(FAKE)[-3:] == ["telegram", "teams", "local-agent-lab"]   # meeting-app unset in FAKE
 
 
 def test_every_key_a_channel_is_gated_on_is_actually_shipped_to_it():

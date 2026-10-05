@@ -101,7 +101,9 @@ HTTP_WAKE = frozenset({"adoit-mcp", "storage-mcp", "speech-mcp", "reference-mcp"
 # Above a run's longest gap between two calls to one server, so a run pays ONE cold start per server.
 SERVER_COOLDOWN_S = 1800
 
-PUBLIC = frozenset(n for n, s in topology.SUBSTRATE.items() if s.get("port"))
+# Every substrate role with a port, CHANNELS included: the meeting app is a channel that Teams and Graph
+# post to, and a channel table left out here would give it internal ingress — deployed, healthy, unreachable.
+PUBLIC = frozenset(n for n, s in {**topology.SUBSTRATE, **topology.CHANNELS}.items() if s.get("port"))
 
 
 @dataclass(frozen=True)

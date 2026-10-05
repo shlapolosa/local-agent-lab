@@ -220,6 +220,13 @@ CHANNELS = {
                  "requires": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")},
     "teams":    {"cmd": "python -m lab.substrate.channels.teams", "port": None, "restart": "ALWAYS",
                  "requires": ("TEAMS_WEBHOOK_URL",)},
+    # The opt-in Teams meeting app (lab.substrate.meetingapp): an approval channel that is ALSO a bot,
+    # so it is the one channel with a public port — Teams posts activities to it and Graph posts the
+    # recording notifications. MEETING_APP_PUBLIC_URL is not a gate: it is that domain, known only
+    # after the first deploy creates it, and the service refuses to start until it is set.
+    "meeting-app": {"cmd": "python -m lab.substrate.meetingapp.service", "port": 3978, "restart": "ALWAYS",
+                    "requires": ("MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_CATALOG_ID",
+                                 "MEETING_APP_NOTIFY_STATE")},
 }
 
 
@@ -270,7 +277,7 @@ def substrate_names(base_env: dict, ids: dict | None = None) -> list[str]:
 SERVICE_PORTS = {
     "adoit-mcp": 9100, "semantic-mcp": 9200, "storage-mcp": 9300, "workflow-frontdoor": 9400,
     "graph-mcp": 9500, "speech-mcp": 9600, "reference-mcp": 9700, "decision-mcp": 9800,
-    "valuation-mcp": 9900, "gateway": 4000, "review": 8501, "live": 10000,
+    "valuation-mcp": 9900, "gateway": 4000, "review": 8501, "live": 10000, "meeting-app": 3978,
 }
 EMBED_PORT = 11434
 #: Every MCP server a gateway fronts: alias -> (the URL variable the gateway config reads, the service
@@ -435,6 +442,8 @@ ROLE_ENV = {
                                                    # base url, auth mode, meeting user(s), fetch ceiling,
                                                    # notification allow-list, metered switch (graph_auth/graph_repository)
         "COLLAB_PROVIDER", "ENTRA_TENANT_ID",      # which adapter the container wires; the app-only token's authority
+        "MEETING_APP_ID", "MEETING_APP_SECRET",    # the meeting app's credential, used ONLY to prove a meeting opted in
+                                                   # (graph_repository._opted_in_path) before the reader reads it
         "ARTIFACTS_URL",                           # config.UPLOADS_URL falls back to it when no bucket is configured.
                                                    # Deliberately NOT DATABASE_URL (the LiteLLM key/spend store's DSN):
                                                    # ARTIFACTS_URL is already the expanded value, so the fallback needs
@@ -557,6 +566,15 @@ ROLE_ENV = {
                                                    # tracer today (nothing in its import graph does) — it is granted so
                                                    # that emitting spans from a channel is a code change, not a deploy one
     ],                                             # NOTHING else: no store, no bucket, no gateway/ADOIT secret
+    "meeting-app": [                               # src/lab/substrate/meetingapp/*.py + lab.substrate.approvals + lab.platform.{workflows,config}
+        "MEETING_APP_*",                           # its own identity (bot + resource-specific consent), port, public URL,
+                                                   # catalog id and the notification secret
+        "ENTRA_TENANT_ID",                         # the authority its bot and subscription tokens come from
+        "REDIS_URL",                               # approvals (channel "teams-app"), runs, the finished stream, its registry
+        "SPEECH_LANES",                            # a recording fans out into the same lanes as through the front door
+        "BIND_HOST",                               # a public service: Teams and Graph post to it
+        _OTLP,                                     # NO store, NO Graph reader/writer, NO gateway or model key:
+    ],                                             # it decides and posts; graph-mcp reads, by the proof it allows
     "teams": [                                     # src/lab/substrate/channels/teams.py + lab.substrate.approvals + lab.platform.config
         "TEAMS_WEBHOOK_URL",                       # outbound Adaptive Card webhook (unset = not deployed)
         "REDIS_URL",                               # approvals:requests consumer group "teams" + decisions

@@ -198,7 +198,8 @@ def main() -> None:  # pragma: no cover — composition root of the process
     async def run():
         await app.initialize()
         await asyncio.gather(app.start(config.MEETING_APP_PORT), _listen(post), _renew())
-    print(f"[meeting-app] build {config.BUILD_SHA or '?'} on :{config.MEETING_APP_PORT}", flush=True)
+    # "channel: enabled" is the readiness line lab.sh waits for, as for every approval channel
+    print(f"meeting-app channel: enabled (build {config.BUILD_SHA or '?'}, :{config.MEETING_APP_PORT})", flush=True)
     asyncio.run(run())
 
 
