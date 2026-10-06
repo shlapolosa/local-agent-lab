@@ -301,6 +301,14 @@ carrying an effort table was refused (both tiers; fixed in `workflow-mcp`); a su
 handle fails at `collab_fetch` because the screening team deliberately holds no collab grant while the Use
 Case Desk still offers the handle — decide which; four apps (`semantic-mcp`, `graph-mcp`, `reference-mcp`,
 the workloads) intermittently fail to resolve `otel-collector`, so traces are incomplete — open.
+**Known limitation — the server-to-client MCP stream does not work through APIM** (measured 25 Sep and,
+independently, 8 Oct): after `initialize`, `GET /mcp/<server>/mcp` with `Accept: text/event-stream` gets
+no response headers within 10 s, while a local FastMCP server answers in 0.00 s. Not the policy's
+buffering — a GET takes the `buffer-response="false"` branch. Leading hypothesis: APIM releases headers
+only with the first body bytes, and an idle SSE stream sends none. No impact today: neither the workloads
+nor Copilot Studio's tool calls depend on server-initiated messages, and a full client session (initialize,
+list, call, close) completes. It matters the day a server pushes progress or `listChanged`; the native
+`type: mcp` spike is the place to measure whether it changes.
 
 ## Phase 2 as first planned (superseded above): APIM as the governance plane
 
