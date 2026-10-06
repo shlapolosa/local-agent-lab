@@ -86,3 +86,21 @@ Each of these cost hours to find, and none is derivable from reading the code. T
   silent for 30 minutes while the deploy had succeeded 15 minutes in. Check the job, and confirm with
   `deploy/railway.py substrate versions`, which compares what each service was ASKED to run with what it
   SAYS it is running.
+- **An allow-listed folder is a FOLDER, not a promise about what people put in it.** `FABRIC_ALLOWLIST`
+  grants a path, and the folder's CONTENTS then change without anything in the lab changing: the
+  entry for the organiser's `Recordings` folder was added for the meeting `.txt` transcripts, and
+  measured 6 Oct 2026 that folder held **145 files — 28 `.mp4` recordings and 42 per-lane `.json`
+  dumps beside the 35 `.txt`**. Nothing downstream filtered by extension, and the classifier reads a
+  file's NAME and path, never its bytes — so a raw recording would have been catalogued as a document
+  with a plausible type and its own draft-review approval, noise a steward cannot tell from a real
+  document. The entry was correct the day it was written and became wrong later, with no code change
+  and no failing test; only `FABRIC_SWEEP_LIMIT` had kept the sweep from reaching those files, which
+  means the earlier defect had been MASKING this one. So the sweep now decides on what the fabric can
+  READ — `fabric_reconciler.SWEEPABLE_KINDS` via `filetypes.kind_for` — and never on a deny-list of
+  what it has already met, because a deny-list is wrong about every format nobody has thought of yet.
+  `artifact` is excluded deliberately: a lab-produced render arrives through the always-admitted `lab`
+  door carrying the product and run that made it, which a swept copy of the same bytes could not. The
+  filter bounds what the sweep TAKES IN, not what it maintains — a record that already exists is still
+  told when its bytes change, or the catalogue would keep asserting a version that is no longer true.
+  The consequence to remember: a filtered sweep goes SILENT about a folder whose files it cannot read,
+  and that silence looks exactly like a sweep that is broken.
