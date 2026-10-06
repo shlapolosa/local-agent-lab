@@ -55,16 +55,25 @@ jobs:
           python-version: "3.12"    # litellm needs >=3.11; the image is 3.12
 
       # litellm + agent_framework + rdflib + streamlit is a slow install and it changes rarely.
+      # The key carries the EXACT interpreter, not just "py312". A venv's `bin/python` is a symlink
+      # into the hosted toolcache, so a restored venv built against 3.12.11 is DEAD once the runner
+      # moves to 3.12.12 — same key, unusable contents.
+      - id: py
+        run: echo "v=$(python -c 'import sys;print(".".join(map(str,sys.version_info[:3])))')" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py312-${{ hashFiles('deploy/requirements.txt', 'deploy/requirements-dev.txt', 'pyproject.toml') }}
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.v }}-${{ hashFiles('deploy/requirements.txt', 'deploy/requirements-dev.txt', 'pyproject.toml') }}
 
       - name: install
         run: |
-          # A dangling `.venv` SYMLINK (one was committed on 24 Sep, pointing at a laptop path)
-          # fails `-d` and then `venv` with "File exists" — only on a cache miss, so it hid for five days.
-          [ -d .venv ] || { rm -f .venv; python -m venv .venv; }
+          # The venv must WORK, not merely exist. `[ -d .venv ]` passed on a restored cache whose
+          # `bin/python` pointed at an interpreter the runner no longer had, and the next line died
+          # with "`.venv/bin/pip`: cannot execute: required file not found" (exit 127) — which skipped
+          # build and deploy, so a green-looking push shipped nothing. A dangling `.venv` SYMLINK
+          # (one was committed on 24 Sep, pointing at a laptop path) fails the same way. So the test
+          # is "does its interpreter run", and anything else is rebuilt from scratch.
+          .venv/bin/python -c "import sys" 2>/dev/null || { rm -rf .venv; python -m venv .venv; }
           .venv/bin/pip install -q -r deploy/requirements.txt -e . -r deploy/requirements-dev.txt
 
       # NO .env on the runner, deliberately: the suite is offline by contract (CLAUDE.md), and a
