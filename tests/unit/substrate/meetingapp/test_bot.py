@@ -55,8 +55,8 @@ def test_the_organisers_submit_records_one_answer_as_them_through_the_human_gate
                                  tag_SPEAKER_01="TV"))
     (args, kw), = decided
     assert args == ("apr-1", "approve", "maria@contoso.com", bot.CHANNEL)
-    assert kw["answer"] == {"SPEAKER_00": {"identity": "maria@contoso.com", "tag": "", "consent": "yes"},
-                            "SPEAKER_01": {"identity": "", "tag": "TV", "consent": "no"}}
+    assert kw["answer"] == {"SPEAKER_00": {"identity": "maria@contoso.com", "consent": "yes"},
+                            "SPEAKER_01": {"tag": "TV", "consent": "no"}}
     assert "Maria Perez" in str(out) and "refresh" not in out
 
 

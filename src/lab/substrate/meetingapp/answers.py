@@ -16,14 +16,19 @@ def _text(data: dict, key: str) -> str:
 
 
 def from_card(data: dict, labels: Iterable[str]) -> dict[str, dict[str, str]]:
-    """One entry per label the question asked about. A TYPED identity beats a picked one (a person
-    who typed over a suggestion meant it), and consent is "yes" only when the toggle sent exactly that
-    — for biometric data an ambiguous answer is a refusal."""
+    """One entry per label the question asked about: `identity` OR `tag` (whichever was given, an
+    identity winning) plus `consent`. A TYPED identity beats a picked one (a person who typed over a
+    suggestion meant it), and consent is "yes" only when the toggle sent exactly that — for biometric
+    data an ambiguous answer is a refusal."""
     out = {}
     for label in labels:
         identity = _text(data, f"identity_{label}") or _text(data, f"pick_{label}")
         consent = "yes" if _text(data, f"consent_{label}").lower() == "yes" else "no"
-        out[label] = {"identity": identity, "tag": _text(data, f"tag_{label}"), "consent": consent}
+        tag = _text(data, f"tag_{label}")
+        # ONLY the field given: the minutes process refuses an empty one (measured 6 Oct 2026 — the
+        # answer was recorded and the minutes run was refused, so a submitted card produced nothing)
+        out[label] = {"identity": identity} if identity else ({"tag": tag} if tag else {})
+        out[label]["consent"] = consent
     return out
 
 
