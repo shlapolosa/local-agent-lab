@@ -32,6 +32,7 @@ class Meeting:
     service_url: str             # where the Bot Connector accepts this tenant's activities
     tenant_id: str
     paused: bool = False
+    title: str = ""              # what people call the meeting — names its documents; never on a span
 
 
 def _r(client=None):

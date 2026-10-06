@@ -228,6 +228,13 @@ through `approvals.human_decision` → the minutes run KEEPS its documents in th
 the minutes card, records the files per recording and rebuilds ONE comparison across that recording's lanes → the
 **Meeting Notes tab** lists and serves them to members of that chat only (Teams SSO token + roster check, every request).
 
+**Documents are named after the meeting.** The bot keeps the meeting's title from the install event; each run carries
+it as `title` (`InputKind.TITLE`: one line, ≤ 120 characters, no link — clipped by `fit_title`, never a reason to refuse
+a run), so the question reads "Portal kickoff — who is speaking?" and the files are `Portal kickoff.<lane>.minutes.txt`
+and `Portal kickoff.comparison.txt` (`render.file_stem` keeps every script and replaces only `/\:*?"<>|#`). Without
+it, every opted-in meeting's files were "Meeting.*", so neither the tab nor the fabric could find a meeting by name.
+A meeting added before 6 Oct 2026 has no stored title until the app is added again; its files stay "Meeting.*".
+
 **Graph access is option A**: the app's resource-specific grant PROVES a meeting opted in (`graph_repository.
 _opted_in_path`, re-proved every `PROOF_TTL`), and graph-mcp's reader fetches the recording bytes, because Microsoft
 cannot download a recording by RSC alone (401, unchanged by an application access policy — measured 5 Oct 2026).

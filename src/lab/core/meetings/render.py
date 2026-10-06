@@ -18,9 +18,19 @@ from datetime import datetime, timezone
 
 from lab.core.meetings.naming import Turn
 
-__all__ = ["clock", "length", "stamp", "transcript", "read_transcript", "minutes", "comparison", "compare_lanes"]
+__all__ = ["file_stem", "clock", "length", "stamp", "transcript", "read_transcript", "minutes", "comparison", "compare_lanes"]
 
 WIDTH = 100
+# What no file name may hold somewhere a document travels: a path separator, a Windows-reserved
+# character, or `#`, which an `art://` ref reads as the start of a page number.
+_UNSAFE = re.compile(r'[\\/:*?"<>|#]')
+
+
+def file_stem(title: str, default: str = "Meeting") -> str:
+    """A meeting's title as the stem of its documents' names. Every script is kept (an Arabic title
+    stays Arabic); only the characters that would break a path or a reference become `-`."""
+    stem = " ".join(_UNSAFE.sub("-", title or "").split()).strip(" .")
+    return stem or default
 
 
 def clock(seconds: float) -> str:

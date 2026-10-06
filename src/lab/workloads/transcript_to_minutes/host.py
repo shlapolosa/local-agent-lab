@@ -39,7 +39,8 @@ def run_fields(out: dict) -> dict:
 
 async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
                    meeting: dict | None = None, recording: str = "", chat_id: str = "",
-                   provider: str = "", audio: str = "", reference: str = "", on_trace=None) -> dict:
+                   provider: str = "", audio: str = "", reference: str = "", title: str = "",
+                   on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> minutes in the semantic layer.
 
     The span, the trace headers, the run-log entry and the one way a run is closed are the SHARED
@@ -63,7 +64,7 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
     # collab://recording/<meeting>/<record>, so its SCOPE is the meeting and no lookup is needed.
     # Without one we fall back to the transcript's own label — which is honest but is NOT a meeting
     # id, so anything writing back beside the meeting must check `resolved`.
-    meeting = meeting or _meeting_from(recording, transcript, chat_id)
+    meeting = meeting or _meeting_from(recording, transcript, chat_id, title)
     return await governed_run(
         root, span_name="transcript-to-minutes-run", process=PROCESS, label=_label(transcript),
         on_trace=on_trace,
@@ -79,7 +80,7 @@ async def run_once(root, transcript: str, speaker_map: dict, owner: str = "",
                 "reference": reference})
 
 
-def _meeting_from(recording: str, transcript: str, chat_id: str = "") -> dict:
+def _meeting_from(recording: str, transcript: str, chat_id: str = "", title: str = "") -> dict:
     """What this run knows about the meeting, given the handle the recording arrived under.
 
     ONLY a recording/transcript handle names a meeting. `collab://recording/<meeting>/<record>` has
@@ -104,6 +105,8 @@ def _meeting_from(recording: str, transcript: str, chat_id: str = "") -> dict:
             # meeting id of its own. Empty is the honest common case — an ad-hoc recording belongs
             # to no meeting, so there is no conversation to post to.
             "chat_id": chat_id or "",
+            # what people call the meeting — names the documents; never on a span (it may name people)
+            "title": title or "",
             "transcript_ref": transcript}
     if not (recording and ContentHandle.is_handle(recording)):
         return base

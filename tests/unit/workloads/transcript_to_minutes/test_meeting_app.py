@@ -71,3 +71,25 @@ def test_a_recording_handle_with_no_meeting_chat_is_not_silently_kept():
         except AssertionError as e:                 # the harness refuses any folder lookup
             out = {"delivery": str(e)}
     assert not stored and not out.get("delivered")
+
+
+def test_an_app_meetings_documents_are_named_and_headed_after_the_meeting():
+    """Opted-in meetings were all "Meeting": the tab and the fabric listed them identically, and a
+    search for the meeting's name found nothing."""
+    calls, stored, fake = harness()
+    meeting = state()["meeting"] | {"title": "Portal kickoff"}
+    with patch.object(gateway, "call", fake):
+        out = asyncio.run(W._deliver({}, state(meeting=meeting), RECORDING))
+    assert [d["name"] for d in out["delivered"]] == ["Portal kickoff.soniox-en.transcript.txt",
+                                                     "Portal kickoff.soniox-en.minutes.txt"]
+    assert all("Portal kickoff" in text for text in stored.values()), "the documents say what meeting they are"
+    assert out["beside"]["title"] == "Portal kickoff"
+
+
+def test_a_title_is_made_safe_to_be_a_file_name_without_losing_its_script():
+    calls, stored, fake = harness()
+    meeting = state()["meeting"] | {"title": "Q3/Q4 review: اجتماع #2?"}
+    with patch.object(gateway, "call", fake):
+        out = asyncio.run(W._deliver({}, state(meeting=meeting), RECORDING))
+    name = out["delivered"][0]["name"]
+    assert name.startswith("Q3-Q4 review- اجتماع -2-.") and not set("/\\:#?*\"<>|") & set(name)

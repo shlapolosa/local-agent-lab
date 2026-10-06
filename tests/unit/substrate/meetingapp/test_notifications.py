@@ -120,3 +120,22 @@ def test_a_lane_that_was_refused_is_said_and_not_counted_as_a_run(capsys):
     notifications.handle(note(), client_state=SECRET, submit=submit, lanes=(), client=r)
     out = capsys.readouterr().out
     assert "1 run(s) started" in out and "soniox REFUSED" in out and "too long" in out
+
+
+def test_the_run_carries_the_meetings_title_fitted_to_the_contract():
+    from dataclasses import replace
+
+    from lab.platform.contracts import MAX_TITLE_CHARS, MEETING_TO_TRANSCRIPT
+    r = FakeRedis()
+    registry.save(replace(M, title="Portal kickoff " * 20), client=r)
+    _, submitted = run(note(), r)
+    title = submitted[0]["inputs"]["title"]
+    assert title.startswith("Portal kickoff") and len(title) <= MAX_TITLE_CHARS
+    MEETING_TO_TRANSCRIPT.validate(submitted[0]["inputs"])
+
+
+def test_a_meeting_with_no_title_submits_none():
+    r = FakeRedis()
+    registry.save(M, client=r)
+    _, submitted = run(note(), r)
+    assert "title" not in submitted[0]["inputs"]

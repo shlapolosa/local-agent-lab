@@ -403,6 +403,7 @@ PLACEHOLDERS = {
     contracts.InputKind.HANDLE: "collab://item/<drive-id>/<item-id>",
     contracts.InputKind.IDENTITY: "name@domain, or a directory object id",
     contracts.InputKind.CONVERSATION: "the provider's conversation id",
+    contracts.InputKind.TITLE: "one line, no link",
     contracts.InputKind.REF: "art://<id>/<name>",
 }
 

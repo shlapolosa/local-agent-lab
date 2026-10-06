@@ -91,7 +91,7 @@ async def minutes_pass(post: Post, *, store=None, client=None) -> int:
                                                               "lane": str(st.get("provider") or "")}
                                                              for f in kept if f.get("ref")],
                                           recording=recording, client=client)
-                    _rebuild_comparison(meeting.chat_id, recording, str(inputs.get("reference") or ""),
+                    _rebuild_comparison(meeting, recording, str(inputs.get("reference") or ""),
                                         store=store, client=client)
                 # the marker is claimed only for a run THIS sink announces, and released if the post fails
                 if (st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None
@@ -112,12 +112,12 @@ async def minutes_pass(post: Post, *, store=None, client=None) -> int:
     return posted
 
 
-COMPARISON = "Meeting.comparison.txt"
 TRANSCRIPT_SUFFIX = ".transcript.txt"
 BOM = "\ufeff"
 
 
-def _rebuild_comparison(chat_id: str, recording: str, reference: str, *, store=None, client=None) -> None:
+def _rebuild_comparison(meeting: registry.Meeting, recording: str, reference: str, *, store=None,
+                        client=None) -> None:
     """ONE comparison per recording, across EVERY lane kept for it. A kept lane can only compare itself
     (it has no folder to find its siblings in) and each lane rewrites the same file, so the tab held the
     last lane's row alone; the meeting app knows every lane it recorded, so it rebuilds the table here.
@@ -126,15 +126,17 @@ def _rebuild_comparison(chat_id: str, recording: str, reference: str, *, store=N
         return
     try:
         store = store if store is not None else artifacts.store()
+        chat_id, title = meeting.chat_id, meeting.title or "Meeting"
         rec = registry.recording_key(recording)
         lanes = {f["lane"]: store.get(f["ref"]).decode("utf-8-sig")
                  for f in registry.files_of(chat_id, client=client)
                  if f.get("rec") == rec and f["name"].endswith(TRANSCRIPT_SUFFIX) and f.get("lane")}
-        table = render.compare_lanes(store.get(reference).decode("utf-8-sig"), lanes, title="Meeting")
+        table = render.compare_lanes(store.get(reference).decode("utf-8-sig"), lanes, title=title)
         if table is None or not lanes:
             return
-        ref = store.put(COMPARISON, (BOM + table).encode(), "text/plain; charset=utf-8")
-        registry.record_files(chat_id, [{"name": COMPARISON, "ref": ref, "lane": ""}],
+        name = f"{render.file_stem(title)}.comparison.txt"
+        ref = store.put(name, (BOM + table).encode(), "text/plain; charset=utf-8")
+        registry.record_files(chat_id, [{"name": name, "ref": ref, "lane": ""}],
                               recording=recording, client=client)
     except Exception as e:                      # noqa: BLE001 — a comparison never costs the minutes
         print(f"[meeting-app] comparison not rebuilt ({type(e).__name__}: {e})", flush=True)

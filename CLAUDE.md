@@ -883,9 +883,13 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   **The `chat_id` is CARRIED, not looked up**: only the `meeting_to_transcript` run resolves the
   meeting, and the minutes run is a continuation started from a transcript reference that never sees
   one — so it rides the approval as `InputKind.CONVERSATION` (an opaque provider id: no whitespace, no
-  URL, bounded), and a run without one delivers its files and stays quiet. There is deliberately no
-  meeting TITLE anywhere in this path: it is free text the input contract keeps out, and the message
-  lands in the meeting's own conversation where the title is already on screen.
+  URL, bounded), and a run without one delivers its files and stays quiet. The notifier's message
+  carries no meeting TITLE: it lands in the meeting's own conversation, where the title is already on
+  screen. Runs started by the meeting app DO carry one (6 Oct 2026, user decision), as
+  **`InputKind.TITLE`** — the one free text the contract admits, held to what a label is (one line,
+  ≤ 120 chars, no link, `contracts.fit_title` clips rather than refuses) — because an opted-in meeting is
+  otherwise known only by ids, so its documents were all "Meeting" and nobody could find them by name.
+  It names the question and the kept documents (`render.file_stem`) and never goes on a span.
   **The publish is guarded**: `mark()` appends to `workflow:finished` inside a `try` because
   `consumer.handle` marks a run FAILED from the `except` around it — an XADD that raised would record
   a run that had already succeeded as a failure. Closing a run is required; announcing it is extra. It exists because **Graph refuses to create a chat

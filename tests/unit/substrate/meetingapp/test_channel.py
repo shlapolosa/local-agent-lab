@@ -182,3 +182,20 @@ def test_the_comparison_is_rebuilt_across_every_lane_of_the_same_recording():
     assert len(comparison) == 1, "one comparison per recording"
     table = store.files[comparison[0]["ref"]]
     assert "soniox" in table and "munsit" in table and table.startswith("﻿"), "every lane, readable Arabic"
+
+
+def test_the_comparison_is_named_after_the_meeting():
+    from dataclasses import replace
+
+    from lab.core.meetings import render
+    r, post = FakeRedis(), Poster()
+    registry.save(replace(M, title="Portal kickoff"), client=r)
+    channel.ensure(client=r)
+    store = Store(**{"art://v/teams.vtt": VTT,
+                     "art://t/soniox": render.transcript([render.Turn("Maria", 3.0, "Shall we start")], title="M")})
+    lane_done(r, "soniox", "art://t/soniox")
+    asyncio.run(channel.minutes_pass(post, store=store, client=r))
+    names = [f["name"] for f in registry.files_of(CHAT, client=r)]
+    assert "Portal kickoff.comparison.txt" in names
+    assert "Portal kickoff" in store.files[next(f["ref"] for f in registry.files_of(CHAT, client=r)
+                                                if f["name"] == "Portal kickoff.comparison.txt")]

@@ -787,6 +787,11 @@ class InputKind(StrEnum):
     EVENT = "event"
     CONTEXT = "context"
     ARTIFACT = "artifact"  # ONE fabric artifact IRI, urn:fabric:artifact:<ULID> — the catalog's own identity
+    # The one FREE TEXT a run may carry, argued for on 6 Oct 2026: what people CALL a thing. An opted-in
+    # meeting is otherwise known only by ids, so its minutes could not be found by the meeting's name. It
+    # is a label and held to what a label is — one line, short, never a link — so it cannot become a
+    # place to carry a document or an instruction. It never goes on a span (it may name people).
+    TITLE = "title"
 
 
 # A mapping is a human's answer, not a payload. Bounded so it can never become a way to smuggle
@@ -796,6 +801,36 @@ MAX_MAPPING_BYTES = 8192
 # A conversation id is an id. Teams' own is ~60 characters; the ceiling is generous for a provider
 # that mints longer ones and still far too small to be a paragraph.
 MAX_CONVERSATION_CHARS = 512
+# A title is what a calendar shows on one line. Teams allows 255; the long tail is a pasted agenda.
+MAX_TITLE_CHARS = 120
+
+
+def check_title(value: Any, field: str = "title") -> str:
+    """ONE line a person gave a thing as its name, whitespace collapsed. A link, a control character
+    or more than `MAX_TITLE_CHARS` is refused: each is a sign the field is carrying something else."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be text, got {type(value).__name__}")
+    text = " ".join(value.split())
+    if not text or "://" in text or any(not c.isprintable() for c in text):
+        raise ValueError(f"{field} must be one line of printable text with no link, got {value!r}")
+    if len(text) > MAX_TITLE_CHARS:
+        raise ValueError(f"{field} is {len(text)} characters, longer than the {MAX_TITLE_CHARS} a title may be")
+    return text
+
+
+def fit_title(value: Any) -> str:
+    """A title the contract will accept, from one it might not — clipped to length, or "" when it
+    cannot be fixed (a link in it). For a caller that holds a name it did not choose: a meeting's
+    long subject should cost the run its tidy name, never the run."""
+    text = " ".join(value.split()) if isinstance(value, str) else ""
+    if len(text) > MAX_TITLE_CHARS:
+        text = text[:MAX_TITLE_CHARS - 1].rstrip() + "…"
+    try:
+        return check_title(text)
+    except ValueError:
+        return ""
+
+
 # A pointer names ONE item in ONE system of record. Bounded like a mapping, for the same reason.
 # Sources are the lab's PORTS, never vendors: "collab" (files and meetings behind collab_mcp), "work"
 # (work items behind the delivery-context port), "ea" (the EA repository behind ea_mcp), "lab" (an
@@ -969,6 +1004,8 @@ class InputField:
             return self._identity(value)
         if self.kind is InputKind.CONVERSATION:
             return self._conversation(value)
+        if self.kind is InputKind.TITLE:
+            return check_title(value, self.name)
         if self.kind is InputKind.CHOICE:
             return self._choice(value)
         if self.kind is InputKind.NUMBER:
@@ -1418,7 +1455,7 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "VectorStores", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL", "ARTIFACT_INTAKE", "ARTIFACT_PUBLISH",
-           "ArtifactChanged", "check_pointer", "check_event_id", "check_approval_id", "check_context",
+           "ArtifactChanged", "check_pointer", "check_event_id", "check_approval_id", "check_context", "check_title", "fit_title",
            "check_artifact_iri", "POINTER_SOURCES",
            "CONTEXT_KINDS", "ARTIFACT_CHANGES",
            "SpeakerPrompt", "speaker_prompts", "SpeakerCandidate", "speaker_candidates", "check_answer",

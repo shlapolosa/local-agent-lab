@@ -28,7 +28,9 @@ INPUTS = {"transcript": "art://t/x.segments.json",
           # the recording, so a consented voice can be kept as a voiceprint
           "audio": "art://r1/Meeting Recording.mp4",
           # the tenant's own transcript, to score this lane against
-          "reference": "art://v1/transcript.vtt"}
+          "reference": "art://v1/transcript.vtt",
+          # what people call the meeting, which names its documents
+          "title": "Portal kickoff"}
 
 
 def test_it_is_registered_and_gets_its_own_consumer_group():
@@ -43,10 +45,10 @@ def test_every_input_the_contract_declares_reaches_the_run():
     seen = {}
 
     async def fake_run_once(root, transcript, speaker_map, owner="", recording="", chat_id="",
-                            provider="", audio="", reference="", on_trace=None):
+                            provider="", audio="", reference="", title="", on_trace=None):
         seen.update(transcript=transcript, speaker_map=speaker_map, owner=owner,
                     recording=recording, chat_id=chat_id, provider=provider, audio=audio,
-                    reference=reference)
+                    reference=reference, title=title)
         return {"minutes_ref": "art://m/x.json"}
 
     saved, consumer.run_once = consumer.run_once, fake_run_once

@@ -159,3 +159,13 @@ def test_the_actor_is_the_directory_name_when_teams_gives_one():
     assert bot.actor_of({"userPrincipalName": "m@x.com", "email": "e@x.com"}, "oid") == "m@x.com"
     assert bot.actor_of({"email": "e@x.com"}, "oid") == "e@x.com"
     assert bot.actor_of({}, "oid") == "oid"
+
+
+def test_install_remembers_what_the_meeting_is_called():
+    r = FakeRedis()
+    act = {"conversation": {"id": CHAT, "tenantId": "t"}, "serviceUrl": "https://smba/",
+           "channelData": {"meeting": {"id": "teams-meeting-id"}, "tenant": {"id": "t"}}}
+    info = {"details": {"msGraphResourceId": "MSo", "title": "Portal kickoff"},
+            "organizer": {"aadObjectId": ORG_OID, "id": ORG_MRI}}
+    bot.on_install(act, info, client=r)
+    assert registry.by_chat(CHAT, client=r).title == "Portal kickoff"

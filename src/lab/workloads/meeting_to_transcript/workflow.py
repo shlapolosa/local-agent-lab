@@ -475,12 +475,14 @@ def build_workflow(cfg):
                                         # the tenant's own transcript, the yardstick each lane is
                                         # scored against once its minutes are written
                                         "reference": state.get("reference", ""),
-                                        "chat_id": (state.get("meeting") or {}).get("chat_id", "")},
+                                        "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
+                                        # what people call the meeting: the minutes are named after it
+                                        "title": state.get("title") or ""},
                                 answer_input="speaker_map", requester=state["owner"])
             asked = await gateway.call(cfg, ApprovalTools.ask, {
                 # The lane is IN THE SUBJECT: four cards for one meeting arrive together, and a
                 # person answering them must be able to tell which provider each belongs to.
-                "subject": (f'{state.get("recording_name") or "meeting"} — who is speaking?'
+                "subject": (f'{state.get("title") or state.get("recording_name") or "meeting"} — who is speaking?'
                             + (f' [{state["provider"]}]' if state.get("provider") else "")),
                 "prompt": PROMPT,
                 "items": state["items"],

@@ -103,7 +103,8 @@ def on_install(activity: dict, meeting_info: dict | None, *, client=None) -> dic
                           graph_meeting_id=details["msGraphResourceId"],
                           service_url=str(activity.get("serviceUrl") or ""),
                           tenant_id=str((channel.get("tenant") or {}).get("id")
-                                        or (activity.get("conversation") or {}).get("tenantId") or "")),
+                                        or (activity.get("conversation") or {}).get("tenantId") or ""),
+                          title=str(details.get("title") or "")),
                   client=client)
     return cards.welcome()
 

@@ -39,7 +39,7 @@ def run_fields(out: dict) -> dict:
 
 
 async def run_once(root, recording: str, owner: str, provider: str = "", chat_id: str = "",
-                   on_trace=None) -> dict:
+                   title: str = "", on_trace=None) -> dict:
     """One governed run: root span -> identity -> workflow -> a question for the organiser.
 
     The span, the trace headers, the run-log entry and the one way a run is closed are the SHARED
@@ -60,7 +60,7 @@ async def run_once(root, recording: str, owner: str, provider: str = "", chat_id
         # transcribe node ask for this provider instead of taking the deployment's default, and it
         # is what every artifact name, approval subject and continuation downstream reads.
         run=run_workflow, inputs={"recording": recording, "owner": owner, "provider": provider,
-                                     "chat_id": chat_id},
+                                     "chat_id": chat_id, "title": title},
         fields=run_fields)
 
 

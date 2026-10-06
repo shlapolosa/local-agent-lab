@@ -22,7 +22,8 @@ async def _run(root, req, on_trace):
     # answer while the outputs claim to be a comparison.
     return await run_once(root, req.inputs["recording"], req.inputs["owner"],
                           provider=req.inputs.get("provider", ""),
-                          chat_id=req.inputs.get("chat_id", ""), on_trace=on_trace)
+                          chat_id=req.inputs.get("chat_id", ""), title=req.inputs.get("title", ""),
+                          on_trace=on_trace)
 
 
 def _describe(req) -> str:

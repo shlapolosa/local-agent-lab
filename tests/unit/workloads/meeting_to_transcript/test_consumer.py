@@ -31,11 +31,12 @@ def test_every_input_the_contract_declares_reaches_the_run():
     inputs = {"recording": "collab://recording/m1/r1",
               "owner": "maria@contoso.com",
               "provider": "assemblyai",
-              "chat_id": "19:meeting_abc@thread.v2"}
+              "chat_id": "19:meeting_abc@thread.v2",
+              "title": "Portal kickoff"}
     seen = {}
 
-    async def fake_run_once(root, recording, owner, provider="", chat_id="", on_trace=None):
-        seen.update(recording=recording, owner=owner, provider=provider, chat_id=chat_id)
+    async def fake_run_once(root, recording, owner, provider="", chat_id="", title="", on_trace=None):
+        seen.update(recording=recording, owner=owner, provider=provider, chat_id=chat_id, title=title)
         return {"approval_id": "apr-1"}
 
     saved, consumer.run_once = consumer.run_once, fake_run_once
@@ -61,7 +62,7 @@ def test_it_unpacks_its_own_inputs_by_name():
     `inputs` and nothing process-shaped, which is what keeps two processes from coupling."""
     seen = {}
 
-    async def fake_run_once(root, recording, owner, provider="", chat_id="", on_trace=None):
+    async def fake_run_once(root, recording, owner, provider="", chat_id="", title="", on_trace=None):
         seen.update(recording=recording, owner=owner, traced=on_trace)
         return {"request_id": "apr-1"}
 

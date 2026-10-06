@@ -18,7 +18,7 @@ from typing import Callable
 
 from lab.core.collab import ContentHandle
 from lab.platform import config, workflows
-from lab.platform.contracts import MEETING_TO_TRANSCRIPT
+from lab.platform.contracts import MEETING_TO_TRANSCRIPT, fit_title
 from lab.substrate.meetingapp import registry
 from lab.substrate.mcp.graph import graph_map
 
@@ -64,6 +64,10 @@ def _start(organiser: str, meeting_id: str, recording_id: str, submit: Callable,
         return []
     inputs = {"owner": organiser, "chat_id": meeting.chat_id,
               "recording": str(ContentHandle.recording(graph_map.meeting_ref(organiser, meeting_id), recording_id))}
+    # The title is fitted, never refused: a meeting's long or odd subject costs its documents their
+    # tidy name, not the meeting its minutes.
+    if title := fit_title(meeting.title):
+        inputs["title"] = title
     rows = submit(MEETING_TO_TRANSCRIPT.name, inputs, REQUESTER,
                   lanes=workflows.lanes_for(MEETING_TO_TRANSCRIPT, inputs, lanes),
                   idempotency_key=_key(recording_id), client=client)

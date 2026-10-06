@@ -63,6 +63,10 @@ _LANE = ("Which speech provider's LANE this run belongs to. Omit it to use the d
          "own transcript, their own speaker question and their own minutes from the same meeting, "
          "without overwriting one another.")
 
+_TITLE = ("Optional: what the meeting is called, as its organiser named it — one line, no link. "
+          "The question to the organiser and the minutes' documents are named after it, which is what "
+          "makes an opted-in meeting findable by name; omitted, they are called \"Meeting\".")
+
 MEETING_TO_TRANSCRIPT = ProcessSpec(
     name="meeting_to_transcript",
     group="wf-meeting-transcript",
@@ -94,6 +98,7 @@ MEETING_TO_TRANSCRIPT = ProcessSpec(
                    "— the meeting app does, because it was added to that conversation. It is where the "
                    "finished minutes are announced. Omitted, the run looks the meeting up itself.",
                    required=False),
+        InputField("title", InputKind.TITLE, _TITLE, required=False),
     ),
     outputs=("trace_id", "approval_id", "review_app", "recording_ref", "transcript_ref",
              "speakers", "candidates", "summary", "provider"),
@@ -139,6 +144,7 @@ TRANSCRIPT_TO_MINUTES = ProcessSpec(
                    "minutes name the meeting they are about — and therefore what lets them be put "
                    "back beside it. Omitted, the run still writes minutes; it simply cannot say "
                    "which meeting they belong to.", required=False),
+        InputField("title", InputKind.TITLE, _TITLE, required=False),
         InputField("provider", InputKind.CHOICE, _LANE, required=False,
                    choices=SPEECH_PROVIDERS),
         InputField("audio", InputKind.REF,

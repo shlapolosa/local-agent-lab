@@ -222,9 +222,8 @@ def _render(state: dict, title: str, when: str, lane: str) -> tuple[str, str]:
     return transcript, minutes
 
 
-#: What an opted-in meeting's documents are called. There is no file name to derive one from, and the
-#: meeting's subject is free text this path deliberately never carries — the chat they are posted in
-#: already shows it.
+#: What an opted-in meeting's documents are called when the meeting app could not say what the
+#: meeting itself is called.
 APP_TITLE = "Meeting"
 
 
@@ -233,15 +232,18 @@ async def _keep(cfg, state: dict) -> dict:
 
     A meeting the meeting app was added to has no folder the lab may write into: the app holds no
     file permission, by design, so the whole of its access stays bounded by that one meeting. The
-    app posts these in the meeting's own chat instead, and serves them to the people in it."""
+    app posts these in the meeting's own chat instead, and serves them to the people in it. They are
+    named after the meeting, which is what makes them findable by its name in the tab and the fabric."""
+    title = str((state.get("meeting") or {}).get("title") or "") or APP_TITLE
+    name = render.file_stem(title, APP_TITLE)
     lane = str(state.get("provider") or "").strip()
-    stem = f"{APP_TITLE}.{lane}" if lane else APP_TITLE
-    transcript, minutes = _render(state, APP_TITLE, "", lane)
+    stem = f"{name}.{lane}" if lane else name
+    transcript, minutes = _render(state, title, "", lane)
     kept = [await _store(cfg, f"{stem}.transcript.txt", transcript),
             await _store(cfg, f"{stem}.minutes.txt", minutes)]
     return {"delivered": kept, "chat_id": (state.get("meeting") or {}).get("chat_id", ""),
             "delivery": f"{len(kept)} file(s) kept for the meeting app to post",
-            "beside": {"folder": "", "title": APP_TITLE, "when": "", "lane": lane or "lab",
+            "beside": {"folder": "", "title": name, "when": "", "lane": lane or "lab",
                        "transcript": transcript}}
 
 

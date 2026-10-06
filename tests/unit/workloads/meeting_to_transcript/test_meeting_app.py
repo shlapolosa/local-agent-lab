@@ -49,3 +49,22 @@ def test_the_process_accepts_the_meeting_chat_as_an_optional_conversation_input(
     field = next(f for f in MEETING_TO_TRANSCRIPT.inputs if f.name == "chat_id")
     assert field.kind is InputKind.CONVERSATION and not field.required
     assert MEETING_TO_TRANSCRIPT.validate({"owner": OWNER, "recording": RECORDING, "chat_id": CHAT})["chat_id"] == CHAT
+
+
+def test_the_meetings_title_names_the_question_and_rides_to_the_minutes(gw):  # noqa: F811
+    """What people call the meeting: the organiser sees it on the question, and the minutes run is
+    named after it — the only thing that makes an opted-in meeting findable by name."""
+    gw.answers[CollabTools.recordings] = {"items": []}
+    gw.answers[CollabTools.transcripts] = {"items": []}
+    _run(inputs={"owner": OWNER, "recording": RECORDING, "chat_id": CHAT, "title": "Portal kickoff"})
+    asked = gw.args_for(ApprovalTools.ask)
+    assert asked["subject"].startswith("Portal kickoff — who is speaking?")
+    assert continuation_of({"continuation": asked["continuation"]}).inputs["title"] == "Portal kickoff"
+
+
+def test_a_meeting_without_a_title_carries_none(gw):  # noqa: F811
+    gw.answers[CollabTools.recordings] = {"items": []}
+    gw.answers[CollabTools.transcripts] = {"items": []}
+    _run(inputs={"owner": OWNER, "recording": RECORDING, "chat_id": CHAT})
+    cont = continuation_of({"continuation": gw.args_for(ApprovalTools.ask)["continuation"]})
+    assert not cont.inputs.get("title")
