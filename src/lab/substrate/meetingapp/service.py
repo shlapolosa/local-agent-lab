@@ -16,7 +16,7 @@ import asyncio
 import json
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from lab.platform import config
 from lab.substrate import netbind
@@ -61,9 +61,14 @@ class AutomaticRefresh:
         await self.app(scope, replay, send)
 
 
-def web(*, client_state: str, handle=notifications.handle) -> FastAPI:
+def web(*, client_state: str, handle=notifications.handle, who=None, is_member=None, read=None,
+        redis=None) -> FastAPI:
     """The non-bot routes. Graph's validation handshake is echoed; a notification is handled off the
-    event loop and answered 202 at once — Graph retries a slow endpoint and then drops it."""
+    event loop and answered 202 at once — Graph retries a slow endpoint and then drops it.
+
+    The tab's file routes take their collaborators: `who(token) -> oid` (the viewer, from their Teams
+    sign-in token), `async is_member(chat_id, oid)` (the meeting chat's roster) and `read(ref) -> bytes`
+    (the artifact store) — so the access rule is tested without Teams, Entra or a store."""
     app = FastAPI()
     app.add_middleware(AutomaticRefresh)
 
@@ -95,6 +100,41 @@ def web(*, client_state: str, handle=notifications.handle) -> FastAPI:
         print(f"[meeting-app] tab config: {str(said.get('stage', '?'))[:40]} {str(said.get('detail', ''))[:300]}",
               flush=True)
         return Response(status_code=204)
+
+    async def viewer(request: Request, chat_id: str):
+        """The signed-in viewer's oid if they may see this meeting's files, else the HTTP status."""
+        token = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+        try:
+            oid = who(token) if (token and who) else None
+        except Exception:                       # noqa: BLE001 — any token failure is the same answer
+            oid = None
+        if not oid:
+            return None, 401
+        if not (is_member and chat_id and await is_member(chat_id, oid)):
+            return None, 403
+        return oid, 200
+
+    @app.get("/tab/api/files")
+    async def tab_files(request: Request, chat: str = "") -> Response:
+        _, status = await viewer(request, chat)
+        if status != 200:
+            return Response(status_code=status)
+        files = await asyncio.to_thread(registry.files_of, chat, client=redis)
+        return JSONResponse({"files": [{"name": f["name"], "lane": f.get("lane", "")} for f in files]})
+
+    @app.get("/tab/api/file")
+    async def tab_file(request: Request, chat: str = "", name: str = "") -> Response:
+        _, status = await viewer(request, chat)
+        if status != 200:
+            return Response(status_code=status)
+        # only a file RECORDED for this chat — never a ref the caller names
+        found = next((f for f in await asyncio.to_thread(registry.files_of, chat, client=redis)
+                      if f["name"] == name), None)
+        if found is None or read is None:
+            return Response(status_code=404)
+        body = await asyncio.to_thread(read, found["ref"])
+        return Response(body, media_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{found["name"]}"'})
 
     # the meeting tab: its configuration page is what lets "+" finish adding the app (see `tab`)
     for path, page in (("/tab/config", tab.config_page), ("/tab", tab.status_page),
@@ -195,7 +235,22 @@ def teams(web_app: FastAPI):  # pragma: no cover — SDK wiring; the decisions a
         sent = await app.send(meeting.chat_id, card(spec), service_url=meeting.service_url)
         return sent.id
 
-    return app, post
+    async def is_member(chat_id: str, oid: str) -> bool:
+        """Is this person in that meeting's chat? The Bot Connector answers for the chats the app is in,
+        at that tenant's own service URL (the regional one the install event carried)."""
+        from microsoft_teams.api import ApiClient
+        meeting = await asyncio.to_thread(registry.by_chat, chat_id)
+        if meeting is None:
+            return False
+        api = ApiClient(meeting.service_url, app.http_client.clone(), app.options.api_client_settings,
+                        cloud=app.cloud, token_provider=app._token_provider)
+        try:
+            await api.conversations.get_member_by_id(chat_id, oid)
+            return True
+        except Exception:                       # noqa: BLE001 — not a member, or not answerable: no
+            return False
+
+    return app, post, is_member
 
 
 async def _listen(post) -> None:  # pragma: no cover — a timer around two tested passes
@@ -237,8 +292,17 @@ def main() -> None:  # pragma: no cover — composition root of the process
                            "MEETING_APP_NOTIFY_STATE") if not getattr(config, k)]
     if missing:
         raise SystemExit(f"meeting-app is not configured: set {', '.join(missing)}")
-    web_app = web(client_state=config.MEETING_APP_NOTIFY_STATE)
-    app, post = teams(web_app)
+    from lab.substrate import artifacts, entra
+    host = config.MEETING_APP_PUBLIC_URL.split("://", 1)[-1].rstrip("/")
+    audiences = (config.MEETING_APP_ID, f"api://{host}/{config.MEETING_APP_ID}")
+    members = {}
+
+    async def is_member(chat_id, oid):           # bound once the Teams app exists
+        return await members["check"](chat_id, oid)
+    web_app = web(client_state=config.MEETING_APP_NOTIFY_STATE,
+                  who=lambda tok: entra.validate(tok, tenant=config.ENTRA_TENANT_ID, audiences=audiences)["oid"],
+                  is_member=is_member, read=lambda ref: artifacts.store().get(ref))
+    app, post, members["check"] = teams(web_app)
 
     async def run():
         await app.initialize()

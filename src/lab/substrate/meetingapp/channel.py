@@ -83,6 +83,11 @@ async def minutes_pass(post: Post, *, client=None) -> int:
                 inputs = st.get("inputs") or {}
                 meeting = registry.owner_of(str(st.get("chat_id") or ""), str(inputs.get("recording") or ""),
                                             client=client)
+                if st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None:
+                    # what the meeting tab lists — recorded before the post, so a failed post loses no file
+                    registry.record_files(meeting.chat_id, [{"name": f.get("name", ""), "ref": f.get("ref", ""),
+                                                              "lane": str(st.get("provider") or "")}
+                                                             for f in kept if f.get("ref")], client=client)
                 # the marker is claimed only for a run THIS sink announces, and released if the post fails
                 if (st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None
                         and _r(client).set(_announced_key(rid), "1", nx=True, ex=registry.TTL_S)):

@@ -55,10 +55,33 @@ def config_page() -> str:
 
 
 def status_page() -> str:
-    script = f'<script src="{TEAMS_JS}"></script><script>microsoftTeams.app.initialize();</script>'
-    return _page("Meeting Notes", "<h1>Meeting Notes is on for this meeting</h1>"
-                 "<p>Press <b>Record</b> (with transcription) in the meeting. After it ends, the organiser is "
-                 "asked in the chat to name each speaker, and the minutes are posted there.</p>", script)
+    """This meeting's transcript, minutes and comparison, per lane — for the people in it.
+
+    The page asks Teams who is viewing (a sign-in token for THIS app) and which chat it sits in, and the
+    service checks both on every request. A download is fetched with that token and saved from memory,
+    so the token never appears in a URL."""
+    script = (f'<script src="{TEAMS_JS}"></script><script>'
+              "function el(id){return document.getElementById(id);}"
+              "function show(t){el('files').textContent=t;}"
+              "document.addEventListener('DOMContentLoaded',function(){"
+              "microsoftTeams.app.initialize().then(function(){return microsoftTeams.app.getContext();})"
+              ".then(function(ctx){var chat=(ctx.chat&&ctx.chat.id)||'';"
+              "return microsoftTeams.authentication.getAuthToken().then(function(tok){"
+              "return fetch('/tab/api/files?chat='+encodeURIComponent(chat),{headers:{Authorization:'Bearer '+tok}})"
+              ".then(function(r){if(!r.ok){throw new Error(r.status===403?'Only people in this meeting can see its notes.':'Not available ('+r.status+').');}return r.json();})"
+              ".then(function(j){var box=el('files');box.textContent='';"
+              "if(!j.files.length){show('Nothing yet — the files appear here once the organiser has named the speakers.');return;}"
+              "j.files.forEach(function(f){var b=document.createElement('button');b.textContent=f.name;"
+              "b.onclick=function(){fetch('/tab/api/file?chat='+encodeURIComponent(chat)+'&name='+encodeURIComponent(f.name),"
+              "{headers:{Authorization:'Bearer '+tok}}).then(function(r){return r.blob();}).then(function(blob){"
+              "var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f.name;a.click();});};"
+              "var row=document.createElement('div');row.appendChild(b);box.appendChild(row);});});});})"
+              ".catch(function(e){show(String(e.message||e));});});</script>")
+    return _page("Meeting Notes", "<h1>Meeting Notes</h1>"
+                 "<p>After the meeting the organiser names the speakers in the chat; the transcript, the minutes "
+                 "and the comparison then appear here, one set per transcription lane.</p>"
+                 "<div id=\"files\">Loading…</div>"
+                 "<style>#files button{margin:4px 0;padding:6px 10px;cursor:pointer}</style>", script)
 
 
 def privacy_page() -> str:

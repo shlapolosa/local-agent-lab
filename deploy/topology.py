@@ -573,7 +573,9 @@ ROLE_ENV = {
         "REDIS_URL",                               # approvals (channel "teams-app"), runs, the finished stream, its registry
         "SPEECH_LANES",                            # a recording fans out into the same lanes as through the front door
         "BIND_HOST",                               # a public service: Teams and Graph post to it
-        _OTLP,                                     # NO store, NO Graph reader/writer, NO gateway or model key:
+        "ARTIFACTS_URL",                           # READS the documents it KEPT for a meeting, to serve them in the
+                                                   # meeting tab to that chat's members (only refs recorded for the chat)
+        _OTLP,                                     # NO bucket, NO Graph reader/writer, NO gateway or model key:
     ],                                             # it decides and posts; graph-mcp reads, by the proof it allows
     "teams": [                                     # src/lab/substrate/channels/teams.py + lab.substrate.approvals + lab.platform.config
         "TEAMS_WEBHOOK_URL",                       # outbound Adaptive Card webhook (unset = not deployed)

@@ -17,7 +17,7 @@ from lab.platform import redis_client
 from lab.substrate.mcp.graph import graph_map
 
 __all__ = ["Meeting", "save", "by_chat", "by_meeting", "owner_of", "set_paused", "remember_card", "card_of",
-           "TTL_S"]
+           "record_files", "files_of", "TTL_S"]
 
 TTL_S = 90 * 24 * 3600          # a quarter: longer than any series' gap, shorter than forever
 _PREFIX = "meetingapp"
@@ -111,3 +111,23 @@ def remember_card(approval_id: str, chat_id: str, activity_id: str, *, client=No
 def card_of(approval_id: str, *, client=None) -> tuple[str, str] | None:
     raw = _decode(_r(client).get(f"{_PREFIX}:card:{approval_id}"))
     return tuple(json.loads(raw)) if raw else None
+
+
+MAX_FILES = 60      # a few meetings' worth of lanes per chat — a recurring meeting reuses its chat
+
+
+def record_files(chat_id: str, files: list[dict], *, client=None) -> None:
+    """The documents a meeting's runs KEPT, as the tab lists them: `{name, ref, lane}`. Replaced BY
+    NAME — a re-run corrects its own files, and the comparison (rewritten by every lane) stays one row."""
+    r = _r(client)
+    key = f"{_PREFIX}:files:{chat_id}"
+    have = {f["name"]: f for f in files_of(chat_id, client=r)}
+    for f in files:
+        have[f["name"]] = {"name": f["name"], "ref": f["ref"], "lane": f.get("lane", "")}
+    rows = list(have.values())[-MAX_FILES:]
+    r.set(key, json.dumps(rows), ex=TTL_S)
+
+
+def files_of(chat_id: str, *, client=None) -> list[dict]:
+    raw = _decode(_r(client).get(f"{_PREFIX}:files:{chat_id}"))
+    return json.loads(raw) if raw else []

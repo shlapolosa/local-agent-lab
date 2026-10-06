@@ -69,17 +69,10 @@ def _jwks():
 
 
 def _validate(token: str) -> dict:
-    from jwt import PyJWK, decode, get_unverified_header   # PyJWT ships with litellm
-    kid = get_unverified_header(token)["kid"]
-    key = next(k for k in _jwks() if k["kid"] == kid)
-    claims = decode(token, PyJWK(key).key, algorithms=["RS256"],
-                    audience=[AUDIENCE, AUDIENCE.replace("api://", "")],
-                    options={"verify_iss": False})
-    if claims.get("iss") not in ISSUERS:
-        raise ValueError(f"untrusted issuer {claims.get('iss')}")
-    if claims.get("tid") != TENANT:
-        raise ValueError("wrong tenant")
-    return claims
+    """The gateway's audience, through the substrate's ONE token check (`lab.substrate.entra`)."""
+    from lab.substrate import entra
+    return entra.validate(token, tenant=TENANT, audiences=[AUDIENCE, AUDIENCE.replace("api://", "")],
+                          keys=_jwks)
 
 
 async def user_api_key_auth(request: Request, api_key: str):

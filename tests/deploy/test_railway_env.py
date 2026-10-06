@@ -334,7 +334,8 @@ def test_the_meeting_app_holds_its_own_identity_and_redis_and_no_data_credential
     env = railway.env_for_role("meeting-app", FAKE | {"MEETING_APP_ID": "a", "MEETING_APP_SECRET": "s",
                                                       "MEETING_APP_PUBLIC_URL": "https://m", "SPEECH_LANES": "x"})
     assert {"MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_PUBLIC_URL", "REDIS_URL"} <= set(env)
-    assert not _has(env, "GRAPH_", "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
+    # ARTIFACTS_URL, deliberately: the meeting tab serves the documents kept for a meeting to its members
+    assert not _has(env, "GRAPH_", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
                     "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "GATEWAY_URL", "TEAMS_WEBHOOK_URL",
                     "TELEGRAM_", "MEETING_WEBHOOK_URL")
 
