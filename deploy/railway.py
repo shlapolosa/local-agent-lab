@@ -522,7 +522,7 @@ def version_report():
     it but which never restarted, so it is still serving the previous build.
     """
     ids = services()
-    builds, stale = {}, []
+    builds, stale, unknown = {}, [], []
     print(f"  {'service':22} {'asked to run':28} running")
     for name, sid in sorted(ids.items()):
         img = image_of(sid)
@@ -533,6 +533,8 @@ def version_report():
         tag = img.split(":", 1)[1]
         build = running_build(sid)
         print(f"  {name:22} {tag:28} {build or '(no build line in its logs)'}")
+        if not build:
+            unknown.append(name)
         if build and build != "dev":
             builds.setdefault(build[:7], []).append(name)
             if tag.startswith("sha-") and not build.startswith(tag[4:]):
@@ -548,8 +550,24 @@ def version_report():
         print(f"\n  STALE — {name} is configured for {tag} but is still serving {build}: "
               "it has not restarted onto the image it was given.")
     if not bad:
-        print("\n  every service runs the same build" if builds else
-              "\n  no service reported a build — an image built before LAB_BUILD_SHA existed")
+        # Say what was actually COMPARED. `running_build` reads the last 300 log lines for the line each
+        # role prints on start, so a service up for hours under traffic has scrolled past it and reports
+        # nothing — and this verdict used to count only the services that DID report, then announce that
+        # every service agreed. Measured 6 Oct 2026: five of seven silent, two agreeing, "every service
+        # runs the same build". The failure this report exists to catch — a tag that moved under a
+        # service which never restarted — is PRECISELY a service whose log says nothing new, so silence
+        # must never read as consent. It is not an error (outrunning a log window is normal), so it is
+        # counted and named rather than folded into the verdict.
+        checked = sum(len(n) for n in builds.values())
+        if not checked:
+            print(f"\n  UNVERIFIED — not one of {len(unknown)} service(s) reported a build, so nothing was "
+                  "compared: either the images predate LAB_BUILD_SHA, or every start line has scrolled "
+                  "out of the log window")
+        else:
+            print(f"\n  every service that reported runs the same build ({checked} of {checked + len(unknown)} "
+                  "compared)")
+            if unknown:
+                print(f"  unverified — no build line in the log window: {', '.join(sorted(unknown))}")
     return bad
 
 

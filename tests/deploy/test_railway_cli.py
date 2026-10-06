@@ -898,3 +898,45 @@ def test_substrate_up_with_a_vendor_embedding_model_creates_no_embedder():
     created = [v["in"]["name"] for op, v, _ in fake.calls if op == "serviceCreate"]
     assert "redis" in created and rw.EMBED_NAME not in created
     assert f"{rw.EMBED_NAME:13} skipped" in out.getvalue()
+
+
+def test_a_version_report_that_verified_nothing_does_not_claim_agreement():
+    """The instrument this lab trusts most degraded to GREEN exactly when its evidence was missing.
+
+    `running_build` reads the last 300 log lines for the line each role prints on start. A service that
+    has been up for hours under traffic has scrolled past it, so it reports nothing — and the verdict
+    counted only the services that DID report, then printed "every service runs the same build".
+    Measured 6 Oct 2026: five of seven services silent, two agreeing, and the report said every one of
+    them agreed. Earlier the same day, right after a roll, all of them were silent for a few minutes.
+
+    "No disagreement found" and "no comparison made" must not print the same sentence: the whole purpose
+    of this report is to catch a tag that moved under a service which never restarted, and that is
+    precisely a service whose log says nothing new. Silence is not consent. It is not an ERROR either —
+    outrunning a log window is normal — so it is counted and named, never folded into the verdict.
+    """
+    ours = f"ghcr.io/{rw.REPO}"
+    fake = FakeRailway(services=_project("gateway", "review", "redis"),
+                       images={"svc-gateway": f"{ours}:sha-aaaaaaa",
+                               "svc-review": f"{ours}:sha-aaaaaaa",
+                               "svc-redis": "redis:7-alpine"},
+                       logs=[])                                  # nothing reports a build
+    with railway(fake) as out:
+        rw.version_report()
+    text = out.getvalue()
+    assert "every service runs the same build" not in text, "it verified nothing and must not say otherwise"
+    assert "2" in text and "unverified" in text.lower()
+
+
+def test_a_version_report_says_how_many_services_it_actually_compared():
+    """A partial answer is the common one, and it was the one that read as total. The sentence must carry
+    the denominator so a reader can see that two of seven agreeing is not seven agreeing."""
+    ours = f"ghcr.io/{rw.REPO}"
+    fake = FakeRailway(services=_project("gateway", "review", "redis"),
+                       images={"svc-gateway": f"{ours}:sha-aaaaaaa",
+                               "svc-review": f"{ours}:sha-aaaaaaa",
+                               "svc-redis": "redis:7-alpine"},
+                       logs=["gateway starting build=aaaaaaa"])               # the fake serves these to EVERY service
+    with railway(fake) as out:
+        bad = rw.version_report()
+    assert bad is False
+    assert "2 of 2" in out.getvalue()                            # compared, and said so
