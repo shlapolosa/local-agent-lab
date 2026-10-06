@@ -171,10 +171,24 @@ def handle_finished(entry_id: str, fields: dict, *, client) -> list[str]:
     started: list[str] = []
     try:
         state = workflows.status(fields.get("request_id", ""), client=client)
-        for event in events_from_run(state):
+        events = events_from_run(state)
+        dup = 0
+        for event in events:
             got = submit_for(event, client=client)
             if got and not got[1]:
                 started.append(got[0])
+            elif got:
+                dup += 1
+        # The lab door must announce what it took in, because after the meeting-app cutover it is the
+        # ONLY way meeting minutes reach the fabric and it was the one path that printed NOTHING on
+        # success. Measured 6 Oct 2026: three speech lanes over one recording, all three runs DONE each
+        # with its own `minutes_ref`, exactly one record — and the logs could not distinguish "two
+        # events were never produced" from "two were produced and dropped", because `submit_for`
+        # announces a drop while this handler announced only an exception. A run that offered NOTHING
+        # prints too: "nothing to catalogue" and "never reached the door" are different states, and the
+        # first is the shape of a real defect when the process declares a product.
+        print(f"[ingress] finished {fields.get('request_id')} {state.get('process') or '?'}: "
+              f"{len(events)} artifact(s) -> {len(started)} submitted, {dup} duplicate", flush=True)
     except Exception as e:                    # noqa: BLE001 — one run must not stop the rest
         print(f"[ingress] finished {fields.get('request_id')}: {type(e).__name__}: {e}", flush=True)
     finally:

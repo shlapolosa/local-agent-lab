@@ -181,3 +181,46 @@ def test_a_folder_scoped_drive_takes_the_path_from_the_pointer_else_asks_once_an
         ing.submit_for(_event(pointer={"source": "collab", "handle": "collab://item/drive-1/01ABF", "version": "5.0"}),
                        client=r, allowlist=allow, lookup=down)
     assert ing.submit_for(bare, client=r, allowlist=("collab:drive-1",), lookup=down)                 # drive-wide: never asks
+
+
+def test_a_finished_run_says_what_it_took_in_and_what_each_artifact_became(monkeypatch, capsys):
+    """The lab door was SILENT on success, and that is why a real question could not be answered.
+
+    After the meeting-app cutover the lab door is the ONLY way meeting minutes reach the fabric. Three
+    speech lanes ran over one recording, all three DONE each with its own `minutes_ref`, and exactly one
+    record appeared — and the logs could not say whether two events were never produced, or were produced
+    and dropped, because `handle_finished` printed only when it RAISED. `submit_for` announces a drop and a
+    submit on the adapter path, so the asymmetry was invisible: the quiet door was the one under load.
+
+    One line per finished run, naming the run, the process, how many artifacts it offered and what each
+    became. An instrument that cannot report success cannot be trusted to report its absence.
+    """
+    r = FakeRedis()
+    monkeypatch.setattr(config, "FABRIC_ALLOWLIST", ("collab:*",))
+    workflows.ensure_groups(r)
+    r.hset("workflow:req:r1", mapping={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v))
+                                       for k, v in _minutes_state().items()})
+    workflows.ensure_finished_group(ing.FINISHED_GROUP, r)
+    r.xadd(workflows.DONE, {"request_id": "r1", "process": "transcript_to_minutes", "status": "done",
+                            "finished_at": "t"})
+    ing.run_once(client=r)
+    line = next((l for l in capsys.readouterr().out.splitlines() if "finished r1" in l), "")
+    assert line, "a finished run must announce itself"
+    assert "transcript_to_minutes" in line
+    assert "3 artifact" in line and "3 submitted" in line
+
+
+def test_a_finished_run_that_offered_nothing_still_says_so(monkeypatch, capsys):
+    """"Nothing to catalogue" and "never reached the door" are different states that looked identical.
+    A producing run whose declared product is absent is the shape of a real defect, so it must print."""
+    r = FakeRedis()
+    monkeypatch.setattr(config, "FABRIC_ALLOWLIST", ("collab:*",))
+    workflows.ensure_groups(r)
+    state = {**_minutes_state(), "delivered": [], "minutes_ref": ""}
+    r.hset("workflow:req:r2", mapping={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v))
+                                       for k, v in state.items()})
+    workflows.ensure_finished_group(ing.FINISHED_GROUP, r)
+    r.xadd(workflows.DONE, {"request_id": "r2", "process": "transcript_to_minutes", "status": "done",
+                            "finished_at": "t"})
+    assert ing.run_once(client=r) == []
+    assert "0 artifact" in next(l for l in capsys.readouterr().out.splitlines() if "finished r2" in l)
