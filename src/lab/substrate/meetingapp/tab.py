@@ -24,16 +24,34 @@ def _page(title: str, body: str, script: str = "") -> str:
 
 
 def config_page() -> str:
-    """Valid at once — there is nothing to configure — and on save, the tab is the status page."""
+    """Valid at once — there is nothing to configure — and on save, the tab is the status page.
+
+    Every step REPORTS itself, on the page and to `/tab/log`: Teams turns any failure here into a
+    generic "Unable to save tab configuration" and discards the reason, and the first time that
+    happened nothing on either side said why (6 Oct 2026). An instrument that cannot fail loudly is not
+    an instrument."""
     script = (f'<script src="{TEAMS_JS}"></script><script>'
+              "function say(stage,detail){var d=String(detail||'');"
+              "var el=document.getElementById('status');if(el){el.textContent=stage+(d?': '+d:'');}"
+              "try{navigator.sendBeacon('/tab/log',JSON.stringify({stage:stage,detail:d.slice(0,300)}));}catch(e){}}"
+              "document.addEventListener('DOMContentLoaded',function(){"
+              "if(!window.microsoftTeams){say('teams-js not loaded');}else{"
+              "say('initialising');"
               "microsoftTeams.app.initialize().then(function(){"
+              "say('ready');"
               "microsoftTeams.pages.config.registerOnSaveHandler(function(e){"
+              "say('saving');"
               "microsoftTeams.pages.config.setConfig({entityId:'meeting-notes',"
-              "contentUrl:location.origin+'/tab',suggestedDisplayName:'Meeting Notes'})"
-              ".then(function(){e.notifySuccess();},function(err){e.notifyFailure(String(err));});});"
-              "microsoftTeams.pages.config.setValidityState(true);});</script>")
+              "contentUrl:location.origin+'/tab',websiteUrl:location.origin+'/tab',"
+              "suggestedDisplayName:'Meeting Notes'})"
+              ".then(function(){say('saved');e.notifySuccess();},"
+              "function(err){say('setConfig failed',(err&&(err.message||err.errorCode))||JSON.stringify(err));"
+              "e.notifyFailure(String((err&&err.message)||err));});});"
+              "microsoftTeams.pages.config.setValidityState(true);"
+              "},function(err){say('initialize failed',(err&&err.message)||err);});}});</script>")
     return _page("Meeting Notes", "<h1>Meeting Notes</h1><p>Select <b>Save</b> to turn Meeting Notes on for "
-                                  "this meeting. Nothing else to set.</p>", script)
+                                  "this meeting. Nothing else to set.</p><p id=\"status\" style=\"opacity:.6\">"
+                                  "loading…</p>", script)
 
 
 def status_page() -> str:

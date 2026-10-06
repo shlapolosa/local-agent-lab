@@ -84,6 +84,18 @@ def web(*, client_state: str, handle=notifications.handle) -> FastAPI:
     async def healthz() -> dict:
         return {"ok": True}
 
+    @app.post("/tab/log")
+    async def tab_log(request: Request) -> Response:
+        """What the configuration page reports about itself — a stage and Teams' own error text,
+        bounded. No identity travels here: the page sends neither user nor meeting."""
+        try:
+            said = json.loads((await request.body())[:1000] or b"{}")
+        except ValueError:
+            said = {}
+        print(f"[meeting-app] tab config: {str(said.get('stage', '?'))[:40]} {str(said.get('detail', ''))[:300]}",
+              flush=True)
+        return Response(status_code=204)
+
     # the meeting tab: its configuration page is what lets "+" finish adding the app (see `tab`)
     for path, page in (("/tab/config", tab.config_page), ("/tab", tab.status_page),
                        ("/tab/privacy", tab.privacy_page), ("/tab/terms", tab.terms_page)):

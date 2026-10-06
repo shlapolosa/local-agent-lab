@@ -26,3 +26,13 @@ def test_the_status_page_and_the_manifests_two_policy_links_resolve():
         r = c.get(path)
         assert r.status_code == 200 and r.headers["content-type"].startswith("text/html"), path
     assert "consent" in c.get("/tab/privacy").text.lower()
+
+
+def test_the_config_page_reports_every_stage_and_the_error_teams_would_otherwise_discard(capsys):
+    c = client()
+    page = c.get("/tab/config").text
+    for stage in ("initialising", "ready", "saving", "saved", "setConfig failed", "/tab/log"):
+        assert stage in page, stage
+    assert c.post("/tab/log", content=b'{"stage":"setConfig failed","detail":"InvalidContentUrl"}').status_code == 204
+    assert "setConfig failed InvalidContentUrl" in capsys.readouterr().out
+    assert c.post("/tab/log", content=b"not json").status_code == 204
