@@ -38,7 +38,13 @@ from provision_meeting_agents import _grants, _key, _reconcile, _team  # noqa: E
 INTAKE_TOOLS = {
     SemanticTools.SERVER: list(SemanticTools.PIPELINE) + list(SemanticTools.READ),   # never PROMOTE
     StorageTools.SERVER: [StorageTools.read_artifact],       # the minutes a synthesis reads, by ref
-    CollabTools.SERVER: [CollabTools.item],                  # a title and a version stamp; no write
+    # `item` is a title and a version stamp. `fetch` streams ONE document's bytes into the upload store so
+    # the classifier can read a bounded excerpt of what it is classifying — a deliberate widening, decided
+    # 6 Oct 2026 after measuring what metadata-only classification produces: `Clinical document` on 39 of 93
+    # records, because a model shown only a file name will still answer. Content now enters an agent's
+    # context, which is the cost; the bound is `workflow.EXCERPT_CHARS`, the tool is read-only, and no write
+    # verb comes with it.
+    CollabTools.SERVER: [CollabTools.item, CollabTools.fetch],
     WorkflowTools.SERVER: list(ApprovalTools.RAISE),          # ask, never answer
 }
 PUBLISH_TOOLS = {

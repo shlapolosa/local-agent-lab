@@ -40,9 +40,54 @@ REQUIRED_TOOLS = (SemanticTools.catalog_upsert, SemanticTools.catalog_get, Seman
                   (ApprovalTools.ask, ("subject", "prompt", "items", "process", "kind", "fields", "answer_required",
                                        "continuation", "artifacts", "requester")))
 
+#: How much of a document the classifier is shown. A paragraph decides what a thing is ABOUT; a
+#: transcript is tens of thousands of words, and an unbounded excerpt would blow the context, the cost
+#: per record and the span that carries it. Enough to recognise a subject, never the document itself.
+EXCERPT_CHARS = 2000
+
 USECASE_ID = re.compile(r"\bUC-\d{1,6}\b")
 PROMPT_REVIEW = ("Review this artifact's record before it is published: is the document type right, and "
                  "does it belong to the delivery context shown? Confirm each item or type the correct value.")
+
+
+async def _excerpt(cfg, pointer: dict) -> str:
+    """The first `EXCERPT_CHARS` of what is being classified, or "" when it cannot be read.
+
+    Classification used to run on a TITLE, a file name and a path — never a byte of the document — and the
+    subjects it produced were guesses dressed as facts: measured 6 Oct 2026, `Clinical document` on 39 of 93
+    records and a meeting about a note-taking app filed under `Teleconsultation`. Content was never withheld
+    by the architecture; the synthesis node already reads whole minutes through the same governed tool. Only
+    this node went without.
+
+    Two sources, two routes to the same ref: a `lab` pointer carries an `art://` ref that storage reads
+    directly, while a `collab` pointer carries a HANDLE whose bytes must be streamed into the upload store
+    first. The fetch is attempted ONLY for a handle, because it costs a round trip and a grant.
+
+    Degrades, never fails: no grant, an unreadable body, a provider outage — the record is still catalogued
+    from its metadata. An unclassified artifact is worse than an unlinked one, and that ordering is why this
+    returns "" instead of raising.
+    """
+    ref = str(pointer.get("ref") or "")
+    try:
+        if not ref and pointer.get("handle"):
+            got = await gateway.call(cfg, CollabTools.fetch, {"handle": str(pointer["handle"])})
+            ref = gateway.ref_from(got) or str((got or {}).get("ref") or "")
+        if not ref:
+            return ""
+        doc = await gateway.call(cfg, StorageTools.read_artifact, {"ref": ref})
+        if isinstance(doc, str):
+            try:
+                doc = json.loads(doc)
+            except ValueError:
+                return doc[:EXCERPT_CHARS]
+        text = doc.get("text") or doc.get("content") or "" if isinstance(doc, dict) else str(doc)
+        if not isinstance(text, str):
+            text = json.dumps(text, ensure_ascii=False)
+        return text[:EXCERPT_CHARS]
+    except Exception as e:                      # noqa: BLE001 — see the docstring: evidence is best effort
+        print(f"[intake] no excerpt for {pointer.get('ref') or pointer.get('handle')}: "
+              f"{type(e).__name__}: {e}", flush=True)
+        return ""
 
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
@@ -139,6 +184,9 @@ def build_workflow(cfg):
                          "document_types": [{"iri": k, **v} for k, v in cfg["doc_types"].items()],
                          "concepts": await _vocabulary(cfg),
                          "hints": state.get("hints") or {}}
+                excerpt = await _excerpt(cfg, state["pointer"])
+                if excerpt:                      # absent, not empty: the prompt must not read "" as "blank document"
+                    brief["excerpt"] = excerpt
                 suggestion = await run_gated(cfg["agents"]["classifier"], json.dumps(brief, ensure_ascii=False),
                                              step="classification", validator=classify_gate)
                 # The schema pins the URN's SHAPE; the closed set is the fabric's. A type the fabric does not

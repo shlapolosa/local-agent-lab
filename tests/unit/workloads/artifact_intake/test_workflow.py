@@ -401,3 +401,108 @@ def test_the_classifier_is_shown_the_vocabulary_and_its_chosen_ids_become_links(
     finally:
         h.close()
     assert h.router.called(SemanticTools.vocab_link)          # the run still classifies and still links
+
+
+# ---------------------------------------------------------------- classifying on EVIDENCE, not on a filename
+LAB_DOC = {"source": "lab", "ref": "art://store/minutes.json", "product": "p/q/r"}
+
+
+def test_the_classifier_is_shown_an_excerpt_of_what_it_is_classifying():
+    """The defect this closes, measured 6 Oct 2026 on the live catalogue: the classifier was shown a TITLE, a
+    file name, a path and 123 concepts — never a byte of the document — and asked what it is about. For
+    `UC-1043-business-case.docx` in `/BusinessCases/` that nearly works; for
+    `Test 8-20261006_104714-Meeting Recording.comparison.txt` it cannot, and the model did what a model does
+    with no evidence: it reached for the nearest concepts in a healthcare-shaped vocabulary. `Clinical document`
+    landed on 39 of 93 records, and a meeting about a note-taking app was filed under `Teleconsultation`.
+
+    Content was never the problem — the workload already HOLDS `storage_read_artifact` and the synthesis node
+    reads whole minutes with it. Only the node that assigns subjects went without.
+    """
+    seen = {}
+
+    class Watching(FakeAgent):
+        async def run(self, text, **kw):
+            seen["brief"] = json.loads(text)
+            return await super().run(text, **kw)
+
+    fab = Fabric()
+    h = harness(fab, classifier=Watching(CLASSIFICATION),
+                tools={"storage_read_artifact": {"text": "Agenda: compare speech providers. "
+                                                         "Munsit transliterated English into Arabic script."}})
+    try:
+        run_spine(W, h, {"pointer": LAB_DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert "excerpt" in seen["brief"], "the classifier must see the document, not only its name"
+    assert "speech providers" in seen["brief"]["excerpt"]
+
+
+def test_an_excerpt_is_bounded_so_one_document_cannot_become_the_whole_prompt():
+    """A transcript is tens of thousands of words and the classifier needs a paragraph. An unbounded excerpt
+    would blow the context, cost per record, and the span that carries it."""
+    fab = Fabric()
+    seen = {}
+
+    class Watching(FakeAgent):
+        async def run(self, text, **kw):
+            seen["brief"] = json.loads(text)
+            return await super().run(text, **kw)
+
+    h = harness(fab, classifier=Watching(CLASSIFICATION),
+                tools={"storage_read_artifact": {"text": "x" * 50_000}})
+    try:
+        run_spine(W, h, {"pointer": LAB_DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert len(seen["brief"]["excerpt"]) <= W.EXCERPT_CHARS
+
+
+def test_a_document_whose_content_cannot_be_read_is_still_classified():
+    """Degrading, never failing: no grant, an unreadable body, a provider outage — the record is still
+    catalogued from its metadata, exactly as before. An unclassified artifact is worse than an unlinked one."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION),
+                tools={"storage_read_artifact": RuntimeError("no grant")})
+    try:
+        run_spine(W, h, {"pointer": LAB_DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert h.router.called(SemanticTools.vocab_link)        # still linked, still catalogued
+
+
+def test_a_collab_item_is_fetched_by_handle_before_it_is_read():
+    """A `lab` pointer carries an `art://` ref that `storage_read_artifact` takes directly. A `collab` pointer
+    carries a HANDLE, which must be streamed into the upload store first — `collab_fetch` mints the ref. Two
+    sources, one excerpt, and the fetch is attempted only for the source that needs it."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION),
+                tools={"collab_fetch": {"ref": "art://store/doc7.txt"},
+                       "storage_read_artifact": {"text": "the body of doc7"}})
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert h.router.called("collab_fetch"), "a handle must be fetched before it can be read"
+    assert h.router.called("collab_fetch")[0]["handle"] == DOC["handle"]
+
+
+def test_no_subject_is_a_legal_answer():
+    """Nothing rewarded declining, so the model always picked something — and a confident wrong edge is worse
+    than no edge, because a person reviewing 57 of them cannot tell which were guesses. An empty `subjects`
+    must validate, link nothing, and propose nothing."""
+    import json as _json
+    from pathlib import Path
+    schema = _json.loads((Path(W.__file__).parent / "schemas" / "classification.schema.json").read_text())
+    import jsonschema
+    jsonschema.validate({"document_type": None, "confidence": 0.1, "subjects": [],
+                         "rationale": "the file name says nothing and the body is not about any concept listed"},
+                        schema)
+
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": []}))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert not h.router.called(SemanticTools.vocab_link), "no subjects means no link, not an empty link"
+    assert not h.router.called(SemanticTools.vocab_propose), "and no candidate parked for a steward"
