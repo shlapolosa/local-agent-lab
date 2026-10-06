@@ -288,10 +288,7 @@ async def _compare(cfg, state: dict) -> dict:
     the complete table — no lane waits for another, and a lane that never finishes is simply absent."""
     b = state["beside"]
     vtt = await gateway.call(cfg, StorageTools.read_document, {"ref": state["reference"], "max_chars": READ_ALL})
-    teams = compare.parse_vtt(vtt if isinstance(vtt, str) else (vtt or {}).get("text", ""))
-    if not teams.segments:
-        return {"note": "the tenant transcript has no speech in it"}
-    reference = " ".join(s.text for s in teams.segments)
+    vtt_text = vtt if isinstance(vtt, str) else (vtt or {}).get("text", "")
     texts = {b["lane"]: b["transcript"]}
     # Sibling lanes are found beside the recording; a meeting with no folder has only this lane.
     listed = (await gateway.call(cfg, CollabTools.list, {"drive_id": b["drive"], "path": b["path"], "limit": 200})
@@ -306,15 +303,12 @@ async def _compare(cfg, state: dict) -> dict:
             continue
         got = await gateway.call(cfg, CollabTools.fetch, {"handle": item["handle"]})
         texts[lane] = await gateway.call(cfg, StorageTools.read_document, {"ref": got["ref"], "max_chars": READ_ALL})
-    scores = {}
-    for lane, text in sorted(texts.items()):
-        said = render.read_transcript(text if isinstance(text, str) else "")
-        scores[lane] = compare.score(" ".join(t.text for t in said), len({t.name for t in said}), reference)
-    table = render.comparison(b["title"], compare.score(reference, len({s.speaker for s in teams.segments})),
-                              scores, when=b["when"])
+    table = render.compare_lanes(vtt_text, texts, title=b["title"], when=b["when"])
+    if table is None:
+        return {"note": "the tenant transcript has no speech in it"}
     name = f'{b["title"]}.comparison.txt'
     written = await (_put(cfg, b["folder"], name, table) if b["folder"] else _store(cfg, name, table))
-    return {"file": written, "lanes": sorted(scores)}
+    return {"file": written, "lanes": sorted(texts)}
 
 
 def build_workflow(cfg):

@@ -17,7 +17,7 @@ from lab.platform import redis_client
 from lab.substrate.mcp.graph import graph_map
 
 __all__ = ["Meeting", "save", "by_chat", "by_meeting", "owner_of", "set_paused", "remember_card", "card_of",
-           "record_files", "files_of", "TTL_S"]
+           "record_files", "files_of", "recording_key", "TTL_S"]
 
 TTL_S = 90 * 24 * 3600          # a quarter: longer than any series' gap, shorter than forever
 _PREFIX = "meetingapp"
@@ -116,16 +116,24 @@ def card_of(approval_id: str, *, client=None) -> tuple[str, str] | None:
 MAX_FILES = 60      # a few meetings' worth of lanes per chat — a recurring meeting reuses its chat
 
 
-def record_files(chat_id: str, files: list[dict], *, client=None) -> None:
-    """The documents a meeting's runs KEPT, as the tab lists them: `{name, ref, lane}`. Replaced BY
-    NAME — a re-run corrects its own files, and the comparison (rewritten by every lane) stays one row."""
+def record_files(chat_id: str, files: list[dict], *, recording: str = "", client=None) -> None:
+    """The documents a meeting's runs KEPT, as the tab lists them: `{name, ref, lane, rec}`, where `rec`
+    names the RECORDING they came from — a chat holds every recording of a recurring meeting, and lanes
+    of different recordings share file names. Replaced by (recording, name): a re-run corrects its own
+    files, and the comparison (rebuilt each time a lane finishes) stays one row per recording."""
     r = _r(client)
-    key = f"{_PREFIX}:files:{chat_id}"
-    have = {f["name"]: f for f in files_of(chat_id, client=r)}
+    rec = recording_key(recording)
+    have = {(f.get("rec", ""), f["name"]): f for f in files_of(chat_id, client=r)}
     for f in files:
-        have[f["name"]] = {"name": f["name"], "ref": f["ref"], "lane": f.get("lane", "")}
+        have[(rec, f["name"])] = {"name": f["name"], "ref": f["ref"], "lane": f.get("lane", ""), "rec": rec}
     rows = list(have.values())[-MAX_FILES:]
-    r.set(key, json.dumps(rows), ex=TTL_S)
+    r.set(f"{_PREFIX}:files:{chat_id}", json.dumps(rows), ex=TTL_S)
+
+
+def recording_key(recording: str) -> str:
+    """A short, stable name for a recording handle — what the tab addresses a recording by."""
+    import hashlib
+    return hashlib.sha256(recording.encode()).hexdigest()[:12] if recording else ""
 
 
 def files_of(chat_id: str, *, client=None) -> list[dict]:

@@ -120,16 +120,17 @@ def web(*, client_state: str, handle=notifications.handle, who=None, is_member=N
         if status != 200:
             return Response(status_code=status)
         files = await asyncio.to_thread(registry.files_of, chat, client=redis)
-        return JSONResponse({"files": [{"name": f["name"], "lane": f.get("lane", "")} for f in files]})
+        return JSONResponse({"files": [{"name": f["name"], "lane": f.get("lane", ""), "rec": f.get("rec", "")}
+                                       for f in files]})
 
     @app.get("/tab/api/file")
-    async def tab_file(request: Request, chat: str = "", name: str = "") -> Response:
+    async def tab_file(request: Request, chat: str = "", name: str = "", rec: str = "") -> Response:
         _, status = await viewer(request, chat)
         if status != 200:
             return Response(status_code=status)
         # only a file RECORDED for this chat — never a ref the caller names
         found = next((f for f in await asyncio.to_thread(registry.files_of, chat, client=redis)
-                      if f["name"] == name), None)
+                      if f["name"] == name and (not rec or f.get("rec", "") == rec)), None)
         if found is None or read is None:
             return Response(status_code=404)
         body = await asyncio.to_thread(read, found["ref"])

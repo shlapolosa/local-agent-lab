@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 from lab.core.meetings.naming import Turn
 
-__all__ = ["clock", "length", "stamp", "transcript", "read_transcript", "minutes", "comparison"]
+__all__ = ["clock", "length", "stamp", "transcript", "read_transcript", "minutes", "comparison", "compare_lanes"]
 
 WIDTH = 100
 
@@ -156,3 +156,19 @@ def comparison(title: str, reference, lanes: dict, *, when: str = "", reference_
             "",
             _wrap("Each lane rewrites this file as it finishes, so a lane still running is not yet listed.", "")]
     return "\n".join(out) + "\n"
+
+
+def compare_lanes(vtt: str, lanes: dict, *, title: str, when: str = "") -> str | None:
+    """Every lane's transcript scored against the tenant's own (WebVTT), as ONE table — or None when
+    the tenant transcript holds no speech to compare with. Pure: callers fetch the texts and keep the
+    result wherever their outputs live (beside the recording, or in the lab for the meeting app)."""
+    from lab.core.speech import compare
+    teams = compare.parse_vtt(vtt or "")
+    if not teams.segments:
+        return None
+    reference = " ".join(s.text for s in teams.segments)
+    scores = {}
+    for lane, text in sorted(lanes.items()):
+        said = read_transcript(text if isinstance(text, str) else "")
+        scores[lane] = compare.score(" ".join(t.text for t in said), len({t.name for t in said}), reference)
+    return comparison(title, compare.score(reference, len({s.speaker for s in teams.segments})), scores, when=when)

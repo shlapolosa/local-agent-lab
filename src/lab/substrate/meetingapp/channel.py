@@ -19,7 +19,8 @@ from typing import Awaitable, Callable
 
 from lab.platform import redis_client, workflows
 from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, WorkflowStatus, continuation_of, speaker_prompts
-from lab.substrate import approvals, meeting_notifier
+from lab.core.meetings import render
+from lab.substrate import approvals, artifacts, meeting_notifier
 from lab.substrate.meetingapp import bot, cards, registry
 from lab.substrate.meetingapp.registry import Meeting
 
@@ -72,7 +73,7 @@ def _announced_key(request_id: str) -> str:
     return f"meetingapp:announced:{request_id}"
 
 
-async def minutes_pass(post: Post, *, client=None) -> int:
+async def minutes_pass(post: Post, *, store=None, client=None) -> int:
     posted = 0
     for eid, fields in workflows.finished_events(GROUP, CONSUMER, client=client):
         rid = fields.get("request_id", "")
@@ -85,9 +86,13 @@ async def minutes_pass(post: Post, *, client=None) -> int:
                                             client=client)
                 if st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None:
                     # what the meeting tab lists — recorded before the post, so a failed post loses no file
+                    recording = str(inputs.get("recording") or "")
                     registry.record_files(meeting.chat_id, [{"name": f.get("name", ""), "ref": f.get("ref", ""),
                                                               "lane": str(st.get("provider") or "")}
-                                                             for f in kept if f.get("ref")], client=client)
+                                                             for f in kept if f.get("ref")],
+                                          recording=recording, client=client)
+                    _rebuild_comparison(meeting.chat_id, recording, str(inputs.get("reference") or ""),
+                                        store=store, client=client)
                 # the marker is claimed only for a run THIS sink announces, and released if the post fails
                 if (st.get("status") == WorkflowStatus.DONE.value and kept and meeting is not None
                         and _r(client).set(_announced_key(rid), "1", nx=True, ex=registry.TTL_S)):
@@ -105,6 +110,34 @@ async def minutes_pass(post: Post, *, client=None) -> int:
         except Exception as e:                  # noqa: BLE001
             print(f"[meeting-app] minutes not posted for {rid}, will retry ({type(e).__name__}: {e})", flush=True)
     return posted
+
+
+COMPARISON = "Meeting.comparison.txt"
+TRANSCRIPT_SUFFIX = ".transcript.txt"
+BOM = "\ufeff"
+
+
+def _rebuild_comparison(chat_id: str, recording: str, reference: str, *, store=None, client=None) -> None:
+    """ONE comparison per recording, across EVERY lane kept for it. A kept lane can only compare itself
+    (it has no folder to find its siblings in) and each lane rewrites the same file, so the tab held the
+    last lane's row alone; the meeting app knows every lane it recorded, so it rebuilds the table here.
+    BEST EFFORT: the minutes are posted and the files listed whether or not a comparison can be made."""
+    if not reference:
+        return
+    try:
+        store = store if store is not None else artifacts.store()
+        rec = registry.recording_key(recording)
+        lanes = {f["lane"]: store.get(f["ref"]).decode("utf-8-sig")
+                 for f in registry.files_of(chat_id, client=client)
+                 if f.get("rec") == rec and f["name"].endswith(TRANSCRIPT_SUFFIX) and f.get("lane")}
+        table = render.compare_lanes(store.get(reference).decode("utf-8-sig"), lanes, title="Meeting")
+        if table is None or not lanes:
+            return
+        ref = store.put(COMPARISON, (BOM + table).encode(), "text/plain; charset=utf-8")
+        registry.record_files(chat_id, [{"name": COMPARISON, "ref": ref, "lane": ""}],
+                              recording=recording, client=client)
+    except Exception as e:                      # noqa: BLE001 — a comparison never costs the minutes
+        print(f"[meeting-app] comparison not rebuilt ({type(e).__name__}: {e})", flush=True)
 
 
 def _r(client):

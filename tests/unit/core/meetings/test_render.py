@@ -111,3 +111,18 @@ def test_the_comparison_lists_teams_first_then_every_lane_with_a_legend():
     assert rows[0].split()[2] == "4" and rows[1].split()[1:4] == ["2", "50%", "50%"]
     assert rows[2].split()[1:4] == ["5", "125%", "100%"]
     assert "How to read this" in text and "agreement, not accuracy" in text
+
+
+def test_compare_lanes_scores_every_lane_against_the_tenant_transcript_in_one_table():
+    """The one home of 'Teams VTT + each lane's transcript -> the comparison table' — the minutes run
+    and the meeting app both call it, so they cannot disagree about what a comparison says."""
+    vtt = "WEBVTT\n\n00:00:03.000 --> 00:00:08.000\n<v Maria Perez>Shall we start with the portal</v>\n"
+    lanes = {"soniox": R.transcript([Turn("Maria", 3.0, "Shall we start with the portal")], title="M"),
+             "munsit": R.transcript([Turn("Maria", 3.0, "start portal")], title="M")}
+    table = R.compare_lanes(vtt, lanes, title="Meeting")
+    rows = [l.split()[0] for l in table.splitlines() if l.startswith(("Microsoft", "soniox", "munsit"))]
+    assert rows == ["Microsoft", "munsit", "soniox"], "Teams first, then every lane, in a stable order"
+
+
+def test_compare_lanes_says_nothing_when_the_tenant_transcript_has_no_speech():
+    assert R.compare_lanes("WEBVTT\n\n", {"soniox": "x"}, title="M") is None

@@ -130,3 +130,55 @@ def test_minutes_of_another_meetings_recording_are_not_posted_in_this_chat():
     workflows.mark(rid, WorkflowStatus.DONE.value, client=r, chat_id=CHAT, delivered=KEPT, summary=SUMMARY)
     asyncio.run(channel.minutes_pass(post, client=r))
     assert post.sent == []
+
+
+class Store:
+    """The artifact store, in memory: what the meeting app reads (kept transcripts, the Teams VTT) and
+    writes (the rebuilt comparison)."""
+
+    def __init__(self, **files):
+        self.files, self.put_calls = dict(files), []
+
+    def get(self, ref):
+        return self.files[ref].encode()
+
+    def put(self, name, data, content_type="text/plain"):
+        ref = f"art://new{len(self.put_calls)}/{name}"
+        self.files[ref] = data.decode()
+        self.put_calls.append(name)
+        return ref
+
+
+VTT = "WEBVTT\n\n00:00:03.000 --> 00:00:08.000\n<v Maria Perez>Shall we start with the portal</v>\n"
+
+
+def lane_done(r, lane, transcript_ref, reference="art://v/teams.vtt"):
+    rid, _ = workflows.submit(TRANSCRIPT_TO_MINUTES.name, {"transcript": "art://t/x.json", "recording": RECORDING,
+                                                          "chat_id": CHAT, "reference": reference,
+                                                          "speaker_map": {"SPEAKER_00": {"tag": "M"}}},
+                              "continuation-runner", client=r)
+    kept = [{"name": f"Meeting.{lane}.transcript.txt", "ref": transcript_ref, "url": ""},
+            {"name": "Meeting.comparison.txt", "ref": f"art://c/{lane}", "url": ""}]
+    workflows.mark(rid, WorkflowStatus.DONE.value, client=r, chat_id=CHAT, delivered=kept, summary=SUMMARY,
+                   provider=lane)
+
+
+def test_the_comparison_is_rebuilt_across_every_lane_of_the_same_recording():
+    """A kept lane can only compare ITSELF (there is no folder to find its siblings in), and every lane
+    rewrites one comparison file — so the tab held the last lane's row alone. The meeting app knows every
+    lane it recorded for a recording, so IT rebuilds the table each time a lane finishes."""
+    from lab.core.meetings import render
+    r, post = FakeRedis(), Poster()
+    registry.save(M, client=r)
+    channel.ensure(client=r)
+    store = Store(**{"art://v/teams.vtt": VTT,
+                     "art://t/soniox": render.transcript([render.Turn("Maria", 3.0, "Shall we start with the portal")], title="M"),
+                     "art://t/munsit": render.transcript([render.Turn("Maria", 3.0, "start")], title="M")})
+    lane_done(r, "soniox", "art://t/soniox")
+    lane_done(r, "munsit", "art://t/munsit")
+    asyncio.run(channel.minutes_pass(post, store=store, client=r))
+    files = registry.files_of(CHAT, client=r)
+    comparison = [f for f in files if f["name"] == "Meeting.comparison.txt"]
+    assert len(comparison) == 1, "one comparison per recording"
+    table = store.files[comparison[0]["ref"]]
+    assert "soniox" in table and "munsit" in table and table.startswith("﻿"), "every lane, readable Arabic"
