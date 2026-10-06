@@ -54,7 +54,7 @@ def _load_by_file_path():
 
 @pytest.fixture(scope="module", autouse=True)
 def _fake_tenant():
-    """The hook reads ENTRA_* ONCE at import (TENANT/AUDIENCE/ISSUERS are module constants), so the
+    """The hook reads ENTRA_* ONCE at import (TENANT/AUDIENCE are module constants), so the
     fake tenant is pinned around the import — in a fixture, not at module import, where it would
     leak the fake Entra tenant into every other test module. Torn down with the module."""
     global ca
@@ -172,8 +172,6 @@ def auth(token):
 # ---------------------------------------------------------------- module loading (LiteLLM style)
 def test_loads_by_file_path_and_as_the_dotted_module():
     assert callable(ca.user_api_key_auth) and ca.TENANT == TENANT and ca.AUDIENCE == AUD
-    assert ca.ISSUERS == (f"https://login.microsoftonline.com/{TENANT}/v2.0",
-                          f"https://sts.windows.net/{TENANT}/")
     # the dotted module LiteLLM resolves from config/litellm-config.yaml is the same code
     as_module = importlib.import_module("lab.substrate.gateway.custom_auth")
     assert as_module.__file__ == ca.__file__ and callable(as_module.user_api_key_auth)

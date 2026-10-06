@@ -19,7 +19,7 @@ tables). Shared rules stay in this file; a rule that applies to two features bel
 |---|---|---|
 | ea | `docs/features/ea.md` | ADOIT, ArchiMate, Visio/diagram ingestion for `visio_to_archimate` |
 | fabric | `docs/features/fabric.md` | the semantic layer, semantic-mcp, the fabric |
-| speech | `docs/features/speech.md` | speech-mcp, voiceprints, the meeting pipeline, the provider bake-off |
+| speech | `docs/features/speech.md` | speech-mcp, voiceprints, the meeting pipeline, the provider bake-off, the opt-in Teams meeting app (the trigger since 6 Oct 2026) |
 | reference | `docs/features/reference.md` | reference-mcp, pins, vector stores, the capability map, cost as a join |
 | usecase | `docs/features/usecase.md` | the use-case pipeline, its ArchiMate model and CAFÉ views, declared defaults |
 

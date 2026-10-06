@@ -1,57 +1,76 @@
-"""Provision the identity of the opt-in Teams meeting app (docs plan: "the meeting pipeline as an
-opt-in Teams meeting app").
+"""Provision the identity of the opt-in Teams meeting app — and nothing it does not use.
 
-ONE Entra app, three jobs, and they must be the SAME app:
+ONE Entra app, and it must be the same app for all of these:
   * the BOT's identity (Azure Bot's msaAppId — what Bot Framework authenticates);
-  * the RSC principal (the manifest's `webApplicationInfo.id`) — the meeting-scoped Graph grants
-    (`OnlineMeetingRecording.Read.Chat`, …) an organiser gives by ADDING the app to a meeting are
-    granted to exactly this app id, so graph-mcp reads with its credential and nothing tenant-wide;
-  * the CALLER of the front door `/api` — it starts a run and records the organiser's answer, so it
-    holds `Workflow.Submit`, `Approvals.Read`, `Approvals.Decide` on lab-gateway, the same three
-    powers as the Power Automate connector it replaces, and a virtual key so the call is metered.
+  * the RSC principal (the manifest's `webApplicationInfo.id`) — the meeting-scoped Graph grants an
+    organiser gives by ADDING the app to a meeting; graph-mcp uses it to PROVE that opt-in;
+  * the Teams SSO resource — the manifest's `webApplicationInfo.resource`, `api://<host>/<appId>`.
+    Teams silently fetches a token for it whenever the app is added; without an identifier URI, an
+    exposed scope and the two Teams clients pre-authorised, the add fails with a generic error
+    (measured 6 Oct 2026). The tab uses the same token to know who is viewing.
 
-Its LiteLLM team carries the connector's grants and NO model: the app decides nothing itself.
+Deliberately NOT: front-door `/api` roles, a LiteLLM team or a virtual key. The app is a substrate
+service that records decisions and starts runs in-process, so it calls no gateway route.
 
-Idempotent by display name (reuses the app, adds a fresh secret), and environment-aware exactly like
-the other provisioning scripts: `LAB_IDENTITY_SUFFIX=-prod LAB_ENV_FILE=.env.azure` makes the
-production twin. Writes MEETING_APP_ID / MEETING_APP_SECRET / MEETING_APP_KEY / MEETING_APP_TEAM_ID
-and the ENTRA_CLIENT_TO_KEY entry; prints key NAMES only.
+Idempotent by display name (reuses the app, adds a fresh secret only with --new-secret), and
+environment-aware like the other provisioning scripts (`LAB_IDENTITY_SUFFIX=-prod LAB_ENV_FILE=.env.azure`).
+Writes MEETING_APP_ID (and MEETING_APP_SECRET when minted); prints key NAMES only.
 
-Usage: set -a && source .env && set +a && .venv/bin/python scripts/provision_meeting_app.py
+Usage: set -a && source .env && set +a && .venv/bin/python scripts/provision_meeting_app.py <public host> [--new-secret]
 """
-import json
-import os
+import argparse
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from lab.platform.contracts import ApiRoles                                  # noqa: E402
-from provision_meeting_agents import CONNECTOR_TOOLS, _helpers, _key, _reconcile, _team  # noqa: E402
-
 NAME = "lab-meeting-app"
-ROLES = (ApiRoles.SUBMIT, ApiRoles.READ, ApiRoles.DECIDE)
+# Microsoft's own Teams clients — the apps that request the SSO token on the user's behalf.
+TEAMS_CLIENTS = ("1fec8e78-bce4-4aaf-ab1b-5451cc387264",   # Teams desktop and mobile
+                 "5e3ce6c0-2b1f-4285-8d4b-75ee78787346")   # Teams on the web
+
+
+def sso(app: dict, host: str) -> dict:
+    """The PATCH that makes Teams SSO work for this app — pure, so the shape is reviewable."""
+    app_id = app["appId"]
+    scopes = (app.get("api") or {}).get("oauth2PermissionScopes") or []
+    scope = next((s for s in scopes if s["value"] == "access_as_user"), None) or {
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{app_id}/access_as_user")), "value": "access_as_user",
+        "type": "User", "isEnabled": True,
+        "adminConsentDisplayName": "Use Meeting Notes as the signed-in user",
+        "adminConsentDescription": "Lets Teams sign the user in to Meeting Notes (tab single sign-on).",
+        "userConsentDisplayName": "Use Meeting Notes as you",
+        "userConsentDescription": "Lets Teams sign you in to Meeting Notes."}
+    return {"identifierUris": sorted(set(app.get("identifierUris") or []) | {f"api://{host}/{app_id}"}),
+            "api": {"requestedAccessTokenVersion": 2,
+                    "oauth2PermissionScopes": [s for s in scopes if s["value"] != "access_as_user"] + [scope],
+                    "preAuthorizedApplications": [{"appId": c, "delegatedPermissionIds": [scope["id"]]}
+                                                  for c in TEAMS_CLIENTS]}}
 
 
 def main() -> int:
-    ensure_agent, ensure_sp, find_app, litellm, _patch_env = _helpers()
-    gw_app = find_app("lab-gateway") or sys.exit("lab-gateway not found — run scripts/entra_provision.py")
-    app_id, secret = ensure_agent(NAME, list(ROLES), ensure_sp(gw_app["appId"]))
-
-    team = os.environ.get("MEETING_APP_TEAM_ID")
-    team = (_reconcile(litellm, team, "meeting-app", CONNECTOR_TOOLS) if team
-            else _team(litellm, "meeting-app", CONNECTOR_TOOLS, budget=1.0, models=()))
-    key = os.environ.get("MEETING_APP_KEY") or _key(litellm, "meeting-app", team, "Teams meeting app",
-                                                    models=())
-
-    mapping = json.loads(os.environ.get("ENTRA_CLIENT_TO_KEY", "{}"))
-    mapping[app_id] = key
-    patch = {"MEETING_APP_ID": app_id, "MEETING_APP_SECRET": secret, "MEETING_APP_KEY": key,
-             "MEETING_APP_TEAM_ID": team, "ENTRA_CLIENT_TO_KEY": "'" + json.dumps(mapping) + "'"}
+    ap = argparse.ArgumentParser()
+    ap.add_argument("host", help="the meeting app's public host, e.g. meeting-app-production-4b82.up.railway.app")
+    ap.add_argument("--new-secret", action="store_true")
+    a = ap.parse_args()
+    from provision_visio_agents import _patch_env, app_name, ensure_sp, find_app, graph
+    app = find_app(NAME) or graph("POST", "/applications", {"displayName": app_name(NAME),
+                                                             "signInAudience": "AzureADMyOrg"})
+    ensure_sp(app["appId"])
+    patch = {"MEETING_APP_ID": app["appId"]}
+    if a.new_secret:
+        patch["MEETING_APP_SECRET"] = graph("POST", f"/applications/{app['id']}/addPassword", {
+            "passwordCredential": {"displayName": "lab", "endDateTime": "2027-08-31T00:00:00Z"}})["secretText"]
+    # The scope must exist before Teams clients can be pre-authorised for it: two PATCHes, in order.
+    body = sso(graph("GET", f"/applications/{app['id']}?$select=appId,identifierUris,api"), a.host)
+    graph("PATCH", f"/applications/{app['id']}", {"identifierUris": body["identifierUris"],
+                                                  "api": {k: v for k, v in body["api"].items()
+                                                          if k != "preAuthorizedApplications"}})
+    graph("PATCH", f"/applications/{app['id']}", {"api": {"preAuthorizedApplications":
+                                                          body["api"]["preAuthorizedApplications"]}})
     _patch_env(patch)
-    print(".env updated:", ", ".join(patch))
-    print(f"{NAME} holds {', '.join(ROLES)}; team meeting-app holds the connector's tools, no model.")
-    print("Restart the gateway so custom_auth reloads ENTRA_CLIENT_TO_KEY.")
+    print(f"{app_name(NAME)}: SSO resource api://{a.host}/{app['appId']}; .env updated: {', '.join(patch)}")
     return 0
 
 

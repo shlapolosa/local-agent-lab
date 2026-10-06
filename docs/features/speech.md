@@ -212,3 +212,36 @@ text step" there would itself be an export.
   `collab_meetings`/`collab_recordings` are NOT in the workload's `REQUIRED_TOOLS`, so a deployment
   without the grant degrades to no picker instead of being refused by preflight. A typed identity
   always beats a pick.
+
+## The opt-in Teams meeting app (`lab.substrate.meetingapp`, service `meeting-app` :3978) — the trigger since 6 Oct 2026
+
+**A meeting is processed only if its organiser ADDED "Meeting Notes" to it.** That replaced the Power Automate
+folder watcher (`teams-recordings`), which submitted every recording in the organiser's OneDrive; the watcher and
+the dev `meeting-minutes-notify` flow are STOPPED (`scripts/meeting_app_cutover.py`, `--rollback` restarts them).
+
+**The path:** adding the app installs its bot in the meeting chat (registered in Redis: chat ↔ organiser ↔ Graph
+meeting id) → ONE app-wide Graph subscription (`installedToOnlineMeetings/getAllRecordings`, resource-specific
+consent, owned by the meeting app's identity) announces each recording → the app submits `meeting_to_transcript`
+per lane with the recording handle AND the chat → speaker questions are posted in the meeting chat (a neutral card
+for everyone; only the ORGANISER's client refreshes it into the form) → the organiser's answer is recorded in-process
+through `approvals.human_decision` → the minutes run KEEPS its documents in the lab (no OneDrive write) → the app posts
+the minutes card, records the files per recording and rebuilds ONE comparison across that recording's lanes → the
+**Meeting Notes tab** lists and serves them to members of that chat only (Teams SSO token + roster check, every request).
+
+**Graph access is option A**: the app's resource-specific grant PROVES a meeting opted in (`graph_repository.
+_opted_in_path`, re-proved every `PROOF_TTL`), and graph-mcp's reader fetches the recording bytes, because Microsoft
+cannot download a recording by RSC alone (401, unchanged by an application access policy — measured 5 Oct 2026).
+Option B (grant `Lab-Collab-Read` per organiser instead of tenant-wide) is the hardening step.
+
+**Provisioning** (`scripts/provision_meeting_app.py <host>`, `scripts/package_teams_app.py <host>`): one Entra app is
+the bot, the RSC principal and the Teams SSO resource; it holds NO front-door role and NO virtual key (it works
+in-process). The SSO setup is not optional — Teams silently fetches a token for `webApplicationInfo.resource` when the
+app is added, and without an identifier URI, an `access_as_user` scope and the two Teams clients pre-authorised the add
+fails with a generic error. Publish the package through Graph (`POST /appCatalogs/teamsApps`); the Teams upload dialog
+reports schema violations as "UnknownError".
+
+**Measured defects this design now carries fixes for** (6 Oct 2026): `refresh.userIds` must be the Teams id `29:…`;
+microsoft-teams-apps 2.1.0 rejects `trigger:"automatic"` (middleware drops it; version pinned); a `::` bind is
+IPv6-only (dual-stack sockets); Graph recording ids exceed the 200-character idempotency key (digest); the card's
+answer names identity OR tag, never an empty one; Teams DESKTOP can hold stale app state after a catalogue
+delete/republish — the web client is the differential test, clearing the desktop cache the fix.

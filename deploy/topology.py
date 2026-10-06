@@ -226,7 +226,10 @@ CHANNELS = {
     # after the first deploy creates it; until it is set the service runs but keeps no subscription.
     "meeting-app": {"cmd": "python -m lab.substrate.meetingapp.service", "port": 3978, "restart": "ALWAYS",
                     "requires": ("MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_CATALOG_ID",
-                                 "MEETING_APP_NOTIFY_STATE")},
+                                 "MEETING_APP_NOTIFY_STATE"),
+                    # OpenTelemetry auto-configuration also exports METRICS, which the lab does not collect:
+                    # the trace endpoint answered every minute's batch with 404 and filled the log (6 Oct 2026)
+                    "env": {"OTEL_METRICS_EXPORTER": "none"}},
 }
 
 

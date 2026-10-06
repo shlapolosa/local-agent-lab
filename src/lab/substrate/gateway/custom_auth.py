@@ -55,8 +55,6 @@ log = logging.getLogger("lab.custom_auth")
 
 TENANT = os.environ.get("ENTRA_TENANT_ID", "")
 AUDIENCE = os.environ.get("ENTRA_GATEWAY_AUDIENCE", "")
-ISSUERS = (f"https://login.microsoftonline.com/{TENANT}/v2.0",
-           f"https://sts.windows.net/{TENANT}/")           # v1 tokens for api:// audiences
 _JWKS = {"keys": None, "at": 0.0}
 
 
