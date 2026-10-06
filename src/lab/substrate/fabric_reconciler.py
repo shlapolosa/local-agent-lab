@@ -21,11 +21,16 @@ from datetime import datetime, timezone
 
 from lab.core import ids
 from lab.core.collab.model import ContentHandle
-from lab.platform import config, fabric_events, streams
+from lab.platform import config, fabric_events, filetypes, streams
 from lab.platform.contracts import ArtifactChanged, CollabTools, SemanticTools
 from lab.substrate import fabric_gateway, fabric_metrics, fabric_vocabulary
 
 SERVICE = "fabric-reconciler"
+
+# The kinds the fabric can actually read from a listing (`filetypes.kind_for`). `artifact` is absent
+# deliberately: a lab-produced render reaches the catalogue through the always-admitted `lab` door,
+# carrying the product and run that made it, which a swept copy of the same bytes could not.
+SWEEPABLE_KINDS = ("document", "vsdx", "image")
 
 
 def _parse(stamp: str) -> datetime | None:
@@ -77,6 +82,17 @@ def decide(item: dict, row: dict | None) -> ArtifactChanged | None:
     if item.get("folder") or not ContentHandle.is_handle(item.get("handle")):
         return None
     modified = str(item.get("modified") or "")
+    # An allow-listed folder is a FOLDER, not a promise about what people put in it. The organiser's
+    # Recordings folder holds the meeting transcripts the allow-list was added for AND 28 `.mp4`
+    # recordings and 42 per-lane `.json` dumps, and nothing downstream filters by extension — the
+    # classifier reads a file's NAME and path, never its bytes, so a raw recording would be
+    # catalogued as a document with a plausible type and a draft-review approval, noise a steward
+    # cannot tell from a real document. What the fabric can READ is the rule, never a deny-list of
+    # what it has already met: a deny-list is wrong about every format nobody has thought of yet.
+    # It bounds only what the sweep TAKES IN — a record that already exists is still told when its
+    # bytes change, or the catalogue would state a version that is no longer true.
+    if row is None and filetypes.kind_for(str(item.get("name") or "")) not in SWEEPABLE_KINDS:
+        return None
     if row and str((row.get("pointer") or {}).get("version") or "") == modified and modified:
         return None
     pointer = {"source": "collab", "handle": str(item["handle"])}

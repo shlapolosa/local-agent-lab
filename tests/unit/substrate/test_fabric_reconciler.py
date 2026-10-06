@@ -43,14 +43,14 @@ def test_only_drive_entries_of_the_allowlist_are_swept_from_their_folder():
 
 
 def test_decide_is_new_changed_or_nothing():
-    item = {"folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z"}
+    item = {"name": "a.docx", "folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z"}
     new = R.decide(item, None)
     assert new.change == "created" and new.pointer == {"source": "collab", "handle": H1, "version": "2026-09-10T00:00:00Z"}
     changed = R.decide(item, {"pointer": {"source": "collab", "handle": H1, "version": "2026-09-01T00:00:00Z"}})
     assert changed.change == "updated" and changed.occurred_at == "2026-09-10T00:00:00Z"
     assert R.decide(item, {"pointer": {"source": "collab", "handle": H1, "version": "2026-09-10T00:00:00Z"}}) is None
     assert R.decide({"folder": True, "handle": None}, None) is None
-    assert R.decide({"folder": False, "handle": "https://not-a-handle"}, None) is None
+    assert R.decide({"name": "a.docx", "folder": False, "handle": "https://not-a-handle"}, None) is None
 
 
 def test_a_sweep_publishes_what_changed_recurses_to_depth_and_never_writes_the_catalog():
@@ -115,9 +115,11 @@ def test_the_first_sweep_waits_out_the_deploy_window(monkeypatch):
 
 
 def test_a_swept_item_carries_its_folder_path_on_the_pointer():
-    ev = R.decide({"folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z", "path": "Architectures/2026"}, None)
+    ev = R.decide({"name": "a.docx", "folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z",
+                   "path": "Architectures/2026"}, None)
     assert ev.pointer["path"] == "Architectures/2026"
-    assert "path" not in R.decide({"folder": False, "handle": H1, "modified": "2026-09-10T00:00:00Z"}, None).pointer
+    assert "path" not in R.decide({"name": "a.docx", "folder": False, "handle": H1,
+                                   "modified": "2026-09-10T00:00:00Z"}, None).pointer
 
 
 def test_run_once_sweeps_first_then_measures_and_remembers_the_numbers(monkeypatch):
@@ -193,3 +195,34 @@ def test_a_truncated_listing_is_reported_rather_than_silently_short(capsys):
     printed = capsys.readouterr().out
     assert "TRUNCATED" in printed or "more" in printed, \
         f"an ignored `more` must be reported: {printed!r}"
+
+
+def test_a_file_the_fabric_cannot_read_is_not_swept_into_the_catalogue():
+    """An allow-listed folder is a FOLDER, not a promise about what people put in it. The organiser's
+    Recordings folder holds 28 `.mp4` recordings and 42 per-lane `.json` dumps beside the transcripts the
+    allow-list was added for, and nothing downstream filters by extension: the classifier reads a file's
+    NAME and path, never its bytes, so a raw recording would be catalogued as a document with a plausible
+    type and a draft-review approval — noise a steward cannot tell from a real document. Measured 6 Oct 2026;
+    only `FABRIC_SWEEP_LIMIT` had kept the sweep from reaching them.
+
+    The rule is what the fabric can READ (`filetypes.kind_for`), not a deny-list of what it has met: a
+    deny-list is wrong about every format nobody has thought of yet, which is the direction surprises come
+    from. A lab-produced artifact reaches the catalogue through the always-admitted `lab` door instead, so
+    excluding `artifact` here loses nothing.
+    """
+    stamp = "2026-10-06T00:00:00Z"
+    for name in ("Meeting Recording.mp4", "lane.segments.json", "book.xlsx", "notes"):
+        item = {"name": name, "folder": False, "handle": H1, "modified": stamp}
+        assert R.decide(item, None) is None, name
+    for name in ("a.docx", "b.txt", "c.csv", "d.vtt", "e.vsdx", "f.png"):
+        item = {"name": name, "folder": False, "handle": H1, "modified": stamp}
+        assert R.decide(item, None) is not None, name
+
+
+def test_an_unreadable_file_already_in_the_catalogue_still_reports_a_change():
+    """The filter decides what the fabric TAKES IN, not what it maintains. A record that exists — swept in
+    before this rule, or catalogued through the lab door — must still be told when its bytes change, or the
+    catalogue would quietly state a version that is no longer true."""
+    known = {"pointer": {"source": "collab", "handle": H1, "version": "2026-01-01T00:00:00Z"}}
+    item = {"name": "Meeting Recording.mp4", "folder": False, "handle": H1, "modified": "2026-10-06T00:00:00Z"}
+    assert R.decide(item, known).change == "updated"

@@ -26,9 +26,6 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
     # A CAFÉ view (`semantic_view_*`): one self-contained page a person opens in a browser.
     "html": ("text/html", "artifact"),
     "json": ("application/json", "artifact"),
-    # a rendered topology view: one self-contained page, typed so the provider serves it as a page
-    # rather than offering an unknown blob, and kinded `artifact` so no reader tries to parse it
-    "html": ("text/html", "artifact"),
     "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "artifact"),
 }
 CONTENT_TYPES = {ext: ct for ext, (ct, _kind) in FILE_TYPES.items()}     # extension -> content type
