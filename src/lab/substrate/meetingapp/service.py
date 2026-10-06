@@ -16,15 +16,17 @@ import asyncio
 import json
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse
 
 from lab.platform import config
 from lab.substrate import netbind
-from lab.substrate.meetingapp import bot, channel, notifications, registry, subscriptions
+from lab.substrate.meetingapp import bot, channel, notifications, registry, subscriptions, tab
 
 __all__ = ["AutomaticRefresh", "web", "main"]
 
 LISTEN_EVERY_S = 3
 RENEW_EVERY_S = 15 * 60
+RETRY_S = 60
 
 
 class AutomaticRefresh:
@@ -81,6 +83,11 @@ def web(*, client_state: str, handle=notifications.handle) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict:
         return {"ok": True}
+
+    # the meeting tab: its configuration page is what lets "+" finish adding the app (see `tab`)
+    for path, page in (("/tab/config", tab.config_page), ("/tab", tab.status_page),
+                       ("/tab/privacy", tab.privacy_page), ("/tab/terms", tab.terms_page)):
+        app.add_api_route(path, (lambda render: lambda: HTMLResponse(render()))(page), methods=["GET"])
 
     return app
 
@@ -204,9 +211,13 @@ async def _renew() -> None:  # pragma: no cover — a timer around tested `subsc
                                            base_url=config.MEETING_APP_PUBLIC_URL,
                                            client_state=config.MEETING_APP_NOTIFY_STATE)
             print(f"[meeting-app] recordings subscription {said}", flush=True)
+            wait = RENEW_EVERY_S
         except Exception as e:                  # noqa: BLE001
+            # e.g. Graph validated before the edge routed to a fresh deploy (measured on the first one):
+            # a lapsed subscription misses recordings, so try again soon rather than at the next renewal
             print(f"[meeting-app] subscription not kept ({type(e).__name__}: {e})", flush=True)
-        await asyncio.sleep(RENEW_EVERY_S)
+            wait = RETRY_S
+        await asyncio.sleep(wait)
 
 
 def main() -> None:  # pragma: no cover — composition root of the process
