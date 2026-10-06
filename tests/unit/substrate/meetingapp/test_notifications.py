@@ -44,7 +44,7 @@ def test_a_recording_in_a_registered_meeting_starts_one_run_with_its_chat():
     assert handle.kind is HandleKind.RECORDING and handle.id == RID
     assert graph_map.split_meeting_ref(handle.scope) == (ORG, MID)
     assert s["inputs"]["owner"] == ORG and s["inputs"]["chat_id"] == M.chat_id
-    assert s["key"] == f"recording:{RID}", "Graph redelivers; a redelivery must not start a second run"
+    assert s["key"] == notifications._key(RID), "Graph redelivers; a redelivery must not start a second run"
     assert s["lanes"] == ("munsit", "soniox-en"), "lanes fan out exactly as through the front door"
 
 
@@ -92,3 +92,31 @@ def test_one_entry_that_cannot_be_submitted_does_not_stop_the_next():
     body = {"value": note(rid="first")["value"] + note(rid="second")["value"]}
     started = notifications.handle(body, client_state=SECRET, submit=submit, lanes=(), client=r)
     assert len(calls) == 2 and started == [{"request_id": "wfr-2"}]
+
+
+def test_a_real_graph_recording_id_fits_the_front_doors_idempotency_key_limit():
+    """Graph's recording ids run past 200 characters; the key was `recording:<id>:<lane>` and EVERY
+    lane was refused (ValueError, MAX_KEY) — measured 6 Oct 2026, the first real app meeting ran nothing.
+    The key is a digest: short, stable, one per recording."""
+    from lab.platform import workflows
+    long_id = "ktVizIfGAAAAifB4lQ" + "x" * 230
+    r = FakeRedis()
+    registry.save(M, client=r)
+    started = notifications.handle(note(rid=long_id), client_state=SECRET, lanes=("munsit", "soniox-en"), client=r)
+    assert [row["request_id"] for row in started if row.get("request_id")] and not any(row.get("error") for row in started)
+    keys = list(r.scan_iter("workflow:idem:*"))
+    assert keys and all(len(str(k)) <= workflows.MAX_KEY + 60 for k in keys)
+    again = notifications.handle(note(rid=long_id), client_state=SECRET, lanes=("munsit", "soniox-en"), client=r)
+    assert all(row["duplicate"] for row in again), "a redelivery is the same runs, not new ones"
+
+
+def test_a_lane_that_was_refused_is_said_and_not_counted_as_a_run(capsys):
+    r = FakeRedis()
+    registry.save(M, client=r)
+
+    def submit(process, inputs, requester, **kw):
+        return [{"provider": "munsit", "request_id": "wfr-1", "duplicate": False},
+                {"provider": "soniox", "request_id": "", "duplicate": False, "error": "ValueError: too long"}]
+    notifications.handle(note(), client_state=SECRET, submit=submit, lanes=(), client=r)
+    out = capsys.readouterr().out
+    assert "1 run(s) started" in out and "soniox REFUSED" in out and "too long" in out

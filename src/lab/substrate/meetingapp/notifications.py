@@ -11,6 +11,7 @@ meeting fans out into the configured provider lanes; the idempotency key is the 
 Graph redelivers and a redelivery must not start a second transcription."""
 from __future__ import annotations
 
+import hashlib
 import hmac
 import re
 from typing import Callable
@@ -65,6 +66,20 @@ def _start(organiser: str, meeting_id: str, recording_id: str, submit: Callable,
               "recording": str(ContentHandle.recording(graph_map.meeting_ref(organiser, meeting_id), recording_id))}
     rows = submit(MEETING_TO_TRANSCRIPT.name, inputs, REQUESTER,
                   lanes=workflows.lanes_for(MEETING_TO_TRANSCRIPT, inputs, lanes),
-                  idempotency_key=f"recording:{recording_id}", client=client)
-    print(f"[meeting-app] recording {recording_id} -> {len(rows)} run(s)", flush=True)
+                  idempotency_key=_key(recording_id), client=client)
+    # A lane that could not be submitted comes back as a ROW with an error, not an exception — so count
+    # what started and SAY what was refused. Counting rows once reported "3 run(s)" for three refusals
+    # (measured 6 Oct 2026), and the first real app meeting silently ran nothing.
+    ran = [row for row in rows if row.get("request_id") and not row.get("error")]
+    print(f"[meeting-app] recording {recording_id[:8]}: {len(ran)} run(s) started", flush=True)
+    for row in rows:
+        if row.get("error"):
+            print(f"[meeting-app] recording {recording_id[:8]}: lane {row.get('provider') or '-'} REFUSED "
+                  f"({row['error']})", flush=True)
     return rows
+
+
+def _key(recording_id: str) -> str:
+    """The submission's idempotency key: one per recording, and SHORT. Graph's recording ids run past
+    200 characters, over the front door's key limit, so the id itself made every lane's key invalid."""
+    return "recording:" + hashlib.sha256(recording_id.encode()).hexdigest()[:32]
