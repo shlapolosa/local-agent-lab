@@ -253,6 +253,33 @@ Each L4 carries its L5 requirements, acceptance (CQs), phase, delivery mode (as 
 
 - FR-4.1.1 Knowledge Search over the published corpus with label trimming at read time; results carry owner, state and provenance grade.
 - FR-4.1.2 Relationship Navigation: traverse delivery, reference and subject edges from any artifact or concept, with the rungs read declared.
+- **FR-4.1.3 Catalog Overlay — the fabric's facts are merged onto a retrieval answer AT ANSWER TIME, in the
+  assistant's orchestration.** Neither in the index nor in the source:
+
+      a person asks -> the knowledge source returns the document (title, URL, snippet)
+                    -> the assistant calls the fabric with that document
+                    -> the assistant merges the content with owner / state / subjects / rung
+                    -> one answer, carrying its provenance grade
+
+  The two halves stay separable on purpose. Retrieval is a product the organisation already owns and the
+  fabric must not re-implement it; the governed facts are volatile, rung-filtered and computed per question,
+  so they must not be frozen into an indexed page. **What is PROJECTED is discoverable (what exists, where it
+  lives, who owns it, what it is about); what is CALLED is governed (impact, trust grade, completeness,
+  duplicates, review state).** An answer that merged the two without saying so would make a rung-S suggestion
+  indistinguishable from a human-confirmed fact, which FR-4.1.1's provenance grade exists to prevent — so the
+  assistant states when it did NOT consult the fabric.
+- **FR-4.1.4 Custody Lookup — a record is resolvable from the SOURCE's own address.** Retrieval hands the
+  assistant a URL (`https://<tenant>.sharepoint.com/.../Architectures/foo.docx`); the catalog is keyed by
+  custody pointer (`collab://item/<drive>/<item>`), and the two do not join. Without this the overlay falls
+  back to matching on TITLE, which is fuzzy and silently wrong wherever two artifacts share a name — the
+  failure Duplicate Management (FR-3.3) exists to surface, reintroduced at the point of answering. The lookup
+  resolves a source URL or path to the custody pointer and returns the record, or nothing when the artifact
+  is not catalogued — "not catalogued" being a legal, visible answer, as for the unassociated state.
+  **Decided (7 Oct 2026): the join is a LOOKUP, never a mutation of the source item.** Writing owner, state
+  and subjects back as SharePoint columns would make the overlay seamless and needs no second call, but it
+  turns the fabric into a writer into the system of record, and principles 2 and 3 (content stays where it
+  lives; the source decides who may read, at read time) are easier to defend when the fabric only ever reads
+  from the source and writes nothing to it but its own projection pages.
 - Acceptance: CQ-16, CQ-21 (consumed), CQ-27. MVP: Microsoft Search and Copilot over SharePoint; catalog joins in Functions; Transitional: the Work IQ MCP door and a thin fabric facade.
 
 ### FR-4.2 Knowledge Recommendation (BR-4) — Transitional · L
@@ -309,6 +336,46 @@ SELECT ?affected ?depth WHERE {
 - **Access Management** (Identity & Access): principal identity for people and agents (Entra); label trimming at read time by the source; CQ-21 answered identically for a person and for an agent acting for them.
 - **Audit Management** (GRC): every synthesis, approval, promotion, publication and propagation recorded with actor, time and run id; CQ-22.
 - **Records Retention** (Records Management): Purview policies apply to the published corpus; disposition at Target.
+
+### 6.1 The surface split — who covers what (7 Oct 2026)
+
+One assistant for the person; three layers behind it, each doing what the others cannot. The question a
+reader should be able to answer from this table is "which layer do I add, and when".
+
+| | **Knowledge sources** (SharePoint grounding) | **The fabric** (governed) | **Work IQ** (M365 signal) |
+|---|---|---|---|
+| answers | "find me X", "what does X say" | "who owns it, is it trusted, what does it affect" | "who knows X", "what was said about X" |
+| reach | the document libraries it is pointed at | **anything the allow-list admits, plus every lab-produced artifact** — including what never enters M365 | Teams, Outlook, M365 people and activity signals |
+| content | reads bodies, returns passages | reads a bounded excerpt to classify; stores none | reads bodies across the estate |
+| completeness | top-k, no guarantee | **exact set** — "every document about X" | top-k |
+| provenance | none | **rung, actor, date; impact restricted to C · X · H** | signals, i.e. rung S |
+| state | none | `pending -> in-review -> published \| withdrawn` | none |
+| cost | included | our build | separate consumption billing |
+| residency | the tenant's M365 geo | in-region by construction | **unverified for UAE — gated by NFR-1** |
+
+**The seam.** Knowledge sources and Work IQ RETRIEVE; the fabric VOUCHES. They meet in the assistant's
+orchestration at answer time (FR-4.1.3), joined by custody lookup (FR-4.1.4), never by pre-merging one into
+the other's store.
+
+**Sequencing, and why.** SharePoint grounding first: it is included in what the organisation already pays
+for, it is a Knowledge-tab change rather than a build, and it makes the two halves visible side by side in
+one conversation — which is the cheapest way to find out whether the governed half is worth what it costs.
+Work IQ after, and only for the gap below.
+
+**The gap Work IQ closes, to come back to.** SharePoint grounding cannot reach Teams threads, Outlook mail,
+or "who knows about this" — and the last of those is Expertise Identification (FR-4.3), which this document
+already schedules for Target and the market scan rates ● for Work IQ on people signals. So the Work IQ
+decision is not "retrieval or not"; it is **conversational context and expertise**, two things no amount of
+document grounding supplies. Revisit when: (a) FR-4.3 comes into scope, (b) a competency question needs a
+Teams or Outlook thread as evidence, or (c) UAE residency and billing controls are verified (NFR-1, and the
+market scan records both as outstanding). Until then its absence costs the fabric nothing it is being asked
+for, and adding it early would make an unverified external product the primary surface.
+
+**What is NOT a layer here.** APIM is the transport and the policy point, not a source — every tool reaches
+the assistant through it, so adding a tool in production is a policy change, not only a grant. API and
+database schemas are structural metadata and remain out of scope (§1): the unsolved classes are the
+narrative ones. A schema may still be the SUBJECT of a catalogued decision, which is a link to an
+identifier and not an ingest.
 
 ## 7. Competency questions — the acceptance suite
 
