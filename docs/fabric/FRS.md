@@ -337,6 +337,79 @@ SELECT ?affected ?depth WHERE {
 - **Audit Management** (GRC): every synthesis, approval, promotion, publication and propagation recorded with actor, time and run id; CQ-22.
 - **Records Retention** (Records Management): Purview policies apply to the published corpus; disposition at Target.
 
+### 6.0 Consolidated tools — what the fabric may answer in ONE call (7 Oct 2026)
+
+A consuming agent — Copilot in Teams, a pro-code architect agent, an orchestrator — should not assemble an
+answer the fabric already knows how to compute from ten primitive calls. It will do it inconsistently, and
+it will do it without rung discipline, which is the part that cannot be left to a caller. **Where a question
+is a join over the catalogue and the graph, it becomes a tool on semantic-mcp.**
+
+**The boundary, which is the whole of it: a consolidated tool returns METADATA, RELATIONS and POINTERS. It
+never returns content, and it never calls another system on the caller's behalf.** Inside that line,
+consolidate freely. Crossing it turns the fabric into a privileged proxy holding credentials to every source
+— aggregate privilege, and the most dangerous object this architecture could grow — and it breaks three
+NFRs at once: NFR-2 (no fabric store holds body content), NFR-3 (the source decides who may read, at read
+time) and NFR-8 (no privileged agent path).
+
+So the division of labour is the same for every consumer, which is what peer parity means in practice:
+**the fabric consolidates the MAP; the consumer fetches the TERRITORY, under its own identity.** An
+architect agent asking for as-is state gets, in one call, which services exist, which realise a capability,
+which are deprecated, their owners and lifecycle states, the decisions that govern them, how each fact is
+known, and what is missing — all as pointers; it then reads the three documents it actually needs through
+its own governed tools, and the source makes its own access decision each time.
+
+Two tests before a consolidated tool is built:
+
+1. **Is this a question about the ESTATE, or about a document's CONTENTS?** The first is the fabric's. The
+   second belongs to the source, under the caller's identity.
+2. **Does the answer need the RUNGS?** If it must distinguish confirmed from suggested — impact being the
+   canonical case (FR-5.2, served over C · X · H only) — it must be ONE call, so the filtering cannot be
+   skipped or re-implemented by a caller who does not know it exists. If it does not need them, ask whether
+   a primitive already covers it.
+
+**Built by demand, not by anticipation.** YAGNI applies with force here: a speculative suite of consolidators
+is a vocabulary nobody calls, and each one is a contract to maintain. A real consumer's first genuine need
+becomes the first tool, test-first like everything else. `as_is(scope)` and `briefing(capability)` are named
+here as the shapes most likely to be asked for first, not as a commitment to build them.
+
+**A caveat that belongs with any as-is answer.** It is only as true as the catalogue beneath it. An estate
+whose records are mostly `pending` returns a confident map of unconfirmed guesses, which is worse for an
+agent than for a person: the agent does not hesitate. A consolidated tool therefore returns the lifecycle
+state and the rung with every element, never a bare list, and the Trust Grade (FR-4.1.1) applies to it
+exactly as to a search result.
+
+### 6.2 APIM as a source, and APIs as an artifact type — candidate, not yet scoped
+
+APIM is authoritative for API definitions the way SharePoint is for documents and Azure DevOps for work
+items. Onboarding it is the ordinary move — "adding a source is one adapter" (§4.6) — with the pointer being
+the APIM API id and the OpenAPI definition staying in APIM, read under the caller's identity like any other
+content.
+
+**What it buys, and nothing else in the estate buys it:** the cross-system edge.
+
+```
+API (APIM) <-> decision record <-> work item (ADO) <-> capability (CAFE) <-> design document (SharePoint)
+```
+
+which makes "what breaks if we deprecate this API", "which services realise Teleconsultation" and "where is
+the decision that introduced this endpoint, and who approved it" answerable. Work IQ cannot see APIM at all;
+document grounding cannot either.
+
+**What it must NOT become:** a second API catalogue. APIM's own developer portal already lists APIs,
+versions and schemas and answers "what does this endpoint do" better than the fabric would; re-indexing it
+is duplication with a staleness problem. The fabric's contribution is the EDGE, not the inventory.
+
+Two decisions to take deliberately rather than drift into:
+
+1. **Scope.** §1 excludes code and schemas as already versioned and traced. An API *as a product* — owned,
+   versioned, deprecated, consumed — is a governance object rather than code, so including it is defensible;
+   but it is a scope amendment and should be recorded as one, not assumed.
+2. **Granularity.** One record per API VERSION. One per endpoint or per schema element turns a documentation
+   fabric into a weak API registry competing with the system of record.
+
+Note also what APIM is NOT here: the transport and the policy point for every tool call, which is why adding
+a tool in production is an APIM policy change and not only a team grant.
+
 ### 6.1 The surface split — who covers what (7 Oct 2026)
 
 One assistant for the person; three layers behind it, each doing what the others cannot. The question a
