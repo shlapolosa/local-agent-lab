@@ -90,10 +90,12 @@ Each of these cost hours to find, and none is derivable from reading the code. T
   grants a path, and the folder's CONTENTS then change without anything in the lab changing: the
   entry for the organiser's `Recordings` folder was added for the meeting `.txt` transcripts, and
   measured 6 Oct 2026 that folder held **145 files — 28 `.mp4` recordings and 42 per-lane `.json`
-  dumps beside the 35 `.txt`**. Nothing downstream filtered by extension, and the classifier reads a
-  file's NAME and path, never its bytes — so a raw recording would have been catalogued as a document
+  dumps beside the 35 `.txt`**. Nothing downstream filtered by extension, and the classifier read a
+  file's NAME and path and not its bytes — so a raw recording would have been catalogued as a document
   with a plausible type and its own draft-review approval, noise a steward cannot tell from a real
-  document. The entry was correct the day it was written and became wrong later, with no code change
+  document. (The classifier has since been given a bounded excerpt of what it classifies — see below —
+  but that does not retire the filter: an excerpt of an `.mp4` is not a document either, and the sweep
+  must decide what to take in BEFORE a classifier is paid to look at it.) The entry was correct the day it was written and became wrong later, with no code change
   and no failing test; only `FABRIC_SWEEP_LIMIT` had kept the sweep from reaching those files, which
   means the earlier defect had been MASKING this one. So the sweep now decides on what the fabric can
   READ — `fabric_reconciler.SWEEPABLE_KINDS` via `filetypes.kind_for` — and never on a deny-list of
@@ -104,3 +106,19 @@ Each of these cost hours to find, and none is derivable from reading the code. T
   told when its bytes change, or the catalogue would keep asserting a version that is no longer true.
   The consequence to remember: a filtered sweep goes SILENT about a folder whose files it cannot read,
   and that silence looks exactly like a sweep that is broken.
+
+- **The classifier reads the document, within a bound — and the catalogue still holds no content.**
+  Two statements that sound contradictory and are not. The CATALOG RECORD is content-free and
+  structurally so: `CatalogEntry` has no field a body could go in, a title over 300 characters is
+  refused as "a label, not a body", and the graph shape is `sh:closed true`. The PIPELINE, since
+  6 Oct 2026, does read bytes: `artifact_intake._excerpt` passes the first `EXCERPT_CHARS` (2000) to
+  the classifier, fetching a collab pointer's file into the upload store first. Before that it was
+  shown a title, a file name, a path and 123 concepts and asked what the document is about, which on
+  the live catalogue produced `Clinical document` on 39 of 93 records and a meeting about a
+  note-taking app filed under `Teleconsultation`.
+  State the distinction carefully whenever the fabric is compared with an index that ingests content
+  (the market scan marks such products `✕ custody — content moves in`): the fabric does not COPY
+  content into its store of record, and the source still decides who may read at read time. It does
+  now READ content, transiently and bounded, to decide what an artifact is about. "We never touch the
+  bytes" was true in September and is not true now; "the catalogue holds only descriptions, links and
+  status" (BRS principle 2) remains true and is enforced by the schema rather than by habit.
