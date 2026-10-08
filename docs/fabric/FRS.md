@@ -435,6 +435,26 @@ Two decisions to take deliberately rather than drift into:
 Note also what APIM is NOT here: the transport and the policy point for every tool call, which is why adding
 a tool in production is an APIM policy change and not only a team grant.
 
+### 6.0.1 Projection is a RENDERING, never a second master (7 Oct 2026)
+
+Whatever a person browses — the projector's Markdown pages today, a wiki or a Wikibase instance if one is
+ever stood up — is DERIVED from the graph and regenerable from it. Nothing is authored there.
+
+The rule that settles the direction: **derive the lossy artifact from the precise one, never the reverse.**
+A page can always be regenerated from a graph; a graph re-derived from prose has permanently lost its
+typing and its provenance, and everything the ladder distinguishes collapses into "a human wrote it". The
+authoring surfaces are the systems of record that already exist (SharePoint, Azure DevOps, APIM, the EA
+repository); a browse surface that accepted edits would be a third place to write, competing with both.
+
+**If a graph store with a user interface is ever adopted for browsing** (Wikibase being the obvious
+candidate, since it is bot-writable and self-hostable), it is a one-way projection of PUBLISHED records
+only, and four costs are accepted knowingly: a second identifier space to map (which is a regression for
+the agent cohort, whose whole requirement is stable reference), revision churn on every republish, the
+operational weight of the stack, and an access model that is page-level rather than read-time trimmed —
+the last being tolerable only because published means reviewed. The cheaper step that tests the same need
+first is to make the projected pages LINK to each other, giving traversal inside the estate, indexed by
+the retrieval the organisation already owns.
+
 ### 6.1 The surface split — who covers what (7 Oct 2026)
 
 One assistant for the person; three layers behind it, each doing what the others cannot. The question a

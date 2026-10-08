@@ -112,6 +112,51 @@ What the business commits to, to make this work:
 - **Confirm the document types.** Six types were assumed; the business confirms the set in one meeting, which unblocks templates, drafting and review depth.
 - **Tolerate honest gaps.** "Not linked" and "not yet confirmed" are visible states. The system will not invent a link to hide a gap.
 
+### 6.1 Who the fabric serves, and who is asked for what (7 Oct 2026)
+
+Four cohorts, one graph. The distinction that makes the workload survivable is the third row: **owners
+review their own artifacts; stewards are asked only about the shared VOCABULARY.**
+
+| cohort | what they get | asked for | through |
+|---|---|---|---|
+| **Authors** | nothing to do — they write where they already work | one card when something they own needs confirming | Teams |
+| **Researchers** | find, then follow the trail | nothing | Copilot and the published pages |
+| **Stewards** | a vocabulary that stays coherent | batched decisions on new terms, never per-artifact review | the candidate register |
+| **Agents** | stable identities and relations they can anchor on | nothing | the tool interface |
+
+**Why this answers "who could possibly curate it all".** Review load distributes with production: if three
+hundred people each produce an artifact, that is one card each, not three hundred for a central team. A
+central curation function is the design that does not scale, and it is deliberately not this one. Three
+further things keep the ask small: only PRODUCTS enter the lifecycle (working files stay pointers,
+principle 8); facts such as owner and sensitivity are looked up rather than asked; and unreviewed material
+is still findable, at a lower grade — the trust ladder means not everything must be confirmed, only that
+what is not is visibly so.
+
+**Stewardship is bounded by vocabulary, not by volume.** A steward is asked once per TERM, when it has
+been seen often enough to be worth a decision — fifty documents using one unmatched word raise one
+question, not fifty. Admitting it then re-matches every artifact that was waiting on it. The load is
+front-loaded by nature, since a thin vocabulary matches little, which is what "seeded, not grown" (§5.1)
+exists to absorb. The measure of whether the seed is right is NEW TERMS PER WEEK: a curve that does not
+decay says the vocabulary is wrong for the domain, not that there are too few stewards.
+
+### 6.2 Where the fabric sits: it vouches, it does not search (7 Oct 2026)
+
+The organisation already owns search, and it is good. The fabric does not replace it and must not
+re-implement it. **Microsoft retrieves; the fabric vouches** — and the two meet in the assistant, at the
+moment a question is answered: search finds the document, the fabric adds who owns it, whether it is
+trusted, what else it affects, and how each of those is known.
+
+This settles three things that were previously open:
+
+- **The fabric is a middle layer, not an interface.** People meet it through Copilot, through published
+  pages, or — for agents — through its tool interface. It has no destination of its own, and a browsable
+  site is a RENDERING of the graph rather than a second place the truth lives.
+- **What is published is discoverable; what is governed is computed.** A page can carry what exists, where
+  it lives, who owns it and what it is about. It cannot carry "what breaks if this changes", because that
+  answer depends on how well each fact is known and must be worked out when the question is asked.
+- **A second system of record is the thing to avoid.** Whatever is projected is derived and regenerable;
+  nothing is authored in it.
+
 ## 7. Courses of action
 
 ### 7.1 What the market offers
