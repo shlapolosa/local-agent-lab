@@ -27,9 +27,29 @@ WORKING_FILE = "not a managed artifact — a working file stays a pointer (WP12)
 SUPERSEDED = "superseded by a later run of the same product (WP13)"
 
 
+#: The meeting workings that a `collab` sweep admits as if they were documents. A transcript is the raw
+#: material a meeting produces and a comparison is a working note about several of them; the MINUTES are
+#: the product made from them, and BRS principle 8 distinguishes exactly those two. Decided by the user
+#: 7 Oct 2026: keep minutes, withdraw transcripts and comparisons.
+COLLAB_WORKINGS = (".transcript.txt", ".comparison.txt")
+
+
 def is_working_file(row: dict) -> bool:
-    """PURE: the rule. A lab record whose pointer is not one of its producer's declared products."""
+    """PURE: the rule. A record that should never have entered the lifecycle (BRS principle 8).
+
+    TWO sources, decided on different evidence. A `lab` record is judged on its PRODUCER's declared
+    products — the run says what it made, and everything else it left behind is workings. A `collab`
+    record has no producer: it was swept from a folder, so its NAME is the only evidence there is.
+
+    The collab branch was missing until 7 Oct 2026, so the rule returned False for every non-lab pointer
+    and 26 meeting `.txt` files swept from the organiser's Recordings folder were admitted as managed
+    artifacts, one draft-review card each. Deliberately NARROW: it names the two meeting workings and
+    nothing else, because a rule that withdrew a business case would be worse than the defect it fixes,
+    and a source nobody has considered yet is left alone for a person to decide.
+    """
     pointer = row.get("pointer") or {}
+    if pointer.get("source") == "collab":
+        return (row.get("title") or "").strip().lower().endswith(COLLAB_WORKINGS)
     if pointer.get("source") != "lab":
         return False
     process = row.get("produced_by") or ""
