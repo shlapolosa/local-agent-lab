@@ -188,8 +188,33 @@ Each L4 carries its L5 requirements, acceptance (CQs), phase, delivery mode (as 
 - FR-1.1.2 Ontology Management: maintain the class/property model (§4.4), SHACL shapes, upper-vocabulary reuse, and inference rules; the model is versioned in git and validated in CI.
 - FR-1.1.3 Vocabulary Alignment: maintain cross-scheme mappings (exact, close, broad, narrow) in a mappings graph; every mapping is human-confirmed (rung H) before it is read by discovery closure.
 - FR-1.1.4 Concept Lifecycle Management: candidate intake from tagging misses and clustering; editorial workflow; versioning and deprecation (never deletion); quality checks (unique preferred labels, reciprocals, no cycles); publication (SKOS export, term-store sync, MCP).
+- **FR-1.1.5 Admission Propagation — admitting a concept RE-MATCHES what was waiting for it.** A term with
+  no concept is parked as a candidate and the artifacts that used it are catalogued without that link. When a
+  steward admits the concept, the artifacts whose candidates named it are re-matched and the subject links are
+  written at the rung their evidence earns — so the steward's one decision reaches everything that prompted
+  it, instead of only the next document to arrive.
+
+  Without this the vocabulary improves and the catalogue does not: every admission silently splits the
+  estate into artifacts classified before it and after it, and the only remedy is a manual pass over the back
+  catalogue (measured 7 Oct 2026: a re-classification of ~90 records, run by hand). Scope is the artifacts
+  that PARKED that candidate, not the whole catalogue — a full re-classification is a separate, deliberate
+  operation, because it re-reads every document and changes links nobody asked about.
+
+  Distinct from `recurate()`, which is the BOOT replay: it reapplies a steward's decisions onto a seed
+  rebuilt from its master at start-up, and does not revisit artifacts.
+
+  **Why this bounds steward effort rather than adding to it.** The ask is already per DISTINCT TERM, not per
+  artifact — fifty documents using one unmatched term raise one question — and candidates never block: an
+  artifact with an unmatched term still catalogues and still publishes, so the queue is enrichment and not a
+  gate. Propagation is what makes that bargain honest: the steward answers once, late, and the whole backlog
+  benefits. The load is front-loaded by nature (a thin vocabulary matches little), which is what "seeded, not
+  grown" (BRS §5.1) exists to absorb; the metric to watch is NEW DISTINCT CANDIDATES PER WEEK, and a curve
+  that does not decay says the seed is wrong for the domain rather than that the stewards are too few.
 - Acceptance: CQ-17, CQ-18; every SHACL fitness function.
 - MVP realisation: SharePoint term store for subject schemes + SKOS/SHACL files in git validated in CI; Transitional VocBench 3 or a specialist platform per the bake-off (§9.2).
+- Not yet specified, and worth deciding before stewards meet volume: a FREQUENCY THRESHOLD before a miss
+  becomes a candidate (a term seen once rarely deserves a concept), and BATCH admission (the steward is asked
+  one candidate at a time, when triaging twenty at once is the natural motion).
 
 ### FR-1.2 Catalog Management (BR-1) — MVP · P
 
