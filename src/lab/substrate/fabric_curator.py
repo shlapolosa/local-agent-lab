@@ -19,6 +19,12 @@ from lab.substrate import answer_appliers, fabric_gateway
 KINDS = (ApprovalKind.ASSOCIATION.value, ApprovalKind.DRAFT_REVIEW.value)
 DOC_TYPES = DocumentTypes()           # stateless; the scheme's parse is cached in core
 METHOD = "review"
+#: The method recorded when a PERSON supplies the owner the owner-map could not resolve. It is written at
+#: rung C, not H, because the rung states the KIND of knowledge and FRS FR-1.1 is explicit that "identity,
+#: owner and sensitivity enter at C only" — owner is a fact looked up or supplied, never a judgement
+#: inferred from evidence, and `fab:OwnerProvenanceShape` enforces that the triple lives in graph C.
+#: The method is what keeps the answer honest: C does not claim a reference store was consulted.
+OWNER_METHOD = "review:human-supplied"
 
 
 def applies_to(kind: str) -> bool:
@@ -65,9 +71,11 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
                                                       "method": METHOD, "actor": actor}))
             calls.append((SemanticTools.catalog_state, {"iri": iri, "state": "withdrawn"}))
         elif label == "owner":
+            # Rung C, not H — see OWNER_METHOD. Writing it at H made the fabric refuse the very answer it
+            # had asked for, on the first approval a person ever gave (measured 8 Oct 2026).
             person = value if value.startswith(PERSON) else PERSON + value.strip()
             calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "owner", "value": person,
-                                                         "rung": "H", "method": METHOD, "actor": actor}))
+                                                         "rung": "C", "method": OWNER_METHOD, "actor": actor}))
         elif label == "context":
             if value.strip().lower() == "none":
                 calls.append((SemanticTools.catalog_state, {"iri": iri, "state": "pending", "unassociated": True}))

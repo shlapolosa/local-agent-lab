@@ -70,11 +70,30 @@ def test_the_fabric_kinds_are_registered_as_appliers_and_nothing_else_is():
         answer_appliers.register(("draft-review",), lambda s, a: None)
 
 
-def test_an_owner_answer_is_asserted_at_h_as_a_person_iri():
+def test_an_owner_answer_is_asserted_at_C_because_owner_is_a_FACT_whoever_supplied_it():
+    """This test asserted rung H and the system refused it in production — measured 8 Oct 2026, on the first
+    approval anyone ever gave:
+
+        continuation for apr-88662ef369cb failed — ToolError: semantic_catalog_assert:
+        refused by the fabric's shapes: owner and sensitivity label must be constructed (rung C)
+        from reference data (NFR-3)
+
+    `fab:OwnerProvenanceShape` requires the `fab:ownedBy` triple to live in graph C, full stop. So the
+    fabric ASKED a question whose answer it would not accept: intake adds an `owner` item whenever the
+    owner-map resolves nothing (`artifact_intake/workflow.py:349-350`, "type the owner's email"), and this
+    plan then wrote it at H. Nobody had answered one before, so nothing failed until a person did.
+
+    The rung is a statement about the KIND of knowledge, not about who typed it. FRS FR-1.1 is explicit —
+    "identity, owner and sensitivity enter at C only" — because owner is a FACT looked up or supplied, not
+    a judgement inferred from evidence. A person typing it is the most reliable source there is, and the
+    actor and method still record that a human supplied it; only the rung changes.
+    """
     calls = C.plan(ROW, {"owner": {"value": "maria@x"}}, "steward@x")
     assert calls == [(SemanticTools.catalog_assert, {"iri": IRI, "field": "owner", "value": "urn:fabric:person:maria@x",
-                                                     "rung": "H", "method": C.METHOD, "actor": "steward@x"})]
+                                                     "rung": "C", "method": C.OWNER_METHOD, "actor": "steward@x"})]
     assert C.plan(ROW, {"owner": {"value": "urn:fabric:person:maria@x"}}, "steward@x")[0][1]["value"] == "urn:fabric:person:maria@x"
+    # the method must still say a HUMAN supplied it — C is not a claim that a reference store was consulted
+    assert "review" in C.OWNER_METHOD or "human" in C.OWNER_METHOD or "supplied" in C.OWNER_METHOD
 
 
 def test_an_overlap_answer_keeps_or_withdraws_as_a_duplicate_of_the_named_record():
