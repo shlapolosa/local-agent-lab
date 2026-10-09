@@ -677,3 +677,49 @@ def test_dropping_every_subject_is_a_legal_outcome_and_links_nothing():
     finally:
         h.close()
     assert not h.router.called(SemanticTools.vocab_link), "no confident subject means no link at all"
+
+
+def test_a_structured_ARTIFACT_is_its_own_content():
+    """A lab artifact has no `text` key — it IS the text.
+
+    `storage_read_artifact` hands back a `.json` byte-faithfully, so a minutes record parses into
+    {"summary": …, "concepts": […]} with neither `text` nor `content`. `_excerpt` looked for exactly those
+    two keys, found neither, and returned "" — no exception, so nothing logged, so the classifier saw a
+    file name and guessed. Measured 9 Oct 2026: it is why the meeting minutes kept coming back
+    `Encounter, Clinical document` even after four other causes were fixed and after an A/B proved every
+    candidate model declines this document when actually shown it.
+
+    Fifth distinct cause of one symptom, and the first with no error at all behind it.
+    """
+    fab, seen = Fabric(), {}
+
+    class Watching(FakeAgent):
+        async def run(self, text, **kw):
+            seen["brief"] = json.loads(text)
+            return await super().run(text, **kw)
+
+    minutes = json.dumps({"summary": "mostly greetings and a check-in", "decisions": [], "actions": []})
+    h = harness(fab, classifier=Watching(CLASSIFICATION), tools={"storage_read_artifact": minutes})
+    try:
+        run_spine(W, h, {"pointer": LAB_DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert "mostly greetings" in (seen.get("brief") or {}).get("excerpt", ""), \
+        "a structured artifact with no text key must still reach the classifier"
+
+
+def test_an_EMPTY_excerpt_says_so_even_though_nothing_raised():
+    """The instrument this path kept lacking. Four of the five causes announced themselves because they
+    RAISED; this one returned "" quietly, and silence is the one thing a degrade-by-design path must never
+    do when it degrades."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), tools={"storage_read_artifact": json.dumps({})})
+    import io, contextlib
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            run_spine(W, h, {"pointer": LAB_DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert "no excerpt" in buf.getvalue() or "empty excerpt" in buf.getvalue(), \
+        "an empty excerpt must be reported, or it reads as a classifier fault for ever"

@@ -94,10 +94,18 @@ async def _excerpt(cfg, pointer: dict) -> str:
                 doc = json.loads(doc)
             except ValueError:
                 return doc[:EXCERPT_CHARS]
-        text = doc.get("text") or doc.get("content") or "" if isinstance(doc, dict) else str(doc)
+        # A lab artifact has no `text` key — it IS the text. A minutes record parses into
+        # {"summary": …, "concepts": […]}, so looking only for `text`/`content` found neither and
+        # returned "" with nothing raised and nothing logged: the classifier saw a file name and
+        # guessed, which is why the minutes stayed wrong after four other causes were fixed.
+        text = (doc.get("text") or doc.get("content")) if isinstance(doc, dict) else doc
+        if not text:
+            text = json.dumps(doc, ensure_ascii=False)
         if not isinstance(text, str):
             text = json.dumps(text, ensure_ascii=False)
-        return text[:EXCERPT_CHARS]
+        # An EMPTY structure serialises to "{}" — truthy, and meaningless. Reading it as content would
+        # hand the classifier two characters and call that evidence.
+        return "" if text.strip() in ("", "{}", "[]", "null") else text[:EXCERPT_CHARS]
     except Exception as e:                      # noqa: BLE001 — see the docstring: evidence is best effort
         print(f"[intake] no excerpt for {pointer.get('ref') or pointer.get('handle')}: "
               f"{type(e).__name__}: {e}", flush=True)
@@ -203,6 +211,11 @@ def build_workflow(cfg):
                 excerpt = await _excerpt(cfg, state["pointer"])
                 if excerpt:                      # absent, not empty: the prompt must not read "" as "blank document"
                     brief["excerpt"] = excerpt
+                else:
+                    # Four of the five causes announced themselves by RAISING; one returned "" quietly and
+                    # cost a day. A degrade-by-design path must never be silent about degrading.
+                    print(f"[intake] no excerpt for {state['pointer'].get('ref') or state['pointer'].get('handle')}: "
+                          f"nothing readable came back", flush=True)
                 suggestion = await run_gated(cfg["agents"]["classifier"], json.dumps(brief, ensure_ascii=False),
                                              step="classification", validator=classify_gate)
                 # The schema pins the URN's SHAPE; the closed set is the fabric's. A type the fabric does not
