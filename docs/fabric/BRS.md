@@ -16,6 +16,24 @@ Delivery knowledge — the documents, decisions, drawings and meeting outcomes p
 
 Code and tests are already versioned, traced and reviewed in git and Azure DevOps. The unsolved classes are the narrative ones: documents, decisions and drawings.
 
+### What the solution does, in one picture
+
+![Figure 0 — Who does what, when and where](pitch-process-v1.0.svg)
+
+A governed layer that DESCRIBES the estate without moving it. A person authors where they already work;
+the fabric catalogues what they produced, classifies it against a seeded vocabulary of about a hundred
+concepts, and routes exactly two questions to two different people — the artifact's OWNER confirms its type
+and context in one tap, and a STEWARD decides, in batches, whether a term the vocabulary lacks deserves a
+concept. An approval is what moves knowledge up the ladder: it baselines the record, republishes its page,
+and makes it answerable.
+
+Read the picture for three things the rest of this document argues for in prose. **The content never moves**
+— every box in the fabric lane holds a pointer, a facet or a relationship, never a document. **Only two
+boxes are human**, and they are deliberately different jobs: review load distributes with production
+(one card each, not one queue for a central team), while vocabulary decisions are batched and rare.
+And **the dashed boxes are not yet built**, so the figure doubles as a statement of where the work stands
+rather than a picture of an intention.
+
 ## 2. Stakeholders
 
 | Role | Stake | What changes for them |

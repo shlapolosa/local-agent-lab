@@ -403,6 +403,32 @@ agent than for a person: the agent does not hesitate. A consolidated tool theref
 state and the rung with every element, never a bare list, and the Trust Grade (FR-4.1.1) applies to it
 exactly as to a search result.
 
+### 6.1.1 What the sweep takes in — and the directory rule that replaces the kind filter (9 Oct 2026)
+
+Today the sweep admits only what the fabric can READ as a document — `fabric_reconciler.SWEEPABLE_KINDS`
+is `("document", "vsdx", "image")` — and excludes the `artifact` kinds (`.svg`, `.html`, `.json`, `.xlsx`)
+on the grounds that a lab-produced render reaches the catalogue through the always-admitted `lab` door
+carrying the product and run that made it, which a swept copy of the same bytes could not.
+
+**That rule is right about provenance and wrong about people.** It cannot tell a diagram the lab RENDERED
+from a diagram a person DREW and put in a library, because both are `.svg`. The second is a document
+somebody made and expects to find; the first is a derived view that already has a record. Measured in
+practice when a person tried to drop a rendered process diagram into the pilot library to exercise change
+detection: nothing happened, correctly by the rule and wrongly by the intent.
+
+**Direction (user decision, 9 Oct 2026): index images and the other types too, and distinguish
+lab-artifacts by WHERE THEY LIVE rather than by what they are.** A reserved directory the sweep excludes —
+rather than a kind filter — because location is a fact about who put a file there, which is exactly the
+distinction being drawn, while an extension is only a fact about its format. The projector and anything
+else writing derived views into the estate write beneath that directory; everything else in an allow-listed
+folder is a document a person meant.
+
+Not scoped here, and deliberately not done mid-flight: it changes what an existing sweep picks up, so it
+lands as its own change with its own measurement of what newly arrives. The kind filter stays until then,
+and the two guards are complementary rather than alternatives — a directory says who authored something, a
+kind still says whether the classifier can read it, and an excerpt of an `.mp4` is not a document whichever
+folder it sits in.
+
 ### 6.2 APIM as a source, and APIs as an artifact type — candidate, not yet scoped
 
 APIM is authoritative for API definitions the way SharePoint is for documents and Azure DevOps for work
