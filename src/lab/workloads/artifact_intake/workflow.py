@@ -218,6 +218,16 @@ def build_workflow(cfg):
                           f"nothing readable came back", flush=True)
                 suggestion = await run_gated(cfg["agents"]["classifier"], json.dumps(brief, ensure_ascii=False),
                                              step="classification", validator=classify_gate)
+                # What the classifier was ASKED and what it ANSWERED, on one line. Six out-of-band
+                # reconstructions of this brief returned no subjects while production returned four, and
+                # nothing recorded the difference — a classification whose inputs are invisible can only
+                # be argued about. Sizes and names, never the excerpt itself: a span and a log line are
+                # not places for document content.
+                print(f"[intake] classified {str(state.get('title'))[:48]!r} "
+                      f"excerpt={len(brief.get('excerpt') or '')}ch concepts={len(brief.get('concepts') or [])} "
+                      f"types={len(brief.get('document_types') or [])} -> "
+                      f"type={(suggestion or {}).get('document_type') or '-'} "
+                      f"subjects={(suggestion or {}).get('subjects')}", flush=True)
                 # The schema pins the URN's SHAPE; the closed set is the fabric's. A type the fabric does not
                 # know is not a suggestion, it is a hallucination — dropped here, named in the rationale.
                 if suggestion.get("document_type") and suggestion["document_type"] not in cfg["doc_types"]:
