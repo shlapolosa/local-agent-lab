@@ -549,7 +549,9 @@ def test_no_subject_is_a_legal_answer():
         run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
     finally:
         h.close()
-    assert not h.router.called(SemanticTools.vocab_link), "no subjects means no link, not an empty link"
+    # vocab_link IS called with no terms — that is how an empty answer supersedes what came before; what
+    # must not happen is a LINK being made or a candidate parked.
+    assert h.router.called(SemanticTools.vocab_link)[0]["terms"] == []
     assert not h.router.called(SemanticTools.vocab_propose), "and no candidate parked for a steward"
 
 
@@ -676,7 +678,8 @@ def test_dropping_every_subject_is_a_legal_outcome_and_links_nothing():
         run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
     finally:
         h.close()
-    assert not h.router.called(SemanticTools.vocab_link), "no confident subject means no link at all"
+    assert h.router.called(SemanticTools.vocab_link)[0]["terms"] == [], \
+        "no confident subject means no LINK — and the empty call is what retracts any earlier one"
 
 
 def test_a_structured_ARTIFACT_is_its_own_content():
@@ -723,3 +726,38 @@ def test_an_EMPTY_excerpt_says_so_even_though_nothing_raised():
         h.close()
     assert "no excerpt" in buf.getvalue() or "empty excerpt" in buf.getvalue(), \
         "an empty excerpt must be reported, or it reads as a classifier fault for ever"
+
+
+def test_a_classifier_that_now_says_NOTHING_APPLIES_retracts_what_it_said_before():
+    """Deciding a record is about nothing must be expressible, and it was not.
+
+    `vocab_link` supersedes the extracted subjects — but it was only called `if subjects`, so an empty
+    answer skipped it entirely and the previous links survived. Measured 9 Oct 2026: the classifier
+    returned `subjects: []` for a bake-off transcript, with a rationale saying nothing in it matched the
+    vocabulary, and the record kept `Person, Party, Location, Location` from the run before.
+
+    The complement of the supersede fix: that one made a NARROWER reading replace a wider one, and this
+    one makes the narrowest reading of all — none — reach the graph. Without it a record can only ever
+    gain subjects, and the honest empty answer the whole exercise was for is silently discarded.
+    """
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": [], "subject_confidence": {}}))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    called = h.router.called(SemanticTools.vocab_link)
+    assert called, "an empty answer must still reach vocab_link, or nothing can be taken back"
+    assert called[0]["terms"] == [], "with no terms, so every extracted subject is superseded"
+
+
+def test_a_run_with_NO_classifier_leaves_the_subjects_alone():
+    """Absent is not empty, one level up. A deployment with no classifier agent must not read its silence
+    as 'nothing applies' and strip a record somebody else's run classified correctly."""
+    fab = Fabric()
+    h = harness(fab)                                   # no classifier at all
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert not h.router.called(SemanticTools.vocab_link), "no classifier means no opinion, not an empty one"

@@ -262,7 +262,13 @@ def build_workflow(cfg):
             else:
                 state = state | {"type_rung": CONSTRUCTED if state.get("document_type") else ""}
             linked, missed, conflicts, retracted = [], [], [], []
-            if subjects:
+            # `if subjects` would skip the call on an empty answer, and `vocab_link` is where supersession
+            # happens — so a record could only ever GAIN subjects and "nothing applies" was unrepresentable
+            # (measured 9 Oct 2026: the classifier returned none for a bake-off transcript and the record
+            # kept four links from the run before). An empty answer from a classifier that RAN is an
+            # opinion; a run with no classifier has none, which is why the guard tests the suggestion and
+            # not the list.
+            if suggestion is not None:
                 out = await gateway.call(cfg, SemanticTools.vocab_link, {"iri": state["iri"], "terms": subjects})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
                 # What a RE-READ took back: subjects an earlier pass extracted that this one no longer
