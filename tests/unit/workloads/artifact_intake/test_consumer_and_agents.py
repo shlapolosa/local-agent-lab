@@ -54,3 +54,17 @@ def test_agents_compose_the_skill_and_the_schema():
         A.make_agent("oracle", credential="k", gateway_url="http://gw", model="m")
     agent = A.make_agent("classifier", credential="k", gateway_url="http://gw", model="m", headers={"traceparent": "00-x"})
     assert agent.name == "fabric-classifier"
+
+
+def test_classification_is_SAMPLED_AT_ZERO_because_it_is_a_judgement_not_a_draft():
+    """No temperature was set, so the provider default (~1) applied and the pipeline SAMPLED.
+
+    Measured 9 Oct 2026 on one unchanged record: the same minutes came back `Person, Location` on one run
+    and `Party, Person, Location, Location` on the next, while the identical brief at temperature 0
+    returned no subjects at all, consistently. Reading a definition and deciding whether it applies has no
+    creative latitude worth sampling for — the variance was pure noise, and it was about to be averaged
+    away with a three-run ensemble that would have cost three sweeps to hide a one-line cause.
+    """
+    for kind in ("classifier", "synthesis"):
+        agent = A.make_agent(kind, credential="k", gateway_url="http://gw", model="m")
+        assert agent.default_options["temperature"] == 0, f"{kind} must not sample"

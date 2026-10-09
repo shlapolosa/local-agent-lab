@@ -46,8 +46,14 @@ def make_agent(kind: str, *, credential: str, gateway_url: str, model: str, head
     http = AsyncOpenAI(base_url=gateway_url.rstrip("/") + "/v1/", api_key=credential,
                        default_headers=dict(headers or {}), timeout=timeout, max_retries=3)
     client = OpenAIChatClient(model=model, api_key=credential, async_client=http)
+    # temperature=0: classification is a JUDGEMENT, not a draft. With no temperature set the provider
+    # default (~1) applied and the pipeline sampled — measured 9 Oct 2026, one unchanged record came back
+    # `Person, Location` on one run and `Party, Person, Location, Location` on the next, while the same
+    # brief at 0 returned no subjects, consistently. Reading a definition and deciding whether it applies
+    # has no creative latitude worth sampling for, and averaging the noise away with a three-run ensemble
+    # would have cost three sweeps to hide a one-line cause.
     return Agent(client=client, name=f"fabric-{kind}", instructions=instructions(kind, schema(kind)),
-                 default_options=ChatOptions(store=store, max_tokens=max_tokens))
+                 default_options=ChatOptions(store=store, max_tokens=max_tokens, temperature=0))
 
 
 __all__ = ["make_agent", "instructions", "schema", "SKILL"]
