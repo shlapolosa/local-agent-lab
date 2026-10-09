@@ -18,7 +18,7 @@ import pytest
 from fixtures.fakes import FakeRedis
 from lab.platform import streams, workflows
 from lab.platform.contracts import ApprovalKind, Continuation, Decision, WorkflowStatus
-from lab.substrate import approvals, continuations
+from lab.substrate import answer_appliers, approvals, continuations
 
 CONT = Continuation(process="visio_to_archimate",
                     inputs={"diagram": "art://a/b.vsdx", "requirements": []},
@@ -426,3 +426,70 @@ def test_an_answer_that_the_domain_refuses_is_recorded_and_redriven_even_with_no
     assert _drain(r) == []
     assert "Ghost" in r.hget(f"approvals:req:{rid}", "continuation_error")
     assert rid in r.smembers(continuations.FAILED_KEY)
+
+
+def test_a_refused_ANSWER_reopens_the_card_so_the_person_can_answer_again(monkeypatch, r):
+    """The distinction that cost a stranded record (9 Oct 2026).
+
+    A refused WRITE is retried on the next start — the defect is ours and a deploy fixes it. A refused
+    ANSWER will be refused identically forever, because the only thing that can change it is a person,
+    and by then the card is closed and no channel can re-answer it. So the runner RE-OPENS it: recorded
+    as `update` (changes requested, the contract's existing word for "open, question stands"), the reason
+    on the card, and NOT in the redrive set — there is nothing to retry until somebody answers.
+    """
+    refusals = []
+
+    async def refuse_the_answer(state, actor, *, call=None):
+        refusals.append(state["answer"])
+        raise answer_appliers.AnswerRejected("document type 'none' is not a known type — answer one of: …")
+
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, "association", refuse_the_answer)
+    rid = _fabric_ask(r, kind=ApprovalKind.ASSOCIATION.value)
+    _decide(r, rid, answer={"document_type": {"value": "none"}})
+    assert _drain(r) == []                                        # nothing released
+    st = approvals.status(rid, client=r)
+    assert st["status"] == Decision.UPDATE and rid in r.smembers("approvals:pending")
+    assert "not a known type" in st["comment"] and "not a known type" in st["continuation_error"]
+    assert rid not in r.smembers(continuations.FAILED_KEY)        # a person, not a redrive
+    # ...and the person CAN now answer again, through the same validated path, and it releases.
+    async def accept(state, actor, *, call=None):
+        return [("semantic_catalog_assert", {})]
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, "association", accept)
+    _decide(r, rid, answer={"document_type": {"value": "urn:fabric:scheme:doc-types#unknown"}})
+    assert len(_drain(r)) == 1 and len(refusals) == 1
+
+
+def test_a_refused_WRITE_is_still_redriven_and_the_card_stays_closed(monkeypatch, r):
+    """The other half of the same distinction: an ordinary failure must keep its old behaviour."""
+    async def refuse(state, actor, *, call=None):
+        raise ValueError("semantic-mcp refused: 503")
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, "association", refuse)
+    rid = _fabric_ask(r, kind=ApprovalKind.ASSOCIATION.value)
+    _decide(r, rid, answer={"document_type": {"value": "urn:fabric:scheme:doc-types#minutes"}})
+    assert _drain(r) == []
+    st = approvals.status(rid, client=r)
+    assert st["status"] == Decision.APPROVE and rid not in r.smembers("approvals:pending")
+    assert rid in r.smembers(continuations.FAILED_KEY)
+
+
+def test_the_deploy_that_fixes_the_refusal_gives_the_stranded_card_back(monkeypatch, r):
+    """How the FIRST stranded record is recovered, with no operator reaching into Redis.
+
+    apr-e46294e63751 (9 Oct 2026) is closed and its record is stuck `pending`. The failure is in the
+    redrive set, so the deploy that teaches the curator to type its refusal re-handles it — and that
+    redrive now re-OPENS the card instead of failing it again. The person answers once more and the
+    record publishes; nothing has to be repaired by hand.
+    """
+    async def refuse(state, actor, *, call=None):
+        raise answer_appliers.AnswerRejected("document type 'none' is not a known type")
+    rid = _fabric_ask(r, kind=ApprovalKind.ASSOCIATION.value)
+    _decide(r, rid, answer={"document_type": {"value": "none"}})
+    _drain(r)                                        # the old behaviour: recorded, card closed
+    r.sadd(continuations.FAILED_KEY, rid)            # ...and remembered for the next start
+    monkeypatch.setitem(continuations.answer_appliers.APPLIERS, "association", refuse)
+
+    continuations.redrive_failed(client=r)
+
+    st = approvals.status(rid, client=r)
+    assert st["status"] == Decision.UPDATE and rid in r.smembers("approvals:pending")
+    assert rid not in r.smembers(continuations.FAILED_KEY)

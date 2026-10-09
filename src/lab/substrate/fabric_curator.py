@@ -103,7 +103,13 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
     row = (await go([(SemanticTools.catalog_get, {"iri": iri})]))[0]
     if not row:
         raise LookupError(f"no catalog record {iri}")
-    calls = plan(row, state.get("answer") or {}, actor)
+    # `plan` is pure and its ONLY job is interpreting what the person said, so every ValueError out of
+    # it is the ANSWER being unusable — never a write that failed. Typing it here is what lets the runner
+    # re-open the card instead of redriving a decision only a person can change.
+    try:
+        calls = plan(row, state.get("answer") or {}, actor)
+    except ValueError as e:
+        raise answer_appliers.AnswerRejected(str(e)) from e
     if calls:
         await go(calls)
     return calls

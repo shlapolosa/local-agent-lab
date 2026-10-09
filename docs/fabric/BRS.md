@@ -127,7 +127,7 @@ What the business commits to, to make this work:
 
 - **Drive delivery on Azure DevOps.** Every discipline's work — business analysis, architecture, operations, not only development — is a work item, and artifacts are filed under their item at creation. This is the single largest determinant of how much the system can link automatically.
 - **Name owners and appoint stewards.** Ownership is a duty on an existing role; stewardship is a new role with a small, measured workload.
-- **Confirm the document types.** Six types were assumed; the business confirms the set in one meeting, which unblocks templates, drafting and review depth.
+- **Confirm the document types.** Six types were assumed; the business confirms the set in one meeting, which unblocks templates, drafting and review depth. Two things the pilot has since established, before that meeting happens. A **requirements specification** belongs in the set: it is the kind of document the fabric read first and could not name, and a set that omits it forces every BRS and FRS to be filed as something it is not. And whatever the set turns out to be, the answer **“none of these fits” must be giveable** — on 9 Oct 2026 the fabric asked a reviewer to confirm a type, correctly reported that none of the six applied, and then refused that as an answer, which left the record with no way forward. The honest answer to a closed list is part of the list; it is also the measurement that tells the business which types are missing, rather than burying them in whichever type was nearest.
 - **Tolerate honest gaps.** "Not linked" and "not yet confirmed" are visible states. The system will not invent a link to hide a gap.
 
 ### 6.1 Who the fabric serves, and who is asked for what (7 Oct 2026)
@@ -234,7 +234,7 @@ Each phase is a complete, severable product. Costs below are order-of-magnitude 
 ## 9. Decisions requested (Gate A)
 
 1. Approve the MVP scope, the phased plan and the compose-and-reuse course of action.
-2. Confirm the six document types.
+2. Confirm the document types — the assumed six plus a requirements specification, and the rule that “none of these fits” is always an answer a reviewer may give.
 3. Ratify the operating decision to drive all delivery disciplines on Azure DevOps with attach-at-creation.
 4. Approve the owner duty and the steward role, with their metric baselines.
 5. Fund the two proofs of concept and the MVP.

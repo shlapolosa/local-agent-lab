@@ -155,7 +155,7 @@ def _fresh(rows: list, seen: set[str], limit: int) -> list:
 async def _ask(go, payload: dict, seen: set[str], row: dict, subject: str) -> dict:
     got = (await go([(ApprovalTools.ask, {
         "kind": ApprovalKind.CONCEPT_ADMISSION.value, "subject": subject, "prompt": PROMPT,
-        "items": question(payload), "fields": ["value"], "payload": payload,
+        "items": question(payload), "fields": ["value"], "context": payload,
         "process": "documentation-fabric"})]))[0]
     got = json.loads(got) if isinstance(got, str) else (got or {})
     seen.add(str(row.get("iri") or ""))
@@ -168,7 +168,12 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
     go = call or fabric_gateway.call
     made: list[tuple[str, dict]] = []
     parked = ""
-    for tool, args in plan(state.get("payload") or {}, state.get("answer") or {}, actor):
+    # The candidate's own facts, carried on the approval as `context` — see `approvals_ask`. They were
+    # passed as `payload` until 9 Oct 2026, which `approvals_ask` does not accept: every tick of the
+    # reconciler logged one line and raised NO steward question for three weeks, while the candidates
+    # kept accumulating. A tool that refuses an argument is not a tool that asked for a different one.
+    payload = state.get("payload") or {}
+    for tool, args in plan(payload.get("context") or payload, state.get("answer") or {}, actor):
         if tool == SemanticTools.promote and "subject" not in args:
             # the candidate THIS answer just parked, never the one the asker left lying there: promoting the
             # payload's candidate would admit the model's wording over the steward's

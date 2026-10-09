@@ -106,6 +106,9 @@ def _continue(fields: dict, *, client) -> str | None:
         print(f"{rid} approved -> {cont.process} {started}"
               f"{' (already queued)' if duplicate else ''}", flush=True)
         return None if duplicate else started
+    except answer_appliers.AnswerRejected as e:          # the PERSON's answer, not our write
+        _reopen(rid, e, client=client)
+        return None
     except Exception as e:                               # noqa: BLE001 — the stream must not wedge
         _record_failure(rid, e, client=client)
         return None
@@ -131,6 +134,24 @@ def link_runs(parent_trace: str, child: str, process: str, *, client=None) -> No
     except Exception as e:                               # noqa: BLE001 — see the docstring
         print(f"continuation link not written for {parent_trace}: {type(e).__name__}: {e}",
               flush=True)
+
+
+def _reopen(request_id: str, error: Exception, *, client) -> None:
+    """The human's ANSWER was refused: re-open the card so they can answer again, and say why ON the card.
+
+    NOT in the redrive set, deliberately — there is nothing to retry until somebody answers, and a
+    redrive would re-refuse the same answer once per start forever. If the re-open itself fails we fall
+    back to recording an ordinary failure, because a decision whose outcome is unrecorded anywhere is
+    the one thing worse than a closed card."""
+    text = f"{type(error).__name__}: {error}"[:300]
+    print(f"continuation for {request_id} re-opened — {text}", file=sys.stderr, flush=True)
+    try:
+        approvals.reopen(request_id, str(error), client=client)
+        client.hset(f"approvals:req:{request_id}", mapping={"continuation_error": text})
+        client.srem(FAILED_KEY, request_id)
+    except Exception as e:                               # noqa: BLE001 — never fail while failing
+        print(f"re-open failed for {request_id}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        _record_failure(request_id, error, client=client)
 
 
 def _record_failure(request_id: str, error: Exception, *, client) -> None:

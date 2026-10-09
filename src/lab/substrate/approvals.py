@@ -221,6 +221,37 @@ def human_decision(request_id, decision, actor, channel, comment="", *, answer=N
         raise
 
 
+def reopen(request_id, reason, *, client=None):
+    """Re-OPEN an approval whose recorded ANSWER the domain then refused — the inverse of a final claim.
+
+    Only the continuation runner calls this, and only for an `AnswerRejected`: the person answered, the
+    answer was recorded, the card closed, and the domain then found the answer unusable. Leaving it
+    closed STRANDS the record with no card anyone can answer again — measured 9 Oct 2026 on the first
+    BRS the fabric ever read, where the reviewer answered `none` for a document type, the curator
+    refused it naming the six it accepted, and from that moment no channel could do anything.
+
+    Recorded as `update` — changes requested — because that is already the contract's word for "open,
+    and the question still stands", so every channel announces it and no reader needs a new state. The
+    refused answer is deliberately LEFT on the hash: it is the evidence of what was tried, and the next
+    approval replaces it through `check_answer` anyway.
+
+    ORDER: the decision is recorded first, the claim returned second. A `sadd` that failed would leave
+    the request `update` and therefore OPEN to every channel (`channel_events` filters on
+    `APPROVAL_FINAL`, not on this set), which is the harmless half of the pair; the reverse would
+    announce a card whose status still said approved. Idempotent: an approval already open is left
+    alone. KeyError for an unknown id."""
+    r = _r(client)
+    st = status(request_id, client=r)
+    if not st:
+        raise KeyError(f"unknown request {request_id}")
+    if st.get("status") not in APPROVAL_FINAL:
+        return None
+    fields = decide(request_id, Decision.UPDATE, st.get("decided_by", ""), st.get("decided_via", ""),
+                    str(reason)[:300], client=r)
+    r.sadd("approvals:pending", request_id)
+    return fields
+
+
 def withdraw(request_id, actor, reason="", channel="cli", *, client=None):
     """RETIRE an approval nobody is going to answer. Not a decision — a third way for one to end.
 

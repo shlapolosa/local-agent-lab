@@ -2,10 +2,19 @@
 @prefix fab:  <urn:fabric:ont#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 
-# The six document types the lab's own workflows produce (BRS §9 decision 2 confirms the business set).
+# The document types the lab's own workflows produce (BRS §9 decision 2 confirms the business set), plus
+# the two a PERSON needs to answer honestly about a document the lab did not produce. `dt:unknown` is a
+# SENTINEL, not a type: it is the answer "I looked and none of these fits", and it exists because the gate
+# asked a question whose honest answer it could not accept — a BRS arrived on 9 Oct 2026, the classifier
+# correctly returned `unknown` as a fact, the card offered that to a reviewer, and the curator then refused
+# `none` and stranded the record. A sentinel concept keeps the facet a doc-types IRI (so the coercion, the
+# shapes and the graph are unchanged) while making "nobody could name it" a thing you can QUERY for, which
+# is how the gap gets closed rather than averaged away. The classifier is not told about it: an agent with
+# an easy out takes it, and an empty answer is already its honest path.
 dt:scheme a skos:ConceptScheme ; skos:prefLabel "Document types"@en ;
     skos:hasTopConcept dt:minutes , dt:decision-record , dt:architecture-model , dt:screening-report ,
-                       dt:solution-design , dt:investment-case .
+                       dt:solution-design , dt:investment-case , dt:requirements-specification ,
+                       dt:unknown .
 dt:minutes a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
     skos:prefLabel "Meeting minutes"@en ; skos:altLabel "minutes"@en ; fab:producedBy "transcript_to_minutes" .
 dt:decision-record a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
@@ -18,3 +27,10 @@ dt:solution-design a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ;
     skos:prefLabel "Solution design"@en ; fab:producedBy "use_case_design" .
 dt:investment-case a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
     skos:prefLabel "Investment case"@en ; fab:producedBy "use_case_investment" .
+dt:requirements-specification a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "Requirements specification"@en ;
+    skos:altLabel "BRS"@en , "FRS"@en , "business requirements specification"@en ,
+                  "functional requirements specification"@en , "requirements"@en .
+dt:unknown a skos:Concept , fab:DocumentType ; skos:inScheme dt:scheme ; skos:topConceptOf dt:scheme ;
+    skos:prefLabel "No type fits"@en ;
+    skos:altLabel "unknown"@en , "none"@en , "other"@en , "no type"@en .

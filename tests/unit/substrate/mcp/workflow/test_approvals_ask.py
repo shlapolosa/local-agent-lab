@@ -273,3 +273,45 @@ def test_an_approval_asked_outside_any_trace_records_none(tools):
     server, r = tools
     out = call(server, "approvals_ask", subject="s", prompt="p", items=[{"label": "A"}])
     assert not approvals.status(out["request_id"], client=r)["trace_id"]
+
+
+# ------------------------------------------------------- the asker and the tool must actually agree
+def test_the_fabrics_vocabulary_question_is_ACCEPTED_by_the_live_tool(tools):
+    """The guard for a whole class of silent failure, learned on 9 Oct 2026.
+
+    `fabric_vocabulary._ask` passed the candidate's facts as `payload` — a parameter `approvals_ask`
+    does not have. Every reconciler tick logged one line (`vocabulary questions failed: Input
+    validation error: Additional properties are not allowed ('payload' was unexpected)`) and raised NO
+    steward question, for weeks, while the candidates accumulated. Nothing failed loudly: the sweep
+    still worked, records still arrived, the count still rose.
+
+    Unit tests could not see it because BOTH ends were tested against their own idea of the contract —
+    the asker against a fake `call` that accepts anything, the tool against arguments written by hand,
+    and the two agreed with each other and not with reality. So this drives the REAL tool with the
+    REAL asker's arguments, which is the only pair that catches it.
+    """
+    import json
+
+    from lab.substrate import fabric_vocabulary as V
+
+    server, r = tools
+    facts = {"kind": ApprovalKind.CONCEPT_ADMISSION.value, "scheme": "cafe", "label": "Model card",
+             "proposed_by": "urn:fabric:artifact:1"}
+
+    async def go():
+        async with Client(server.mcp) as c:
+            async def over_the_gateway(calls):               # the transport the asker is given
+                out = []
+                for name, args in calls:
+                    out.append((await c.call_tool(name, args)).data)   # raises if the tool refuses them
+                return out
+            return await V._ask(over_the_gateway, facts, set(), {"iri": "urn:fabric:candidate:1"},
+                                "'Model card' has no concept")
+
+    asked = asyncio.run(go())
+    rid = asked["request_id"]
+    assert rid.startswith("apr-")
+    # ...and the facts travelled, under a name the tool accepts, to whoever applies the answer
+    payload = json.loads(r.hget(f"approvals:req:{rid}", "payload"))
+    assert payload["context"]["label"] == "Model card" and payload["context"]["scheme"] == "cafe"
+    assert [i["label"] for i in payload["question"]["items"]][:2] == ["decision", "concept_id"]

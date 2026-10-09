@@ -124,9 +124,9 @@ def test_the_steward_is_asked_about_open_conflicts_and_parked_candidates_once_ea
     assert len(made) == 2 and {a["kind"] for a in asked} == {ApprovalKind.CONCEPT_ADMISSION.value}
     candidate, conflict = asked                                      # what has NO meaning, then what has two
     assert [i["label"] for i in candidate["items"]][:2] == ["decision", "concept_id"]
-    assert candidate["payload"]["label"] == "Model card" and "no concept" in candidate["subject"]
+    assert candidate["context"]["label"] == "Model card" and "no concept" in candidate["subject"]
     assert [i["label"] for i in conflict["items"]] == ["decision", "keep"]
-    assert conflict["payload"]["concepts"] == ["AIAgent", "SoftwareAgent"] and "Agent" in conflict["subject"]
+    assert conflict["context"]["concepts"] == ["AIAgent", "SoftwareAgent"] and "Agent" in conflict["subject"]
     seen = {"urn:fabric:conflict:1", CANDIDATE}
     assert asyncio.run(V.ask_open(call=call, seen=seen)) == []       # asked once, not every tick
 

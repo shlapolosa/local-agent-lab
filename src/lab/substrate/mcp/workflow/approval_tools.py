@@ -88,7 +88,7 @@ def _brief(st: dict, jaeger_url: str) -> dict:
 
 
 _NOT_ARTIFACTS = ("summary", "import_artifacts", "instructions",
-                  "question", "answer_labels", "answer_required", "continuation")
+                  "question", "answer_labels", "answer_required", "continuation", "context")
 
 
 def _detail(st: dict, jaeger_url: str, review_app: str) -> dict:
@@ -218,6 +218,18 @@ def register(server: LabServer) -> None:
                                                "(where does this artifact belong), draft-review "
                                                "(is this record right). Channels triage by it; "
                                                "nothing dispatches on it.")] = ApprovalKind.SPEAKER_MAPPING.value,
+        context: Annotated[dict | None, Field(description="Facts the ANSWER will be applied "
+                                                          "against, which whoever applies it must "
+                                                          "not have to re-derive when the decision "
+                                                          "arrives hours later. A `continuation` "
+                                                          "carries this for an approval that "
+                                                          "RELEASES a run; an approval that releases "
+                                                          "nothing — a vocabulary admission, whose "
+                                                          "whole effect is the change itself — has "
+                                                          "nowhere else to put it. Small and "
+                                                          "declarative: ids, labels, the scheme. "
+                                                          "Never model output a reviewer has not "
+                                                          "seen, and never content.")] = None,
         answer_required: Annotated[bool, Field(description="False for a NOTICE: the items are shown, nobody "
                                                            "must answer them, and approving acknowledges. "
                                                            "True (default) for a question every label of "
@@ -276,6 +288,8 @@ def register(server: LabServer) -> None:
                              "your own.")
         if summary:
             payload["summary"] = dict(summary)
+        if context:
+            payload["context"] = dict(context)
         payload |= dict(artifacts or {})
         # The ASKING run's trace, from the call's own traceparent: the continuation runner links the
         # run an approval releases back to this one through it, and without it the live page stops

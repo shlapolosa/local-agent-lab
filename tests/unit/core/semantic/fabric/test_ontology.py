@@ -12,7 +12,9 @@ def test_both_entries_satisfy_the_ontology_protocol_and_parse():
     fab, dt = FabricOntology(), DocumentTypes()
     assert isinstance(fab, Ontology) and isinstance(dt, Ontology)
     assert fab.summary()["classes"] >= 10 and fab.summary()["triples"] > 50
-    assert dt.summary() == {"kind": "skos", "name": "doc-types", "base": str(dt.ns), "concepts": 6}
+    summary = dt.summary()
+    assert (summary["kind"], summary["name"], summary["base"]) == ("skos", "doc-types", str(dt.ns))
+    assert summary["concepts"] >= 8          # MEMBERSHIP, not an exact set: the scheme grows (CLAUDE.md)
 
 
 def test_every_catalog_state_is_a_lifecycle_state_of_the_ontology():
@@ -44,3 +46,32 @@ def test_a_document_type_resolves_by_iri_label_or_alt_label_and_names_the_choice
     with pytest.raises(ValueError, match="Decision record"):
         dt.resolve("shopping list")
     assert dt.types() is dt.types() or dt.types() == dt.types()          # cached load, one parse per process
+
+
+def test_a_person_can_answer_that_no_type_fits_and_it_resolves_to_the_sentinel():
+    """The honest answer must be ANSWERABLE. The gate asked "is the document type right?", the
+    classifier had already said `unknown` as a fact, and `none` was then refused — which closed the
+    card and stranded the record (9 Oct 2026). `dt:unknown` is a concept so the answer travels the
+    same path as any other: one doc-types IRI, coerced, shaped and queryable."""
+    dt = DocumentTypes()
+    unknown = "urn:fabric:scheme:doc-types#unknown"
+    assert dt.resolve("unknown") == dt.resolve("none") == dt.resolve("No type fits") == unknown
+    assert dt.resolve("OTHER") == unknown
+
+
+def test_a_requirements_specification_is_a_document_type():
+    """A BRS/FRS is the document kind the lab reads most and could not name."""
+    dt = DocumentTypes()
+    want = "urn:fabric:scheme:doc-types#requirements-specification"
+    assert dt.resolve("BRS") == dt.resolve("frs") == dt.resolve("Requirements specification") == want
+    assert dt.for_process("artifact_intake") is None     # a person's answer, not a process's product
+
+
+def test_the_sentinel_is_answerable_by_a_person_but_never_offered_to_the_classifier():
+    """An agent given "none of these fits" as a listed choice takes it. The classifier's honest path for
+    not knowing is already an EMPTY document_type, which the gate turns into a question for a person —
+    and the person is the one who may answer with the sentinel."""
+    dt = DocumentTypes()
+    assert dt.SENTINEL in dt.types() and dt.SENTINEL not in dt.suggestable()
+    assert dt.resolve("unknown") == dt.SENTINEL                  # ...but still answerable
+    assert set(dt.suggestable()) | {dt.SENTINEL} == set(dt.types())

@@ -178,3 +178,34 @@ def test_a_continuation_rides_on_the_payload_and_survives_the_round_trip():
 if __name__ == "__main__":
     import sys
     sys.exit(__import__("pytest").main([__file__, "-q"]))
+
+
+def test_reopen_returns_the_claim_and_keeps_the_refused_answer_as_evidence():
+    """`reopen` is the inverse of a final claim, for the one case a person must answer twice: their
+    answer was recorded, the card closed, and the domain then refused it."""
+    r = FakeRedis()
+    rid = approvals.request(ApprovalKind.ASSOCIATION.value, "BRS.md", QUESTION, "wf", client=r)
+    approvals.human_decision(rid, Decision.APPROVE, "maria@contoso.com", "teams", answer=ANSWER, client=r)
+    assert rid not in r.smembers("approvals:pending")
+
+    approvals.reopen(rid, "document type 'none' is not a known type", client=r)
+    st = approvals.status(rid, client=r)
+    assert st["status"] == Decision.UPDATE and rid in r.smembers("approvals:pending")
+    assert "not a known type" in st["comment"]
+    assert st["answer"] == ANSWER                        # the evidence of what was tried
+    assert st["decided_by"] == "maria@contoso.com"       # re-opened in the name of whoever answered
+
+    # The person can now give a final answer again, and the audit log holds BOTH attempts.
+    approvals.human_decision(rid, Decision.APPROVE, "maria@contoso.com", "teams", answer=ANSWER, client=r)
+    assert approvals.status(rid, client=r)["status"] == Decision.APPROVE
+    decisions = [e for _, e in r.xrange(approvals.DEC)]
+    assert [d["decision"] for d in decisions] == [Decision.APPROVE, Decision.UPDATE, Decision.APPROVE]
+
+
+def test_reopen_is_idempotent_and_refuses_an_unknown_request():
+    r = FakeRedis()
+    rid = approvals.request(ApprovalKind.ASSOCIATION.value, "BRS.md", QUESTION, "wf", client=r)
+    assert approvals.reopen(rid, "why", client=r) is None          # still open: nothing to re-open
+    assert approvals.status(rid, client=r)["status"] == "pending"
+    with pytest.raises(KeyError):
+        approvals.reopen("apr-nope", "why", client=r)

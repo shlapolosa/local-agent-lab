@@ -71,6 +71,12 @@ class DocumentTypes:
     name: str = "doc-types"
     base: str = str(DT)
 
+    #: The answer "I looked and none of these fits". A concept so it travels as a doc-types IRI like any
+    #: other, and so "nobody could name it" is QUERYABLE — but a HUMAN's answer only. It is withheld from
+    #: `suggestable()` because an agent offered an easy out takes it, and the classifier already has an
+    #: honest path for not knowing: an empty `document_type`, which the gate then asks a person about.
+    SENTINEL: str = str(DT.unknown)
+
     @property
     def ns(self) -> Namespace:
         return DT
@@ -92,6 +98,11 @@ class DocumentTypes:
                 "produced_by": str(g.value(c, FAB.producedBy) or ""),
             }
         return out
+
+    def suggestable(self) -> dict[str, dict]:
+        """The types a CLASSIFIER may choose from — every type except the sentinel. `types()` stays the
+        whole scheme, because a person may answer with the sentinel and a reader must still label it."""
+        return {iri: t for iri, t in self.types().items() if iri != self.SENTINEL}
 
     def resolve(self, value: str) -> str:
         """A type given as its IRI, its label or an alt label (a person in chat says "decision record"), to the
