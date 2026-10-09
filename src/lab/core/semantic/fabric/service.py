@@ -175,6 +175,11 @@ class FabricService:
 
     # ---------------------------------------------------------------- catalog
 
+    def catalog_page(self, *, after: str = "", limit: int = 100, state: str = "") -> list:
+        """One page of the catalogue in IRI order — the service's thin pass-through to the store's walk,
+        so every caller gets the same keyset semantics and the same refusal of an unknown state."""
+        return self.catalog.page(after=after, limit=limit, state=state)
+
     def catalog_get(self, iri: str = "", *, pointer: dict | None = None) -> dict | None:
         """The row by IRI — or by POINTER, which is how a sweep asks "have I seen this item at this version"."""
         e = self.catalog.get(iri) if iri else (self.catalog.by_pointer(pointer_key(pointer)) if pointer else None)

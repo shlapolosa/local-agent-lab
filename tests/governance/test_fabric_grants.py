@@ -67,7 +67,17 @@ def test_promote_reaches_no_workload_and_the_curator_holds_it():
     for name in ("fabric-intake", "fabric-publish", "fabric-bot"):
         assert SemanticTools.promote not in _all(GRANTS[name]), name
     assert SemanticTools.promote in _all(GRANTS["fabric-curator"])
-    assert set(GRANTS["fabric-curator"][SemanticTools.SERVER]) == set(SemanticTools.WRITE) | set(SemanticTools.READ)
+    assert set(GRANTS["fabric-curator"][SemanticTools.SERVER]) == (set(SemanticTools.WRITE) | set(SemanticTools.READ)
+                                                                  | set(SemanticTools.WALK))
+
+
+def test_walking_the_whole_estate_reaches_no_workload_and_no_bot():
+    """`catalog_list` enumerates everything the fabric knows of. A workload agent has an iri or a pointer
+    whenever it has business with a record, and a bot relaying one person's question has no need for the
+    list of all of them — so enumeration is the curator's, for the same reason REINDEX and PROMOTE are."""
+    for name in ("fabric-intake", "fabric-publish", "fabric-bot"):
+        assert SemanticTools.catalog_list not in _all(GRANTS[name]), name
+    assert SemanticTools.catalog_list in _all(GRANTS["fabric-curator"])
 
 
 def test_the_intake_may_ask_and_the_publish_may_only_read_the_gate():

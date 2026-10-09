@@ -121,3 +121,47 @@ def test_iri_safe_is_idempotent_and_keeps_what_an_iri_may_carry():
         assert iri_safe(iri_safe(x)) == iri_safe(x)
     assert iri_safe("collab://item/d/ملف عربي.docx") == "collab://item/d/ملف%20عربي.docx"     # non-ASCII stays readable
     assert iri_safe("art://x/tab\there") == "art://x/tab%09here"
+
+
+def test_the_catalogue_can_be_WALKED_which_nothing_could_do_before():
+    """Every bulk operation needs to iterate the catalogue, and until now nothing could.
+
+    The port offered `get` (by iri), `by_pointer`, embedding-ranked `similar`, and `unindexed(model)` — a
+    full scan keyed on an embedding model, which is the wrong question for anything that is not re-indexing.
+    So the re-classification the catalogue needs (measured 7 Oct 2026: `Clinical document` on 39 of 93
+    records) had nothing to walk, and neither would a bulk re-owner, an export, or a steward's review queue.
+
+    Keyset, not offset: rows are added while a long walk runs, and `LIMIT/OFFSET` silently skips or repeats
+    records when the set shifts underneath it — a re-classification that quietly missed rows would be worse
+    than one that refused to start.
+    """
+    c = MemoryCatalog()
+    made = [c.put(CatalogEntry(f"urn:fabric:artifact:{i:02d}", P, title=f"Doc {i}")) for i in range(5)]
+
+    first = c.page(limit=2)
+    assert [e.iri for e in first] == [m.iri for m in made[:2]], "a page is ordered and starts at the beginning"
+    second = c.page(after=first[-1].iri, limit=2)
+    assert [e.iri for e in second] == [m.iri for m in made[2:4]], "after= continues from the last row seen"
+    assert len(c.page(after=made[-1].iri, limit=2)) == 0, "walking off the end is empty, not an error"
+
+    walked, cursor = [], ""
+    while True:
+        batch = c.page(after=cursor, limit=2)
+        if not batch:
+            break
+        walked += [e.iri for e in batch]
+        cursor = batch[-1].iri
+    assert walked == [m.iri for m in made], "the whole catalogue, each row exactly once"
+
+
+def test_a_walk_can_be_narrowed_to_a_state_and_never_invents_one():
+    """A re-classification wants the live records, not the withdrawn ones — re-reading a document somebody
+    withdrew would spend a model call to revive a decision a person already made."""
+    c = MemoryCatalog()
+    c.put(CatalogEntry("urn:fabric:artifact:A", P, title="live"))
+    c.put(CatalogEntry("urn:fabric:artifact:B", P, title="gone", state="withdrawn"))
+    assert [e.iri for e in c.page(state="pending")] == ["urn:fabric:artifact:A"]
+    assert [e.iri for e in c.page(state="withdrawn")] == ["urn:fabric:artifact:B"]
+    assert len(c.page()) == 2, "no filter walks everything, withdrawn included"
+    with pytest.raises(ValueError, match="state"):
+        c.page(state="nonsense")

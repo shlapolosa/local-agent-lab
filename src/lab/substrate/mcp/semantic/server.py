@@ -263,6 +263,19 @@ def semantic_ask(question: str, params: dict | None = None) -> dict:
 # ------------------------------------------------------------------------------ the Documentation Fabric
 
 @server.tool()
+def semantic_catalog_list(after: str = "", limit: int = 100, state: str = "") -> dict:
+    """One page of the catalogue in IRI order — {items:[{iri,title,document_type,state,pointer,…}], cursor,
+    more}. Pass `cursor` straight back as `after` to continue; never compose one yourself.
+
+    KEYSET, not offset: rows are added while a long walk runs, so an offset would silently skip or repeat
+    records. `state` narrows to one lifecycle state and refuses one that does not exist, because a typo
+    returning an empty page is the one answer an operator would act on wrongly. Metadata only, as ever."""
+    rows = fabric().catalog_page(after=after, limit=limit, state=state)
+    return {"items": [r.to_dict() for r in rows], "cursor": rows[-1].iri if rows else "",
+            "more": len(rows) == max(1, int(limit))}
+
+
+@server.tool()
 def semantic_catalog_get(iri: str = "", pointer: dict | None = None) -> dict | None:
     """The Catalog row for an artifact — by IRI, or by POINTER ({source, handle|ref|…}) — plus its graph
     links by rung (delivery, references, subjects, facets), or null. Identity and custody only — never content."""

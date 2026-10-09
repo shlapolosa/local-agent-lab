@@ -123,6 +123,18 @@ class Catalog(Protocol):
         """Rows with no vector in `model`'s space (none, or another model's) — never the withdrawn."""
         ...
 
+    def page(self, *, after: str = "", limit: int = 100, state: str = "") -> list[CatalogEntry]:
+        """One page of the catalogue in `iri` order, for walking the whole of it.
+
+        KEYSET, not offset: rows are added while a long walk runs, and `LIMIT/OFFSET` silently skips or
+        repeats records when the set shifts underneath it. A bulk operation that quietly missed rows would
+        be worse than one that refused to start, so a caller passes the last `iri` it saw.
+
+        `state` narrows to one lifecycle state and refuses one that does not exist — a typo must not read
+        as "nothing matched". No filter walks everything, withdrawn included.
+        """
+        ...
+
 
 def subject_labels(links: Iterable[dict]) -> list[str]:
     """The subject concepts a record is linked to, by label when the link carries one (a reference concept's
@@ -178,6 +190,12 @@ class MemoryCatalog:
         scored = [(iri, cosine(vector, v)) for iri, (v, m) in self._vectors.items()
                   if iri != exclude and (not model or m == model)]
         return sorted(scored, key=lambda t: -t[1])[:max(int(limit), 0)]
+
+    def page(self, *, after: str = "", limit: int = 100, state: str = "") -> list[CatalogEntry]:
+        if state and state not in STATES:
+            raise ValueError(f"state must be one of {list(STATES)}, not {state!r}")
+        rows = sorted(self._rows.values(), key=lambda e: e.iri)
+        return [e for e in rows if e.iri > after and (not state or e.state == state)][:max(1, int(limit))]
 
     def unindexed(self, model: str) -> list[CatalogEntry]:
         return [e for e in self._rows.values()

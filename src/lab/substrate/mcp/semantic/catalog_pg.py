@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from typing import Any, Callable, Sequence
 
-from lab.core.semantic.fabric.catalog import CatalogEntry, pointer_key
+from lab.core.semantic.fabric.catalog import STATES, CatalogEntry, pointer_key
 from lab.platform import config
 
 __all__ = ["PostgresCatalog", "MIGRATIONS", "migrations", "tables", "CatalogUnreachable", "build"]
@@ -218,6 +218,19 @@ class PostgresCatalog:
              ORDER BY {by} <=> %s::halfvec({d}) LIMIT %s""",
                           (_literal(vector), exclude, model, model, _literal(vector), int(limit)))
         return [(r[0], float(r[1])) for r in rows]
+
+    def page(self, *, after: str = "", limit: int = 100, state: str = "") -> list[CatalogEntry]:
+        """KEYSET pagination — `iri > %s ORDER BY iri`, never OFFSET. Rows are added while a long walk
+        runs, and an offset silently skips or repeats records when the set shifts underneath it."""
+        if state and state not in STATES:
+            raise ValueError(f"state must be one of {list(STATES)}, not {state!r}")
+        where, params = ["a.iri > %s"], [after]
+        if state:
+            where.append("a.state = %s")
+            params.append(state)
+        rows = self._rows("SELECT " + ", ".join(f"a.{c}" for c in _COLUMNS) + " FROM fabric_artifact a WHERE "
+                          + " AND ".join(where) + " ORDER BY a.iri LIMIT %s", (*params, max(1, int(limit))))
+        return [_entry(r) for r in rows]
 
     def unindexed(self, model: str) -> list[CatalogEntry]:
         rows = self._rows("SELECT " + ", ".join(f"a.{c}" for c in _COLUMNS) + """ FROM fabric_artifact a

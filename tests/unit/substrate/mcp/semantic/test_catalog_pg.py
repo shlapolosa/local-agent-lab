@@ -204,3 +204,26 @@ def test_the_halfvec_index_retires_the_legacy_one_and_serves_exactly_the_express
     c = catalog(dim=768); c.similar([0.0] * 768, limit=1)
     order_by = next(s[0] for s in c.log if isinstance(s, tuple) and "ORDER BY" in s[0]).split("ORDER BY", 1)[1]
     assert order_by.strip().startswith("embedding::halfvec(768) <=>") and "(embedding::halfvec(768))" in ddl[create]
+
+
+def test_page_walks_by_KEYSET_and_binds_its_parameters():
+    """The adapter must walk the same way the port promises, and in SQL that means `iri > %s ORDER BY iri`,
+    never `OFFSET`. Rows are added while a long walk runs; an offset silently skips or repeats records when
+    the set shifts underneath it, and a re-classification that quietly missed rows would be worse than one
+    that refused to start.
+
+    The filter values are BOUND, never interpolated — `state` reaches this from an operator's command line.
+    """
+    c = catalog({"ORDER BY a.iri": [ROW]})
+    page = c.page(after="urn:fabric:artifact:A", limit=50, state="pending")
+    assert [e.iri for e in page] == ["urn:fabric:artifact:A"]
+    sql, params = c.log[-1]
+    assert "ORDER BY a.iri" in sql and "OFFSET" not in sql.upper()
+    assert "a.iri > %s" in sql and "a.state = %s" in sql
+    assert "urn:fabric:artifact:A" in params and "pending" in params and 50 in params
+
+
+def test_page_refuses_a_state_that_does_not_exist():
+    """A typo must not read as "nothing matched" — the one answer an operator would act on wrongly."""
+    with pytest.raises(ValueError, match="state"):
+        catalog().page(state="publishd")

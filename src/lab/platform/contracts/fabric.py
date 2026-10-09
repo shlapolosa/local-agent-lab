@@ -39,6 +39,12 @@ class SemanticTools(ToolCatalogue):
     # a query port is not a process, so it does not sit on workflow-mcp. The Catalog row, the rung-graph
     # edges, the vocabulary links and the facade over the embedding index (which proposes, never decides).
     catalog_get = "semantic_catalog_get"
+    # Walking the catalogue, which nothing could do: the port had `get` by iri, `by_pointer`, ranked
+    # `similar` and `unindexed(model)` — a scan keyed on an embedding model, the wrong question for
+    # anything but re-indexing. An OPERATOR's verb: it enumerates the estate, so it is granted to the
+    # curator and never to a workload agent, which has an iri or a pointer whenever it has business
+    # with a record.
+    catalog_list = "semantic_catalog_list"
     catalog_upsert = "semantic_catalog_upsert"
     catalog_state = "semantic_catalog_state"
     catalog_assert = "semantic_catalog_assert"     # a classified facet at a RUNG: row column + graph triple + PROV
@@ -73,7 +79,7 @@ class SemanticTools(ToolCatalogue):
     view_workflow = "semantic_view_workflow"             # step 10: BPMN whose tasks are L3s
     view_architecture = "semantic_view_architecture"     # step 22: logical + physical, scope only
     VIEWS = (view_capabilities, view_realisations, view_ontology, view_workflow, view_architecture)
-    # FOUR GRANTS. `READ` is what every team had before the fabric and every query the products answer.
+    # FIVE GRANTS. `READ` is what every team had before the fabric and every query the products answer.
     # `PIPELINE` is what the intake and publish workloads write — per artifact, at a rung, with provenance —
     # and the curator. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
     # own human (the review app, the Teams bot), never a workload: an agent that could promote its own
@@ -92,8 +98,12 @@ class SemanticTools(ToolCatalogue):
     # narrow the vocabulary it is classified against would be marking its own homework.
     PROMOTE = (promote, vocab_retire, vocab_amend)
     REINDEX = (reindex,)
+    # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
+    # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has
+    # no need for the list of everything. Granted to the curator alone, like REINDEX and for the same reason.
+    WALK = (catalog_list,)
     WRITE = PIPELINE + PROMOTE + REINDEX
-    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX)
+    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX, WALK)
 
 
 ARTIFACT_INTAKE = ProcessSpec(
