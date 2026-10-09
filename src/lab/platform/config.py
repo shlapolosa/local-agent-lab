@@ -443,6 +443,11 @@ FABRIC_CURATOR_KEY = _e("FABRIC_CURATOR_KEY", "")
 FABRIC_SWEEP_S = int(_e("FABRIC_SWEEP_S", "900"))
 FABRIC_SWEEP_DEPTH = int(_e("FABRIC_SWEEP_DEPTH", "3"))
 FABRIC_SWEEP_LIMIT = int(_e("FABRIC_SWEEP_LIMIT", "500"))
+#: The confidence a classifier must declare for a SUBJECT before it becomes a link. The excerpt fixed
+#: what the model can see; this is about what it does when it sees nothing that fits — measured 9 Oct
+#: 2026, a speech-provider bake-off's minutes were still filed under `Clinical document` because CAFE is
+#: healthcare-shaped and something always looks vaguely close. 0 keeps every subject, as before.
+FABRIC_SUBJECT_FLOOR = float(_e("FABRIC_SUBJECT_FLOOR", "0.6"))
 # The FIRST sweep after a start waits: a deploy restarts every service together and the gateway is the
 # slowest up, so a sweep at boot queued runs that died at preflight on a 502 (measured, first cloud deploy).
 FABRIC_SWEEP_FIRST_S = int(_e("FABRIC_SWEEP_FIRST_S", "180"))

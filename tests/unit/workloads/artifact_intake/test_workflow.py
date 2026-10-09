@@ -85,7 +85,7 @@ class Fabric:
 
 
 def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, default_label="", tools=None,
-            owners=None, vocabulary=""):
+            owners=None, vocabulary="", subject_floor=0.0):
     # `None` for a tool = the gateway does NOT expose it (a missing grant, a version skew): unlisted, not just unanswered
     hidden = {k for k, v in (tools or {}).items() if v is None}
     router = Router(fab.tools(**(tools or {})), hidden=hidden, full=True)
@@ -96,7 +96,7 @@ def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, def
                   "doc_types": DOC_TYPES, "threshold": threshold, "default_label": default_label,
                   # the shipped map's lab rule: a lab product's owner is the person who asked for the run
                   "owners": owners or OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}}),
-                  "overlap_threshold": 0.85, "vocabulary": vocabulary})
+                  "overlap_threshold": 0.85, "vocabulary": vocabulary, "subject_floor": subject_floor})
     h.close = lambda: ctx.__exit__(None, None, None)
     return h
 
@@ -600,3 +600,57 @@ def test_an_ORDINARY_run_is_unchanged_and_still_asks():
     finally:
         h.close()
     assert calls(h, ApprovalTools.ask)
+
+
+def test_a_subject_the_model_is_GUESSING_at_is_dropped_before_it_becomes_a_link():
+    """The judgement half of the same defect the excerpt fixed the plumbing half of.
+
+    Measured 9 Oct 2026, after the classifier could finally read documents: the vocabulary in use went
+    from 8 concepts to 47 and the ADRs, screenings and requirements came out right — but a speech-provider
+    bake-off's minutes were STILL filed under `Clinical document` and `Encounter`. The excerpt was reaching
+    the model; it had read the content and still reached for the nearest concept, because CAFÉ is
+    healthcare-shaped and something always looks vaguely close.
+
+    So the model declares a confidence PER SUBJECT — one can be certain while another is a guess, which a
+    single number for the whole classification cannot say — and anything below the floor never becomes a
+    link. A dropped subject is REPORTED, not silently discarded: a floor nobody can see is a floor nobody
+    can tune.
+    """
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": ["Triage", "Care Delivery"],
+                                           "subject_confidence": {"Triage": 0.91, "Care Delivery": 0.22}}),
+                subject_floor=0.6)
+    try:
+        out = run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    linked = h.router.called(SemanticTools.vocab_link)
+    assert linked and linked[0]["terms"] == ["Triage"], "only the confident subject reaches the link"
+    assert "Care Delivery" in json.dumps(out), "the dropped subject is reported, not silently discarded"
+
+
+def test_a_classifier_that_declares_no_confidence_is_trusted_as_before():
+    """Absent is not zero. A model that does not report per-subject confidence — an older prompt, another
+    provider — must keep working exactly as it did, or the floor becomes an outage."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": ["Triage", "Care Delivery"]}),
+                subject_floor=0.6)
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert h.router.called(SemanticTools.vocab_link)[0]["terms"] == ["Triage", "Care Delivery"]
+
+
+def test_dropping_every_subject_is_a_legal_outcome_and_links_nothing():
+    """The case the whole change exists for: a document about nothing in the vocabulary ends with no
+    subjects at all, rather than the nearest healthcare concept."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": ["Triage"],
+                                           "subject_confidence": {"Triage": 0.3}}),
+                subject_floor=0.6)
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert not h.router.called(SemanticTools.vocab_link), "no confident subject means no link at all"

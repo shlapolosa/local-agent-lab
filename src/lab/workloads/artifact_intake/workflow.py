@@ -107,6 +107,7 @@ async def _excerpt(cfg, pointer: dict) -> str:
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
              schemas: dict | None = None, doc_types: dict | None = None, threshold: float = 0.75,
              default_label: str = "", owners: OwnerMap | None = None, overlap_threshold: float = 0.85,
+             subject_floor: float = 0.0,
              vocabulary: str = "", tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment.
     `agents` and `schemas` are keyed `classifier` / `synthesis`; an absent agent makes its step a pass-through."""
@@ -115,6 +116,7 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", 
             "credential": credential, "agents": dict(agents or {}), "schemas": dict(schemas or {}),
             "doc_types": dict(doc_types or {}), "threshold": float(threshold), "default_label": default_label,
             "owners": owners or OwnerMap.empty(), "overlap_threshold": float(overlap_threshold),
+            "subject_floor": float(subject_floor),
             "vocabulary": vocabulary, "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
 
 
@@ -211,6 +213,17 @@ def build_workflow(cfg):
                     suggestion["document_type"] = None
             subjects = list((suggestion or {}).get("subjects") or [])
             confidence = float((suggestion or {}).get("confidence") or 0.0)
+            # A subject the model is GUESSING at never becomes a link. The excerpt fixed what the
+            # classifier can SEE; this is what it does when it sees nothing that fits, and the two are
+            # different defects: measured 9 Oct 2026, minutes whose content had been read correctly were
+            # still filed under `Clinical document` because the vocabulary is healthcare-shaped and
+            # something always looks close. Absent is NOT zero — a classifier that declares no
+            # per-subject confidence is trusted exactly as before, or the floor becomes an outage.
+            floor, declared = cfg.get("subject_floor") or 0.0, (suggestion or {}).get("subject_confidence") or {}
+            unsure = [t for t in subjects if t in declared and float(declared[t]) < floor] if floor else []
+            if unsure:
+                subjects = [t for t in subjects if t not in unsure]
+                print(f"[intake] dropped {len(unsure)} subject(s) below the {floor} floor: {unsure}", flush=True)
             if not state.get("document_type") and (suggestion or {}).get("document_type"):
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "document_type", "value": suggestion["document_type"],
@@ -252,7 +265,7 @@ def build_workflow(cfg):
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "owner", "value": PERSON + owner, "rung": CONSTRUCTED, "method": method})
             state = state | {"subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
-                             "conflicts": conflicts, "retracted": retracted,
+                             "conflicts": conflicts, "retracted": retracted, "unsure": unsure,
                              "confidence": confidence, "rationale": (suggestion or {}).get("rationale", "")}
         await ctx.send_message(state)
 
@@ -385,6 +398,8 @@ def build_workflow(cfg):
                                         "association": state.get("association"),
                                         "summary": {"subjects": len(state.get("linked") or []),
                                                     "candidates_proposed": len(state.get("missed") or []),
+                       # named, not counted: a floor nobody can see is a floor nobody can tune
+                       "dropped_unsure": state.get("unsure") or [],
                                                     "retracted": len(state.get("retracted") or [])}})
             return
         with gateway.node_span(cfg, "ask_review"):
@@ -408,7 +423,10 @@ def build_workflow(cfg):
                        "drafts": len(state.get("drafts") or []), "subjects": len(state.get("linked") or []),
                        "candidates_proposed": len(state.get("missed") or []),
                        # a term the vocabulary gives two meanings: neither linked nor proposed, a steward's call
-                       "terms_for_a_steward": len(state.get("conflicts") or [])}
+                       "terms_for_a_steward": len(state.get("conflicts") or []),
+                       # NAMED, not counted: a floor nobody can see is a floor nobody can tune, and the
+                       # reviewer is the person best placed to say the model was right to hesitate
+                       "dropped_unsure": state.get("unsure") or []}
             cont = Continuation(process=ARTIFACT_PUBLISH.name, inputs={"artifact_iri": state["iri"]},
                                 requester=state.get("requester") or "")
             artifacts = {f'{d["id"]} {d["title"][:60]}'.strip(): d["ref"] for d in state.get("drafts") or []}

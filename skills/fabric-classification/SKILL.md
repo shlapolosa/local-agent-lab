@@ -29,6 +29,23 @@ The brief may carry `concepts` — the organisation's own vocabulary, each with 
 exactly. Choose the concepts the artifact is genuinely about, at most a handful; a document is not about
 everything it mentions.
 
+**Declare how sure you are of EACH subject** in `subject_confidence`, keyed by the id you returned. One
+subject can be certain while another is a guess, which a single `confidence` for the whole classification
+cannot say. Anything you put below the deployment's floor never becomes a link, so this is the lever that
+lets you be useful about what you know and silent about what you do not. Be honest downward: an inflated
+number is worse than a low one, because a low one is simply dropped while an inflated one becomes a fact
+somebody later has to retract.
+
+**The failure to avoid, named exactly, because it is the one that keeps happening.** The vocabulary you
+are shown was built for one domain. Many artifacts an organisation produces are about something else
+entirely — a test of three speech-to-text providers, a build log, a tooling decision, a meeting about a
+note-taking app. For those, *something in the list will always look vaguely close*: a transcript is not a
+`Clinical document`, a meeting is not an `Encounter`, and a bake-off of speech vendors has nothing to do
+with `Teleconsultation`. Measured on this corpus: those three concepts were attached to a third of
+everything, every one of them wrong, and each had to be taken back. **If the artifact is about work the
+vocabulary does not cover, return no subjects and say so in the rationale.** That is a complete, correct
+answer, and it is more useful than a plausible one.
+
 **Returning NO subjects is a correct answer, and often the right one.** `"subjects": []` is valid. A
 vocabulary built for one domain will not describe every artifact an organisation produces: a test recording,
 a build log, a scratch file is about nothing on the list, and the honest answer is the empty list with a
