@@ -219,8 +219,11 @@ def build_workflow(cfg):
             # still filed under `Clinical document` because the vocabulary is healthcare-shaped and
             # something always looks close. Absent is NOT zero — a classifier that declares no
             # per-subject confidence is trusted exactly as before, or the floor becomes an outage.
+            # A subject MISSING from the declaration is a guess, not a generosity: the schema requires the
+            # number, so its absence means the model declined to stand behind that subject. Optional, it
+            # was simply never emitted — the floor was inert while every test passed (9 Oct 2026).
             floor, declared = cfg.get("subject_floor") or 0.0, (suggestion or {}).get("subject_confidence") or {}
-            unsure = [t for t in subjects if t in declared and float(declared[t]) < floor] if floor else []
+            unsure = [t for t in subjects if float(declared.get(t, 0.0)) < floor] if floor else []
             if unsure:
                 subjects = [t for t in subjects if t not in unsure]
                 print(f"[intake] dropped {len(unsure)} subject(s) below the {floor} floor: {unsure}", flush=True)

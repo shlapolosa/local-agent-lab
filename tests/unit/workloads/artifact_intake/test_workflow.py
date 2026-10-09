@@ -26,7 +26,8 @@ MINUTES_DOC = {"summary": "We agreed.", "concepts": [{"id": "c1", "label": "Lega
                "decisions": [{"id": "d1", "statement": "Retire the legacy portal", "concerns": ["c1"], "decided_by": ["maria"]}],
                "actions": [{"id": "a1", "commitment": "Plan the migration", "owner": "maria", "concerns": ["c1"], "implements": "d1"}]}
 CLASSIFICATION = {"document_type": "urn:fabric:scheme:doc-types#decision-record", "confidence": 0.83,
-                  "subjects": ["Care Delivery", "Unknown Term"], "rationale": "named ADR in the EA folder"}
+                  "subjects": ["Care Delivery", "Unknown Term"], "rationale": "named ADR in the EA folder",
+                  "subject_confidence": {"Care Delivery": 0.88, "Unknown Term": 0.77}}
 RECORDS = {"records": [{"id": "d1", "title": "Retire the legacy portal", "status": "proposed", "context": "dup",
                         "decision": "Retire the legacy portal", "consequences": "not stated",
                         "decided_by": ["maria"], "concerns": ["Legacy portal"], "actions": ["Plan the migration"]}]}
@@ -538,7 +539,7 @@ def test_no_subject_is_a_legal_answer():
     from pathlib import Path
     schema = _json.loads((Path(W.__file__).parent / "schemas" / "classification.schema.json").read_text())
     import jsonschema
-    jsonschema.validate({"document_type": None, "confidence": 0.1, "subjects": [],
+    jsonschema.validate({"document_type": None, "confidence": 0.1, "subjects": [], "subject_confidence": {},
                          "rationale": "the file name says nothing and the body is not about any concept listed"},
                         schema)
 
@@ -629,17 +630,39 @@ def test_a_subject_the_model_is_GUESSING_at_is_dropped_before_it_becomes_a_link(
     assert "Care Delivery" in json.dumps(out), "the dropped subject is reported, not silently discarded"
 
 
-def test_a_classifier_that_declares_no_confidence_is_trusted_as_before():
-    """Absent is not zero. A model that does not report per-subject confidence — an older prompt, another
-    provider — must keep working exactly as it did, or the floor becomes an outage."""
+def test_the_schema_REQUIRES_a_confidence_for_every_subject_returned():
+    """An optional field mentioned once in a prompt is a field a small model ignores.
+
+    Measured 9 Oct 2026: with `subject_confidence` optional, the deployed classifier never emitted it, the
+    floor never fired, and the minutes stayed filed under `Clinical document` — the change was inert while
+    every test passed. If the pipeline needs the number, the CONTRACT has to ask for it; a prompt alone is
+    a request, and the gate is what makes it a requirement.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    import jsonschema
+    schema = _json.loads((_Path(W.__file__).parent / "schemas" / "classification.schema.json").read_text())
+    assert "subject_confidence" in schema["required"]
+    ok = {"document_type": None, "confidence": 0.4, "subjects": ["Triage"], "rationale": "r",
+          "subject_confidence": {"Triage": 0.8}}
+    jsonschema.validate(ok, schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({k: v for k, v in ok.items() if k != "subject_confidence"}, schema)
+    jsonschema.validate({**ok, "subjects": [], "subject_confidence": {}}, schema)   # nothing to rate
+
+
+def test_a_subject_with_no_declared_confidence_is_treated_as_a_GUESS():
+    """Once the contract requires the number, a subject missing from it is not an older client being
+    generous to — it is a subject the model declined to stand behind, and the floor applies."""
     fab = Fabric()
-    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": ["Triage", "Care Delivery"]}),
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": ["Triage", "Care Delivery"],
+                                           "subject_confidence": {"Triage": 0.9}}),
                 subject_floor=0.6)
     try:
         run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
     finally:
         h.close()
-    assert h.router.called(SemanticTools.vocab_link)[0]["terms"] == ["Triage", "Care Delivery"]
+    assert h.router.called(SemanticTools.vocab_link)[0]["terms"] == ["Triage"]
 
 
 def test_dropping_every_subject_is_a_legal_outcome_and_links_nothing():
