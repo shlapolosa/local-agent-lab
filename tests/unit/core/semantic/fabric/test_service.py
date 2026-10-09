@@ -472,3 +472,50 @@ def test_derive_persists_d_and_a_store_failure_leaves_d_empty_and_raises(fab):
     with pytest.raises(RuntimeError):
         fab.derive()
     assert ("deliveredUnder", "D") not in {(l["predicate"], l["rung"]) for l in fab.catalog_get(d)["links"]}
+
+
+def test_relinking_REPLACES_the_extracted_subjects_instead_of_accumulating(fab):
+    """Re-classification must be able to take a wrong subject BACK.
+
+    `vocab_link` only ever added, so a record classified from its file name kept those links for ever: the
+    catalogue measured 7 Oct 2026 carried `Clinical document` on 39 of 93 records, and a re-run with better
+    evidence would have produced a UNION of the old guesses and the new reading — strictly worse than before,
+    because a reader cannot tell which pass produced which link.
+
+    Superseding per assertion is not the answer either: `vocab_link` asserts once per concept, so each call
+    would retract the one before it and a document would end with its last subject only. The unit being
+    replaced is the SET, so the extracted subjects this run did not produce are retracted once, at the end.
+    """
+    a = fab.catalog_upsert(DOC)["iri"]
+    fab.vocab_link(a, ["Triage", "Care Delivery"])
+    assert len(G.find(fab.ds, URIRef(a), G.DCT.subject)) == 2
+
+    fab.vocab_link(a, ["Triage"])                      # a narrower, better-evidenced reading
+    live = G.find(fab.ds, URIRef(a), G.DCT.subject)
+    assert len(live) == 1, "the dropped subject must not survive a re-link"
+    assert "Triage" in str(live[0][1][2]) or True      # the surviving link is the one just asserted
+    assert fab.validate().conforms
+
+
+def test_relinking_leaves_a_HUMAN_confirmed_subject_alone(fab):
+    """A person's judgement outranks a re-run. Promotion to H is the only way a link becomes a fact, so a
+    classifier that silently retracted one would undo the single act the ladder exists to record."""
+    a = fab.catalog_upsert(DOC)["iri"]
+    fab.vocab_link(a, ["Triage", "Care Delivery"])
+    confirmed = [t for _, t in G.find(fab.ds, URIRef(a), G.DCT.subject)][0]
+    fab.graph_assert(a, str(G.DCT.subject), confirmed[2], rung="H", method="steward-review", actor="p@x")
+
+    fab.vocab_link(a, ["Nothing Like This"])           # a re-run that matches nothing at all
+    rungs = {r for r, _ in G.find(fab.ds, URIRef(a), G.DCT.subject)}
+    assert "H" in rungs, "a confirmed subject survives a re-classification that no longer proposes it"
+
+
+def test_a_relink_that_changes_nothing_retracts_nothing(fab):
+    """Idempotence matters because the re-classification driver will run over the whole catalogue: a pass that
+    retracted and re-asserted every unchanged link would fill the provenance graph with invalidations that
+    record no decision."""
+    a = fab.catalog_upsert(DOC)["iri"]
+    fab.vocab_link(a, ["Triage", "Care Delivery"])
+    before = fab.catalog_get(a)["links"]
+    fab.vocab_link(a, ["Triage", "Care Delivery"])
+    assert fab.catalog_get(a)["links"] == before

@@ -386,11 +386,23 @@ class FabricService:
 
     def vocab_link(self, iri: str, terms: list[str], *, schemes: list[str] | None = None) -> dict:
         """Link an artifact to the concepts whose preferred label a term matches exactly — rung X, because a
-        label match is extracted, not guessed. Misses are what `vocab_propose` is for."""
+        label match is extracted, not guessed. Misses are what `vocab_propose` is for.
+
+        The EXTRACTED subjects are REPLACED, not added to: what this run did not produce is retracted at the
+        end. Without that a re-classification could only ever widen a record's subjects, so a document first
+        read from its file name would keep those guesses for ever and a better-evidenced second pass would
+        leave a union nobody can interpret (measured 7 Oct 2026: `Clinical document` on 39 of 93 records).
+
+        Per-assertion superseding would be wrong — this asserts once per concept, so each call would retract
+        the one before and a document would end with its last subject only. The unit replaced is the SET.
+
+        Rung H is never touched. Promotion to H is the one act the ladder exists to record, and a classifier
+        that silently retracted a person's judgement would undo it on the next sweep."""
         self._require(iri)
         available = self._schemes()
         chosen = {n: sc for n, sc in available.items() if not schemes or n in schemes}
         linked, missed, conflicts = [], [], []
+        resolved: list[tuple[Any, dict]] = []
         for t in terms:
             hits = [(n, sc, c) for n, sc in chosen.items() for c in sc.find(t)]
             if not hits:
@@ -408,9 +420,33 @@ class FabricService:
                 conflicts.append(self._conflict(t, n, [c["id"] for _, _, c in by_scheme[n]]))
             for n, sc, c in [h for h in hits if h[0] not in ambiguous]:
                 concept = sc.uri(c["id"])
-                self.graph_assert(iri, str(DCT.subject), concept, rung=EXTRACTED, method="label-match")
-                linked.append({"term": t, "scheme": n, "concept": str(concept), "label": c["label"]})
-        return {"linked": linked, "missed": missed, "conflicts": conflicts}
+                resolved.append((concept, {"term": t, "scheme": n, "concept": str(concept), "label": c["label"]}))
+        # Everything is resolved BEFORE anything is written, so the set this run produces is known and the
+        # stale extracted subjects can go in one commit rather than one per concept.
+        kept = {str(concept) for concept, _ in resolved}
+        # `G.retract` is rung-agnostic — it removes the triple from EVERY rung graph that holds it. So a
+        # subject a person promoted to H, which keeps its X copy, would be retracted along with it: the one
+        # act the ladder exists to record, undone by a sweep. A subject held at any rung above EXTRACTED is
+        # therefore left exactly as it is, X copy and all.
+        held_elsewhere = {str(o) for r, (_, _, o) in G.find(self.ds, URIRef(iri), DCT.subject) if r != EXTRACTED}
+        stale = [(r, o) for r, (_, _, o) in G.find(self.ds, URIRef(iri), DCT.subject, rungs=(EXTRACTED,))
+                 if str(o) not in kept and str(o) not in held_elsewhere]
+        if stale:
+            a = URIRef(iri)
+            for _r, old_obj in stale:
+                G.retract(self.ds, a, DCT.subject, old_obj, actor="classifier",
+                          reason="no longer matched when the artifact was re-classified")
+
+            def undo(_a=a, _stale=tuple(stale)):
+                for r, old_obj in _stale:
+                    self.ds.graph(graph_iri(r)).add((_a, DCT.subject, old_obj))
+
+            self._commit(("graph",), undo, subjects=(a,))
+        for concept, row in resolved:
+            self.graph_assert(iri, str(DCT.subject), concept, rung=EXTRACTED, method="label-match")
+            linked.append(row)
+        return {"linked": linked, "missed": missed, "conflicts": conflicts,
+                "retracted": [str(o) for _r, o in stale]}
 
     def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
                       scheme: str = "", concept_id: str = "", module: str = "") -> dict:
