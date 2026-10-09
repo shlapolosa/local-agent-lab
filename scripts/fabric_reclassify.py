@@ -13,8 +13,10 @@ Three things make it safe to run over the whole estate:
     catalogue worse, which is why it did not exist before.
   * intake is submitted with `reason=reclassify`, so it re-links and asks NOBODY — no second approval card
     for records whose first one is still open. A record that GAINS a type still asks.
-  * its own idempotency key. The ingress keys on `pointer@version` for 24 h, so re-submitting an unchanged
-    pointer would be silently de-duplicated and this would appear to work while doing nothing.
+  * it submits through `semantic_catalog_reclassify`, naming a record and supplying NOTHING else. Intake
+    has no `_submit` tool by design (`external=False`: the ArtifactChanged event IS the provenance of a
+    normal run), so the fabric reads the pointer, producer and context off the row it recorded itself —
+    the same opening `workflow_replay` uses for a continuation-only process.
 
 Dry-run by default — prints what it WOULD submit. `--apply` submits.
 
@@ -32,9 +34,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lab.core import ids                                                     # noqa: E402
 from lab.platform import mcp_client                                          # noqa: E402
-from lab.platform.contracts import ARTIFACT_INTAKE, SemanticTools, WorkflowTools  # noqa: E402
+from lab.platform.contracts import SemanticTools                             # noqa: E402
 
 #: Seconds between submissions. Ollama Cloud's session limit is one bucket for the whole ACCOUNT, so a
 #: burst of ninety classifications would starve anything else running — a live meeting, an eval, a
@@ -67,13 +68,10 @@ async def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     url = os.environ["PUBLIC_GATEWAY_URL"].rstrip("/") + "/mcp/"
-    keys = {SemanticTools.SERVER: os.environ["FABRIC_CURATOR_KEY"],
-            WorkflowTools.SERVER: os.environ["LITELLM_MASTER_KEY"]}
+    headers = {"Authorization": f'Bearer {os.environ["FABRIC_CURATOR_KEY"]}'}
 
     async def call(name, **args):
-        server = SemanticTools.SERVER if name.startswith("semantic_") else WorkflowTools.SERVER
-        h = {"Authorization": f"Bearer {keys[server]}"}
-        return (await mcp_client.call_tools(h, url, [(name, args)]))[0]
+        return (await mcp_client.call_tools(headers, url, [(name, args)]))[0]
 
     rows, cursor = [], ""
     while len(rows) < a.limit:
@@ -97,13 +95,7 @@ async def main(argv: list[str] | None = None) -> int:
             print(f"  [{i}/{len(work)}] would re-read {w['title'][:64]!r}")
             continue
         try:
-            # The round id is what defeats the ingress's 24 h pointer@version claim: this is a DIFFERENT
-            # reason to run, not a repeat of the change event, and it must not be de-duplicated against one.
-            # A fresh ULID: this run answers no ArtifactChanged event, because nothing changed. `reason`
-            # is what distinguishes it, and the id identifies THIS re-read rather than claiming an event.
-            got = await call(f"{ARTIFACT_INTAKE.name}_submit", pointer=w["pointer"], event_id=ids.ulid(),
-                             reason="reclassify", produced_by=w["produced_by"], context=w["context"],
-                             idempotency_key=f"reclassify:{round_id}:{w['iri']}")
+            got = await call(SemanticTools.catalog_reclassify, iri=w["iri"])
             started += 1
             print(f"  [{i}/{len(work)}] {got.get('request_id', '?')}  {w['title'][:56]!r}")
         except Exception as e:                      # noqa: BLE001 — one record must not stop the pass

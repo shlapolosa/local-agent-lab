@@ -57,7 +57,8 @@ BOT_TOOLS = {
     WorkflowTools.SERVER: list(ApprovalTools.READ) + list(ApprovalTools.WRITE),   # list/get + decide (a person's relay)
 }
 CURATOR_TOOLS = {
-    SemanticTools.SERVER: list(SemanticTools.WRITE) + list(SemanticTools.READ) + list(SemanticTools.WALK),  # PIPELINE + PROMOTE + WALK: a channel
+    SemanticTools.SERVER: (list(SemanticTools.WRITE) + list(SemanticTools.READ) + list(SemanticTools.WALK)
+                           + list(SemanticTools.RECLASSIFY)),   # PIPELINE + PROMOTE + WALK + RECLASSIFY: a channel
     # ...and the collaboration verbs the projector (put) and the reconciler (list, item) act with. Measured
     # on the first cloud sweep: `tool *collab_list not exposed by gateway` — a grant table that named
     # only the semantic server.

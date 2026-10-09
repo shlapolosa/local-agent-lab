@@ -18,7 +18,7 @@ from fixtures.skos import scheme
 from lab.core.semantic.fabric.rungs import graph_iri
 from lab.core.semantic.fabric.vocabulary import build as domain_scheme
 from lab.core.semantic.fabric.service import PERSISTED_GRAPHS
-from lab.platform import config
+from lab.platform import config, workflows
 from lab.platform.contracts import SemanticTools
 from lab.substrate import artifacts
 from lab.substrate.mcp.semantic.rung_store import KEY
@@ -294,3 +294,32 @@ def test_a_concept_a_steward_admitted_is_in_the_master_the_operator_publishes():
     m = parse(STORE.get(call("semantic_vocab_master", scheme="cafe")["ontology-concepts"]["ref"]).decode())
     row = next(dict(zip(m.headers, r)) for r in m.rows if r[0] == "ModelCard")
     assert row["name"] == "Model card" and row["definition"] == "what a model is for"
+
+
+def test_reclassify_names_a_record_and_the_FABRIC_supplies_every_input():
+    """The whole point of the verb: a caller supplies an id and nothing else.
+
+    `ARTIFACT_INTAKE.external` is False — an outside caller cannot start intake, because the
+    ArtifactChanged event IS the provenance of everything a normal run records — so no `_submit` tool
+    exists and the re-classification sweep had no way in. This is the same opening `workflow_replay`
+    uses: ask that inputs the lab already accepted be used again, never supply new ones. The pointer,
+    the producing process and the delivery context all come off the row the fabric itself wrote.
+    """
+    m = call("semantic_catalog_upsert", pointer=LAB, title="Minutes to re-read",
+             produced_by="transcript_to_minutes", context="meeting:AAMk1")
+    out = call("semantic_catalog_reclassify", iri=m["iri"])
+    assert out["request_id"].startswith("wfr-") and out["pointer"] == LAB
+
+    state = workflows.status(out["request_id"], client=srv.server.container.redis())
+    assert state["process"] == "artifact_intake"
+    assert state["inputs"]["reason"] == "reclassify", "the run must ask nobody unless a type appears"
+    assert state["inputs"]["pointer"] == LAB
+    assert state["inputs"]["produced_by"] == "transcript_to_minutes"
+    assert state["inputs"]["context"] == "meeting:AAMk1", "the context must survive, or a re-read is a downgrade"
+
+
+def test_reclassify_refuses_a_record_it_cannot_re_read():
+    """Intake reads the artifact THROUGH its pointer, so a row without one is not a thing that can be
+    re-read. Submitting it anyway would spend a run to fail, and on a ninety-record sweep that failure
+    would read as a classifier fault rather than a catalogue one."""
+    assert "no catalogued artifact" in call_error("semantic_catalog_reclassify", iri="urn:fabric:artifact:nope")

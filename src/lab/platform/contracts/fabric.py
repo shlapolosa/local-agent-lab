@@ -45,6 +45,14 @@ class SemanticTools(ToolCatalogue):
     # curator and never to a workload agent, which has an iri or a pointer whenever it has business
     # with a record.
     catalog_list = "semantic_catalog_list"
+    # Re-read ONE catalogued artifact with today's classifier. The caller names a record and supplies
+    # NOTHING else: the pointer, the producer and the context all come from the row the fabric itself
+    # recorded, which is what makes this legitimate for a process whose `submit` deliberately does not
+    # exist (`ARTIFACT_INTAKE.external = False` — the event IS the provenance). Exactly the argument
+    # `workflow_replay` makes: a caller may ask that inputs already accepted be used again, never
+    # supply new ones. It lives HERE rather than on the workflow front door because resolving a record
+    # needs the catalogue, and a cross-server call to fetch it would be the worse trade.
+    catalog_reclassify = "semantic_catalog_reclassify"
     catalog_upsert = "semantic_catalog_upsert"
     catalog_state = "semantic_catalog_state"
     catalog_assert = "semantic_catalog_assert"     # a classified facet at a RUNG: row column + graph triple + PROV
@@ -79,7 +87,7 @@ class SemanticTools(ToolCatalogue):
     view_workflow = "semantic_view_workflow"             # step 10: BPMN whose tasks are L3s
     view_architecture = "semantic_view_architecture"     # step 22: logical + physical, scope only
     VIEWS = (view_capabilities, view_realisations, view_ontology, view_workflow, view_architecture)
-    # FIVE GRANTS. `READ` is what every team had before the fabric and every query the products answer.
+    # SIX GRANTS. `READ` is what every team had before the fabric and every query the products answer.
     # `PIPELINE` is what the intake and publish workloads write — per artifact, at a rung, with provenance —
     # and the curator. `PROMOTE` is a curator's decision and reaches only a channel that authenticates its
     # own human (the review app, the Teams bot), never a workload: an agent that could promote its own
@@ -102,8 +110,10 @@ class SemanticTools(ToolCatalogue):
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has
     # no need for the list of everything. Granted to the curator alone, like REINDEX and for the same reason.
     WALK = (catalog_list,)
+    # An OPERATOR's sweep over the estate, like REINDEX: it starts runs, so it is never a workload's.
+    RECLASSIFY = (catalog_reclassify,)
     WRITE = PIPELINE + PROMOTE + REINDEX
-    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX, WALK)
+    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX, WALK, RECLASSIFY)
 
 
 ARTIFACT_INTAKE = ProcessSpec(

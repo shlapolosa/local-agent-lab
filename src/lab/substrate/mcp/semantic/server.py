@@ -33,7 +33,9 @@ import os
 
 from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
-from lab.platform import config
+from lab.core import ids
+from lab.platform import config, workflows
+from lab.platform.contracts import ARTIFACT_INTAKE
 from lab.core.viz import CONCEPT
 from lab.platform.filetypes import content_type_for, file_slug
 from lab.platform.fabric_events import METRICS_KEY
@@ -273,6 +275,40 @@ def semantic_catalog_list(after: str = "", limit: int = 100, state: str = "") ->
     rows = fabric().catalog_page(after=after, limit=limit, state=state)
     return {"items": [r.to_dict() for r in rows], "cursor": rows[-1].iri if rows else "",
             "more": len(rows) == max(1, int(limit))}
+
+
+@server.tool()
+def semantic_catalog_reclassify(iri: str) -> dict:
+    """Re-read ONE catalogued artifact with today's classifier — {request_id, duplicate, pointer}.
+
+    You name a record; you supply NOTHING else. The pointer, the producing process and the delivery
+    context all come from the row the fabric itself recorded, so this cannot introduce an input the lab
+    has not already validated. That is what makes it legitimate for a process whose `submit` deliberately
+    does not exist (`ARTIFACT_INTAKE.external = False` — the ArtifactChanged event IS the provenance of
+    everything a normal run records), and it is the same argument `workflow_replay` makes: a caller may
+    ask that inputs already accepted be used again, never supply new ones.
+
+    The run carries `reason=reclassify`, so it re-links the subjects and asks NOBODY unless the record
+    gains a document type — re-reading a back catalogue must not raise a second card for every record
+    whose first one is still open.
+
+    An artifact whose pointer names nothing is refused rather than submitted: intake reads the artifact
+    THROUGH its pointer, so a row without one is not a thing that can be re-read, and spending a run to
+    discover that would read as a classifier fault rather than a catalogue one.
+    """
+    row = fabric().catalog_get(iri)
+    if not row:
+        raise ValueError(f"no catalogued artifact {iri!r}")
+    pointer = row.get("pointer") or {}
+    if not pointer.get("source") or not (pointer.get("ref") or pointer.get("handle")):
+        raise ValueError(f"{iri} has no pointer that can be re-read: {pointer!r}")
+    request_id, duplicate = workflows.submit(
+        ARTIFACT_INTAKE.name,
+        {"pointer": pointer, "event_id": ids.ulid(), "reason": "reclassify",
+         "produced_by": row.get("produced_by") or "", "context": row.get("context") or ""},
+        SERVICE, client=server.container.redis())
+    span().set_attributes({"fabric.reclassify.iri": iri, "workflow.request_id": request_id})
+    return {"request_id": request_id, "duplicate": duplicate, "pointer": pointer}
 
 
 @server.tool()
