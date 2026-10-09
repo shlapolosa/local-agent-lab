@@ -58,6 +58,7 @@ async def run_once(root, pointer: dict, event_id: str, *, context: str = "", pro
                         default_label=config.FABRIC_DEFAULT_LABEL, owners=OwnerMap.load(config.FABRIC_OWNER_MAP),
                         overlap_threshold=config.FABRIC_OVERLAP_THRESHOLD,
                         vocabulary=config.FABRIC_VOCAB_SCHEME,
+                        subject_floor=config.FABRIC_SUBJECT_FLOOR,
                         tracer=c.tracer, root_ctx=c.root_ctx,
                         mcp_url=c.mcp_url, run_id=c.run_id)
 

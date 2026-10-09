@@ -10,6 +10,7 @@ from fixtures.host import make_root
 from lab.platform import config
 from lab.platform.contracts import PROCESSES
 from lab.workloads.artifact_intake import host as intake
+from lab.workloads.artifact_intake import workflow as W
 from lab.workloads.artifact_publish import host as publish
 
 POINTER = {"source": "lab", "ref": "art://r/minutes.json"}
@@ -43,6 +44,17 @@ def test_the_intake_host_injects_two_agents_the_schemas_and_the_settings(monkeyp
     assert set(cfg["agents"]) == {"classifier", "synthesis"} and set(cfg["schemas"]) == {"classifier", "synthesis"}
     assert cfg["agents"]["classifier"].name == "fabric-classifier" and cfg["agents"]["synthesis"].name == "fabric-synthesis"
     assert cfg["credential"] == "sk-classifier_agent" and cfg["threshold"] == 0.6 and cfg["default_label"] == "Internal"
+    # A setting the workflow declares and the host never passes is a setting that silently keeps its
+    # default. `subject_floor` shipped that way and the confidence floor was inert in production while
+    # every test passed, because the tests set it on the harness themselves — the same shape as the
+    # `reason` input the consumer did not forward. So the HOST is checked against the signature.
+    import inspect
+    declared = {n for n, p in inspect.signature(W.make_cfg).parameters.items()
+                if p.kind is inspect.Parameter.KEYWORD_ONLY and n not in ("tracer", "root_ctx", "run_id",
+                                                                          "agents", "schemas", "credential",
+                                                                          "mcp_url", "traceparent")}
+    missing = {n for n in declared if n not in cfg or cfg[n] in (None, "", 0.0) and n == "subject_floor"}
+    assert not missing, f"the host never supplies {sorted(missing)} — it will keep make_cfg's default"
     assert "urn:fabric:scheme:doc-types#minutes" in cfg["doc_types"]
     assert inputs == {"pointer": POINTER, "event_id": "01J", "context": "meeting:AAMk1",
                       "produced_by": "transcript_to_minutes", "requester": "a@x", "reason": ""}
