@@ -41,7 +41,7 @@ def _label(pointer: dict) -> str:
 
 
 async def run_once(root, pointer: dict, event_id: str, *, context: str = "", produced_by: str = "",
-                   requester: str = "", on_trace=None) -> dict:
+                   requester: str = "", reason: str = "", on_trace=None) -> dict:
     """One governed run: root span -> identities -> workflow -> a question for the owner."""
     tools_cred = _cred(CLASSIFIER_PREFIX)
     headers = {"traceparent": ""}
@@ -67,7 +67,7 @@ async def run_once(root, pointer: dict, event_id: str, *, context: str = "", pro
         attrs={"fabric.source": str(pointer.get("source") or ""), "fabric.has_context": bool(context),
                "fabric.produced_by": produced_by or ""},
         cfg=cfg, run=run_workflow, fields=run_fields,
-        inputs={"pointer": dict(pointer), "event_id": event_id, "context": context,
+        inputs={"pointer": dict(pointer), "event_id": event_id, "context": context, "reason": reason,
                 "produced_by": produced_by, "requester": requester})
 
 

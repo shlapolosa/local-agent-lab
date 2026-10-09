@@ -506,3 +506,53 @@ def test_no_subject_is_a_legal_answer():
         h.close()
     assert not h.router.called(SemanticTools.vocab_link), "no subjects means no link, not an empty link"
     assert not h.router.called(SemanticTools.vocab_propose), "and no candidate parked for a steward"
+
+
+def test_a_RECLASSIFY_of_a_TYPED_record_raises_no_card_at_all():
+    """Re-reading the back catalogue must not bury the queue it exists to make worth working.
+
+    The catalogue measured 7 Oct 2026 held ~90 records classified from their FILE NAMES, with ~40 approvals
+    already open. A re-classification ending in `ask_review` like any other run would have raised a card per
+    record — a SECOND card for records whose first is still waiting — and the queue would have become
+    unusable at the moment its contents finally became worth reading.
+
+    Nothing is lost by staying quiet: subjects live at rung X whichever pass produced them, so whoever opens
+    the existing card simply sees the better ones.
+    """
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K", "reason": "reclassify",
+                         "produced_by": "transcript_to_minutes", "context": "meeting:m1"})
+    finally:
+        h.close()
+    assert not calls(h, ApprovalTools.ask), "a reclassify asks nobody when only the subjects moved"
+    assert h.router.called(SemanticTools.vocab_link), "but it still re-links, which is the point"
+
+
+def test_a_RECLASSIFY_still_asks_when_the_record_gains_a_TYPE_it_did_not_have():
+    """The type is a facet a person confirms, so a record acquiring one still goes to somebody.
+
+    Note what this CANNOT do: a type is only ever asserted onto a record that has none, so re-reading a
+    typed record never changes it. A model's second opinion can therefore never displace a decided type —
+    the quiet path is safe precisely because the loud one is unreachable for anything already settled.
+    """
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))      # suggests a decision-record type
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K", "reason": "reclassify", "context": "meeting:m1"})
+    finally:
+        h.close()
+    assert calls(h, ApprovalTools.ask), "a record that gains a type goes back to a person"
+
+
+def test_an_ORDINARY_run_is_unchanged_and_still_asks():
+    """The flag must not leak into the normal path: every artifact that genuinely changed still ends in a
+    person's card."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert calls(h, ApprovalTools.ask)

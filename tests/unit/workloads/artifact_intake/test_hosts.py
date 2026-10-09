@@ -45,7 +45,7 @@ def test_the_intake_host_injects_two_agents_the_schemas_and_the_settings(monkeyp
     assert cfg["credential"] == "sk-classifier_agent" and cfg["threshold"] == 0.6 and cfg["default_label"] == "Internal"
     assert "urn:fabric:scheme:doc-types#minutes" in cfg["doc_types"]
     assert inputs == {"pointer": POINTER, "event_id": "01J", "context": "meeting:AAMk1",
-                      "produced_by": "transcript_to_minutes", "requester": "a@x"}
+                      "produced_by": "transcript_to_minutes", "requester": "a@x", "reason": ""}
     assert out["trace_id"] and intake.run_fields(out) == {"artifact_iri": "urn:fabric:artifact:x", "approval_id": "apr-1"}
 
 

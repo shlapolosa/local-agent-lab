@@ -124,7 +124,9 @@ ARTIFACT_INTAKE = ProcessSpec(
                    "handle, version} for a file behind the collaboration port, {source: 'lab', ref} for "
                    "an artifact a lab run wrote. Never content, never a URL."),
         InputField("event_id", InputKind.EVENT,
-                   "The ULID of the ArtifactChanged event this run answers — the run's provenance."),
+                   "The ULID of the ArtifactChanged event this run answers — the run's provenance. A "
+                   "`reason=reclassify` run answers no event (nothing changed), so it mints a fresh ULID "
+                   "identifying that re-read; `reason` is what says which of the two this is."),
         InputField("context", InputKind.CONTEXT,
                    "The delivery container the artifact was produced under, as <kind>:<id> "
                    "(usecase, meeting, submission, workitem). Known for anything a lab run produced; "
@@ -134,6 +136,12 @@ ARTIFACT_INTAKE = ProcessSpec(
                    "Which lab process produced the artifact, when one did. Its declared document "
                    "type is then a FACT (rung C), not a suggestion.", required=False,
                    choices=PRODUCING_PROCESSES),
+        InputField("reason", InputKind.CHOICE,
+                   "Why this run exists. Absent means an artifact CHANGED, which is the ordinary case and "
+                   "ends in a person's review card. 'reclassify' means the artifact did not change and the "
+                   "fabric is re-reading it with better evidence: it re-links the subjects and asks nobody, "
+                   "unless the document TYPE moves, which is a facet a person confirms.",
+                   required=False, choices=("reclassify",)),
     ),
     outputs=("trace_id", "artifact_iri", "approval_id", "draft_refs", "rung_counts"),
     external=False,

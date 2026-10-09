@@ -201,13 +201,21 @@ def build_workflow(cfg):
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "document_type", "value": suggestion["document_type"],
                     "rung": SUGGESTED, "method": "classifier-agent", "confidence": confidence})
-                state = state | {"document_type": suggestion["document_type"], "type_rung": SUGGESTED}
+                # The ONE facet a reclassify may still raise a card for. Note the branch condition: a type is
+                # only ever asserted onto a record that has NONE, so re-reading a typed record cannot change
+                # it and will ask nobody — a model's second opinion never displaces a decided type.
+                state = state | {"document_type": suggestion["document_type"], "type_rung": SUGGESTED,
+                                 "type_changed": True}
             else:
                 state = state | {"type_rung": CONSTRUCTED if state.get("document_type") else ""}
-            linked, missed, conflicts = [], [], []
+            linked, missed, conflicts, retracted = [], [], [], []
             if subjects:
                 out = await gateway.call(cfg, SemanticTools.vocab_link, {"iri": state["iri"], "terms": subjects})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
+                # What a RE-READ took back: subjects an earlier pass extracted that this one no longer
+                # stands behind. Carried on the run because a re-classification whose removals are invisible
+                # is indistinguishable from one that did nothing.
+                retracted = out.get("retracted") or []
                 # A term the vocabulary gives TWO meanings is neither linked nor missed: it is a steward's
                 # decision. Carried on the run so a person reading it can see that two terms went to a
                 # steward — without this it is invisible everywhere except the curated graph.
@@ -230,7 +238,7 @@ def build_workflow(cfg):
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "owner", "value": PERSON + owner, "rung": CONSTRUCTED, "method": method})
             state = state | {"subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
-                             "conflicts": conflicts,
+                             "conflicts": conflicts, "retracted": retracted,
                              "confidence": confidence, "rationale": (suggestion or {}).get("rationale", "")}
         await ctx.send_message(state)
 
@@ -340,7 +348,31 @@ def build_workflow(cfg):
     @executor(id="ask_review")
     async def ask_review(state: dict, ctx: WorkflowContext[dict]) -> None:
         """The owner's question, and the end of the run. `association` when the record has no context to
-        stand under; `draft-review` otherwise. Approving releases `artifact_publish`."""
+        stand under; `draft-review` otherwise. Approving releases `artifact_publish`.
+
+        A RECLASSIFY asks nobody. Re-reading the back catalogue would otherwise raise a card per record —
+        a SECOND card for records whose first is still open — and the queue would become unusable at the
+        moment its contents finally became worth reading (measured 7 Oct 2026: ~90 records classified from
+        their file names, ~40 approvals already waiting). Nothing is lost by staying quiet: subjects live at
+        rung X whichever pass produced them, so whoever opens the existing card sees the better ones. The
+        document TYPE is the exception — that is a facet a person confirms, and letting a sweep change it
+        silently would promote a model's second opinion over somebody's decision."""
+        if state.get("reason") == "reclassify" and not state.get("type_changed"):
+            # Quiet, but NOT silent: the run still reports what it did, because a re-classification whose
+            # outcome nobody can see is the instrument problem this lab keeps meeting. `approval_id` is
+            # empty, which is what says no card was raised.
+            with gateway.node_span(cfg, "ask_review"):
+                row = await gateway.call(cfg, SemanticTools.catalog_get, {"iri": state["iri"]})
+                counts: dict[str, int] = {}
+                for link in (row or {}).get("links") or []:
+                    counts[link["rung"]] = counts.get(link["rung"], 0) + 1
+                await ctx.yield_output({"artifact_iri": state["iri"], "approval_id": "", "draft_refs": [],
+                                        "rung_counts": counts, "kind": "", "reclassified": True,
+                                        "association": state.get("association"),
+                                        "summary": {"subjects": len(state.get("linked") or []),
+                                                    "candidates_proposed": len(state.get("missed") or []),
+                                                    "retracted": len(state.get("retracted") or [])}})
+            return
         with gateway.node_span(cfg, "ask_review"):
             items = [{"label": "document_type",
                       "samples": [f"suggested: {_type_label(cfg, state.get('document_type'))}"

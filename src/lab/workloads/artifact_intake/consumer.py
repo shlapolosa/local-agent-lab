@@ -14,7 +14,8 @@ PROCESS = "artifact_intake"
 async def _run(root, req, on_trace):
     return await run_once(root, req.inputs["pointer"], req.inputs["event_id"],
                           context=req.inputs.get("context") or "", produced_by=req.inputs.get("produced_by") or "",
-                          requester=getattr(req, "requester", "") or "", on_trace=on_trace)
+                          requester=getattr(req, "requester", "") or "",
+                          reason=req.inputs.get("reason") or "", on_trace=on_trace)
 
 
 def _describe(req) -> str:

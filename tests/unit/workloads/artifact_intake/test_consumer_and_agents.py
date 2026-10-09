@@ -10,7 +10,7 @@ from lab.workloads.artifact_intake import agents as A
 from lab.workloads.artifact_intake import consumer, host
 
 INPUTS = {"pointer": {"source": "lab", "ref": "art://r/minutes.json"}, "event_id": "01J",
-          "context": "meeting:AAMk1", "produced_by": "transcript_to_minutes"}
+          "context": "meeting:AAMk1", "produced_by": "transcript_to_minutes", "reason": "reclassify"}
 
 
 def test_it_is_registered_continuation_only_and_gets_its_own_group():
@@ -21,8 +21,9 @@ def test_it_is_registered_continuation_only_and_gets_its_own_group():
 def test_every_input_the_contract_declares_reaches_the_run():
     seen = {}
 
-    async def fake_run_once(root, pointer, event_id, *, context="", produced_by="", requester="", on_trace=None):
-        seen.update(pointer=pointer, event_id=event_id, context=context, produced_by=produced_by)
+    async def fake_run_once(root, pointer, event_id, *, context="", produced_by="", requester="", reason="", on_trace=None):
+        seen.update(pointer=pointer, event_id=event_id, context=context, produced_by=produced_by,
+                    reason=reason)
         seen["requester"] = requester
         return {"artifact_iri": "urn:fabric:artifact:x"}
 
