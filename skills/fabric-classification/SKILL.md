@@ -36,6 +36,15 @@ lets you be useful about what you know and silent about what you do not. Be hone
 number is worse than a low one, because a low one is simply dropped while an inflated one becomes a fact
 somebody later has to retract.
 
+**The DEFINITION decides, never the label.** Every concept you are shown carries a `definition` and a
+`module`; read them before you choose. A label is a word that may mean something else in your domain, and
+matching on it is how the wrong concept gets attached: `Encounter` reads like "a meeting", but its
+definition is *"an interaction in which care is delivered — visit, admission, emergency attendance or
+virtual consultation"*, so a team's weekly call is not one. `Clinical document` reads like "a document",
+but its definition is *"a clinical note, discharge summary or other document about a patient's care"*. If
+the artifact does not satisfy the DEFINITION as written, the concept does not apply, however well the
+label fits. When a definition and a label disagree, the definition wins and the label is a trap.
+
 **The failure to avoid, named exactly, because it is the one that keeps happening.** The vocabulary you
 are shown was built for one domain. Many artifacts an organisation produces are about something else
 entirely — a test of three speech-to-text providers, a build log, a tooling decision, a meeting about a
