@@ -71,7 +71,10 @@ async def _excerpt(cfg, pointer: dict) -> str:
     try:
         if not ref and pointer.get("handle"):
             got = await gateway.call(cfg, CollabTools.fetch, {"handle": str(pointer["handle"])})
-            ref = gateway.ref_from(got) or str((got or {}).get("ref") or "")
+            # `ref_from` defaults to `spec_ref`; collab_fetch answers with `ref`. Passing the wrong key
+            # RAISED, and this function's degrade-rather-than-fail `except` swallowed it — so every
+            # collab document was classified from its file name while the run reported success.
+            ref = gateway.ref_from(got, "ref")
         if not ref:
             return ""
         doc = await gateway.call(cfg, StorageTools.read_artifact, {"ref": ref})

@@ -24,59 +24,71 @@
 <rect x="155.0" y="211.0" width="210" height="58" rx="7" fill="#ededed" stroke="#777777" stroke-width="2"/>
 <text x="260" y="236" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Stored where it lives</text>
 <text x="260" y="255" text-anchor="middle" font-size="11" fill="#555">SharePoint · ADO · APIM — never copied</text>
+<circle cx="351.0" cy="225.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M260,144 L260,211" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="405.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="510" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Catalogue the record</text>
 <text x="510" y="390" text-anchor="middle" font-size="11" fill="#555">pointer + facets  (the ABox)</text>
+<circle cx="601.0" cy="360.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M260,269 L260,375 L405,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <text x="332.5" y="368.0" text-anchor="middle" font-size="11" fill="#666">change event</text>
 <rect x="655.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="760" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Classify</text>
-<text x="760" y="390" text-anchor="middle" font-size="11" fill="#555">reads the ~100-concept scheme (TBox)</text>
+<text x="760" y="390" text-anchor="middle" font-size="11" fill="#555">reads content + the ~100-concept scheme</text>
+<circle cx="851.0" cy="360.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M615,375 L655,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <polygon points="1010,351 1034,375 1010,399 986,375" fill="#fff" stroke="#444" stroke-width="2"/>
 <text x="1010" y="380" text-anchor="middle" font-size="15" fill="#555">?</text>
 <text x="1010" y="343" text-anchor="middle" font-size="12" font-weight="700" fill="#333">matched?</text>
+<circle cx="1030" cy="355" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M865,375 L986,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="1155.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="1260" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Subject link at rung X</text>
-<text x="1260" y="390" text-anchor="middle" font-size="11" fill="#555">an agent extracted this</text>
+<text x="1260" y="390" text-anchor="middle" font-size="11" fill="#555">replaced on a re-read</text>
+<circle cx="1351.0" cy="360.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M1034,375 L1155,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <text x="1094.5" y="368.0" text-anchor="middle" font-size="11" fill="#666">yes</text>
 <rect x="1155.0" y="476.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="1260" y="501" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Candidate register</text>
-<text x="1260" y="520" text-anchor="middle" font-size="11" fill="#555">counted, not asked</text>
+<text x="1260" y="520" text-anchor="middle" font-size="11" fill="#555">parked; no count yet</text>
+<circle cx="1351.0" cy="490.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
 <path d="M1010,399 L1010,505 L1155,505" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <text x="1082.5" y="498.0" text-anchor="middle" font-size="11" fill="#666">no</text>
 <polygon points="1510,481 1534,505 1510,529 1486,505" fill="#fff" stroke="#444" stroke-width="2"/>
 <text x="1510" y="510" text-anchor="middle" font-size="15" fill="#555">?</text>
 <text x="1510" y="473" text-anchor="middle" font-size="12" font-weight="700" fill="#333">threshold?</text>
 <text x="1510" y="546" text-anchor="middle" font-size="10" fill="#777">a term seen once is not a concept</text>
+<circle cx="1530" cy="485" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"><title>not implemented</title></circle>
 <path d="M1365,505 L1486,505" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
-<rect x="1405.0" y="674.0" width="210" height="62" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2" stroke-dasharray="7 4"/>
+<rect x="1405.0" y="674.0" width="210" height="62" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
 <text x="1510" y="701" text-anchor="middle" font-size="14" font-weight="700" fill="#222">STEWARD admits the term</text>
-<text x="1510" y="720" text-anchor="middle" font-size="11" fill="#555">batched · once per term</text>
+<text x="1510" y="720" text-anchor="middle" font-size="11" fill="#555">one at a time, never exercised</text>
 <text x="1418.0" y="692.0" text-anchor="middle" font-size="15" fill="#b9770e">&#9673;</text>
+<circle cx="1601.0" cy="688.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
 <path d="M1510,529 L1510,674" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
 <text x="1510.0" y="594.5" text-anchor="middle" font-size="11" fill="#666">reached</text>
 <rect x="1155.0" y="573.0" width="210" height="54" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2" stroke-dasharray="7 4"/>
 <text x="1260" y="596" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Re-match what waited</text>
 <text x="1260" y="615" text-anchor="middle" font-size="11" fill="#555">FR-1.1.5</text>
+<circle cx="1351.0" cy="587.0" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"><title>not implemented</title></circle>
 <path d="M1405,705 L1260,705 L1260,627" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
 <text x="1260.0" y="659.0" text-anchor="middle" font-size="11" fill="#666">on admission</text>
 <path d="M1155,600 L760,600 L760,404" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
 <rect x="1405.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="1510" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Ask the OWNER</text>
 <text x="1510" y="390" text-anchor="middle" font-size="11" fill="#555">one card — type and context</text>
+<circle cx="1601.0" cy="360.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M1365,375 L1405,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="1655.0" y="674.0" width="210" height="62" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
 <text x="1760" y="701" text-anchor="middle" font-size="14" font-weight="700" fill="#222">OWNER confirms</text>
 <text x="1760" y="720" text-anchor="middle" font-size="11" fill="#555">one tap · the only way up</text>
 <text x="1668.0" y="692.0" text-anchor="middle" font-size="15" fill="#b9770e">&#9673;</text>
+<circle cx="1851.0" cy="688.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M1615,375 L1760,375 L1760,674" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <polygon points="2010,681 2034,705 2010,729 1986,705" fill="#fff" stroke="#444" stroke-width="2"/>
 <text x="2010" y="710" text-anchor="middle" font-size="15" fill="#555">?</text>
 <text x="2010" y="673" text-anchor="middle" font-size="12" font-weight="700" fill="#333">approved?</text>
+<circle cx="2030" cy="685" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M1865,705 L1986,705" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <circle cx="2010" cy="862" r="19" fill="#fff" stroke="#333" stroke-width="4"/>
 <text x="2010" y="867" text-anchor="middle" font-size="13" fill="#333">&#9632;</text>
@@ -86,20 +98,31 @@
 <rect x="2155.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="2260" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Published</text>
 <text x="2260" y="390" text-anchor="middle" font-size="11" fill="#555">state + baseline</text>
+<circle cx="2351.0" cy="360.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M2034,705 L2260,705 L2260,404" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <text x="2260.0" y="547.5" text-anchor="middle" font-size="11" fill="#666">yes</text>
 <rect x="2155.0" y="476.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="2260" y="501" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Project a page</text>
 <text x="2260" y="520" text-anchor="middle" font-size="11" fill="#555">metadata only, never content</text>
+<circle cx="2351.0" cy="490.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M2260,404 L2260,476" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="2155.0" y="833.0" width="210" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
 <text x="2260" y="858" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Pages · MCP</text>
-<text x="2260" y="877" text-anchor="middle" font-size="11" fill="#555">browse · agents anchor</text>
+<text x="2260" y="877" text-anchor="middle" font-size="11" fill="#555">no links between pages yet</text>
+<circle cx="2351.0" cy="847.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
 <path d="M2260,534 L2260,833" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="1655.0" y="833.0" width="210" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
 <text x="1760" y="858" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Copilot answers</text>
-<text x="1760" y="877" text-anchor="middle" font-size="11" fill="#555">retrieval + the fabric’s facts</text>
+<text x="1760" y="877" text-anchor="middle" font-size="11" fill="#555">no retrieval source wired</text>
+<circle cx="1851.0" cy="847.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
 <path d="M2155,862 L1865,862" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
-<text x="2360" y="976" text-anchor="end" font-size="13" fill="#777">&#9673; human touchpoint &#160;&#160; &#9671; gateway &#160;&#160; dashed = not built yet</text>
+<text x="2360" y="976" text-anchor="end" font-size="13" fill="#777">&#9673; human touchpoint &#160;&#160; &#9671; gateway</text>
+<circle cx="1990" cy="904" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="908" font-size="12.5" fill="#555">running, exercised on real records</text>
+<circle cx="1990" cy="926" r="7" fill="#d68910" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="930" font-size="12.5" fill="#555">built, unproven or partial</text>
+<circle cx="1990" cy="948" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="952" font-size="12.5" fill="#555">not implemented</text>
+<text x="1990" y="888" font-size="12.5" font-weight="700" fill="#333">Status, 9 Oct 2026 — what is true in the cloud</text>
 <text x="60" y="976" font-size="13" fill="#777">Rungs: O observed &#183; S suggested &#183; X extracted &#183; C constructed &#183; H human-confirmed &#183; D derived &#8212; only C&#183;X&#183;H answer &#8220;what does this change break?&#8221;</text>
 </svg>

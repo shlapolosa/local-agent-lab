@@ -26,6 +26,13 @@ SOR = ("#ededed", "#777777")      # systems of record — consumed, never owned
 HUM = ("#fdf3e3", "#b9770e")      # a human touchpoint
 OUT = ("#e7f3ec", "#1e8449")      # surfaces people and agents meet
 
+#: RAG — what is TRUE in the cloud today, not what is designed. GREEN is running and has been exercised
+#: on real records; AMBER is built but unproven or only half of it is there; RED is not implemented. The
+#: status is on the picture because a diagram of an intention is the easiest kind to believe.
+RAG = {"green": "#1e8449", "amber": "#d68910", "red": "#c0392b"}
+RAG_WHY = {"green": "running, exercised on real records", "amber": "built, unproven or partial",
+           "red": "not implemented"}
+
 LANES = [
     ("AUTHOR", "writes where they already work", 70, 180, "#fbf7f0"),
     ("SYSTEMS OF RECORD", "SharePoint · ADO · APIM · EA — content stays here", 180, 300, "#f2f2f2"),
@@ -52,7 +59,7 @@ class Svg:
         self.p.append(f'<text x="{x + 36}" y="{cy + 4}" transform="rotate(-90 {x + 36} {cy})" '
                       f'text-anchor="middle" font-size="10.5" fill="#888">{esc(sub)}</text>')
 
-    def box(self, cx, cy, w, h, title, sub="", kind=SYS, dashed=False, human=False):
+    def box(self, cx, cy, w, h, title, sub="", kind=SYS, dashed=False, human=False, rag=""):
         fill, edge = kind
         self.rects.append((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, title))
         dash = ' stroke-dasharray="7 4"' if dashed else ""
@@ -67,8 +74,11 @@ class Svg:
         if human:
             self.p.append(f'<text x="{cx - w/2 + 13}" y="{cy - h/2 + 18}" text-anchor="middle" font-size="15" '
                           f'fill="#b9770e">&#9673;</text>')
+        if rag:
+            self.p.append(f'<circle cx="{cx + w/2 - 14}" cy="{cy - h/2 + 14}" r="7" fill="{RAG[rag]}" '
+                          f'stroke="#fff" stroke-width="2"><title>{esc(RAG_WHY[rag])}</title></circle>')
 
-    def gate(self, cx, cy, label, note=""):
+    def gate(self, cx, cy, label, note="", rag=""):
         r = 24
         self.p.append(f'<polygon points="{cx},{cy-r} {cx+r},{cy} {cx},{cy+r} {cx-r},{cy}" fill="#fff" '
                       f'stroke="#444" stroke-width="2"/>')
@@ -78,6 +88,9 @@ class Svg:
         if note:
             self.p.append(f'<text x="{cx}" y="{cy + r + 17}" text-anchor="middle" font-size="10" '
                           f'fill="#777">{esc(note)}</text>')
+        if rag:
+            self.p.append(f'<circle cx="{cx + r - 4}" cy="{cy - r + 4}" r="7" fill="{RAG[rag]}" '
+                          f'stroke="#fff" stroke-width="2"><title>{esc(RAG_WHY[rag])}</title></circle>')
 
     def event(self, cx, cy, label, end=False):
         self.p.append(f'<circle cx="{cx}" cy="{cy}" r="19" fill="#fff" stroke="#333" '
@@ -136,61 +149,69 @@ def main(out: Path) -> None:
     PEOPLE, SURFACE = 705, 862
 
     s.event(C[0], 125, "writes a document")
-    s.box(C[0], 240, BOXW, 58, "Stored where it lives", "SharePoint \u00b7 ADO \u00b7 APIM \u2014 never copied", kind=SOR)
+    s.box(C[0], 240, BOXW, 58, "Stored where it lives", "SharePoint \u00b7 ADO \u00b7 APIM \u2014 never copied", kind=SOR, rag="green")
     s.flow([(C[0], 144), (C[0], 211)])
 
-    s.box(C[1], TOP, BOXW, 58, "Catalogue the record", "pointer + facets  (the ABox)")
+    s.box(C[1], TOP, BOXW, 58, "Catalogue the record", "pointer + facets  (the ABox)", rag="green")
     s.flow([(C[0], 269), (C[0], TOP), (C[1] - BOXW // 2, TOP)], "change event")
 
-    s.box(C[2], TOP, BOXW, 58, "Classify", "reads the ~100-concept scheme (TBox)")
+    s.box(C[2], TOP, BOXW, 58, "Classify", "reads content + the ~100-concept scheme", rag="green")
     s.flow([(C[1] + BOXW // 2, TOP), (C[2] - BOXW // 2, TOP)])
 
-    s.gate(C[3], TOP, "matched?")
+    s.gate(C[3], TOP, "matched?", rag="green")
     s.flow([(C[2] + BOXW // 2, TOP), (C[3] - 24, TOP)])
 
-    s.box(C[4], TOP, BOXW, 58, "Subject link at rung X", "an agent extracted this")
+    s.box(C[4], TOP, BOXW, 58, "Subject link at rung X", "replaced on a re-read", rag="green")
     s.flow([(C[3] + 24, TOP), (C[4] - BOXW // 2, TOP)], "yes")
 
-    s.box(C[4], MID, BOXW, 58, "Candidate register", "counted, not asked")
+    s.box(C[4], MID, BOXW, 58, "Candidate register", "parked; no count yet", rag="amber")
     s.flow([(C[3], TOP + 24), (C[3], MID), (C[4] - BOXW // 2, MID)], "no")
 
-    s.gate(C[5], MID, "threshold?", "a term seen once is not a concept")
+    s.gate(C[5], MID, "threshold?", "a term seen once is not a concept", rag="red")
     s.flow([(C[4] + BOXW // 2, MID), (C[5] - 24, MID)], dashed=True)
 
     s.box(C[5], PEOPLE, BOXW, 62, "STEWARD admits the term",
-          "batched \u00b7 once per term", kind=HUM, human=True, dashed=True)
+          "one at a time, never exercised", kind=HUM, human=True, rag="amber")
     s.flow([(C[5], MID + 24), (C[5], PEOPLE - 31)], "reached", dashed=True)
 
-    s.box(C[4], LOW, BOXW, 54, "Re-match what waited", "FR-1.1.5", dashed=True)
+    s.box(C[4], LOW, BOXW, 54, "Re-match what waited", "FR-1.1.5", dashed=True, rag="red")
     s.flow([(C[5] - BOXW // 2, PEOPLE), (C[4], PEOPLE), (C[4], LOW + 27)], "on admission", dashed=True)
     s.flow([(C[4] - BOXW // 2, LOW), (C[2], LOW), (C[2], TOP + 29)], dashed=True)
 
-    s.box(C[5], TOP, BOXW, 58, "Ask the OWNER", "one card \u2014 type and context")
+    s.box(C[5], TOP, BOXW, 58, "Ask the OWNER", "one card \u2014 type and context", rag="green")
     s.flow([(C[4] + BOXW // 2, TOP), (C[5] - BOXW // 2, TOP)])
 
-    s.box(C[6], PEOPLE, BOXW, 62, "OWNER confirms", "one tap \u00b7 the only way up", kind=HUM, human=True)
+    s.box(C[6], PEOPLE, BOXW, 62, "OWNER confirms", "one tap \u00b7 the only way up", kind=HUM, human=True, rag="green")
     s.flow([(C[5] + BOXW // 2, TOP), (C[6], TOP), (C[6], PEOPLE - 31)])
 
-    s.gate(C[7], PEOPLE, "approved?")
+    s.gate(C[7], PEOPLE, "approved?", rag="green")
     s.flow([(C[6] + BOXW // 2, PEOPLE), (C[7] - 24, PEOPLE)])
 
     s.event(C[7], SURFACE, "withdrawn", end=True)
     s.flow([(C[7], PEOPLE + 24), (C[7], SURFACE - 19)], "no")
 
-    s.box(C[8], TOP, BOXW, 58, "Published", "state + baseline")
+    s.box(C[8], TOP, BOXW, 58, "Published", "state + baseline", rag="green")
     s.flow([(C[7] + 24, PEOPLE), (C[8], PEOPLE), (C[8], TOP + 29)], "yes")
 
-    s.box(C[8], MID, BOXW, 58, "Project a page", "metadata only, never content")
+    s.box(C[8], MID, BOXW, 58, "Project a page", "metadata only, never content", rag="green")
     s.flow([(C[8], TOP + 29), (C[8], MID - 29)])
 
-    s.box(C[8], SURFACE, BOXW, 58, "Pages \u00b7 MCP", "browse \u00b7 agents anchor", kind=OUT)
+    s.box(C[8], SURFACE, BOXW, 58, "Pages \u00b7 MCP", "no links between pages yet", kind=OUT, rag="amber")
     s.flow([(C[8], MID + 29), (C[8], SURFACE - 29)])
 
-    s.box(C[6], SURFACE, BOXW, 58, "Copilot answers", "retrieval + the fabric\u2019s facts", kind=OUT)
+    s.box(C[6], SURFACE, BOXW, 58, "Copilot answers", "no retrieval source wired", kind=OUT, rag="amber")
     s.flow([(C[8] - BOXW // 2, SURFACE), (C[6] + BOXW // 2, SURFACE)])
 
     s.p.append(f'<text x="{W - 60}" y="{H - 24}" text-anchor="end" font-size="13" fill="#777">'
-               f'&#9673; human touchpoint &#160;&#160; &#9671; gateway &#160;&#160; dashed = not built yet</text>')
+               f'&#9673; human touchpoint &#160;&#160; &#9671; gateway</text>')
+    for i, (k, label) in enumerate((("green", "running, exercised on real records"),
+                                    ("amber", "built, unproven or partial"),
+                                    ("red", "not implemented"))):
+        y = H - 92 + i * 22
+        s.p.append(f'<circle cx="{W - 430}" cy="{y - 4}" r="7" fill="{RAG[k]}" stroke="#fff" stroke-width="2"/>')
+        s.p.append(f'<text x="{W - 412}" y="{y}" font-size="12.5" fill="#555">{esc(label)}</text>')
+    s.p.append(f'<text x="{W - 430}" y="{H - 112}" font-size="12.5" font-weight="700" fill="#333">'
+               f'Status, 9 Oct 2026 \u2014 what is true in the cloud</text>')
     s.p.append(f'<text x="60" y="{H - 24}" font-size="13" fill="#777">'
                f'Rungs: O observed &#183; S suggested &#183; X extracted &#183; C constructed &#183; '
                f'H human-confirmed &#183; D derived &#8212; only C&#183;X&#183;H answer '

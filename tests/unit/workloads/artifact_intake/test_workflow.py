@@ -474,8 +474,14 @@ def test_a_collab_item_is_fetched_by_handle_before_it_is_read():
     """A `lab` pointer carries an `art://` ref that `storage_read_artifact` takes directly. A `collab` pointer
     carries a HANDLE, which must be streamed into the upload store first — `collab_fetch` mints the ref. Two
     sources, one excerpt, and the fetch is attempted only for the source that needs it."""
-    fab = Fabric()
-    h = harness(fab, classifier=FakeAgent(CLASSIFICATION),
+    fab, seen = Fabric(), {}
+
+    class Watching(FakeAgent):
+        async def run(self, text, **kw):
+            seen["brief"] = json.loads(text)
+            return await super().run(text, **kw)
+
+    h = harness(fab, classifier=Watching(CLASSIFICATION),
                 tools={"collab_fetch": {"ref": "art://store/doc7.txt"},
                        "storage_read_artifact": {"text": "the body of doc7"}})
     try:
@@ -484,6 +490,12 @@ def test_a_collab_item_is_fetched_by_handle_before_it_is_read():
         h.close()
     assert h.router.called("collab_fetch"), "a handle must be fetched before it can be read"
     assert h.router.called("collab_fetch")[0]["handle"] == DOC["handle"]
+    # ...and the EXCERPT must actually arrive. Asserting only that the fetch happened let a real defect
+    # through: `ref_from` defaults to the key `spec_ref` while collab_fetch answers with `ref`, so it
+    # raised, `_excerpt`'s degrade-rather-than-fail `except` swallowed it, and every collab document was
+    # classified from its file name while the run reported success. A path that is DESIGNED to fail
+    # quietly needs a test that asserts the success case produces something, not that it was attempted.
+    assert "the body of doc7" in (seen.get("brief") or {}).get("excerpt", "")
 
 
 def test_no_subject_is_a_legal_answer():
