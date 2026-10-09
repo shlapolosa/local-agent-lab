@@ -483,7 +483,7 @@ def test_a_collab_item_is_fetched_by_handle_before_it_is_read():
 
     h = harness(fab, classifier=Watching(CLASSIFICATION),
                 tools={"collab_fetch": {"ref": "art://store/doc7.txt"},
-                       "storage_read_artifact": {"text": "the body of doc7"}})
+                       "storage_read_document": "the body of doc7"})
     try:
         run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
     finally:
@@ -496,6 +496,38 @@ def test_a_collab_item_is_fetched_by_handle_before_it_is_read():
     # classified from its file name while the run reported success. A path that is DESIGNED to fail
     # quietly needs a test that asserts the success case produces something, not that it was attempted.
     assert "the body of doc7" in (seen.get("brief") or {}).get("excerpt", "")
+
+
+def test_a_DOCUMENT_is_read_with_the_document_reader_not_the_artifact_one():
+    """Storage has two readers and they refuse each other's files.
+
+    `storage_read_artifact` serves .json/.xml/.svg/.xlsx/.html and REFUSES a document: measured live on
+    9 Oct 2026, every `.md` in the pilot library came back "ADR-022-….md is not an artifact; use
+    storage_read_document for an upload" — so the whole collab half of the catalogue was still being
+    classified from its file name after two sweeps that each reported 93 submitted, 0 failed.
+
+    Documents are most of what a documentation fabric catalogues, so the reader is chosen by KIND
+    (`filetypes.kind_for`), and `read_document` takes the cap directly rather than the caller slicing
+    a whole file it already paid to decode.
+    """
+    fab, seen = Fabric(), {}
+
+    class Watching(FakeAgent):
+        async def run(self, text, **kw):
+            seen["brief"] = json.loads(text)
+            return await super().run(text, **kw)
+
+    h = harness(fab, classifier=Watching(CLASSIFICATION),
+                tools={"collab_fetch": {"ref": "art://store/ADR-022.md"},
+                       "storage_read_document": "# ADR-022\nWe will retry claims intake on failure.",
+                       "storage_read_artifact": RuntimeError("the artifact reader must not be asked for a .md")})
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K"})
+    finally:
+        h.close()
+    assert "retry claims intake" in (seen.get("brief") or {}).get("excerpt", "")
+    asked = h.router.called("storage_read_document")
+    assert asked and asked[0]["max_chars"] == W.EXCERPT_CHARS, "the reader caps it, not the caller"
 
 
 def test_no_subject_is_a_legal_answer():

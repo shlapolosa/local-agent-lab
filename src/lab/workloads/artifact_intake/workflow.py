@@ -26,6 +26,7 @@ from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DECISION_RECORD, DELI
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, EXTRACTED, SUGGESTED
 from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIPT_TO_MINUTES, ApprovalKind,
                                     ApprovalTools, CollabTools, Continuation, SemanticTools, StorageTools)
+from lab.platform import filetypes
 from lab.workloads import gateway
 from lab.workloads.gates import run_gated, validator_for
 
@@ -36,7 +37,7 @@ PROCESS = ARTIFACT_INTAKE.name
 REQUIRED_TOOLS = (SemanticTools.catalog_upsert, SemanticTools.catalog_get, SemanticTools.catalog_assert,
                   SemanticTools.catalog_state, SemanticTools.vocab_link, SemanticTools.vocab_propose,
                   SemanticTools.impact, SemanticTools.embed, SemanticTools.similar, SemanticTools.edge_assert,
-                  SemanticTools.store_spec, StorageTools.read_artifact,
+                  SemanticTools.store_spec, StorageTools.read_artifact, StorageTools.read_document,
                   (ApprovalTools.ask, ("subject", "prompt", "items", "process", "kind", "fields", "answer_required",
                                        "continuation", "artifacts", "requester")))
 
@@ -77,6 +78,16 @@ async def _excerpt(cfg, pointer: dict) -> str:
             ref = gateway.ref_from(got, "ref")
         if not ref:
             return ""
+        # TWO readers, and they refuse each other's files. `read_artifact` serves .json/.xml/.svg/
+        # .xlsx/.html; a document goes to `read_document`, which also applies the cap itself rather
+        # than decoding a whole file for the caller to slice. Asking the wrong one is not a soft
+        # failure: measured 9 Oct 2026, every `.md` in the pilot library came back "is not an
+        # artifact", so the collab half of the catalogue stayed filename-classified through two
+        # sweeps that both reported success.
+        if filetypes.kind_for(ref.rsplit("/", 1)[-1]) == "document":
+            text = await gateway.call(cfg, StorageTools.read_document,
+                                      {"ref": ref, "max_chars": EXCERPT_CHARS})
+            return text if isinstance(text, str) else json.dumps(text, ensure_ascii=False)[:EXCERPT_CHARS]
         doc = await gateway.call(cfg, StorageTools.read_artifact, {"ref": ref})
         if isinstance(doc, str):
             try:
