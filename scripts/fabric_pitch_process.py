@@ -59,7 +59,24 @@ class Svg:
         self.p.append(f'<text x="{x + 36}" y="{cy + 4}" transform="rotate(-90 {x + 36} {cy})" '
                       f'text-anchor="middle" font-size="10.5" fill="#888">{esc(sub)}</text>')
 
-    def box(self, cx, cy, w, h, title, sub="", kind=SYS, dashed=False, human=False, rag=""):
+    #: What KIND of step it is, in the lab's own vocabulary: [A] an agent decides, [D] deterministic code
+    #: decides, [H] a person decides. Monochrome on purpose — the LETTER carries it, so this survives both
+    #: the RAG picture and the colourless work map, and a reader never has to ask which legend applies.
+    MODE = {"A": ("#2b2b2b", "#ffffff", "an AGENT decides \u2014 schema-validated output, gated after"),
+            "D": ("#ffffff", "#2b2b2b", "DETERMINISTIC code decides \u2014 no model in the path"),
+            "H": ("#2b2b2b", "#ffffff", "a PERSON decides \u2014 the only way knowledge moves up")}
+
+    def pill(self, cx, cy, w, h, mode):
+        """The step-kind badge, top-LEFT (status and work tags live top-right)."""
+        fill, ink, _ = self.MODE[mode]
+        x, y = cx - w / 2 + 6, cy - h / 2 - 9
+        ring = ' stroke-width="3.2"' if mode == "H" else ' stroke-width="1.5"'
+        self.p.append(f'<rect x="{x}" y="{y}" width="21" height="19" rx="9.5" fill="{fill}" '
+                      f'stroke="#2b2b2b"{ring}><title>{esc(self.MODE[mode][2])}</title></rect>')
+        self.p.append(f'<text x="{x + 10.5}" y="{y + 13.5}" text-anchor="middle" font-size="11.5" '
+                      f'font-weight="700" fill="{ink}">{mode}</text>')
+
+    def box(self, cx, cy, w, h, title, sub="", kind=SYS, dashed=False, human=False, rag="", mode=""):
         fill, edge = kind
         self.rects.append((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, title))
         dash = ' stroke-dasharray="7 4"' if dashed else ""
@@ -71,14 +88,13 @@ class Svg:
         if sub:
             self.p.append(f'<text x="{cx}" y="{cy + 15}" text-anchor="middle" font-size="11" '
                           f'fill="#555">{esc(sub)}</text>')
-        if human:
-            self.p.append(f'<text x="{cx - w/2 + 13}" y="{cy - h/2 + 18}" text-anchor="middle" font-size="15" '
-                          f'fill="#b9770e">&#9673;</text>')
+        if mode:
+            self.pill(cx, cy, w, h, mode)
         if rag:
             self.p.append(f'<circle cx="{cx + w/2 - 14}" cy="{cy - h/2 + 14}" r="7" fill="{RAG[rag]}" '
                           f'stroke="#fff" stroke-width="2"><title>{esc(RAG_WHY[rag])}</title></circle>')
 
-    def gate(self, cx, cy, label, note="", rag=""):
+    def gate(self, cx, cy, label, note="", rag="", mode="D"):
         r = 24
         self.p.append(f'<polygon points="{cx},{cy-r} {cx+r},{cy} {cx},{cy+r} {cx-r},{cy}" fill="#fff" '
                       f'stroke="#444" stroke-width="2"/>')
@@ -91,6 +107,8 @@ class Svg:
         if rag:
             self.p.append(f'<circle cx="{cx + r - 4}" cy="{cy - r + 4}" r="7" fill="{RAG[rag]}" '
                           f'stroke="#fff" stroke-width="2"><title>{esc(RAG_WHY[rag])}</title></circle>')
+        if mode:
+            self.pill(cx - r - 10, cy, 0, 2 * r, mode)
 
     def event(self, cx, cy, label, end=False):
         self.p.append(f'<circle cx="{cx}" cy="{cy}" r="19" fill="#fff" stroke="#333" '
@@ -155,33 +173,50 @@ def main(out: Path) -> None:
     s.box(C[1], TOP, BOXW, 58, "Catalogue the record", "pointer + facets  (the ABox)", rag="green")
     s.flow([(C[0], 269), (C[0], TOP), (C[1] - BOXW // 2, TOP)], "change event")
 
-    s.box(C[2], TOP, BOXW, 58, "Classify", "reads content + the ~100-concept scheme", rag="green")
+    s.box(C[2], TOP, BOXW, 58, "Classify", "reads content + the ~100-concept scheme", rag="green", mode="A")
     s.flow([(C[1] + BOXW // 2, TOP), (C[2] - BOXW // 2, TOP)])
 
     s.gate(C[3], TOP, "matched?", rag="green")
     s.flow([(C[2] + BOXW // 2, TOP), (C[3] - 24, TOP)])
 
-    s.box(C[4], TOP, BOXW, 58, "Subject link at rung X", "replaced on a re-read", rag="green")
+    s.box(C[4], TOP, BOXW, 58, "Subject link at rung X", "replaced on a re-read", rag="green", mode="D")
     s.flow([(C[3] + 24, TOP), (C[4] - BOXW // 2, TOP)], "yes")
 
-    s.box(C[4], MID, BOXW, 58, "Candidate register", "parked; no count yet", rag="amber")
+    s.box(C[4], MID, BOXW, 58, "Candidate register", "parked; no count yet", rag="amber", mode="D")
     s.flow([(C[3], TOP + 24), (C[3], MID), (C[4] - BOXW // 2, MID)], "no")
 
     s.gate(C[5], MID, "threshold?", "a term seen once is not a concept", rag="red")
     s.flow([(C[4] + BOXW // 2, MID), (C[5] - 24, MID)], dashed=True)
 
     s.box(C[5], PEOPLE, BOXW, 62, "STEWARD admits the term",
-          "one at a time, never exercised", kind=HUM, human=True, rag="amber")
+          "one at a time, never exercised", kind=HUM, rag="amber", mode="H")
     s.flow([(C[5], MID + 24), (C[5], PEOPLE - 31)], "reached", dashed=True)
 
-    s.box(C[4], LOW, BOXW, 54, "Re-match what waited", "FR-1.1.5", dashed=True, rag="red")
+    s.box(C[4], LOW, BOXW, 54, "Re-match what waited", "FR-1.1.5", dashed=True, rag="red", mode="D")
     s.flow([(C[5] - BOXW // 2, PEOPLE), (C[4], PEOPLE), (C[4], LOW + 27)], "on admission", dashed=True)
     s.flow([(C[4] - BOXW // 2, LOW), (C[2], LOW), (C[2], TOP + 29)], dashed=True)
 
-    s.box(C[5], TOP, BOXW, 58, "Ask the OWNER", "one card \u2014 type and context", rag="green")
+    # The three steps that FILL the reviewer's card. They were left off the first cut as plumbing, which
+    # was wrong about one of them: `synthesise` is a second AGENT, and the fabric DRAFTING a document is a
+    # different claim from the fabric cataloguing one. A picture that omits a capability is not a simpler
+    # picture, it is a picture of a smaller system.
+    s.box(C[5], LOW, BOXW, 54, "What this may invalidate", "impact \u00b7 trusted rungs only", rag="green", mode="D")
+    s.flow([(C[4] + BOXW // 2, TOP), (C[5] - BOXW // 2 - 18, TOP), (C[5] - BOXW // 2 - 18, LOW),
+            (C[5] - BOXW // 2, LOW)], dashed=True)
+
+    s.box(C[6], LOW, BOXW, 54, "Is it a duplicate?", "overlap \u00b7 nearest records", rag="green", mode="D")
+    s.flow([(C[5] + BOXW // 2, LOW), (C[6] - BOXW // 2, LOW)], dashed=True)
+
+    s.box(C[7], LOW, BOXW, 54, "Draft decision records", "minutes only \u2014 the fabric WRITES",
+          dashed=True, rag="amber", mode="A")
+    s.flow([(C[6] + BOXW // 2, LOW), (C[7] - BOXW // 2, LOW)], dashed=True)
+    s.flow([(C[7], LOW + 27), (C[7], PEOPLE - 40), (C[6] + BOXW // 2, PEOPLE - 40),
+            (C[6] + BOXW // 2, PEOPLE - 20)], "on the card", dashed=True)
+
+    s.box(C[5], TOP, BOXW, 58, "Ask the OWNER", "one card \u2014 type and context", rag="green", mode="D")
     s.flow([(C[4] + BOXW // 2, TOP), (C[5] - BOXW // 2, TOP)])
 
-    s.box(C[6], PEOPLE, BOXW, 62, "OWNER confirms", "one tap \u00b7 the only way up", kind=HUM, human=True, rag="green")
+    s.box(C[6], PEOPLE, BOXW, 62, "OWNER confirms", "one tap \u00b7 the only way up", kind=HUM, rag="green", mode="H")
     s.flow([(C[5] + BOXW // 2, TOP), (C[6], TOP), (C[6], PEOPLE - 31)])
 
     s.gate(C[7], PEOPLE, "approved?", rag="green")
@@ -190,20 +225,31 @@ def main(out: Path) -> None:
     s.event(C[7], SURFACE, "withdrawn", end=True)
     s.flow([(C[7], PEOPLE + 24), (C[7], SURFACE - 19)], "no")
 
-    s.box(C[8], TOP, BOXW, 58, "Published", "state + baseline", rag="green")
+    s.box(C[8], TOP, BOXW, 58, "Published", "state + baseline", rag="green", mode="D")
     s.flow([(C[7] + 24, PEOPLE), (C[8], PEOPLE), (C[8], TOP + 29)], "yes")
 
-    s.box(C[8], MID, BOXW, 58, "Project a page", "metadata only, never content", rag="green")
-    s.flow([(C[8], TOP + 29), (C[8], MID - 29)])
+    s.box(C[7], MID, BOXW, 54, "Index for search", "embeddings \u00b7 from the LINKED labels", rag="green", mode="D")
+    s.flow([(C[8] - BOXW // 2, TOP), (C[7], TOP), (C[7], MID - 27)])
+
+    s.box(C[8], MID, BOXW, 58, "Project a page", "metadata only, never content", rag="green", mode="D")
+    s.flow([(C[7] + BOXW // 2, MID), (C[8] - BOXW // 2, MID)])
 
     s.box(C[8], SURFACE, BOXW, 58, "Pages \u00b7 MCP", "no links between pages yet", kind=OUT, rag="amber")
     s.flow([(C[8], MID + 29), (C[8], SURFACE - 29)])
 
-    s.box(C[6], SURFACE, BOXW, 58, "Copilot answers", "no retrieval source wired", kind=OUT, rag="amber")
+    s.box(C[6], SURFACE, BOXW, 58, "Copilot answers", "no retrieval source wired", kind=OUT, rag="amber", mode="A")
     s.flow([(C[8] - BOXW // 2, SURFACE), (C[6] + BOXW // 2, SURFACE)])
 
+    s.p.append(f'<text x="60" y="{H - 134}" font-size="12.5" font-weight="700" fill="#333">'
+               f'What decides each step</text>')
+    for i, (m, words) in enumerate((("A", "an AGENT decides \u2014 schema-validated, gated after"),
+                                    ("D", "DETERMINISTIC \u2014 no model in the path"),
+                                    ("H", "a PERSON decides \u2014 the only way knowledge moves up"))):
+        y = H - 112 + i * 22
+        s.pill(60 + 10.5, y - 4, 21, 19, m)
+        s.p.append(f'<text x="92" y="{{y}}" font-size="12.5" fill="#555">{{esc(words)}}</text>')
     s.p.append(f'<text x="{W - 60}" y="{H - 24}" text-anchor="end" font-size="13" fill="#777">'
-               f'&#9673; human touchpoint &#160;&#160; &#9671; gateway</text>')
+               f'&#9671; gateway</text>')
     for i, (k, label) in enumerate((("green", "running, exercised on real records"),
                                     ("amber", "built, unproven or partial"),
                                     ("red", "not implemented"))):

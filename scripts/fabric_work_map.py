@@ -83,16 +83,16 @@ def main(out: Path) -> None:
     step(C[1], TOP, "Catalogue the record", "pointer + facets  (the ABox)", "done")
     s.flow([(C[0], 269), (C[0], TOP), (C[1] - BOXW // 2, TOP)], "change event")
 
-    step(C[2], TOP, "Classify", "content + the ~123-concept scheme", "done")
+    step(C[2], TOP, "Classify", "content + the ~123-concept scheme", "done", mode="A")
     s.flow([(C[1] + BOXW // 2, TOP), (C[2] - BOXW // 2, TOP)])
 
     s.gate(C[3], TOP, "matched?")
     s.flow([(C[2] + BOXW // 2, TOP), (C[3] - 24, TOP)])
 
-    step(C[4], TOP, "Subject link at rung X", "replaced on a re-read", "done")
+    step(C[4], TOP, "Subject link at rung X", "replaced on a re-read", "done", mode="D")
     s.flow([(C[3] + 24, TOP), (C[4] - BOXW // 2, TOP)], "yes")
 
-    step(C[4], MID, "Candidate register", "one row per TERM + who asked", "T2.1")
+    step(C[4], MID, "Candidate register", "one row per TERM + who asked", "T2.1", mode="D")
     s.flow([(C[3], TOP + 24), (C[3], MID), (C[4] - BOXW // 2, MID)], "no")
 
     s.gate(C[5], MID, "threshold?", "a term seen once is not a concept")
@@ -100,18 +100,31 @@ def main(out: Path) -> None:
     s.flow([(C[4] + BOXW // 2, MID), (C[5] - 24, MID)], dashed=True)
 
     step(C[5], PEOPLE, "STEWARD admits terms", "a BATCH, answered ON the card", "T2.3",
-         kind=HUM, human=True, h=62)
+         kind=HUM, h=62, mode="H")
     tag(s, C[5], PEOPLE, BOXW, 62, "T2.5")
     s.flow([(C[5], MID + 24), (C[5], PEOPLE - 31)], "reached", dashed=True)
 
-    step(C[4], LOW, "Re-match what waited", "exactly who asked — FR-1.1.5", "T2.4", dashed=True, h=54)
+    step(C[4], LOW, "Re-match what waited", "exactly who asked — FR-1.1.5", "T2.4", dashed=True, h=54, mode="D")
     s.flow([(C[5] - BOXW // 2, PEOPLE), (C[4], PEOPLE), (C[4], LOW + 27)], "on admission", dashed=True)
     s.flow([(C[4] - BOXW // 2, LOW), (C[2], LOW), (C[2], TOP + 29)], dashed=True)
 
-    step(C[5], TOP, "Ask the OWNER", "type + context, and a differing reading", "done")
+    # The three that FILL the reviewer's card, and the one in publish. Mirrored from the pitch diagram:
+    # two pictures of one process that disagree are worse than one picture.
+    step(C[5], LOW, "What this may invalidate", "impact \u00b7 trusted rungs only", "done", h=54, mode="D")
+    s.flow([(C[4] + BOXW // 2, TOP), (C[5] - BOXW // 2 - 18, TOP), (C[5] - BOXW // 2 - 18, LOW),
+            (C[5] - BOXW // 2, LOW)], dashed=True)
+    step(C[6], LOW, "Is it a duplicate?", "overlap \u00b7 nearest records", "done", h=54, mode="D")
+    s.flow([(C[5] + BOXW // 2, LOW), (C[6] - BOXW // 2, LOW)], dashed=True)
+    step(C[7], LOW, "Draft decision records", "minutes only \u2014 the fabric WRITES", "done",
+         dashed=True, h=54, mode="A")
+    s.flow([(C[6] + BOXW // 2, LOW), (C[7] - BOXW // 2, LOW)], dashed=True)
+    s.flow([(C[7], LOW + 27), (C[7], PEOPLE - 40), (C[6] + BOXW // 2, PEOPLE - 40),
+            (C[6] + BOXW // 2, PEOPLE - 20)], "on the card", dashed=True)
+
+    step(C[5], TOP, "Ask the OWNER", "type + context, and a differing reading", "done", mode="D")
     s.flow([(C[4] + BOXW // 2, TOP), (C[5] - BOXW // 2, TOP)])
 
-    step(C[6], PEOPLE, "OWNER confirms", "one tap · the only way up", "done", kind=HUM, human=True, h=62)
+    step(C[6], PEOPLE, "OWNER confirms", "one tap · the only way up", "done", kind=HUM, h=62, mode="H")
     s.flow([(C[5] + BOXW // 2, TOP), (C[6], TOP), (C[6], PEOPLE - 31)])
 
     s.gate(C[7], PEOPLE, "approved?")
@@ -120,21 +133,31 @@ def main(out: Path) -> None:
     s.event(C[7], SURFACE, "withdrawn", end=True)
     s.flow([(C[7], PEOPLE + 24), (C[7], SURFACE - 19)], "no")
 
-    step(C[8], TOP, "Published", "state + baseline", "done")
+    step(C[8], TOP, "Published", "state + baseline", "done", mode="D")
     s.flow([(C[7] + 24, PEOPLE), (C[8], PEOPLE), (C[8], TOP + 29)], "yes")
 
-    step(C[8], MID, "Project a page", "+ its link on the record", "done")
-    s.flow([(C[8], TOP + 29), (C[8], MID - 29)])
+    step(C[7], MID, "Index for search", "embeddings \u00b7 from the LINKED labels", "done", h=54, mode="D")
+    s.flow([(C[8] - BOXW // 2, TOP), (C[7], TOP), (C[7], MID - 27)])
+    step(C[8], MID, "Project a page", "+ its link on the record", "done", mode="D")
+    s.flow([(C[7] + BOXW // 2, MID), (C[8] - BOXW // 2, MID)])
 
     step(C[8], SURFACE, "Pages · corpus map · MCP", "pages do not link to each other yet", "T3.3", kind=OUT)
     s.flow([(C[8], MID + 29), (C[8], SURFACE - 29)])
 
-    step(C[6], SURFACE, "Copilot answers", "custody by URL + a retrieval source", "T3.2", kind=OUT)
+    step(C[6], SURFACE, "Copilot answers", "custody by URL + a retrieval source", "T3.2", kind=OUT, mode="A")
     tag(s, C[6], SURFACE, BOXW, 58, "T3.1")
     s.flow([(C[8] - BOXW // 2, SURFACE), (C[6] + BOXW // 2, SURFACE)])
 
+    s.p.append(f'<text x="60" y="{H - 134}" font-size="12.5" font-weight="700" fill="#333">'
+               f'What decides each step</text>')
+    for i, (m, words) in enumerate((("A", "an AGENT decides \u2014 schema-validated, gated after"),
+                                    ("D", "DETERMINISTIC \u2014 no model in the path"),
+                                    ("H", "a PERSON decides \u2014 the only way knowledge moves up"))):
+        y = H - 112 + i * 22
+        s.pill(60 + 10.5, y - 4, 21, 19, m)
+        s.p.append(f'<text x="92" y="{{y}}" font-size="12.5" fill="#555">{{esc(words)}}</text>')
     s.p.append(f'<text x="{W - 60}" y="{H - 24}" text-anchor="end" font-size="13" fill="#777">'
-               f'&#9673; human touchpoint &#160;&#160; &#9671; gateway</text>')
+               f'&#9671; gateway</text>')
     s.p.append(f'<text x="{W - 560}" y="{H - 132}" font-size="12.5" font-weight="700" fill="#333">'
                f'The work, by stage — 10 Oct 2026</text>')
     for i, (stage, words) in enumerate((("done", "shipped and exercised on real records"),
