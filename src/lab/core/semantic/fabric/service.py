@@ -554,6 +554,32 @@ class FabricService:
         return {"iri": str(c), "label": label.strip(), "scheme": scheme, "concept_id": concept_id,
                 "module": module, "held_by": ""}
 
+    def vocab_asked(self, candidate: str, *, request_id: str = "") -> dict:
+        """Record that a steward HAS BEEN ASKED about this term, so nobody asks twice.
+
+        `fab:InReview` — the lifecycle already had the word, and the candidate already uses `Published`
+        for admitted and `Withdrawn` for declined. Pending -> InReview -> answered is the same ladder the
+        artifacts climb, which is one vocabulary rather than two.
+
+        It lives HERE, in the register, and not in the process that asked: a set in memory forgot every
+        open question on restart and raised a second card for the same terms — 71 cards became 101 in one
+        afternoon. It is also not derived from the approval surface, which was the first attempt and was
+        wrong: `approvals_list` returns a TRIAGE brief with no `context`, so the terms a card covers are
+        not readable from it, and a check against it would have passed every test and found nothing live."""
+        c = URIRef(candidate)
+        g = self.ds.graph(CANDIDATES_GRAPH)
+        if (c, RDF.type, SKOS.Concept) not in g:
+            raise LookupError(f"no candidate {candidate}")
+        if g.value(c, FAB.lifecycleState) is not None:
+            return {"iri": candidate, "asked": False, "already": True}   # answered, or already asked
+        added = [(c, FAB.lifecycleState, FAB.InReview)]
+        if request_id:
+            added.append((c, FAB.askedIn, Literal(request_id)))
+        for t in added:
+            g.add(t)
+        self._persist(("candidates",), lambda: [g.remove(t) for t in added])
+        return {"iri": candidate, "asked": True, "request_id": request_id}
+
     def vocab_decline(self, candidate: str, *, actor: str, reason: str = "") -> dict:
         """A steward's NO about a term, recorded where it survives the process that heard it.
 
@@ -753,6 +779,7 @@ class FabricService:
             # the concept re-matches exactly these (FR-1.1.5) instead of the whole catalogue. A row from
             # before this existed names none, and is still one proposal — it was proposed at least once.
             for_them = sorted(str(o) for o in g.objects(node, FAB.proposedFor))
+            asked = state == FAB.InReview
             out.append({"iri": str(node), "label": label, "scheme": name,
                         "concept_id": str(g.value(node, FAB.candidateId) or ""),
                         "definition": str(g.value(node, SKOS.definition) or ""),
@@ -763,6 +790,7 @@ class FabricService:
                         # exactly this regression passed throughout, because it asserted on an ABSENT count
                         # while the derivation was busy inventing one.
                         "proposed_for": for_them, "proposals": len(for_them) if for_them else None,
+                        "asked": asked,
                         "proposed_by": str(g.value(node, G.PROV.wasAttributedTo) or "")})
         return sorted(out, key=lambda c: c["label"])
 

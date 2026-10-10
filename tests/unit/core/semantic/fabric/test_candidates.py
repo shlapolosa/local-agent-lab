@@ -144,3 +144,20 @@ def test_a_row_from_before_the_count_existed_reports_NO_count_not_a_count_of_one
     g.remove((URIRef(row["iri"]), FAB.proposedFor, None))      # the shape every legacy row has
     legacy = _only(fab)
     assert legacy["proposals"] is None and legacy["proposed_for"] == []
+
+
+def test_being_ASKED_is_recorded_on_the_candidate_and_is_idempotent(fab):
+    """`fab:InReview` — Pending -> InReview -> Published|Withdrawn, the same ladder the artifacts climb.
+    Idempotent because a tick that raised the card and failed to mark it will try again, and a candidate
+    a steward has already ANSWERED must not be dragged back to "asked"."""
+    fab.vocab_propose("Knowledge Agent", actor="a", scheme="syn-v1", proposed_for=A1)
+    row = _only(fab)
+    assert row["asked"] is False
+    assert fab.vocab_asked(row["iri"], request_id="apr-1")["asked"] is True
+    assert _only(fab)["asked"] is True                      # still VISIBLE: asked is not hidden
+    assert fab.vocab_asked(row["iri"])["already"] is True    # twice is not an error
+
+    fab.vocab_decline(row["iri"], actor="s@x", reason="no")
+    assert fab.vocab_asked(row["iri"])["already"] is True    # an answered candidate is not re-asked
+    with pytest.raises(LookupError):
+        fab.vocab_asked("urn:fabric:candidate:nope")

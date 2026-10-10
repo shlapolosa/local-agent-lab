@@ -183,7 +183,7 @@ def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
         print(f"[reconciler] sweep failed: {type(e).__name__}: {e}", flush=True)
     try:    # the steward's questions ride the same cadence: nothing else raises them, and an ambiguity that
             # nobody is asked about is one no document can be linked through, indefinitely and silently
-        raised = asyncio.run(fabric_vocabulary.ask_open(call=call, seen=_ASKED))
+        raised = asyncio.run(fabric_vocabulary.ask_open(call=call))
         if raised:
             print(f"[reconciler] asked a steward about {len(raised)} ambiguity(ies): "
                   f"{[r['term'] for r in raised]}", flush=True)

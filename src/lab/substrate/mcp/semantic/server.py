@@ -580,6 +580,19 @@ def semantic_view_corpus(state: str = "", limit: int = 2000) -> dict:
 
 
 @server.tool()
+def semantic_vocab_asked(candidate: str, request_id: str = "") -> dict:
+    """Record that a steward has ALREADY BEEN ASKED about this term, so the next tick does not ask again.
+
+    `fab:InReview`, the word the lifecycle already had. Kept in the REGISTER rather than in the memory of
+    whichever process asked: that memory was a set, it emptied on every restart, and the open cards went
+    from 71 to 101 in one afternoon while nobody decided anything. Idempotent — a candidate already asked
+    about, admitted or declined is left exactly as it is, and says so."""
+    out = fabric().vocab_asked(candidate, request_id=request_id)
+    span().set_attributes({"fabric.candidate": candidate})
+    return out
+
+
+@server.tool()
 def semantic_vocab_decline(candidate: str, actor: str, reason: str = "") -> dict:
     """Record a STEWARD'S NO about a candidate term, so nobody is asked about it again.
 

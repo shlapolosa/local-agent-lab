@@ -50,6 +50,7 @@ fab:duplicateOf     a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range
 fab:ownedBy         a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Person .
 fab:documentType    a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:DocumentType .
 fab:sensitivityLabel a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
+fab:askedIn         a owl:DatatypeProperty ; rdfs:comment "the approval a candidate was asked in" .
 fab:lifecycleState  a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:LifecycleState .
 fab:baselineVersion a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
 fab:producedBy      a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string ;

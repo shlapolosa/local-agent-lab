@@ -188,6 +188,11 @@ def batch_question(candidates: list[dict]) -> list[dict]:
     return out
 
 
+def _unanswered(candidate: dict) -> bool:
+    """Not yet put to a steward. `asked` is the register's own `fab:InReview`, so it survives a restart."""
+    return not candidate.get("asked")
+
+
 def _wanted_enough(candidate: dict, threshold: int) -> bool:
     """Whether this term has been asked for often enough to be worth a steward's attention.
 
@@ -210,7 +215,12 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
     asked about — asking the same conflict every sweep would bury the approvals that need somebody, exactly as
     an undecided backlog does to a channel, and a conflict stays open until a person answers it."""
     go = call or fabric_gateway.call
-    seen = set() if seen is None else seen
+    # A caller may still pass `seen` to add to what the GATE knows — the reconciler no longer does, and
+    # that parameter exists now only for a driver narrowing one tick's work, never as the memory.
+    # The REGISTER says what has been asked (`asked`, from `fab:InReview`), because a set in this process
+    # forgot every open question on restart and raised a second card for the same terms. `seen` remains for
+    # a caller narrowing one tick's work, and is never the memory.
+    seen = set() if seen is None else set(seen)
     conflicts, candidates = [_read(x) for x in await go([(SemanticTools.vocab_conflicts, {}),
                                                         (SemanticTools.vocab_candidates, {})])]
     # filter THEN slice: slicing first means that once the first `limit` conflicts have been asked about,
@@ -221,7 +231,7 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
     # steward may read the parked set whenever they choose. Bounding what is VISIBLE rather than what is
     # pushed would turn "parked" into "hidden", which is the defect this layer keeps producing in new places.
     want = config.FABRIC_CANDIDATE_THRESHOLD if threshold is None else threshold
-    wanted = _fresh([c for c in candidates if _wanted_enough(c, want)], seen, limit)
+    wanted = _fresh([c for c in candidates if _unanswered(c) and _wanted_enough(c, want)], seen, limit)
     if batch and wanted:
         # ONE card for every term at once. A card per candidate produced 101 open approvals against ~37 of
         # everything else (measured 10 Oct 2026), which buries the owner's questions and the steward's alike.
@@ -237,7 +247,9 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
                                        for c in wanted]},
             "process": "documentation-fabric"})]))[0]
         got = json.loads(got) if isinstance(got, str) else (got or {})
-        for c in wanted:
+        for c in wanted:                       # the REGISTER remembers, not this process
+            await go([(SemanticTools.vocab_asked, {"candidate": str(c.get("iri") or ""),
+                                                   "request_id": str(got.get("request_id") or "")})])
             seen.add(str(c.get("iri") or ""))
         raised += [{**c, "request_id": str(got.get("request_id") or "")} for c in wanted]
         wanted = []

@@ -81,6 +81,7 @@ class SemanticTools(ToolCatalogue):
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
     vocab_decline = "semantic_vocab_decline"       # ...and a PERSON'S NO about a term, recorded so it sticks
+    vocab_asked = "semantic_vocab_asked"           # a term a steward HAS been asked about — so nobody asks twice
     # The CAFÉ views, one per step the CAFÉ bundle places one at — each read under the caller's pin
     # and stored as an HTML page, by ref (they replaced the ArchiMate/draw.io views, 29 Sep 2026).
     view_capabilities = "semantic_view_capabilities"     # step 5: the capability map, impact-filled
@@ -102,7 +103,7 @@ class SemanticTools(ToolCatalogue):
             catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
             topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
-                vocab_propose, embed, derive)
+                vocab_propose, vocab_asked, embed, derive)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.

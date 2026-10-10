@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from lab.platform.contracts import ApprovalKind, SemanticTools
+from lab.platform.contracts import ApprovalTools, ApprovalKind, SemanticTools
 from lab.substrate import answer_appliers, fabric_vocabulary as V
 
 CANDIDATE = "urn:fabric:candidate:01J9X5K7QZ3M8N2P4R6T8V0W1Y"
@@ -141,7 +141,9 @@ def test_the_eleventh_thing_to_settle_is_not_lost_behind_the_first_ten():
             for i in range(12)]
 
     async def call(calls):
-        return [rows if t == SemanticTools.vocab_conflicts else [] if t == SemanticTools.vocab_candidates
+        return [rows if t == SemanticTools.vocab_conflicts
+                else [] if t == SemanticTools.vocab_candidates
+                else {"asked": True} if t == SemanticTools.vocab_asked   # the register remembers (T2.6)
                 else {"request_id": "apr-1"} for t, _ in calls]
 
     seen = {r["iri"] for r in rows[:10]}
@@ -184,6 +186,8 @@ def test_a_term_asked_for_ONCE_is_parked_rather_than_put_to_a_steward():
                              "proposals": 1, "proposed_for": ["a"]}])
             elif name == SemanticTools.vocab_conflicts:
                 out.append([])
+            elif name == SemanticTools.vocab_asked:
+                out.append({"asked": True})            # the register remembers (T2.6)
             else:
                 asked.append(args)
                 out.append({"request_id": f"apr-{len(asked)}"})
@@ -207,6 +211,8 @@ def test_a_candidate_from_before_the_count_existed_is_still_asked_about():
                 out.append([{"iri": "urn:fabric:candidate:9", "label": "Legacy", "scheme": "cafe"}])
             elif name == SemanticTools.vocab_conflicts:
                 out.append([])
+            elif name == SemanticTools.vocab_asked:
+                out.append({"asked": True})            # the register remembers (T2.6)
             else:
                 out.append({"request_id": "apr-9"})
         return out
@@ -239,6 +245,8 @@ def test_the_steward_is_asked_about_many_terms_on_ONE_card():
                                                             ("Seen once", 1)))])
             elif name == SemanticTools.vocab_conflicts:
                 out.append([])
+            elif name == SemanticTools.vocab_asked:
+                out.append({"asked": True})            # the register remembers (T2.6)
             else:
                 asked.append(args)
                 out.append({"request_id": "apr-batch"})
@@ -269,6 +277,8 @@ def test_the_batch_card_offers_the_commonest_answer_as_a_PICK():
                              "scheme": "cafe", "proposals": 2, "proposed_for": ["a", "b"]}])
             elif name == SemanticTools.vocab_conflicts:
                 out.append([])
+            elif name == SemanticTools.vocab_asked:
+                out.append({"asked": True})            # the register remembers (T2.6)
             else:
                 out.append({"request_id": "apr-batch", "args": args})
                 call.card = args
@@ -400,3 +410,60 @@ def test_a_term_nobody_is_recorded_as_having_asked_for_admits_without_propagatin
         "answer": {"urn:fabric:candidate:9": {"value": "admit"}}}
     asyncio.run(V.apply(state, "steward@x", call=call))
     assert SemanticTools.promote in seen and SemanticTools.edge_assert not in seen
+
+
+# ------------------------- T2.6: what has already been asked is a FACT in the register, not a memory
+def _cands(*rows):
+    return [{"iri": f"urn:fabric:candidate:{i}", "label": l, "scheme": "cafe", "proposals": 2,
+             "proposed_for": ["a", "b"], "asked": asked} for i, (l, asked) in enumerate(rows)]
+
+
+def _gw(candidates):
+    marked = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            if name == SemanticTools.vocab_candidates:
+                out.append(candidates)
+            elif name == SemanticTools.vocab_conflicts:
+                out.append([])
+            elif name == SemanticTools.vocab_asked:
+                marked.append(args["candidate"])
+                out.append({"asked": True})
+            else:
+                out.append({"request_id": "apr-batch"})
+        return out
+    call.marked = marked
+    return call
+
+
+def test_a_candidate_already_PUT_to_a_steward_is_not_asked_about_again():
+    """The leak that took 71 cards to 101 in an afternoon, still breathing after the durable decline
+    closed its other half: `seen` was a set in the PROCESS, so a restart forgot every open question and
+    raised a second card for the same terms.
+
+    The answer is not to remember harder, it is to stop remembering here. `fab:InReview` is the word the
+    lifecycle already had — Pending -> InReview -> Published|Withdrawn is the same ladder the artifacts
+    climb — so the register says what has been asked and the register outlives every process.
+
+    NOT derived from the approval surface, which was the first attempt and was wrong: `approvals_list`
+    returns a TRIAGE brief with no `context`, so the terms a card covers cannot be read back from it. That
+    version passed every test I wrote for it and would have found nothing live — both ends agreeing with
+    each other and not with reality."""
+    call = _gw(_cands(("Already asked", True), ("Brand new", False)))
+    made = asyncio.run(V.ask_open(call=call, threshold=2))
+    assert [m["label"] for m in made] == ["Brand new"]
+    assert call.marked == ["urn:fabric:candidate:1"]       # and the new one is now remembered
+
+
+def test_asking_MARKS_every_term_on_the_card_so_a_restart_repeats_none_of_them():
+    call = _gw(_cands(("One", False), ("Two", False), ("Three", False)))
+    asyncio.run(V.ask_open(call=call, threshold=2))
+    assert sorted(call.marked) == [f"urn:fabric:candidate:{i}" for i in range(3)]
+
+
+def test_when_everything_has_been_asked_no_card_is_raised_at_all():
+    call = _gw(_cands(("One", True), ("Two", True)))
+    assert asyncio.run(V.ask_open(call=call, threshold=2)) == []
+    assert call.marked == []
