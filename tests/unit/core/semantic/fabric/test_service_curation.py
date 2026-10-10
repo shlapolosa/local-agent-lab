@@ -202,10 +202,17 @@ def test_one_ambiguity_is_one_decision_however_it_is_spelled(fab):
 
 def test_admitting_the_same_concept_twice_admits_it_once(fab):
     """A redrive of a decision whose first attempt landed, or a steward answering twice. Raising would leave
-    the approval permanently stuck behind a confusing error."""
+    the approval permanently stuck behind a confusing error.
+
+    The SAME candidate is promoted twice, which is what a redrive actually replays. It used to be set up by
+    proposing the term a second time; that no longer mints anything, because once the scheme holds the word
+    `vocab_propose` reports who holds it instead of parking a duplicate — asserted below, since it is the
+    other half of the same guarantee."""
     c = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
     first = fab.promote(c["iri"], actor="s@x", method="review")
-    again = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
-    second = fab.promote(again["iri"], actor="s@x", method="review")
+    second = fab.promote(c["iri"], actor="s@x", method="review")
     assert first["concept_id"] == second["concept_id"] == "ModelCard" and second.get("already") is True
     assert len([c for c in fab.scheme.live() if c["label"] == "Model card"]) == 1
+    # ...and the word now MEANS something, so proposing it again is answered, not parked
+    again = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
+    assert again["held_by"] == "cafe" and "iri" not in again

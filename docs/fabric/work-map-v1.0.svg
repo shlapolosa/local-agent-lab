@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2420 1000" width="2420" height="1000" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#666"/></marker></defs>
+<rect width="2420" height="1000" fill="#fff"/>
+<text x="60" y="40" font-size="26" font-weight="700" fill="#222">The Documentation Fabric — where the work is</text>
+<text x="60" y="62" font-size="14" font-style="italic" fill="#555">The same process, tagged with the plan’s own task names. No status colours: a step is done, being done, next, or later — stages of one piece of work, not a health report.</text>
+<rect x="50" y="70" width="2320" height="110" fill="#fafafa" stroke="#c9c9c9"/>
+<text x="70" y="119.0" transform="rotate(-90 70 125.0)" text-anchor="middle" font-size="15" font-weight="700" fill="#555">AUTHOR</text>
+<text x="86" y="129.0" transform="rotate(-90 86 125.0)" text-anchor="middle" font-size="10.5" fill="#888">writes where they already work</text>
+<rect x="50" y="180" width="2320" height="120" fill="#fafafa" stroke="#c9c9c9"/>
+<text x="70" y="234.0" transform="rotate(-90 70 240.0)" text-anchor="middle" font-size="15" font-weight="700" fill="#555">SYSTEMS OF RECORD</text>
+<text x="86" y="244.0" transform="rotate(-90 86 240.0)" text-anchor="middle" font-size="10.5" fill="#888">SharePoint · ADO · APIM · EA — content stays here</text>
+<rect x="50" y="300" width="2320" height="340" fill="#fafafa" stroke="#c9c9c9"/>
+<text x="70" y="464.0" transform="rotate(-90 70 470.0)" text-anchor="middle" font-size="15" font-weight="700" fill="#555">THE FABRIC</text>
+<text x="86" y="474.0" transform="rotate(-90 86 470.0)" text-anchor="middle" font-size="10.5" fill="#888">pointers, facets, relations — and how each fact is known</text>
+<rect x="50" y="640" width="2320" height="150" fill="#fafafa" stroke="#c9c9c9"/>
+<text x="70" y="709.0" transform="rotate(-90 70 715.0)" text-anchor="middle" font-size="15" font-weight="700" fill="#555">OWNER · STEWARD</text>
+<text x="86" y="719.0" transform="rotate(-90 86 715.0)" text-anchor="middle" font-size="10.5" fill="#888">two questions, two different people</text>
+<rect x="50" y="790" width="2320" height="130" fill="#fafafa" stroke="#c9c9c9"/>
+<text x="70" y="849.0" transform="rotate(-90 70 855.0)" text-anchor="middle" font-size="15" font-weight="700" fill="#555">RESEARCHERS · AGENTS</text>
+<text x="86" y="859.0" transform="rotate(-90 86 855.0)" text-anchor="middle" font-size="10.5" fill="#888">find, browse, anchor</text>
+<circle cx="260" cy="125" r="19" fill="#fff" stroke="#333" stroke-width="2"/>
+<text x="260" y="130" text-anchor="middle" font-size="13" fill="#333">&#9654;</text>
+<text x="260" y="161" text-anchor="middle" font-size="11" fill="#333">writes a document</text>
+<rect x="155.0" y="211.0" width="210" height="58" rx="7" fill="#ededed" stroke="#777777" stroke-width="2"/>
+<text x="260" y="236" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Stored where it lives</text>
+<text x="260" y="255" text-anchor="middle" font-size="11" fill="#555">SharePoint · ADO · APIM — never copied</text>
+<rect x="313.6" y="202.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="336.3" y="215.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M260,144 L260,211" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<rect x="405.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="510" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Catalogue the record</text>
+<text x="510" y="390" text-anchor="middle" font-size="11" fill="#555">pointer + facets  (the ABox)</text>
+<rect x="563.6" y="337.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="586.3000000000001" y="350.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M260,269 L260,375 L405,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="332.5" y="368.0" text-anchor="middle" font-size="11" fill="#666">change event</text>
+<rect x="655.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="760" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Classify</text>
+<text x="760" y="390" text-anchor="middle" font-size="11" fill="#555">content + the ~123-concept scheme</text>
+<rect x="813.6" y="337.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="836.3000000000001" y="350.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M615,375 L655,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<polygon points="1010,351 1034,375 1010,399 986,375" fill="#fff" stroke="#444" stroke-width="2"/>
+<text x="1010" y="380" text-anchor="middle" font-size="15" fill="#555">?</text>
+<text x="1010" y="343" text-anchor="middle" font-size="12" font-weight="700" fill="#333">matched?</text>
+<path d="M865,375 L986,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1155.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="1260" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Subject link at rung X</text>
+<text x="1260" y="390" text-anchor="middle" font-size="11" fill="#555">replaced on a re-read</text>
+<rect x="1313.6" y="337.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="1336.3" y="350.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M1034,375 L1155,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1094.5" y="368.0" text-anchor="middle" font-size="11" fill="#666">yes</text>
+<rect x="1155.0" y="476.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="1260" y="501" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Candidate register</text>
+<text x="1260" y="520" text-anchor="middle" font-size="11" fill="#555">one row per TERM + who asked</text>
+<rect x="1313.6" y="467.0" width="45.4" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="1.5"><title>T2.1 — one row per term: dedup, count, the artifacts that proposed it (doing)</title></rect>
+<text x="1336.3" y="480.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">T2.1</text>
+<path d="M1010,399 L1010,505 L1155,505" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1082.5" y="498.0" text-anchor="middle" font-size="11" fill="#666">no</text>
+<polygon points="1510,481 1534,505 1510,529 1486,505" fill="#fff" stroke="#444" stroke-width="2"/>
+<text x="1510" y="510" text-anchor="middle" font-size="15" fill="#555">?</text>
+<text x="1510" y="473" text-anchor="middle" font-size="12" font-weight="700" fill="#333">threshold?</text>
+<text x="1510" y="546" text-anchor="middle" font-size="10" fill="#777">a term seen once is not a concept</text>
+<rect x="1486.6" y="468.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>T2.2 — a frequency threshold before a miss becomes a question (next)</title></rect>
+<text x="1509.3" y="481.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">T2.2</text>
+<path d="M1365,505 L1486,505" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
+<rect x="1405.0" y="674.0" width="210" height="62" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
+<text x="1510" y="701" text-anchor="middle" font-size="14" font-weight="700" fill="#222">STEWARD admits terms</text>
+<text x="1510" y="720" text-anchor="middle" font-size="11" fill="#555">a BATCH, by how often asked</text>
+<text x="1418.0" y="692.0" text-anchor="middle" font-size="15" fill="#b9770e">&#9673;</text>
+<rect x="1563.6" y="667.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>T2.3 — batch admission — one card, N candidates (next)</title></rect>
+<text x="1586.3" y="680.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">T2.3</text>
+<path d="M1510,529 L1510,674" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
+<text x="1510.0" y="594.5" text-anchor="middle" font-size="11" fill="#666">reached</text>
+<rect x="1155.0" y="573.0" width="210" height="54" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="1260" y="596" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Re-match what waited</text>
+<text x="1260" y="615" text-anchor="middle" font-size="11" fill="#555">exactly who asked — FR-1.1.5</text>
+<rect x="1313.6" y="562.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>T2.4 — re-match exactly the artifacts that asked (FR-1.1.5) (next)</title></rect>
+<text x="1336.3" y="575.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">T2.4</text>
+<path d="M1405,705 L1260,705 L1260,627" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
+<text x="1260.0" y="659.0" text-anchor="middle" font-size="11" fill="#666">on admission</text>
+<path d="M1155,600 L760,600 L760,404" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
+<rect x="1405.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="1510" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Ask the OWNER</text>
+<text x="1510" y="390" text-anchor="middle" font-size="11" fill="#555">type + context, and a differing reading</text>
+<rect x="1563.6" y="337.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="1586.3" y="350.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M1365,375 L1405,375" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1655.0" y="674.0" width="210" height="62" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
+<text x="1760" y="701" text-anchor="middle" font-size="14" font-weight="700" fill="#222">OWNER confirms</text>
+<text x="1760" y="720" text-anchor="middle" font-size="11" fill="#555">one tap · the only way up</text>
+<text x="1668.0" y="692.0" text-anchor="middle" font-size="15" fill="#b9770e">&#9673;</text>
+<rect x="1813.6" y="667.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="1836.3" y="680.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M1615,375 L1760,375 L1760,674" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<polygon points="2010,681 2034,705 2010,729 1986,705" fill="#fff" stroke="#444" stroke-width="2"/>
+<text x="2010" y="710" text-anchor="middle" font-size="15" fill="#555">?</text>
+<text x="2010" y="673" text-anchor="middle" font-size="12" font-weight="700" fill="#333">approved?</text>
+<path d="M1865,705 L1986,705" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<circle cx="2010" cy="862" r="19" fill="#fff" stroke="#333" stroke-width="4"/>
+<text x="2010" y="867" text-anchor="middle" font-size="13" fill="#333">&#9632;</text>
+<text x="2010" y="898" text-anchor="middle" font-size="11" fill="#333">withdrawn</text>
+<path d="M2010,729 L2010,843" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="2010.0" y="779.0" text-anchor="middle" font-size="11" fill="#666">no</text>
+<rect x="2155.0" y="346.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="2260" y="371" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Published</text>
+<text x="2260" y="390" text-anchor="middle" font-size="11" fill="#555">state + baseline</text>
+<rect x="2313.6" y="337.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="2336.2999999999997" y="350.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M2034,705 L2260,705 L2260,404" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="2260.0" y="547.5" text-anchor="middle" font-size="11" fill="#666">yes</text>
+<rect x="2155.0" y="476.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
+<text x="2260" y="501" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Project a page</text>
+<text x="2260" y="520" text-anchor="middle" font-size="11" fill="#555">+ its link on the record</text>
+<rect x="2313.6" y="467.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"><title>done — already running (done)</title></rect>
+<text x="2336.2999999999997" y="480.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<path d="M2260,404 L2260,476" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<rect x="2155.0" y="833.0" width="210" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="2260" y="858" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Pages · corpus map · MCP</text>
+<text x="2260" y="877" text-anchor="middle" font-size="11" fill="#555">pages do not link to each other yet</text>
+<rect x="2313.6" y="824.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#bdbdbd" stroke-width="1.5" stroke-dasharray="4 3"><title>T3.3 — linked projection pages (corpus page: done today) (later)</title></rect>
+<text x="2336.2999999999997" y="837.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8a8a8a">T3.3</text>
+<path d="M2260,534 L2260,833" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1655.0" y="833.0" width="210" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="1760" y="858" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Copilot answers</text>
+<text x="1760" y="877" text-anchor="middle" font-size="11" fill="#555">custody by URL + a retrieval source</text>
+<rect x="1813.6" y="824.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#bdbdbd" stroke-width="1.5" stroke-dasharray="4 3"><title>T3.2 — SharePoint knowledge source + agent instructions (later)</title></rect>
+<text x="1836.3" y="837.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8a8a8a">T3.2</text>
+<rect x="1813.6" y="824.0" width="45.4" height="19" rx="9.5" fill="#ffffff" stroke="#bdbdbd" stroke-width="1.5" stroke-dasharray="4 3"><title>T3.1 — custody lookup by URL — FR-4.1.4 (later)</title></rect>
+<text x="1836.3" y="837.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8a8a8a">T3.1</text>
+<path d="M2155,862 L1865,862" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="2360" y="976" text-anchor="end" font-size="13" fill="#777">&#9673; human touchpoint &#160;&#160; &#9671; gateway</text>
+<text x="1860" y="868" font-size="12.5" font-weight="700" fill="#333">The work, by stage — 10 Oct 2026</text>
+<rect x="1860" y="875" width="52" height="19" rx="9.5" fill="#ffffff" stroke="#9aa0a6" stroke-width="1.5"/>
+<text x="1886" y="888" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5f6368">done</text>
+<text x="1922" y="888" font-size="12.5" fill="#555">shipped and exercised on real records</text>
+<rect x="1860" y="897" width="52" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="1.5"/>
+<text x="1886" y="910" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">doing</text>
+<text x="1922" y="910" font-size="12.5" fill="#555">in hand right now</text>
+<rect x="1860" y="919" width="52" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"/>
+<text x="1886" y="932" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">next</text>
+<text x="1922" y="932" font-size="12.5" fill="#555">the rest of Phase 2</text>
+<rect x="1860" y="941" width="52" height="19" rx="9.5" fill="#ffffff" stroke="#bdbdbd" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="1886" y="954" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8a8a8a">later</text>
+<text x="1922" y="954" font-size="12.5" fill="#555">Phase 3 and Phase 5</text>
+<text x="60" y="976" font-size="13" fill="#777">Tags are the plan’s task names — hover a tag for what it is.</text>
+</svg>

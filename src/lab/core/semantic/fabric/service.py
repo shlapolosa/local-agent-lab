@@ -45,6 +45,12 @@ PERSON = "urn:fabric:person:"
 _IRI = re.compile(r"^(urn:[a-z0-9][a-z0-9-]*:|[a-z][a-z0-9+.-]*://)\S+$", re.I)
 
 
+def _norm(label: str) -> str:
+    """A label as it is MATCHED: case-folded with internal whitespace collapsed. Spelling is a person's;
+    sameness is not — `Decision record`, `Decision Record` and `  decision   record ` are one question."""
+    return " ".join(str(label or "").split()).casefold()
+
+
 def term(value: Any) -> URIRef | Literal:
     """A tool argument as an RDF term: an IRI when it reads as one (`_IRI`), a typed literal otherwise."""
     if isinstance(value, (URIRef, Literal)):
@@ -457,10 +463,54 @@ class FabricService:
         return {"linked": linked, "missed": missed, "conflicts": conflicts,
                 "retracted": [str(o) for _r, o in stale]}
 
+    def _held_by(self, label: str) -> str:
+        """The vocabulary that ALREADY holds this term, by preferred or alternative label — or "".
+
+        Checked across EVERY vocabulary, which is the half that was missing. A candidate used to be closed
+        only when its OWN scheme found the label, so a term parked under one scheme was never checked
+        against another: measured 10 Oct 2026, 25 of 71 open cards were for terms the doc-types scheme
+        already held — `Decision record` asked twelve times, `Meeting minutes` six. The classifier had
+        confused what a document IS with what it is ABOUT, and the register repeated the confusion once per
+        document instead of catching it once."""
+        want = _norm(label)
+        for iri, t in self.doc_types.types().items():
+            if want in {_norm(t["label"]), *(_norm(a) for a in t["alt"])}:
+                return self.doc_types.name
+        for name, sc in (self._schemes() or {}).items():
+            if sc is not None and sc.find(label):
+                return name
+        return ""
+
+    def _open_candidate(self, label: str, scheme: str):
+        """The OPEN candidate for this term in this scheme, or None. Matched on the normalised label so a
+        difference of case or spacing is not a second question (`Decision record` / `Decision Record` were
+        two rows on the live register)."""
+        want, g = _norm(label), self.ds.graph(CANDIDATES_GRAPH)
+        for node in g.subjects(RDF.type, SKOS.Concept):
+            if _norm(str(g.value(node, SKOS.prefLabel) or "")) != want:
+                continue
+            if str(g.value(node, FAB.candidateScheme) or "") != scheme:
+                continue                      # schemes are never merged: one word may be missing from each
+            if G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
+                continue                      # admitted already
+            return node
+        return None
+
     def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
-                      scheme: str = "", concept_id: str = "", module: str = "") -> dict:
+                      scheme: str = "", concept_id: str = "", module: str = "",
+                      proposed_for: str = "") -> dict:
         """Park a candidate concept for a steward (the candidates graph is not a scheme: a steward accepts
         it with `promote`, which records the acceptance at rung H).
+
+        ONE ROW PER TERM, not one per time it was met. `proposed_for` is the ARTIFACT that used the word,
+        accumulated on the candidate as `fab:proposedFor` — so a steward is asked once however many
+        documents want it, the count is evidence of how much it matters, and admitting it can re-match
+        exactly the artifacts that asked (FR-1.1.5) instead of the whole catalogue. The count is DERIVED
+        from that set rather than stored beside it: two numbers that must agree eventually do not.
+
+        A term any vocabulary ALREADY holds is not parked at all — see `_held_by`. The answer says which
+        vocabulary holds it, because "this already means something" is a useful reply to the caller and a
+        silent no-op is not.
 
         `scheme` is the vocabulary it would join and `concept_id` the id it would take — both optional here and
         both REQUIRED by the time it is admitted, because a concept with no home cannot be looked up and an id
@@ -469,10 +519,24 @@ class FabricService:
             raise ValueError("a candidate has a label")
         if not actor:
             raise ValueError("a proposal names who proposed it")
-        c = URIRef(CANDIDATE + ids.ulid())
+        held = self._held_by(label)
+        if held:
+            return {"label": label.strip(), "scheme": scheme, "held_by": held}
         g = self.ds.graph(CANDIDATES_GRAPH)
+        existing = self._open_candidate(label, scheme)
+        if existing is not None:
+            if proposed_for:
+                g.add((existing, FAB.proposedFor, URIRef(proposed_for)))
+                self._persist(("candidates",), lambda: g.remove((existing, FAB.proposedFor,
+                                                                 URIRef(proposed_for))))
+            return {"iri": str(existing), "label": str(g.value(existing, SKOS.prefLabel) or ""),
+                    "scheme": scheme, "concept_id": str(g.value(existing, FAB.candidateId) or ""),
+                    "module": str(g.value(existing, FAB.candidateModule) or ""), "held_by": ""}
+        c = URIRef(CANDIDATE + ids.ulid())
         g.add((c, RDF.type, SKOS.Concept)); g.add((c, SKOS.prefLabel, Literal(label.strip())))
         g.add((c, G.PROV.wasAttributedTo, Literal(actor)))
+        if proposed_for:
+            g.add((c, FAB.proposedFor, URIRef(proposed_for)))
         if definition:
             g.add((c, SKOS.definition, Literal(definition)))
         if broader:
@@ -485,7 +549,7 @@ class FabricService:
             g.add((c, FAB.candidateModule, Literal(module)))
         self._persist(("candidates",), lambda: g.remove((c, None, None)))
         return {"iri": str(c), "label": label.strip(), "scheme": scheme, "concept_id": concept_id,
-                "module": module}
+                "module": module, "held_by": ""}
 
     # ------------------------------------------------------------------ gate
 
@@ -651,12 +715,18 @@ class FabricService:
             name = str(g.value(node, FAB.candidateScheme) or "")
             if G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
                 continue                                   # admitted already
-            sc = (self._schemes() or {}).get(name)
-            if sc is not None and sc.find(label):
-                continue                                   # the term means something now; nobody needs asking
+            if self._held_by(label):
+                continue      # ANY vocabulary holding it closes the question — not just this candidate's own,
+                              # which is what let 25 document-type labels sit here as open subject questions
+            # The artifacts that used the word. The COUNT is derived from them rather than stored: it is
+            # evidence of how much a term matters (what `FABRIC_CANDIDATE_THRESHOLD` reads), and admitting
+            # the concept re-matches exactly these (FR-1.1.5) instead of the whole catalogue. A row from
+            # before this existed names none, and is still one proposal — it was proposed at least once.
+            for_them = sorted(str(o) for o in g.objects(node, FAB.proposedFor))
             out.append({"iri": str(node), "label": label, "scheme": name,
                         "concept_id": str(g.value(node, FAB.candidateId) or ""),
                         "definition": str(g.value(node, SKOS.definition) or ""),
+                        "proposed_for": for_them, "proposals": len(for_them) or 1,
                         "proposed_by": str(g.value(node, G.PROV.wasAttributedTo) or "")})
         return sorted(out, key=lambda c: c["label"])
 

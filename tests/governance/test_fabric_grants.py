@@ -134,7 +134,8 @@ SUBSTRATE_CONSUMERS = {
     "fabric-curator": (
         (fabric_reconciler, ()),
         (fabric_vocabulary, (SemanticTools.vocab_conflicts, SemanticTools.vocab_candidates, ApprovalTools.ask)),
-        (fabric_projector, (SemanticTools.catalog_get, SemanticTools.store_page, CollabTools.put)),
+        (fabric_projector, (SemanticTools.catalog_get, SemanticTools.store_page, SemanticTools.catalog_assert,
+                            SemanticTools.topology, SemanticTools.view_corpus, CollabTools.put)),
         (fabric_metrics, (SemanticTools.query, SemanticTools.store_page, CollabTools.put)),
     ),
 }

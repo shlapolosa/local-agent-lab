@@ -154,3 +154,57 @@ def test_every_label_the_steward_is_asked_about_is_read_by_the_plan():
     assert asked == set(answered)
     parked = dict(V.plan(PAYLOAD, answered, "steward@doh")[0][1])
     assert {parked[k] for k in ("concept_id", "definition", "module", "broader")} == {"ModelCard", "d", "m", "AIAgent"}
+
+
+# ------------------------------------------------------------------ T2.2: the frequency threshold
+def test_a_term_asked_for_ONCE_is_parked_rather_than_put_to_a_steward():
+    """`FABRIC_CANDIDATE_THRESHOLD` governs INTERRUPTION, not visibility — the distinction that keeps
+    "parked" from becoming "hidden", which is the defect this layer keeps producing in new places.
+    `vocab_candidates` still returns everything; only what is PUSHED is bounded.
+
+    Two, decided by the user on the measured distribution (10 Oct 2026): of 37 genuinely-unknown terms,
+    29 had been asked for once, 7 twice and one three times. At 3 the steward is asked about ONE term and
+    cannot see what the bar silenced; at 2 they are asked about eight — a sitting rather than a queue —
+    and can raise it on evidence. Low and tightening beats high and blind, because two thirds of this
+    corpus is the lab's own test output and the counts are not yet representative of real demand."""
+    asked = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            if name == SemanticTools.vocab_candidates:
+                out.append([{"iri": "urn:fabric:candidate:1", "label": "Transcript", "scheme": "cafe",
+                             "proposals": 3, "proposed_for": ["a", "b", "c"]},
+                            {"iri": "urn:fabric:candidate:2", "label": "Knowledge Agent", "scheme": "cafe",
+                             "proposals": 2, "proposed_for": ["a", "b"]},
+                            {"iri": "urn:fabric:candidate:3", "label": "Seen once", "scheme": "cafe",
+                             "proposals": 1, "proposed_for": ["a"]}])
+            elif name == SemanticTools.vocab_conflicts:
+                out.append([])
+            else:
+                asked.append(args)
+                out.append({"request_id": f"apr-{len(asked)}"})
+        return out
+
+    made = asyncio.run(V.ask_open(call=call, seen=set(), threshold=2))
+    assert {m["label"] for m in made} == {"Transcript", "Knowledge Agent"}
+    assert "Seen once" not in str(asked)
+
+    # ...and a threshold of 1 asks about everything, which is what "off" means here
+    assert len(asyncio.run(V.ask_open(call=call, seen=set(), threshold=1))) == 3
+
+
+def test_a_candidate_from_before_the_count_existed_is_still_asked_about():
+    """Rows written before `proposals` existed carry none. Reading a missing count as zero would silence
+    the entire back catalogue the moment the threshold landed — the quietest possible regression."""
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            if name == SemanticTools.vocab_candidates:
+                out.append([{"iri": "urn:fabric:candidate:9", "label": "Legacy", "scheme": "cafe"}])
+            elif name == SemanticTools.vocab_conflicts:
+                out.append([])
+            else:
+                out.append({"request_id": "apr-9"})
+        return out
+    assert [m["label"] for m in asyncio.run(V.ask_open(call=call, seen=set(), threshold=2))] == ["Legacy"]

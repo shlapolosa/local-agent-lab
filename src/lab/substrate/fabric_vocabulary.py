@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 
 from lab.core.semantic.fabric.service import concept_id_for
+from lab.platform import config
 from lab.platform.contracts import ApprovalKind, ApprovalTools, SemanticTools, answer_value
 from lab.substrate import answer_appliers, fabric_gateway
 
@@ -112,7 +113,21 @@ PROMPT = ("The vocabulary the fabric classifies documents against needs a decisi
           "classified from then on.")
 
 
-async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10) -> list[dict]:
+def _wanted_enough(candidate: dict, threshold: int) -> bool:
+    """Whether this term has been asked for often enough to be worth a steward's attention.
+
+    `proposals` is how many DISTINCT artifacts used the word. A term met once is usually somebody's
+    phrasing rather than a gap in the vocabulary, and asking about every one of them buries the few that
+    matter — the same way an undecided backlog buries a channel.
+
+    A candidate from BEFORE the count existed carries none, and is always asked about: reading a missing
+    count as zero would silence the whole back catalogue the moment the threshold landed."""
+    proposals = candidate.get("proposals")
+    return proposals is None or int(proposals) >= threshold
+
+
+async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
+                   threshold: int | None = None) -> list[dict]:
     """Ask a steward about what the vocabulary cannot answer: terms it has no concept for, and words it gives
     two meanings. Returns the approvals raised.
 
@@ -127,7 +142,11 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10) 
     # the next one is never reached again for the life of the process
     fresh = _fresh(conflicts, seen, limit)
     raised = []
-    for c in _fresh(candidates, seen, limit):
+    # The threshold governs INTERRUPTION, not visibility: `vocab_candidates` still returns everything and a
+    # steward may read the parked set whenever they choose. Bounding what is VISIBLE rather than what is
+    # pushed would turn "parked" into "hidden", which is the defect this layer keeps producing in new places.
+    want = config.FABRIC_CANDIDATE_THRESHOLD if threshold is None else threshold
+    for c in _fresh([c for c in candidates if _wanted_enough(c, want)], seen, limit):
         payload = {"kind": ApprovalKind.CONCEPT_ADMISSION.value, "scheme": c.get("scheme", ""),
                    "label": c.get("label", ""), "candidate": c.get("iri", ""),
                    "proposed_by": c.get("proposed_by", "")}

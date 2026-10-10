@@ -28,9 +28,11 @@ def test_the_page_is_metadata_and_links_never_content():
 
 
 class Gateway:
-    def __init__(self, row=ROW, put_error=None, topology_error=None, suffix=".html", assert_error=None):
+    def __init__(self, row=ROW, put_error=None, topology_error=None, suffix=".html", assert_error=None,
+                 corpus_error=None):
         self.row, self.put_error, self.calls = row, put_error, []
         self.topology_error, self.suffix, self.assert_error = topology_error, suffix, assert_error
+        self.corpus_error = corpus_error
 
     async def __call__(self, calls):
         out = []
@@ -48,6 +50,13 @@ class Gateway:
                 out.append({"ref": f"art://store/adr-14-event-bus.topology{self.suffix}", "suffix": self.suffix,
                             "media_type": "text/html", "nodes": 3, "edges": 2, "title": "ADR-14 Event bus",
                             "concepts": ["Care Delivery", "Triage"], "statuses": ["focus", "X", "vocabulary"]})
+            elif suffix == SemanticTools.view_corpus:
+                if self.corpus_error:
+                    raise self.corpus_error
+                out.append({"ref": f"art://store/documentation-fabric-corpus{self.suffix}", "suffix": self.suffix,
+                            "media_type": "text/html", "nodes": 105, "edges": 157, "records": 61,
+                            "title": "The documentation fabric's corpus", "subtitle": "61 records · 44 concepts",
+                            "concepts": [f"c{i}" for i in range(44)], "statuses": ["published", "vocabulary"]})
             elif suffix == SemanticTools.catalog_assert:
                 if self.assert_error:
                     raise self.assert_error
@@ -87,8 +96,10 @@ def test_a_finished_publish_run_is_projected_tagged_and_acked():
     assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 0
     # a redelivery writes nothing twice
     _finish(r, artifact_iri=IRI)
-    # two files per projected record now — the page and the topology beside it — and no more
-    assert P.run_once(folder=WIKI, client=r, call=gw) and len([s for s, _ in gw.calls if s == CollabTools.put]) == 4
+    # per RECORD it is still exactly two files — the page and the topology beside it
+    assert P.run_once(folder=WIKI, client=r, call=gw)
+    puts = [a["name"] for s, a in gw.calls if s == CollabTools.put]
+    assert puts.count("adr-14-event-bus.md") == 2 and puts.count("adr-14-event-bus.topology.html") == 2
     assert r.get(P._key(rid)) == "1"
 
 
@@ -102,6 +113,7 @@ def test_without_a_wiki_folder_it_logs_and_writes_nothing(capsys):
     # both writes announce themselves: the page by its size, the drawing by the ref it would have written
     assert "would write adr-14-event-bus.md" in printed
     assert "would write adr-14-event-bus.topology.html" in printed
+    assert "would write documentation-fabric-corpus.html" in printed
 
 
 def test_a_failed_write_stays_unacked_and_is_noted_on_the_run():
@@ -137,7 +149,7 @@ def test_the_topology_is_drawn_beside_the_page_and_the_page_links_to_it():
     drawn = next(a for s, a in gw.calls if s == SemanticTools.topology)
     assert drawn == {"iri": IRI}                       # drawn from the graph as it stands, not from the page
     puts = [a["name"] for s, a in gw.calls if s == CollabTools.put]
-    assert puts == ["adr-14-event-bus.topology.html", "adr-14-event-bus.md"]
+    assert puts[:2] == ["adr-14-event-bus.topology.html", "adr-14-event-bus.md"]
     md = next(a["text"] for s, a in gw.calls if s == SemanticTools.store_page)
     assert "https://t/p" in md and "2 concepts" in md   # the link a person opens, and what it holds
     assert out[0]["topology"] == "https://t/p"
@@ -210,7 +222,10 @@ def test_the_page_url_is_recorded_ON_THE_RECORD_so_an_answer_can_hand_it_over():
     assert [a for s, a in gw.calls if s == SemanticTools.catalog_assert] == [
         {"iri": IRI, "field": "projection_url", "value": "https://t/p", "rung": "C", "method": "fabric-projector"}]
     # after the write, never before it: a URL recorded for a page that failed to land is a broken promise
-    assert [s for s, _ in gw.calls][-1] == SemanticTools.catalog_assert
+    # (ORDER against the page's own put, not "the last call" — the corpus redraw now runs after both)
+    names = [s for s, _ in gw.calls]
+    assert names.index(SemanticTools.catalog_assert) > max(
+        i for i, (s, a) in enumerate(gw.calls) if s == CollabTools.put and a["name"].endswith(".md"))
 
 
 def test_a_link_that_cannot_be_recorded_never_undoes_the_page_that_was_written(capsys):
@@ -232,3 +247,70 @@ def test_with_no_folder_there_is_no_url_to_record():
     _finish(r, artifact_iri=IRI)
     P.run_once(folder="", client=r, call=gw)
     assert not [a for s, a in gw.calls if s == SemanticTools.catalog_assert]
+
+
+def test_the_whole_corpus_is_drawn_beside_the_record_under_ONE_fixed_name():
+    """The catalogue page is a URL that should always be current, so it is overwritten rather than dated:
+    `collab_put` replaces a file of the same name, and a `corpus-<date>.html` per publish would be a folder
+    of stale pages with no way to tell which one a reader should open."""
+    r, gw = FakeRedis(), Gateway()
+    out = (_finish(r, artifact_iri=IRI), P.run_once(folder=WIKI, client=r, call=gw))[1]
+    assert [a for s, a in gw.calls if s == SemanticTools.view_corpus] == [{}]   # the whole catalogue, unnarrowed
+    corpus = next(a for s, a in gw.calls if s == CollabTools.put and a["name"].startswith("documentation-fabric-corpus"))
+    assert corpus == {"folder": WIKI, "ref": "art://store/documentation-fabric-corpus.html",
+                      "name": "documentation-fabric-corpus.html"}
+    assert out[0]["corpus"] == "https://t/p"
+    # ...and the drawing is tagged as fabric-written like every other fabric write, or the next sweep
+    # ingests the fabric's own picture of itself as somebody's document
+    assert fabric_events.written_by_fabric("collab:collab://item/drive-1/page1", "2026-09-11T12:00:00Z",
+                                           client=r)["kind"] == "projection"
+
+
+def test_the_corpus_page_is_named_by_the_renderer_never_by_the_projector():
+    """Same reason as the record's topology: which adapter draws is configuration (`FABRIC_CORPUS_RENDERER`),
+    and the focusless view has its own."""
+    r, gw = FakeRedis(), Gateway(suffix=".svg")
+    _finish(r, artifact_iri=IRI)
+    P.run_once(folder=WIKI, client=r, call=gw)
+    assert "documentation-fabric-corpus.svg" in [a["name"] for s, a in gw.calls if s == CollabTools.put]
+
+
+def test_a_burst_of_publishes_redraws_the_whole_corpus_at_most_once_per_bound():
+    """A whole-catalogue redraw is O(the catalogue) — measured 4.9 s at 61 records — and it runs in the same
+    single consumer as the per-record pages, so N publishes in a sweep would pay N redraws of which N-1 are
+    superseded within seconds while the records behind them wait. The RECORD's own page and catalogue entry
+    are the authoritative, immediate writes; the corpus picture is a browsing surface, so it is bounded."""
+    r, gw = FakeRedis(), Gateway()
+    for _ in range(3):
+        _finish(r, artifact_iri=IRI)
+        P.run_once(folder=WIKI, client=r, call=gw)
+    assert len([1 for s, _ in gw.calls if s == SemanticTools.view_corpus]) == 1
+    assert len([1 for s, a in gw.calls if s == CollabTools.put and a["name"].endswith(".md")]) == 3
+    assert r.ttl.get(P.CORPUS_KEY) == P.CORPUS_EVERY_S     # it expires, so the page never stops being current
+    r.kv.pop(P.CORPUS_KEY)                                 # the bound elapses
+    _finish(r, artifact_iri=IRI)
+    P.run_once(folder=WIKI, client=r, call=gw)
+    assert len([1 for s, _ in gw.calls if s == SemanticTools.view_corpus]) == 2
+
+
+def test_the_bound_is_claimed_after_the_write_so_a_failed_redraw_is_retried_not_suppressed():
+    """The claim cannot come first: a put or a tag that fails leaves the run unacked to be reclaimed, and a
+    bound already taken would skip the redraw on the retry — leaving a file in the folder that the loop guard
+    never marked, which is exactly what it exists to stop."""
+    r, gw = FakeRedis(), Gateway(put_error=RuntimeError("tenant said no"))
+    _finish(r, artifact_iri=IRI)
+    assert P.run_once(folder=WIKI, client=r, call=gw) == []
+    assert r.get(P.CORPUS_KEY) is None
+
+
+def test_a_corpus_that_cannot_be_drawn_never_undoes_the_record_that_just_published(capsys):
+    """Best effort and SEPARATE from the record: the page, its topology and its catalogue link have all
+    landed by the time this runs. A picture of the whole corpus is extra; the record is the work."""
+    r, gw = FakeRedis(), Gateway(corpus_error=RuntimeError("renderer down"))
+    rid = _finish(r, artifact_iri=IRI)
+    out = P.run_once(folder=WIKI, client=r, call=gw)
+    assert out and out[0]["handle"] == "collab://item/drive-1/page1" and out[0]["corpus"] == ""
+    assert "renderer down" in capsys.readouterr().out
+    st = workflows.status(rid, client=r)
+    assert st["projection_ref"] == "art://store/adr-14-event-bus.md" and "projection_error" not in st
+    assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 0      # the record published; the corpus is extra

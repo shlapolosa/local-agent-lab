@@ -475,3 +475,11 @@ FABRIC_RENDERER = _e("FABRIC_RENDERER", "svg")
 #: it renders, and it is unreadable. A simulation is not a preference there, it is the only thing that can
 #: show what the picture is for: which records cluster, and which concept holds half the catalogue.
 FABRIC_CORPUS_RENDERER = _e("FABRIC_CORPUS_RENDERER", "d3")
+#: How many DISTINCT artifacts must ask for a term before a steward is interrupted about it. Two, decided
+#: by the user on the measured distribution (10 Oct 2026): of 37 genuinely-unknown terms, 29 had been asked
+#: for once, 7 twice, 1 three times — so 3 asks about ONE term and 1 asks about all 37. Two gives eight, a
+#: sitting rather than a queue. Low and tightening beats high and blind: at 2 a steward can SEE what the bar
+#: silenced and raise it; at 3 they cannot see what they are missing, and two thirds of this corpus is the
+#: lab's own test output, so the counts are not yet representative of real demand. It bounds what is PUSHED
+#: only — the register returns every candidate however often it was asked for.
+FABRIC_CANDIDATE_THRESHOLD = int(_e("FABRIC_CANDIDATE_THRESHOLD", "2"))

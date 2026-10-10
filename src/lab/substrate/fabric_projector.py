@@ -30,6 +30,12 @@ GROUP = "fabric-projector"
 CONSUMER = "1"
 PROJECTED_TTL_S = 86400
 TAG_KIND = "projection"
+# ONE page for the whole catalogue, at a FIXED name: `collab_put` replaces a file of the same name, so the
+# URL a person bookmarks is always the current picture. A `corpus-<date>.html` per publish would be a folder
+# of stale pages with nothing to say which one to open.
+CORPUS_NAME = "documentation-fabric-corpus"
+CORPUS_KEY = "fabric:corpus-drawn"
+CORPUS_EVERY_S = 300
 
 
 def page(row: dict, topology: dict | None = None) -> str:
@@ -103,7 +109,10 @@ async def project(state: dict, *, folder: str, call=None, client=None) -> dict |
     drawn = await draw(iri, stem, folder=folder, call=go, client=client, run_id=run_id)
     out = await write_page(f"{stem}.md", page(row, drawn), folder=folder, call=go, client=client, run_id=run_id)
     await _record_page(iri, out.get("url", ""), call=go)
-    return {**out, "topology": drawn.get("url", "") if drawn else ""}
+    # LAST, and separate: the record's page, its drawing and its catalogue link have all landed by now, so a
+    # corpus redraw can only add to a run that already succeeded — never undo it.
+    corpus = await draw_corpus(folder=folder, call=go, client=client, run_id=run_id)
+    return {**out, "topology": drawn.get("url", "") if drawn else "", "corpus": corpus}
 
 
 async def _record_page(iri: str, url: str, *, call) -> None:
@@ -147,6 +156,43 @@ async def draw(iri: str, stem: str, *, folder: str, call, client=None, run_id: s
     put = await write_ref(f"{stem}.topology{view.get('suffix') or '.html'}", view["ref"], folder=folder,
                           call=call, client=client, run_id=run_id)
     return {**view, "url": put.get("url", "")}
+
+
+async def draw_corpus(*, folder: str, call, client=None, run_id: str = "") -> str:
+    """The WHOLE catalogue drawn as one page in the same folder — every record that is about something, the
+    concepts they share, the vocabulary's edges between those. Returns its URL, or "" when none was drawn.
+
+    `semantic_view_corpus` does the drawing; the projector renders NOTHING itself, because which adapter draws
+    a focusless view is configuration (`FABRIC_CORPUS_RENDERER`) and the tool already picks it — hence the
+    suffix comes back from the tool too.
+
+    BOUNDED, not per publish. A whole-catalogue redraw is O(the catalogue) — measured 4.9 s at 61 records,
+    157 links — and it runs in the SAME single consumer as the per-record pages, so a sweep publishing N
+    records would pay N redraws of which N-1 are superseded within seconds while the records behind them wait.
+    The record's own page and catalogue entry are the authoritative, immediate writes; this is a browsing
+    surface, so five minutes of staleness costs a reader nothing. The flip side, stated: the LAST publish of a
+    quiet day may not reach the picture until the next one, which is the trade a debounce makes.
+
+    The bound is claimed AFTER the write, not before: a put or a tag that fails leaves the run unacked to be
+    reclaimed, and a claim already taken would skip the redraw on the retry — leaving a file in the folder that
+    the loop guard never marked, the very loop it exists to stop. The cost of claiming late is that two
+    consumers could both redraw once; there is only ever one (two consumers of a group sharing a name would
+    share a pending list), and the second would overwrite an identical page."""
+    if client is not None and client.get(CORPUS_KEY):
+        return ""
+    try:
+        view = (await call([(SemanticTools.view_corpus, {})]))[0]
+        view = json.loads(view) if isinstance(view, str) else view
+    except Exception as e:                       # noqa: BLE001 — a picture of everything is extra; one record is the work
+        print(f"[projector] no corpus drawn ({type(e).__name__}: {e})", flush=True)
+        return ""
+    # ...but once the file is in the folder the write must complete, loop guard and all — the same boundary as
+    # `draw`: the guarded region ends where the write begins.
+    put = await write_ref(f"{CORPUS_NAME}{view.get('suffix') or '.html'}", view["ref"], folder=folder,
+                          call=call, client=client, run_id=run_id)
+    if client is not None:
+        client.set(CORPUS_KEY, "1", ex=CORPUS_EVERY_S)
+    return put.get("url", "")
 
 
 async def write_page(name: str, text: str, *, folder: str, call, client=None, run_id: str = "") -> dict:
