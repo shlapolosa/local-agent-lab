@@ -328,3 +328,75 @@ def test_the_single_term_card_still_applies_the_way_it_always_did():
     calls = V.plan({"scheme": "cafe", "label": "Model card"},
                    {"decision": {"value": "admit"}, "concept_id": {"value": "ModelCard"}}, "s@x")
     assert [t for t, _ in calls] == [SemanticTools.vocab_propose, SemanticTools.promote]
+
+
+# ------------------------------------------------ T2.4: admitting a term reaches the documents that asked
+def test_admitting_a_term_links_EXACTLY_the_documents_that_asked_for_it():
+    """FR-1.1.5, and the reason T2.1 recorded `proposedFor` rather than a bare count.
+
+    A concept admitted but not propagated changes nothing: the documents whose words prompted it stay
+    unlinked until something re-reads them. Re-reading the WHOLE catalogue to find them would be one
+    model call per record for a handful of hits; the register already knows which records asked, so the
+    propagation is exact — and cheap enough to be unconditional.
+
+    Asserted at rung X, not C: the term WAS found in those documents' content. It had no concept at the
+    time, which is a fact about the vocabulary on that day, not about how the fabric came to know it."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            out.append({"concept_id": "ClinicalReviewer", "iri": "urn:lab:semantic:domain:cafe#ClinicalReviewer"}
+                       if name == SemanticTools.promote else {})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A", "urn:fabric:artifact:B"]}]}},
+        "answer": {"urn:fabric:candidate:0": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A", "urn:fabric:artifact:B"}
+    assert all(l["object"] == "urn:lab:semantic:domain:cafe#ClinicalReviewer" for l in links)
+    assert all(l["rung"] == "X" and l["actor"] == "steward@x" for l in links)
+    assert all("admission" in l["method"] for l in links)
+
+
+def test_a_DECLINED_term_propagates_to_nobody():
+    """Nothing was admitted, so there is nothing for a document to link to."""
+    seen = []
+
+    async def call(calls):
+        for name, args in calls:
+            seen.append(name)
+        return [{} for _ in calls]
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "Seen once", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A"]}]}},
+        "answer": {"urn:fabric:candidate:0": {"value": "decline"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+    assert SemanticTools.vocab_decline in seen and SemanticTools.edge_assert not in seen
+
+
+def test_a_term_nobody_is_recorded_as_having_asked_for_admits_without_propagating():
+    """A candidate from before `proposedFor` existed. Admitting it must still work — it simply reaches
+    nobody, which is honest: the register does not know who asked, and inventing a list would be worse
+    than an empty one."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append(name)
+            out.append({"concept_id": "Legacy", "iri": "urn:lab:semantic:domain:cafe#Legacy"}
+                       if name == SemanticTools.promote else {})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:9", "label": "Legacy", "scheme": "cafe"}]}},
+        "answer": {"urn:fabric:candidate:9": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+    assert SemanticTools.promote in seen and SemanticTools.edge_assert not in seen

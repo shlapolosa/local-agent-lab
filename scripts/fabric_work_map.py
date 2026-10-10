@@ -26,6 +26,7 @@ WORK = {
     "T2.2":  ("a frequency threshold before a miss becomes a question", "next"),
     "T2.3":  ("batch admission — one card, N candidates", "next"),
     "T2.4":  ("re-match exactly the artifacts that asked (FR-1.1.5)", "next"),
+    "T2.5":  ("decide ON the card — a flow that waits, not a deep link out", "next"),
     "T3.1":  ("custody lookup by URL — FR-4.1.4", "later"),
     "T3.2":  ("SharePoint knowledge source + agent instructions", "later"),
     "T3.3":  ("linked projection pages (corpus page: done today)", "later"),
@@ -98,8 +99,9 @@ def main(out: Path) -> None:
     tag(s, C[5], MID, 56, 56, "T2.2")
     s.flow([(C[4] + BOXW // 2, MID), (C[5] - 24, MID)], dashed=True)
 
-    step(C[5], PEOPLE, "STEWARD admits terms", "a BATCH, by how often asked", "T2.3",
+    step(C[5], PEOPLE, "STEWARD admits terms", "a BATCH, answered ON the card", "T2.3",
          kind=HUM, human=True, h=62)
+    tag(s, C[5], PEOPLE, BOXW, 62, "T2.5")
     s.flow([(C[5], MID + 24), (C[5], PEOPLE - 31)], "reached", dashed=True)
 
     step(C[4], LOW, "Re-match what waited", "exactly who asked — FR-1.1.5", "T2.4", dashed=True, h=54)

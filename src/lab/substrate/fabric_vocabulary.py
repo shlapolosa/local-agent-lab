@@ -20,6 +20,8 @@ import json
 
 from lab.core.semantic.fabric.service import concept_id_for
 from lab.platform import config
+from lab.core.semantic.fabric.ontology import SUBJECT
+from lab.core.semantic.fabric.rungs import EXTRACTED
 from lab.platform.contracts import ApprovalKind, ApprovalTools, SemanticTools, answer_value
 from lab.substrate import answer_appliers, fabric_gateway
 
@@ -105,9 +107,11 @@ def plan(payload: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
         raise ValueError("a curation decision names the person: actor is required")
     # A BATCH is recognised by what the card CARRIES, never by a flag somebody must remember to set: the
     # asker put the terms in `context`, so an answer keyed on them is a batch and anything else is not.
-    batch = (payload.get("context") or {}).get("candidates")
+    facts = payload.get("context") or payload
+    batch = facts.get("candidates") if isinstance(facts, dict) else None
     if batch:
         return _batch_plan(list(batch), answer, actor)
+    payload = facts
     decision = _one(answer, "decision").strip().lower()
     if not decision:
         raise ValueError("the steward's answer carries no decision")
@@ -225,8 +229,12 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
             "kind": ApprovalKind.CONCEPT_ADMISSION.value,
             "subject": f"{len(wanted)} terms the vocabulary has no concept for",
             "prompt": BATCH_PROMPT, "items": batch_question(wanted), "fields": ["value"],
+            # `proposed_for` rides the card so an ADMISSION can reach exactly the documents that asked
+            # (FR-1.1.5) without re-reading the catalogue — see `_propagate`.
             "context": {"candidates": [{"iri": c.get("iri"), "label": c.get("label"),
-                                        "scheme": c.get("scheme")} for c in wanted]},
+                                        "scheme": c.get("scheme"),
+                                        "proposed_for": list(c.get("proposed_for") or [])}
+                                       for c in wanted]},
             "process": "documentation-fabric"})]))[0]
         got = json.loads(got) if isinstance(got, str) else (got or {})
         for c in wanted:
@@ -268,6 +276,31 @@ async def _ask(go, payload: dict, seen: set[str], row: dict, subject: str) -> di
     return {**payload, "request_id": str(got.get("request_id") or "")}
 
 
+#: Why a propagated link is EXTRACTED and not constructed: the term genuinely was in those documents'
+#: content. That it had no concept on the day they were read is a fact about the VOCABULARY, not about
+#: how the fabric came to know what the document says.
+ADMISSION_METHOD = "vocabulary-admission"
+
+
+def _propagate(candidate: dict, concept: str, actor: str) -> list[tuple[str, dict]]:
+    """Link the documents that asked for a term to the concept a steward just admitted (FR-1.1.5).
+
+    A concept admitted but not propagated changes nothing — the documents whose words prompted it stay
+    unlinked until something re-reads them. Re-reading the whole catalogue to find them would be a model
+    call per record for a handful of hits; the register already recorded WHICH records asked, which is why
+    `vocab_propose` accumulates `proposedFor` instead of a bare count. So the propagation is exact, and
+    cheap enough to be unconditional.
+
+    A candidate from before that field existed names nobody and reaches nobody. That is honest: the
+    register does not know who asked, and inventing a list would be worse than an empty one."""
+    if not concept:
+        return []
+    return [(SemanticTools.edge_assert,
+             {"subject": iri, "predicate": str(SUBJECT), "object": concept, "rung": EXTRACTED,
+              "actor": actor, "method": ADMISSION_METHOD})
+            for iri in (candidate.get("proposed_for") or [])]
+
+
 async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]:
     """Apply one decided approval's answer. `call(calls)` is the gateway transport (injected by a test);
     returns the calls made. Raises on a refused write, so the runner records the failure on the approval."""
@@ -279,7 +312,9 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
     # reconciler logged one line and raised NO steward question for three weeks, while the candidates
     # kept accumulating. A tool that refuses an argument is not a tool that asked for a different one.
     payload = state.get("payload") or {}
-    for tool, args in plan(payload.get("context") or payload, state.get("answer") or {}, actor):
+    by_candidate = {str(c.get("iri") or ""): c
+                    for c in ((payload.get("context") or {}).get("candidates") or [])}
+    for tool, args in plan(payload, state.get("answer") or {}, actor):
         if tool == SemanticTools.promote and "subject" not in args:
             # the candidate THIS answer just parked, never the one the asker left lying there: promoting the
             # payload's candidate would admit the model's wording over the steward's
@@ -291,6 +326,14 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
             got = json.loads(got) if isinstance(got, str) else (got or {})
             parked = str(got.get("iri") or "")
         made.append((tool, args))
+        if tool == SemanticTools.promote:
+            # The concept IRI is only known once the promotion has RUN, which is why this is here and not
+            # in `plan`: a pure planner cannot name a thing the gate has not yet created.
+            got = json.loads(got) if isinstance(got, str) else (got or {})
+            candidate = by_candidate.get(str(args.get("subject") or "")) or {}
+            for t, a in _propagate(candidate, str(got.get("iri") or ""), actor):
+                await go([(t, a)])
+                made.append((t, a))
     return made
 
 
