@@ -2,7 +2,7 @@
 import pytest
 
 from lab.core.semantic.fabric.catalog import (Catalog, CatalogEntry, MemoryCatalog, POINTER_ID_FIELDS,
-                                              STATES, STATE_IRI, cosine, pointer_key)
+                                              FIELDS, STATES, STATE_IRI, cosine, pointer_key)
 
 P = {"source": "collab", "handle": "collab://site/drive/item1", "version": "3"}
 
@@ -165,3 +165,14 @@ def test_a_walk_can_be_narrowed_to_a_state_and_never_invents_one():
     assert len(c.page()) == 2, "no filter walks everything, withdrawn included"
     with pytest.raises(ValueError, match="state"):
         c.page(state="nonsense")
+
+
+def test_the_projection_page_is_an_assertable_facet_of_the_row():
+    """Measured 10 Oct 2026: the Teams bot was asked for a record's catalogue entry "and the link to its
+    projection page" and correctly answered that the entry carries none. The projector knew the URL and put
+    it on the RUN — which is not where a reader looks. It is a facet, so it is asserted at a rung like one."""
+    assert "projection_url" in FIELDS
+    e = CatalogEntry("urn:fabric:artifact:A", P)
+    assert e.projection_url == "" and "projection_url" in e.to_dict()
+    stored = MemoryCatalog().put(e.with_(projection_url="https://wiki/x.md"))
+    assert stored.projection_url == "https://wiki/x.md"

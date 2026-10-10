@@ -18,7 +18,9 @@ import asyncio
 import json
 
 from lab.core.semantic.fabric.catalog import pointer_key
-from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DELIVERED_UNDER, REFERENCES, SUBJECT, short
+from lab.core.semantic.fabric.ontology import (CONTEXT_IRI, DELIVERED_UNDER, DOCUMENT_TYPE, REFERENCES,
+                                               SUBJECT, short)
+from lab.core.semantic.fabric.rungs import CONSTRUCTED
 from lab.platform import config, fabric_events, streams, workflows
 from lab.platform.filetypes import file_slug as slug
 from lab.platform.contracts import ARTIFACT_PUBLISH, CollabTools, SemanticTools, WorkflowStatus
@@ -37,12 +39,17 @@ def page(row: dict, topology: dict | None = None) -> str:
     picture, because the page is text and the view is regenerated on every publish."""
     links = row.get("links") or []
     ctx = [l["object"] for l in links if l.get("predicate") == short(DELIVERED_UNDER)]
+    # The LABEL the fabric already resolved, not the IRI's tail. They differ exactly where it matters:
+    # `doc-types#unknown` is the answer "I looked and none of these fits", and its label says so — while
+    # the tail renders as `*unknown · published*`, which reads as a missing value rather than a decision
+    # somebody made. `catalog_get` resolves it, so the page must not re-derive it worse.
+    typed = next((l for l in links if l.get("predicate") == short(DOCUMENT_TYPE)), {})
     subjects = [l["object"] for l in links if l.get("predicate") == short(SUBJECT)]
     refs = [l for l in links if l.get("predicate") == short(REFERENCES)]
     pointer = row.get("pointer") or {}
     custody = pointer.get("handle") or pointer.get("ref") or pointer.get("itemId") or pointer.get("workItem") or ""
     front = {
-        "fabric_iri": row["iri"], "title": row.get("title") or "", "document_type": _short(row.get("document_type")),
+        "fabric_iri": row["iri"], "title": row.get("title") or "", "document_type": str(typed.get("label") or "") or _short(row.get("document_type")),
         "state": row.get("state") or "", "baseline_version": row.get("baseline_version") or "",
         "delivery_context": [c.replace(CONTEXT_IRI, "") for c in ctx],
         "owner": row.get("owner") or "", "sensitivity_label": row.get("sensitivity_label") or "",
@@ -95,7 +102,30 @@ async def project(state: dict, *, folder: str, call=None, client=None) -> dict |
     # promise a reader finds instead of the fabric.
     drawn = await draw(iri, stem, folder=folder, call=go, client=client, run_id=run_id)
     out = await write_page(f"{stem}.md", page(row, drawn), folder=folder, call=go, client=client, run_id=run_id)
+    await _record_page(iri, out.get("url", ""), call=go)
     return {**out, "topology": drawn.get("url", "") if drawn else ""}
+
+
+async def _record_page(iri: str, url: str, *, call) -> None:
+    """The page's URL ON THE RECORD, so `catalog_get` can hand a person the page. Measured 10 Oct 2026: asked
+    for a record's entry "and the link to its projection page", the Teams bot answered that the entry carries
+    none — correct, and the end of every answer that should have offered it. The URL was already on the RUN,
+    which is not where a reader looks.
+
+    Rung C: the fabric's own deterministic projector CONSTRUCTED this location (D is refused outright —
+    "derived is computed, not asserted").
+
+    BEST EFFORT, after the write and never before it, like `continuations.link_runs`: the page is already in
+    the folder and tagged by the time this runs, so a catalogue that cannot be reached must leave the
+    projection standing. Losing the page would be far worse than losing the link to it."""
+    if not url:                                  # nothing was written (no folder), so there is no link to record
+        return
+    try:
+        await call([(SemanticTools.catalog_assert, {"iri": iri, "field": "projection_url", "value": url,
+                                                    "rung": CONSTRUCTED, "method": "fabric-projector"})])
+    except Exception as e:                       # noqa: BLE001 — the page stands; the link to it is extra
+        print(f"[projector] {iri}: page written but its link was not recorded "
+              f"({type(e).__name__}: {e})", flush=True)
 
 
 async def draw(iri: str, stem: str, *, folder: str, call, client=None, run_id: str = "") -> dict | None:

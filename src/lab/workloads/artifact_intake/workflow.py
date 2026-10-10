@@ -260,7 +260,20 @@ def build_workflow(cfg):
                 state = state | {"document_type": suggestion["document_type"], "type_rung": SUGGESTED,
                                  "type_changed": True}
             else:
-                state = state | {"type_rung": CONSTRUCTED if state.get("document_type") else ""}
+                # A prior answer can go STALE, and the gate had no way to say so: measured 9-10 Oct 2026, a
+                # BRS was confirmed as the sentinel `No type fits` when genuinely no type fitted, the scheme
+                # then GAINED `requirements-specification`, the file was edited so the record went back to
+                # pending, and the classifier read it correctly — but the card rebuilt its item from the
+                # recorded value alone, so the better answer never reached the person, who confirmed the
+                # stale one again. The suggestion is CARRIED (never asserted: a decided type is a person's
+                # to change) so the card can offer it beside the default. Not for a type the producing
+                # PROCESS decided: that is deterministic, and a second opinion on it would be noise on every
+                # minutes card.
+                recorded, produced = state.get("document_type") or "", state.get("produced_by") or ""
+                by_process = bool(produced) and (cfg["doc_types"].get(recorded) or {}).get("produced_by") == produced
+                proposed = (suggestion or {}).get("document_type") or ""
+                state = state | {"type_rung": CONSTRUCTED if recorded else "",
+                                 "suggested_type": "" if by_process or proposed == recorded else proposed}
             linked, missed, conflicts, retracted = [], [], [], []
             # `if subjects` would skip the call on an empty answer, and `vocab_link` is where supersession
             # happens — so a record could only ever GAIN subjects and "nothing applies" was unrepresentable
@@ -435,10 +448,17 @@ def build_workflow(cfg):
                                                     "retracted": len(state.get("retracted") or [])}})
             return
         with gateway.node_span(cfg, "ask_review"):
-            items = [{"label": "document_type",
-                      "samples": [f"suggested: {_type_label(cfg, state.get('document_type'))}"
-                                  + (f" ({state['confidence']:.2f})" if state.get("type_rung") == SUGGESTED else " (fact)"),
-                                  state.get("rationale") or ""]}]
+            type_samples = [f"suggested: {_type_label(cfg, state.get('document_type'))}"
+                            + (f" ({state['confidence']:.2f})" if state.get("type_rung") == SUGGESTED else " (fact)"),
+                            state.get("rationale") or ""]
+            # Both readings, in words a reviewer can act on — see `classify`: the recorded value stays the
+            # default, and the rationale that follows is this run's, which is why the offer goes directly
+            # above it. Nothing is added when the two agree, or a card grows a line that says nothing.
+            if state.get("suggested_type"):
+                type_samples.insert(1, f"this now reads as: {_type_label(cfg, state['suggested_type'])} "
+                                       f"({state['confidence']:.2f}) — answer it if it is right; "
+                                       f"{_type_label(cfg, state.get('document_type'))} stays the default")
+            items = [{"label": "document_type", "samples": type_samples}]
             if not state.get("owner"):
                 items.append({"label": "owner", "samples": ["unresolved: no owner-map rule, no requester, no author — type the owner's email"]})
             if state.get("overlap"):

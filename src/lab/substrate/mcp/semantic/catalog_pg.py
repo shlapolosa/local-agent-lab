@@ -69,6 +69,9 @@ MIGRATIONS: tuple[str, ...] = (
          created_at TIMESTAMPTZ NOT NULL,
          updated_at TIMESTAMPTZ NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS fabric_artifact_pointer ON fabric_artifact (pointer_key)",
+    # The table predates this facet and holds live records, so the column is ADDED in place — the way the
+    # reference layer widens its own tables. `CREATE TABLE IF NOT EXISTS` above can never notice a new column.
+    "ALTER TABLE fabric_artifact ADD COLUMN IF NOT EXISTS projection_url TEXT NOT NULL DEFAULT ''",
     """CREATE TABLE IF NOT EXISTS fabric_embedding (
          iri TEXT PRIMARY KEY REFERENCES fabric_artifact ON DELETE CASCADE,
          model TEXT NOT NULL,
@@ -76,8 +79,10 @@ MIGRATIONS: tuple[str, ...] = (
          updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
 )
 
+#: the positional row map, read against the table — so an added column goes LAST, where the ALTER puts it
 _COLUMNS = ("iri", "pointer", "pointer_key", "title", "document_type", "owner", "sensitivity_label", "state",
-            "produced_by", "context", "source_kind", "baseline_version", "unassociated", "created_at", "updated_at")
+            "produced_by", "context", "source_kind", "baseline_version", "unassociated", "created_at", "updated_at",
+            "projection_url")
 _SELECT = "SELECT " + ", ".join(_COLUMNS) + " FROM fabric_artifact"
 
 
@@ -96,7 +101,8 @@ def _entry(row: Sequence[Any]) -> CatalogEntry:
                         owner=r["owner"], sensitivity_label=r["sensitivity_label"], state=r["state"],
                         produced_by=r["produced_by"], context=r["context"], source_kind=r["source_kind"],
                         baseline_version=r["baseline_version"], unassociated=bool(r["unassociated"]),
-                        created_at=_iso(r["created_at"]), updated_at=_iso(r["updated_at"]))
+                        created_at=_iso(r["created_at"]), updated_at=_iso(r["updated_at"]),
+                        projection_url=r.get("projection_url") or "")
 
 
 def _literal(vector: Sequence[float]) -> str:
@@ -176,13 +182,14 @@ class PostgresCatalog:
           sensitivity_label = EXCLUDED.sensitivity_label, state = EXCLUDED.state,
           produced_by = EXCLUDED.produced_by, context = EXCLUDED.context, source_kind = EXCLUDED.source_kind,
           baseline_version = EXCLUDED.baseline_version, unassociated = EXCLUDED.unassociated,
-          updated_at = EXCLUDED.updated_at"""
+          projection_url = EXCLUDED.projection_url, updated_at = EXCLUDED.updated_at"""
 
     def put(self, entry: CatalogEntry) -> CatalogEntry:
         self._write([(self._UPSERT, (
             entry.iri, json.dumps(entry.pointer), pointer_key(entry.pointer), entry.title, entry.document_type,
             entry.owner, entry.sensitivity_label, entry.state, entry.produced_by, entry.context,
-            entry.source_kind, entry.baseline_version, entry.unassociated, entry.created_at, entry.updated_at))])
+            entry.source_kind, entry.baseline_version, entry.unassociated, entry.created_at, entry.updated_at,
+            entry.projection_url))])
         return entry
 
     def put_embedding(self, iri: str, vector: list[float], model: str) -> None:

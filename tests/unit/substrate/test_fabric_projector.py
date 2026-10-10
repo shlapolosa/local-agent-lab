@@ -28,9 +28,9 @@ def test_the_page_is_metadata_and_links_never_content():
 
 
 class Gateway:
-    def __init__(self, row=ROW, put_error=None, topology_error=None, suffix=".html"):
+    def __init__(self, row=ROW, put_error=None, topology_error=None, suffix=".html", assert_error=None):
         self.row, self.put_error, self.calls = row, put_error, []
-        self.topology_error, self.suffix = topology_error, suffix
+        self.topology_error, self.suffix, self.assert_error = topology_error, suffix, assert_error
 
     async def __call__(self, calls):
         out = []
@@ -48,6 +48,10 @@ class Gateway:
                 out.append({"ref": f"art://store/adr-14-event-bus.topology{self.suffix}", "suffix": self.suffix,
                             "media_type": "text/html", "nodes": 3, "edges": 2, "title": "ADR-14 Event bus",
                             "concepts": ["Care Delivery", "Triage"], "statuses": ["focus", "X", "vocabulary"]})
+            elif suffix == SemanticTools.catalog_assert:
+                if self.assert_error:
+                    raise self.assert_error
+                out.append({"assertion": "urn:fabric:assertion:1", "rung": args["rung"], "unchanged": False})
             elif suffix == CollabTools.put:
                 if self.put_error:
                     raise self.put_error
@@ -174,3 +178,57 @@ def test_a_topology_written_but_not_tagged_fails_the_run_rather_than_feeding_the
     assert P.run_once(folder=WIKI, client=r, call=gw) == []
     assert "projection_error" in workflows.status(rid, client=r)
     assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 1      # unacked, so it is reclaimed and retried
+
+
+def test_the_page_says_what_the_type_MEANS_not_the_iris_tail():
+    """`doc-types#unknown` is the answer "I looked and none of these fits" — a decision somebody made.
+    Rendered from the IRI's tail it reads `*unknown · published*`, which looks like a missing value, and
+    that is how the first real record's page described a reviewer's deliberate answer (10 Oct 2026).
+    `catalog_get` has already resolved the label; the page must not re-derive it worse."""
+    row = {"iri": "urn:fabric:artifact:1", "title": "BRS.md", "state": "published",
+           "document_type": "urn:fabric:scheme:doc-types#unknown",
+           "pointer": {"source": "collab", "handle": "collab://d/i1"},
+           "links": [{"predicate": "documentType", "object": "urn:fabric:scheme:doc-types#unknown",
+                      "rung": "H", "label": "No type fits"}]}
+    text = P.page(row)
+    assert 'document_type: "No type fits"' in text and "*No type fits · published" in text
+    assert "unknown" not in text
+
+    # ...and with no label resolved it still degrades to the tail rather than to nothing
+    bare = {**row, "links": [{"predicate": "documentType", "object": row["document_type"], "rung": "H"}]}
+    assert 'document_type: "unknown"' in P.page(bare)
+
+
+def test_the_page_url_is_recorded_ON_THE_RECORD_so_an_answer_can_hand_it_over():
+    """Measured 10 Oct 2026: asked for a record's entry "and the link to its projection page", the Teams bot
+    answered that the entry carries no such URL — right, and useless. The projector already knew it and put it
+    on the RUN, which is not where a reader looks. Rung C, not D: the fabric's own deterministic projector
+    CONSTRUCTED the location, and `graph_assert` refuses D outright ("derived is computed, not asserted")."""
+    r, gw = FakeRedis(), Gateway()
+    _finish(r, artifact_iri=IRI)
+    P.run_once(folder=WIKI, client=r, call=gw)
+    assert [a for s, a in gw.calls if s == SemanticTools.catalog_assert] == [
+        {"iri": IRI, "field": "projection_url", "value": "https://t/p", "rung": "C", "method": "fabric-projector"}]
+    # after the write, never before it: a URL recorded for a page that failed to land is a broken promise
+    assert [s for s, _ in gw.calls][-1] == SemanticTools.catalog_assert
+
+
+def test_a_link_that_cannot_be_recorded_never_undoes_the_page_that_was_written(capsys):
+    """Best effort, like `link_runs`: the page is in the folder and tagged by the time this runs, so a
+    catalogue that cannot be reached must leave the projection standing — losing the page would be far worse
+    than losing the link to it."""
+    r, gw = FakeRedis(), Gateway(assert_error=RuntimeError("semantic-mcp down"))
+    rid = _finish(r, artifact_iri=IRI)
+    out = P.run_once(folder=WIKI, client=r, call=gw)
+    assert out and out[0]["handle"] == "collab://item/drive-1/page1"
+    assert "semantic-mcp down" in capsys.readouterr().out
+    st = workflows.status(rid, client=r)
+    assert st["projection_ref"] == "art://store/adr-14-event-bus.md" and "projection_error" not in st
+    assert r.xpending(workflows.DONE, P.GROUP)["pending"] == 0      # the work is done; the link is extra
+
+
+def test_with_no_folder_there_is_no_url_to_record():
+    r, gw = FakeRedis(), Gateway()
+    _finish(r, artifact_iri=IRI)
+    P.run_once(folder="", client=r, call=gw)
+    assert not [a for s, a in gw.calls if s == SemanticTools.catalog_assert]

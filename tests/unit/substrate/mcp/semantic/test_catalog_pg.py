@@ -10,7 +10,7 @@ from lab.substrate.mcp.semantic.catalog_pg import MIGRATIONS, CatalogUnreachable
 
 P = {"source": "collab", "handle": "collab://s/d/i1", "version": "2"}
 ROW = ("urn:fabric:artifact:A", P, "collab:collab://s/d/i1", "Notes", "", "", "", "pending", "", "", "collab",
-       "", False, "2026-09-11T00:00:00+00:00", "2026-09-11T00:00:00+00:00")
+       "", False, "2026-09-11T00:00:00+00:00", "2026-09-11T00:00:00+00:00", "https://wiki/notes.md")
 
 
 class FakeCursor:
@@ -175,14 +175,14 @@ def test_ensure_schema_migrates_the_index_when_the_embedder_width_changed(capsys
     assert any("ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR(3072)" in s for s in sql)
     assert any("DROP INDEX IF EXISTS fabric_embedding_hnsw_halfvec" in s for s in sql)
     drop = sql.index(next(s for s in sql if "DROP INDEX IF EXISTS fabric_embedding_hnsw_halfvec" in s))
-    alter = sql.index(next(s for s in sql if "ALTER TABLE" in s))
+    alter = sql.index(next(s for s in sql if "ALTER TABLE fabric_embedding ALTER COLUMN" in s))
     creates = [i for i, s in enumerate(sql) if "CREATE INDEX" in s and "halfvec(3072)" in s]
     assert len(creates) == 1 and sql.index(next(s for s in sql if "DELETE FROM" in s)) < drop < alter < creates[0]
     err = capsys.readouterr().err
     assert "768" in err and "3072" in err and "6" in err and "semantic_reindex" in err
     same = catalog({"format_type": [("vector(3072)",)]}, dim=3072)
     same.ensure_schema()
-    assert not any(isinstance(s, tuple) and "ALTER TABLE" in s[0] for s in same.log)
+    assert not any(isinstance(s, tuple) and "ALTER TABLE fabric_embedding" in s[0] for s in same.log)
     assert not capsys.readouterr().err
 
 
@@ -227,3 +227,19 @@ def test_page_refuses_a_state_that_does_not_exist():
     """A typo must not read as "nothing matched" — the one answer an operator would act on wrongly."""
     with pytest.raises(ValueError, match="state"):
         catalog().page(state="publishd")
+
+
+def test_the_projection_page_url_is_a_column_ADDED_in_place():
+    """The table predates the facet and holds live records, so it is widened the way the reference layer
+    widens its own — `ADD COLUMN IF NOT EXISTS`, which `CREATE TABLE IF NOT EXISTS` can never notice. It is
+    appended, LAST, because that is where the ALTER physically puts it and the positional row map
+    (`_COLUMNS`) is read against the table."""
+    assert catalog_pg._COLUMNS[-1] == "projection_url"
+    assert any("ALTER TABLE fabric_artifact ADD COLUMN IF NOT EXISTS projection_url" in sql
+               for sql in MIGRATIONS)
+    e = catalog({"WHERE iri": [ROW]}).get("urn:fabric:artifact:A")
+    assert e.projection_url == "https://wiki/notes.md"
+    c = catalog()
+    c.put(CatalogEntry("urn:fabric:artifact:A", P, projection_url="https://wiki/notes.md"))
+    sql, params = c.log[0]
+    assert params[-1] == "https://wiki/notes.md" and "projection_url = EXCLUDED.projection_url" in sql

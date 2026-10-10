@@ -341,8 +341,9 @@ def semantic_catalog_state(iri: str, state: str, baseline_version: str | None = 
 @server.tool()
 def semantic_catalog_assert(iri: str, field: str, value: str, rung: str, method: str, actor: str = "",
                             confidence: float | None = None) -> dict:
-    """Assert a classified facet (document_type | owner | sensitivity_label) at a provenance rung: the row's
-    column AND the graph triple with its PROV record. Owner and label are refused anywhere but C (NFR-3)."""
+    """Assert a classified facet (document_type | owner | sensitivity_label | projection_url) at a provenance
+    rung: the row's column AND the graph triple with its PROV record. Owner and label are refused anywhere
+    but C (NFR-3)."""
     return fabric().catalog_assert(iri, field, value, rung=rung, method=method, actor=actor, confidence=confidence)
 
 

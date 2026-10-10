@@ -21,7 +21,11 @@ from lab.workloads.gates import GateFailed
 MINUTES = {"source": "lab", "ref": "art://run1/meeting-AAMk1.minutes.json"}
 DOC = {"source": "collab", "handle": "collab://item/drive-1/doc7", "version": "2"}
 DOC_TYPES = {"urn:fabric:scheme:doc-types#minutes": {"label": "Minutes", "alt": [], "produced_by": "transcript_to_minutes"},
-             "urn:fabric:scheme:doc-types#decision-record": {"label": "Decision record", "alt": ["ADR"], "produced_by": ""}}
+             "urn:fabric:scheme:doc-types#decision-record": {"label": "Decision record", "alt": ["ADR"], "produced_by": ""},
+             "urn:fabric:scheme:doc-types#requirements-specification": {"label": "Requirements specification",
+                                                                        "alt": ["BRS"], "produced_by": ""},
+             # the sentinel: the answer "I looked and none of these fits", which is what made a BRS stale
+             "urn:fabric:scheme:doc-types#unknown": {"label": "No type fits", "alt": ["none"], "produced_by": ""}}
 MINUTES_DOC = {"summary": "We agreed.", "concepts": [{"id": "c1", "label": "Legacy portal"}],
                "decisions": [{"id": "d1", "statement": "Retire the legacy portal", "concerns": ["c1"], "decided_by": ["maria"]}],
                "actions": [{"id": "a1", "commitment": "Plan the migration", "owner": "maria", "concerns": ["c1"], "implements": "d1"}]}
@@ -761,3 +765,87 @@ def test_a_run_with_NO_classifier_leaves_the_subjects_alone():
     finally:
         h.close()
     assert not h.router.called(SemanticTools.vocab_link), "no classifier means no opinion, not an empty one"
+
+
+# ------------------------------------------------------- a prior confirmation that a vocabulary change made stale
+
+UNKNOWN_TYPE = "urn:fabric:scheme:doc-types#unknown"
+REQS_TYPE = "urn:fabric:scheme:doc-types#requirements-specification"
+
+
+def _typed(fab: Fabric, iri: str):
+    """A record that already CARRIES a type when intake re-reads it — the shape a re-submitted document has."""
+    return {"semantic_catalog_upsert": lambda a: {**fab.upsert(a), "document_type": iri}}
+
+
+def test_a_DIFFERING_classification_is_offered_beside_the_recorded_value():
+    """Measured 9-10 Oct 2026, and the reason this exists: `BRS.md` arrived when no document type fitted a
+    requirements specification, the classifier honestly returned the sentinel, and a reviewer confirmed it.
+    The scheme then GAINED `requirements-specification`; the file was edited, so the record went back to
+    pending and intake re-ran, and the classifier read it correctly. The card still built its item from the
+    recorded value alone — `suggested: No type fits (fact)` — so the better answer never reached the person,
+    who confirmed the stale one again while the card's own justification text said "BRS".
+
+    A human's answer outranking a model's guess is right in general; what it cannot see is that a VOCABULARY
+    change made that answer stale. So the recorded value stays the DEFAULT and the differing reading is
+    OFFERED beside it, in the labels a person reads rather than IRIs.
+    """
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "document_type": REQS_TYPE,
+                                           "rationale": "names itself a BRS"}),
+                tools=_typed(fab, UNKNOWN_TYPE))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K", "context": "meeting:m1"})
+    finally:
+        h.close()
+    samples = calls(h, ApprovalTools.ask)[0]["items"][0]["samples"]
+    assert "No type fits" in samples[0] and "(fact)" in samples[0], "the confirmed value is still the default"
+    offered = next(s for s in samples if "now reads as" in s)
+    assert "Requirements specification" in offered, "and the better reading is offered, by its label"
+    assert "doc-types#" not in " ".join(samples), "a person reads labels, never IRIs"
+    assert any("names itself a BRS" in s for s in samples), "with the classifier's own rationale"
+    # The model's second opinion is OFFERED, never written: a decided type is a person's to change.
+    assert [a for a in fab.asserts if a["field"] == "document_type"] == []
+
+
+def test_an_IDENTICAL_classification_changes_nothing_about_the_card():
+    """Only a DIFFERENCE is worth a reviewer's attention. A classifier that agrees with the record must leave
+    the item exactly as it was, or every card grows a line that says nothing."""
+    fab = Fabric()
+    agree = {**CLASSIFICATION, "document_type": REQS_TYPE}
+    h = harness(fab, classifier=FakeAgent(agree), tools=_typed(fab, REQS_TYPE))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K", "context": "meeting:m1"})
+    finally:
+        h.close()
+    samples = calls(h, ApprovalTools.ask)[0]["items"][0]["samples"]
+    assert samples == [f"suggested: Requirements specification (fact)", CLASSIFICATION["rationale"]]
+
+
+def test_a_type_the_producing_PROCESS_decided_is_not_put_to_a_vote():
+    """A lab product's type is deterministic — the process that made it says what it is (rung C). A classifier
+    reading the content differently is not new evidence about that, and offering it would put a second opinion
+    on every minutes card for nobody's benefit."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))      # suggests a decision-record...
+    try:
+        run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:m1",
+                         "produced_by": "transcript_to_minutes"})      # ...on a record typed Minutes by its producer
+    finally:
+        h.close()
+    samples = calls(h, ApprovalTools.ask)[0]["items"][0]["samples"]
+    assert samples == ["suggested: Minutes (fact)", CLASSIFICATION["rationale"]]
+
+
+def test_a_RECLASSIFY_sweep_still_asks_nobody_when_only_the_READING_moved():
+    """The queue-flooding rule is unchanged: a sweep over the back catalogue raises no card, even where the
+    new reading differs. A person sees the difference when the artifact itself changes and intake re-runs —
+    which is the republication case this whole item is for."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "document_type": REQS_TYPE}),
+                tools=_typed(fab, UNKNOWN_TYPE))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01K", "reason": "reclassify", "context": "meeting:m1"})
+    finally:
+        h.close()
+    assert not calls(h, ApprovalTools.ask)

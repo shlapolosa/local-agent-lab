@@ -550,3 +550,23 @@ def test_corpus_view_narrows_by_state_and_caps_what_it_reads(fab):
     assert len([n for n in fab.corpus_view(limit=1).nodes if n.kind == "artifact"]) == 1
     with pytest.raises(ValueError):
         fab.corpus_view(state="not-a-state")             # a typo must not read as "nothing matched"
+
+
+def test_the_projection_pages_url_is_the_records_landing_page_and_rides_the_row(fab):
+    """`dcat:landingPage` is exactly "a web page to navigate to in order to gain access to the resource", so
+    the projection page is one. It is a LITERAL: the page is addressed by the URL a person opens, which carries
+    its own tenant and is not a thing the graph names. Reported beside the row, because a caller asking
+    `catalog_get` for a record is the caller that wants to hand somebody the page."""
+    from lab.core.semantic.fabric.service import DCAT
+    a = fab.catalog_upsert(DOC, title="Notes")["iri"]
+    fab.catalog_assert(a, "projection_url", "https://wiki/x.md", rung=CONSTRUCTED, method="fabric-projector")
+    assert fab.catalog.get(a).projection_url == "https://wiki/x.md"
+    assert [(r, o) for r, (_, _, o) in G.find(fab.ds, URIRef(a), DCAT.landingPage)] == [
+        (CONSTRUCTED, Literal("https://wiki/x.md"))]
+    row = fab.catalog_get(a)
+    assert row["projection_url"] == "https://wiki/x.md"
+    assert {"predicate": "landingPage", "object": "https://wiki/x.md", "rung": CONSTRUCTED} in row["links"]
+    # the page is rewritten on every publish, and a new location supersedes the old one rather than joining it
+    fab.catalog_assert(a, "projection_url", "https://wiki/moved.md", rung=CONSTRUCTED, method="fabric-projector")
+    assert [str(o) for _, (_, _, o) in G.find(fab.ds, URIRef(a), DCAT.landingPage)] == ["https://wiki/moved.md"]
+    assert fab.validate().conforms

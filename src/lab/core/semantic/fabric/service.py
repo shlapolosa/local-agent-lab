@@ -69,6 +69,10 @@ FACETS: dict[str, tuple[URIRef, Callable[[Any], URIRef | Literal]]] = {
     "document_type": (FAB.documentType, _prefixed(DOC_TYPE_SCHEME, "document_type")),
     "owner": (FAB.ownedBy, _prefixed(PERSON, "owner")),
     "sensitivity_label": (FAB.sensitivityLabel, lambda v: Literal(str(v))),
+    # the projection page's URL: a LITERAL, because the URL a person opens can embed its own tenant and is
+    # not a thing the graph names — `dcat:landingPage` is "a web page to navigate to in order to gain access
+    # to the resource", which is exactly what the projector writes.
+    "projection_url": (DCAT.landingPage, lambda v: Literal(str(v))),
 }
 #: the identity facts mirrored into graph C on upsert — set, not asserted (they ARE the catalog row), so a
 #: caller may never retract one edge-wise: `catalog_state` moves them.
@@ -76,7 +80,7 @@ _MIRRORED = (RDF.type, DCT.title, DCAT.accessURL, FAB.lifecycleState, FAB.produc
              FAB.baselineVersion, FAB.unassociated)
 #: the edges `catalog_get` reports beside the row
 _LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, FAB.relatedTo, FAB.synthesisedFrom, DCT.subject, FAB.documentType,
-          FAB.ownedBy, FAB.sensitivityLabel)
+          FAB.ownedBy, FAB.sensitivityLabel, DCAT.landingPage)
 #: persisted name -> named graph: the five rungs, the PROV records, the candidates
 def concept_id_for(label: str) -> str:
     """The id a NEW concept takes when the steward names none: the label as one word, in the shape the seeded
