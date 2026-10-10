@@ -131,9 +131,13 @@ def _question():
         {"label": "urn:fabric:candidate:1", "samples": ["'Agentic retrieval' — asked for by 2 documents"]}]}
 
 
-def _card(ch, **over):
-    f = {"request_id": "apr-1", "kind": "concept-admission", "subject": "2 terms", "question": _question()}
-    return ch.card({**f, **over})["attachments"][0]["content"]
+def _card(ch, question=None):
+    """The shape a channel ACTUALLY receives: the question is inside the `payload` STRING, never a
+    top-level key. Asserting on the convenient shape is how inputs came to be built from a field a real
+    approval does not have."""
+    return ch.card({"request_id": "apr-1", "kind": "concept-admission", "subject": "2 terms",
+                    "payload": json.dumps({"question": _question() if question is None else question})}
+                   )["attachments"][0]["content"]
 
 
 def test_a_card_carries_NO_inputs_unless_something_is_waiting_for_them(monkeypatch):

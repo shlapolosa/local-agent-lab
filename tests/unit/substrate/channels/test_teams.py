@@ -94,7 +94,10 @@ def test_card_degrades_gracefully_without_summary_or_trace():
                "payload": json.dumps({})})
     card = _card(ch.sent[0])
     facts = _facts(card)
-    assert facts["Elements"] == "?" and facts["Violations"] == "?" and "Domain" not in facts
+    # A summary that carries nothing shows nothing. `?` per field was the old shape and it is the
+    # defect: on a card about two words it rendered five question marks about a model that does not
+    # exist, and absence read as missing data rather than as not applicable.
+    assert facts == {"Request": "apr-2", "Requester": "bot"}
     assert [a["title"] for a in card["actions"]] == ["Review & decide"]      # no trace -> no trace button
 
 
@@ -402,3 +405,30 @@ def test_the_ready_line_reports_the_groups_backlog(monkeypatch, capsys):
     monkeypatch.setattr(approvals, "channel_lag", lambda name, client=None: {"pending": 3, "lag": 12})
     ch.run()
     assert "backlog lag=12 pending=3" in capsys.readouterr().out
+
+
+def test_a_card_shows_what_the_payload_HAS_never_a_fixed_shape_with_blanks():
+    """Seen live on the first steward card (10 Oct 2026): a vocabulary question rendered `Elements ?`,
+    `Relationships ?`, `Views ?`, `Violations ?`, `Warnings ?` and a line about diagrams — the ArchiMate
+    summary's shape, on a card about two words. A `?` reads as MISSING DATA when the truth is NOT
+    APPLICABLE, which is the same mistake as defaulting an absent count to one: absence given a
+    plausible rendering instead of being left absent.
+
+    So a fact appears when the summary carries it, and the diagrams line when there is something to
+    draw. The rule belongs to every card, not to this kind."""
+    ch = T.TeamsChannel("https://hook.test/x")
+    bare = ch.card({"request_id": "apr-1", "kind": "concept-admission", "subject": "2 terms",
+                    "payload": json.dumps({"summary": {}})})
+    facts = [b for b in bare["attachments"][0]["content"]["body"] if b.get("type") == "FactSet"]
+    titles = [f["title"] for f in facts[0]["facts"]]
+    assert titles == ["Request"], f"a vocabulary card should carry no model counts, got {titles}"
+    assert "Diagrams" not in json.dumps(bare)
+
+    full = ch.card({"request_id": "apr-2", "kind": "ea-import", "subject": "a model",
+                    "requester": "wf-visio",
+                    "payload": json.dumps({"summary": {"elements": 12, "relations": 7, "views": 2,
+                                                       "violations": 1}})})
+    body = json.dumps(full)
+    for shown in ("Elements", "Relationships", "Views", "Violations", "Diagrams", "wf-visio"):
+        assert shown in body, f"{shown} is in the summary and must be on the card"
+    assert "Warnings" not in body, "a count the summary does not carry is not a blank, it is absent"

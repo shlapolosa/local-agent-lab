@@ -94,8 +94,8 @@ class TeamsChannel:
         # to go and find theirs.
         # The label says what the reviewer is actually being asked to do — answering a question and
         # releasing a staged write are different acts and should not read the same.
-        inputs, submit = (self._answer_inputs(f.get("question") or {}, str(f.get("request_id") or ""))
-                          if self.answers_on_card else ([], []))
+        inputs, submit = (self._answer_inputs(question, str(f.get("request_id") or ""))
+                          if self.answers_on_card and question else ([], []))
         actions = [{"type": "Action.OpenUrl",
                     "title": "Answer in the review app" if question else "Review & decide",
                     "url": f'{self.review_url.rstrip("/")}?approval={f["request_id"]}'}]
@@ -178,18 +178,26 @@ class TeamsChannel:
 
     def _summary_blocks(self, f, payload) -> list:
         """The staged-model summary: counts, the target domain, and violations called out in red."""
+        # ONLY what the payload CARRIES. A fixed shape rendered a vocabulary question as `Elements ?`,
+        # `Relationships ?`, `Views ?` and a line about diagrams — the ArchiMate summary's shape on a card
+        # about two words (seen live, 10 Oct 2026). A `?` reads as MISSING DATA where the truth is NOT
+        # APPLICABLE, which is the same mistake as giving an absent count a plausible default: absence
+        # deserves to stay absent, and a card that invents blanks looks like one built for somebody else.
         s = payload.get("summary") or {}
-        facts = [{"title": "Request", "value": f["request_id"]},
-                 {"title": "Requester", "value": f.get("requester", "?")}]
+        facts = [{"title": "Request", "value": f["request_id"]}]
+        if f.get("requester"):
+            facts.append({"title": "Requester", "value": str(f["requester"])})
         if s.get("domain"):
             facts.append({"title": "Domain", "value": str(s["domain"])})
-        facts += [{"title": t, "value": str(s.get(k, "?"))} for t, k in SUMMARY_FACTS]
+        facts += [{"title": t, "value": str(s[k])} for t, k in SUMMARY_FACTS if s.get(k) is not None]
         out = [{"type": "FactSet", "facts": facts}]
         if s.get("violations"):
             out.append({"type": "TextBlock", "color": "Attention", "weight": "Bolder", "wrap": True,
                         "text": f'{s["violations"]} validation violation(s) — review before approving.'})
-        out.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
-                    "text": "Diagrams are not shown here — open the review app for the views and to decide."})
+        if s.get("views"):                 # ...and nothing to say about diagrams when there are none
+            out.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
+                        "text": "Diagrams are not shown here — open the review app for the views and "
+                                "to decide."})
         return out
 
     def notify(self, f):
