@@ -94,6 +94,8 @@ class TeamsChannel:
         # to go and find theirs.
         # The label says what the reviewer is actually being asked to do — answering a question and
         # releasing a staged write are different acts and should not read the same.
+        inputs, submit = (self._answer_inputs(f.get("question") or {}, str(f.get("request_id") or ""))
+                          if self.answers_on_card else ([], []))
         actions = [{"type": "Action.OpenUrl",
                     "title": "Answer in the review app" if question else "Review & decide",
                     "url": f'{self.review_url.rstrip("/")}?approval={f["request_id"]}'}]
@@ -103,7 +105,48 @@ class TeamsChannel:
         return {"type": "message", "attachments": [{
             "contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
             "content": {"$schema": CARD_SCHEMA, "type": "AdaptiveCard", "version": CARD_VERSION,
-                        "body": body, "actions": actions}}]}
+                        "body": body + inputs, "actions": submit + actions}}]}
+
+    #: Whether THIS channel's webhook is a flow that WAITS for a response. A card only carries inputs when
+    #: something can receive them: Teams renders `Action.Submit` on any card, and a button that silently
+    #: does nothing is worse than none — which is why the honest default is False and why it is a setting
+    #: rather than a guess. Turn it on with the waiting flow, not before.
+    answers_on_card: bool = False
+
+    def _answer_inputs(self, question, request_id: str = "") -> tuple[list, list]:
+        """Controls that let a person answer ON the card, and the Submit that sends them.
+
+        One control per label, keyed EXACTLY as `check_answer` keys the answer, so what the flow posts is
+        what the gate already accepts — no mapping, and nothing to drift.
+
+        Three choices, not two. `vocab_candidates`' own docstring says a steward most often settles a term
+        by making it another name for a concept already held; a card offering only admit and decline would
+        make the commonest answer the hardest to give. So `existing` rides beside a text box for the id,
+        exactly as the speaker card offers attendees BESIDE free text and never instead of it."""
+        controls, labels = [], []
+        for item in question.get("items") or []:
+            label = str(item.get("label") or "")
+            if not label:
+                continue
+            labels.append(label)
+            shown = str((item.get("samples") or [label])[0])[:MAX_SAMPLE]
+            controls += [
+                {"type": "TextBlock", "text": shown, "wrap": True, "weight": "Bolder", "spacing": "Medium"},
+                {"type": "Input.ChoiceSet", "id": label, "style": "compact", "value": "decline",
+                 "choices": [{"title": "Admit it", "value": "admit"},
+                             {"title": "It already exists", "value": "existing"},
+                             {"title": "Decline", "value": "decline"}]},
+                {"type": "Input.Text", "id": f"{label}::id", "spacing": "None",
+                 "placeholder": "if it already exists, the concept id it means"},
+            ]
+        if not labels:
+            return [], []
+        # The approval id rides the SUBMIT, so the response carries everything the gate needs and the
+        # flow has nothing to look up: `POST /api/approvals/{request_id}/decide` is addressable from the
+        # answer alone. A flow that had to correlate a response back to a card would be a second place
+        # that could lose one.
+        return controls, [{"type": "Action.Submit", "title": "Record my answers",
+                           "data": {"labels": labels, "request_id": request_id}}]
 
     def _question_blocks(self, question) -> list:
         """One row per thing a human must identify.
@@ -127,9 +170,10 @@ class TeamsChannel:
                 *([{"type": "TextBlock", "text": said, "wrap": True, "isSubtle": True,
                     "spacing": "None"}] if said and voices else []),
             ]})
-        blocks.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
-                       "text": "Answer in the review app, or through a flow that posts this card and "
-                               "waits for a response — a webhook card cannot send an answer back."})
+        if not self.answers_on_card:
+            blocks.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
+                           "text": "Answer in the review app, or through a flow that posts this card and "
+                                   "waits for a response — a webhook card cannot send an answer back."})
         return blocks
 
     def _summary_blocks(self, f, payload) -> list:

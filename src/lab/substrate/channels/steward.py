@@ -27,6 +27,7 @@ behind: a steward who has not looked for a week must not hold up an owner's card
 
 Run: .venv/bin/python -m lab.substrate.channels.steward   (loop; exits immediately if not configured)
 """
+from lab.platform import config
 from lab.platform.contracts import ApprovalAudience
 from lab.substrate.channels.teams import TeamsChannel
 
@@ -34,6 +35,7 @@ from lab.substrate.channels.teams import TeamsChannel
 class StewardChannel(TeamsChannel):
     name = "steward"                                  # its own consumer group on approvals:requests
     setting = "TEAMS_STEWARD_WEBHOOK_URL"             # a DIFFERENT Teams channel's Workflows webhook
+    answers_on_card = config.TEAMS_STEWARD_ANSWERS_ON_CARD
     audience = ApprovalAudience.STEWARD               # ... carrying only the vocabulary questions
 
 

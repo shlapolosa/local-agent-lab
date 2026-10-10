@@ -488,3 +488,8 @@ FABRIC_CORPUS_RENDERER = _e("FABRIC_CORPUS_RENDERER", "d3")
 #: lab's own test output, so the counts are not yet representative of real demand. It bounds what is PUSHED
 #: only — the register returns every candidate however often it was asked for.
 FABRIC_CANDIDATE_THRESHOLD = int(_e("FABRIC_CANDIDATE_THRESHOLD", "2"))
+#: Whether the steward channel's webhook is a flow that WAITS for a response, so its card can carry inputs
+#: and a Submit. False by default and deliberately a SETTING rather than a guess: Teams renders a submit
+#: button on any card and has nowhere to post it unless something is waiting, and a button that silently
+#: does nothing is worse than no button. Turn it on WITH the waiting flow, never before.
+TEAMS_STEWARD_ANSWERS_ON_CARD = _bool(_e("TEAMS_STEWARD_ANSWERS_ON_CARD"))

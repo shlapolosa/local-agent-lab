@@ -122,3 +122,54 @@ def test_main_entry_runs_the_channel(monkeypatch):
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q", "-p", "no:warnings"]))
+
+
+# ------------------------------------------------ T2.5: answering ON the card, when something is waiting
+def _question():
+    return {"prompt": "Triage these terms.", "fields": ["value"], "items": [
+        {"label": "urn:fabric:candidate:0", "samples": ["'Clinical Reviewer' — asked for by 2 documents"]},
+        {"label": "urn:fabric:candidate:1", "samples": ["'Agentic retrieval' — asked for by 2 documents"]}]}
+
+
+def _card(ch, **over):
+    f = {"request_id": "apr-1", "kind": "concept-admission", "subject": "2 terms", "question": _question()}
+    return ch.card({**f, **over})["attachments"][0]["content"]
+
+
+def test_a_card_carries_NO_inputs_unless_something_is_waiting_for_them(monkeypatch):
+    """Teams renders `Action.Submit` on any card and has nowhere to post it unless a flow is waiting. A
+    button that silently does nothing is worse than no button, so the default is off and the card says
+    where to answer instead."""
+    ch = S.StewardChannel("https://hook.test/steward")
+    ch.answers_on_card = False
+    content = _card(ch)
+    assert not [b for b in content["body"] if str(b.get("type", "")).startswith("Input.")]
+    assert all(a["type"] == "Action.OpenUrl" for a in content["actions"])
+    assert "review app" in json.dumps(content)
+
+
+def test_when_a_flow_IS_waiting_every_term_gets_a_control_keyed_as_the_gate_keys_it():
+    """One control per label, keyed EXACTLY as `check_answer` keys the answer — so what the flow posts is
+    what the gate already accepts, with nothing to map and nothing to drift."""
+    ch = S.StewardChannel("https://hook.test/steward")
+    ch.answers_on_card = True
+    content = _card(ch)
+    choices = [b for b in content["body"] if b.get("type") == "Input.ChoiceSet"]
+    assert [c["id"] for c in choices] == ["urn:fabric:candidate:0", "urn:fabric:candidate:1"]
+    # three answers, because "it already means something we have" is the commonest one
+    assert [o["value"] for o in choices[0]["choices"]] == ["admit", "existing", "decline"]
+    assert all(c["value"] == "decline" for c in choices), "the safe answer is the default"
+    texts = [b for b in content["body"] if b.get("type") == "Input.Text"]
+    assert [t["id"] for t in texts] == ["urn:fabric:candidate:0::id", "urn:fabric:candidate:1::id"]
+    submit = [a for a in content["actions"] if a["type"] == "Action.Submit"]
+    assert len(submit) == 1 and submit[0]["data"]["labels"] == [c["id"] for c in choices]
+    # the approval id rides the answer, so the flow can address the gate without correlating anything
+    assert submit[0]["data"]["request_id"] == "apr-1"
+    assert content["actions"][-1]["type"] == "Action.OpenUrl", "the review app stays reachable"
+
+
+def test_a_question_with_no_items_gets_no_submit_button():
+    ch = S.StewardChannel("https://hook.test/steward")
+    ch.answers_on_card = True
+    content = _card(ch, question={"prompt": "nothing to answer", "items": []})
+    assert not [a for a in content["actions"] if a["type"] == "Action.Submit"]
