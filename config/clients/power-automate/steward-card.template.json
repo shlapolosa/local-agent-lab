@@ -91,6 +91,6 @@
         "tier": "NotSpecified"
       }
     },
-    "//": "T2.5 \u2014 a steward answers ON the card instead of following a deep link per term. Pair with TEAMS_STEWARD_ANSWERS_ON_CARD=true, which makes the fabric put inputs and a Submit on the card: turn it on WITH this flow and never before, because Teams renders a submit button on any card and has nowhere to post it unless something is waiting."
+    "//": "T2.5 \u2014 a steward answers ON the card instead of following a deep link per term. Pair with TEAMS_STEWARD_ANSWERS_ON_CARD=true, which makes the fabric put inputs and a Submit on the card: turn it on WITH this flow and never before, because Teams renders a submit button on any card and has nowhere to post it unless something is waiting. BUILT 10 Oct 2026 and LIVE. Two traps the API alone could not have told you about: `POST /flows` refuses the wait action with DynamicParameterInputInvalid, because it resolves its recipient schema per (poster, location) at DESIGN time \u2014 so that one action is built in the designer and the rest is PATCHed in; and the new designer defaults the HTTP trigger to `triggerAuthenticationType: \"Tenant\"`, which issues NO SAS url at all \u2014 a 211-character callback with no `sig`, and a 401 that reads as a permissions problem. Clearing it to `{\"schema\": {...}}` restores the 296-character signed url the lab's other webhooks use. The secret URL IS the credential here, as it is for every channel."
   }
 }
