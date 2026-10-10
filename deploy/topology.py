@@ -612,6 +612,13 @@ ROLE_ENV = {
         _OTLP,
     ],
     "steward": [                                   # src/lab/substrate/channels/steward.py (the Teams adapter, second queue)
+        # Whether that webhook is a flow that WAITS, so the card may carry inputs and a Submit. It has to
+        # travel WITH the webhook: the flag without the flow puts a dead button on the card, and the flow
+        # without the flag leaves a steward following a deep link per term. Missing from this allowlist is
+        # how the card stayed un-answerable after the flag was set and the code deployed (10 Oct 2026) —
+        # least privilege working exactly as designed, and silently, because an absent variable is a
+        # default and a default is not an error.
+        "TEAMS_STEWARD_ANSWERS_ON_CARD",
         "TEAMS_STEWARD_WEBHOOK_URL",               # its OWN Adaptive Card webhook (unset = not deployed).
                                                    # Deliberately NOT TEAMS_WEBHOOK_URL: two channels
                                                    # sharing one destination is the buried queue this split undoes

@@ -65,6 +65,43 @@ def question(payload: dict) -> list[dict]:
     ]
 
 
+def _verdict(candidate: dict, entry) -> tuple[str, str]:
+    """One term's answer as (head, target), or raise with a sentence naming the TERM.
+
+    The sentence names the term because a steward answered ten of them: "'existing' names no concept" on
+    its own sends somebody back to a card to work out which one."""
+    label = str(candidate.get("label") or candidate.get("iri") or "?")
+    verdict = answer_value(entry).strip()
+    head, _, target = verdict.partition(":")
+    head, target = head.strip().lower(), target.strip()
+    if head == "existing" and not target:
+        raise ValueError(f"{label!r}: 'existing' names no concept — answer 'existing:<concept id>'")
+    if head not in ("admit", "existing", "decline"):
+        raise ValueError(f"{label!r}: {verdict!r} is not admit, existing:<id> or decline")
+    return head, target
+
+
+def batch_problems(candidates: list[dict], answer: dict) -> list[str]:
+    """The verdicts that could NOT be read, as sentences for the person who wrote them. Pure.
+
+    Separate from `plan` because the two answers are both wanted at once: apply what IS readable, and ask
+    again for what is not. A steward triaged four terms in Teams, left one id box empty, and all four were
+    discarded — one admit and two declines thrown away with the mistake (measured 10 Oct 2026). The work a
+    person did is the expensive part of this exchange; the typo is the cheap part."""
+    by_iri = {str(c.get("iri") or ""): c for c in candidates}
+    out = []
+    for label, entry in (answer or {}).items():
+        candidate = by_iri.get(label)
+        if candidate is None:
+            out.append(f"{label!r} is not one of the terms on this card")
+            continue
+        try:
+            _verdict(candidate, entry)
+        except ValueError as e:
+            out.append(str(e))
+    return out
+
+
 def _batch_plan(candidates: list[dict], answer: dict, actor: str) -> list[tuple[str, dict]]:
     """One verdict per TERM, from the one card a steward triaged. Pure.
 
@@ -80,24 +117,21 @@ def _batch_plan(candidates: list[dict], answer: dict, actor: str) -> list[tuple[
     for label, entry in (answer or {}).items():
         candidate = by_iri.get(label)
         if candidate is None:
-            raise ValueError(f"{label!r} is not one of the terms on this card")
-        verdict = answer_value(entry).strip()
-        head, _, target = verdict.partition(":")
-        head = head.strip().lower()
+            continue                       # reported by `batch_problems`, never silently applied
+        try:
+            head, target = _verdict(candidate, entry)
+        except ValueError:
+            continue                       # ...the same: unreadable here, asked again by the applier
         if head == "decline":
             calls.append((SemanticTools.vocab_decline,
                           {"candidate": label, "actor": actor, "reason": f"a steward declined {candidate.get('label')!r}"}))
         elif head == "existing":
-            if not target.strip():
-                raise ValueError(f"{verdict!r} names no concept — answer 'existing:<concept id>'")
             calls.append((SemanticTools.vocab_amend,
-                          {"concept_id": target.strip(), "scheme": str(candidate.get("scheme") or ""),
+                          {"concept_id": target, "scheme": str(candidate.get("scheme") or ""),
                            "alt": str(candidate.get("label") or ""), "actor": actor,
-                           "reason": f"a steward said this term means {target.strip()}"}))
+                           "reason": f"a steward said this term means {target}"}))
         elif head == "admit":
             calls.append((SemanticTools.promote, {"subject": label, "actor": actor, "method": METHOD}))
-        else:
-            raise ValueError(f"{verdict!r} is not admit, existing:<id> or decline")
     return calls
 
 
@@ -346,6 +380,14 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
             for t, a in _propagate(candidate, str(got.get("iri") or ""), actor):
                 await go([(t, a)])
                 made.append((t, a))
+    # ASK AGAIN for what could not be read — after applying what could. `AnswerRejected` re-opens the card
+    # (T2.6); a plain ValueError made the runner record a WRITE failure and redrive it on every restart,
+    # which is a decision only a person can change being retried forever (measured 10 Oct 2026). The
+    # verbs above are idempotent, so re-answering the card costs nothing it already did.
+    batch = list(((payload.get("context") or payload).get("candidates")) or [])
+    problems = batch_problems(batch, state.get("answer") or {}) if batch else []
+    if problems:
+        raise answer_appliers.AnswerRejected("; ".join(problems))
     return made
 
 

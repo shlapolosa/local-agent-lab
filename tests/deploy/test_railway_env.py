@@ -320,8 +320,13 @@ def test_the_steward_channel_holds_its_own_webhook_and_neither_owner_channels_to
     nothing else. Crucially NOT `TEAMS_WEBHOOK_URL`: two channels sharing one destination is the
     buried queue this split exists to undo (101 open term cards against ~37 of everything else,
     measured 10 Oct 2026)."""
-    env = railway.env_for_role("steward", FAKE | {"TEAMS_STEWARD_WEBHOOK_URL": "https://hook/s"})
-    assert set(env) == {"TEAMS_STEWARD_WEBHOOK_URL", "REDIS_URL", "REVIEW_APP_URL", "JAEGER_UI_URL",
+    env = railway.env_for_role("steward", FAKE | {"TEAMS_STEWARD_WEBHOOK_URL": "https://hook/s",
+                                                  "TEAMS_STEWARD_ANSWERS_ON_CARD": "true"})
+    # The flag travels WITH the webhook. Left out of the allowlist it is simply absent on the service,
+    # which reads as `false` — so the card stayed un-answerable after the flag was set and the code
+    # deployed, and nothing anywhere said so (10 Oct 2026).
+    assert set(env) == {"TEAMS_STEWARD_WEBHOOK_URL", "TEAMS_STEWARD_ANSWERS_ON_CARD",
+                        "REDIS_URL", "REVIEW_APP_URL", "JAEGER_UI_URL",
                         "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not _has(env, "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
                     "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "BA_", "ARCHITECT_", "ENTRA_",

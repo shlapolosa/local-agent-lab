@@ -323,12 +323,16 @@ def test_one_card_carries_three_verdicts_and_each_lands_where_it_belongs():
 
 
 def test_a_batch_verdict_must_be_one_of_the_three_and_name_a_term_on_the_card():
-    payload = _batch_payload()
-    for bad in ({"urn:fabric:candidate:0": {"value": "maybe"}},
-                {"urn:fabric:candidate:0": {"value": "existing:"}},
-                {"urn:fabric:candidate:9": {"value": "admit"}}):
-        with pytest.raises(ValueError):
-            V.plan(payload, bad, "steward@x")
+    """`plan` SKIPS what it cannot read and `batch_problems` reports it — so one bad verdict costs that
+    one term rather than the nine answered beside it. The sentence names the TERM, because a steward who
+    answered ten of them should not have to work out which."""
+    cands = _batch_payload()["context"]["candidates"]
+    for bad, expect in (({"urn:fabric:candidate:0": {"value": "maybe"}}, "Clinical Reviewer"),
+                        ({"urn:fabric:candidate:0": {"value": "existing:"}}, "names no concept"),
+                        ({"urn:fabric:candidate:9": {"value": "admit"}}, "not one of the terms")):
+        assert V.plan(_batch_payload(), bad, "steward@x") == []
+        problems = V.batch_problems(cands, bad)
+        assert len(problems) == 1 and expect in problems[0]
 
 
 def test_the_single_term_card_still_applies_the_way_it_always_did():
@@ -467,3 +471,54 @@ def test_when_everything_has_been_asked_no_card_is_raised_at_all():
     call = _gw(_cands(("One", True), ("Two", True)))
     assert asyncio.run(V.ask_open(call=call, threshold=2)) == []
     assert call.marked == []
+
+
+# ------------------- one bad verdict must not discard nine good ones (measured live, 10 Oct 2026)
+def _card3():
+    return {"context": {"candidates": [
+        {"iri": "c0", "label": "Coding assistance", "scheme": "cafe", "proposed_for": ["a"]},
+        {"iri": "c1", "label": "Control", "scheme": "cafe"},
+        {"iri": "c2", "label": "Decision Support", "scheme": "cafe"}]}}
+
+
+def test_a_term_answered_badly_does_not_throw_away_the_ones_answered_well():
+    """A steward triaged four terms in Teams, left the id box empty on one, and ALL FOUR were discarded —
+    one admit and two declines thrown away with the mistake. For a card whose whole purpose is answering
+    ten things at once, all-or-nothing is the wrong failure: the work a person did is the expensive part.
+
+    So the verdicts that can be read are applied, and the ones that cannot are REPORTED. Both verbs are
+    idempotent, so re-answering the card after fixing the one term is safe."""
+    answer = {"c0": {"value": "admit"}, "c1": {"value": "decline"}, "c2": {"value": "existing"}}
+    calls = V.plan(_card3(), answer, "steward@x")
+    tools = [t for t, _ in calls]
+    assert SemanticTools.promote in tools and SemanticTools.vocab_decline in tools
+    assert SemanticTools.vocab_amend not in tools          # the one that could not be read
+    assert V.batch_problems(_card3()["context"]["candidates"], answer) == \
+        ["'Decision Support': 'existing' names no concept — answer 'existing:<concept id>'"]
+
+
+def test_an_answer_everything_in_which_is_readable_reports_no_problem():
+    answer = {"c0": {"value": "admit"}, "c1": {"value": "decline"},
+              "c2": {"value": "existing:DecisionSupport"}}
+    assert V.batch_problems(_card3()["context"]["candidates"], answer) == []
+    assert len(V.plan(_card3(), answer, "steward@x")) == 3
+
+
+def test_the_applier_raises_AnswerRejected_so_the_CARD_COMES_BACK():
+    """It raised a plain ValueError, so the runner recorded a WRITE failure and redrove it on every
+    restart — a decision only a person can change, retried forever. `AnswerRejected` is the typing that
+    re-opens the card instead (T2.6), and it was built for the curator this afternoon and never applied
+    here."""
+    from lab.substrate import answer_appliers
+    done = []
+
+    async def call(calls):
+        done.extend(n for n, _ in calls)
+        return [{} for _ in calls]
+
+    state = {"payload": _card3(),
+             "answer": {"c0": {"value": "admit"}, "c1": {"value": "decline"}, "c2": {"value": "existing"}}}
+    with pytest.raises(answer_appliers.AnswerRejected, match="Decision Support"):
+        asyncio.run(V.apply(state, "steward@x", call=call))
+    # ...and the readable verdicts were APPLIED before it asked again, so the person redoes one term
+    assert SemanticTools.promote in done and SemanticTools.vocab_decline in done
