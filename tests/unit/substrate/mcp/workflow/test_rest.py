@@ -269,3 +269,21 @@ def test_open_runs_lists_what_a_deploy_would_kill_and_nothing_finished(api):
     assert "recording" not in json.dumps(listed) and "owner" not in json.dumps(listed)
     workflows.mark(rid, "done", client=r)
     assert client.get("/api/runs/open").json() == {"runs": []}
+
+
+def test_a_CARD_may_post_its_flat_response_and_the_lab_shapes_it(api):
+    """T2.5. The flow posts what the card gave it, verbatim: a flow that had to build the gate's keyed
+    answer from N dynamic labels would be debuggable only against a live card and testable nowhere."""
+    client, r = api
+    rid = approvals.request(ApprovalKind.CONCEPT_ADMISSION.value, "2 terms",
+                            {"question": {"prompt": "triage", "items": [{"label": "c0"}, {"label": "c1"}],
+                                          "fields": ["value"]},
+                             "answer_labels": ["c0", "c1"], "answer_required": True}, "wf", client=r)
+    got = client.post(f"/api/approvals/{rid}/decide", json={
+        "decision": "approve", "actor": "steward@x", "channel": "teams",
+        "card": {"labels": ["c0", "c1"], "c0": "admit", "c0::id": "",
+                 "c1": "existing", "c1::id": "ClinicalReview", "request_id": rid}})
+    assert got.status_code == 200, got.text
+    st = approvals.status(rid, client=r)
+    assert st["answer"] == {"c0": {"value": "admit"}, "c1": {"value": "existing:ClinicalReview"}}
+    assert st["decided_by"] == "steward@x" and st["decided_via"] == "api:teams"

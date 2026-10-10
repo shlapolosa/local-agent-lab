@@ -603,6 +603,37 @@ def speaker_candidates(payload: dict[str, Any]) -> list[SpeakerCandidate]:
     return out
 
 
+#: How a card names the companion field that completes a choice. `existing` means nothing without the
+#: concept it already means, but the gate takes ONE value per label — so the card shows two controls and
+#: `card_answer` joins them back into the one answer the contract accepts.
+ID_SUFFIX = "::id"
+
+
+def card_answer(flat, labels) -> dict:
+    """An Adaptive Card's FLAT submit response as the gate's keyed answer.
+
+    A card posts what its inputs are keyed by, flat and all strings. The gate wants
+    `{label: {"value": ...}}`. Doing that conversion inside Power Automate means assembling a keyed
+    object from N dynamic labels in a flow expression — debuggable only against a live card, and
+    untestable anywhere — so the flow posts the response VERBATIM and the shaping happens here, where it
+    can be tested. The part that can be got wrong belongs where it can be unit-tested.
+
+    Only the labels the ASKER declared are read: a card posts whatever its client sent, and anything else
+    in the body is not an answer to this question. A label the person did not answer is ABSENT rather than
+    guessed — `check_answer` enforces completeness, and a default invented here would walk past it and be
+    a decision nobody made."""
+    if not isinstance(flat, Mapping):
+        raise ValueError("a card answer is an object keyed by the labels the card asked about")
+    out: dict[str, dict] = {}
+    for label in labels or []:
+        value = str(flat.get(label) or "").strip()
+        if not value:
+            continue                      # unanswered: the completeness gate is the one place that decides
+        extra = str(flat.get(f"{label}{ID_SUFFIX}") or "").strip()
+        out[str(label)] = {"value": f"{value}:{extra}" if extra else value}
+    return out
+
+
 def check_answer(payload: dict[str, Any], answer: dict[str, Any] | None) -> dict[str, Any] | None:
     """The answer this approval asked for, or ValueError naming exactly what is wrong.
 

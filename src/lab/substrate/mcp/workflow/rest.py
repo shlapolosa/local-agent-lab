@@ -54,6 +54,7 @@ from lab.platform import config, workflows
 from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_FINISHED,
                                     WORKFLOW_OPEN, Decision,
                                     ProcessSpec, speaker_candidates, speaker_prompts)
+from lab.platform.contracts import card_answer
 from lab.substrate import approvals
 from lab.substrate.mcp.workflow import listing
 from lab.substrate.mcpserver import error_response as _error, json_body as _body
@@ -257,6 +258,14 @@ def _decide_route(server):
             body = await _body(request)
         except ValueError as e:
             return _error(400, str(e))
+        # A CARD posts its inputs flat and all strings, keyed by the labels it asked about. Shaping that
+        # into the gate's answer belongs here and not in a Power Automate expression: a flow assembling a
+        # keyed object from N dynamic labels is debuggable only against a live card and testable nowhere.
+        # So a caller may post `card` and the lab does the shaping — one pure function, with tests.
+        answer = body.get("answer")
+        card = body.get("card")
+        if answer is None and isinstance(card, dict):
+            answer = card_answer(card, card.get("labels") or [])
         decision = str(body.get("decision") or "").strip()
         if decision not in {d.value for d in Decision}:
             return _error(422, f"decision must be one of {[d.value for d in Decision]}")
@@ -264,7 +273,7 @@ def _decide_route(server):
             fields = approvals.human_decision(
                 aid, decision, str(body.get("actor") or ""),
                 f'api:{str(body.get("channel") or "").strip() or "rest"}',
-                str(body.get("comment") or ""), answer=body.get("answer"),
+                str(body.get("comment") or ""), answer=answer,
                 client=server.container.redis())
         except KeyError:
             return _error(404, f"no such approval {aid!r}")

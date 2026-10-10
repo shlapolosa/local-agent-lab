@@ -1,0 +1,96 @@
+{
+  "properties": {
+    "displayName": "Fabric \u2014 steward card, answered in Teams",
+    "state": "Started",
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "Http",
+          "inputs": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "actions": {
+        "Ask_the_steward": {
+          "type": "OpenApiConnectionWebhook",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+              "connectionName": "shared_teams",
+              "operationId": "PostCardAndWaitForResponse"
+            },
+            "parameters": {
+              "poster": "Flow bot",
+              "location": "Channel",
+              "body/recipient/groupId": "5003a32f-fe35-40d6-9bf5-c6c7ba2ed830",
+              "body/recipient/channelId": "19:d22b3b5a052147599fe31521aa2a6e5c@thread.tacv2",
+              "body/messageBody": "@{string(triggerBody()?['attachments'][0]['content'])}",
+              "body/updateMessage": "Thank you \u2014 recording your answers. If recording fails this flow fails and the terms stay open.",
+              "body/shouldUpdateCard": true
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "limit": {
+            "timeout": "P7D"
+          },
+          "runAfter": {},
+          "//": "Posts the card the fabric built and WAITS. The Flow bot posts it, so no bot registration is needed. NOT CREATED BY API: `POST /flows` refused this with DynamicParameterInputInvalid on GetFlowContinuationSubscriptionWithPoster \u2014 the wait operation resolves its recipient schema DYNAMICALLY per (poster, location), and the channel form is not what the chat form in flow.json uses. Build this ONE action in the designer once and export it; everything around it is settled."
+        },
+        "Record_the_answers": {
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "@{concat('https://gateway-production-120b.up.railway.app/api/approvals/', body('Ask_the_steward')?['data']?['request_id'], '/decide')}",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "decision": "approve",
+              "actor": "@{body('Ask_the_steward')?['responder']?['email']}",
+              "channel": "teams-card",
+              "card": "@body('Ask_the_steward')?['data']"
+            },
+            "authentication": {
+              "type": "ActiveDirectoryOAuth",
+              "audience": "api://27000051-a145-4c16-885c-d5c98b4f4705",
+              "tenant": "b911f4d4-de30-405f-96e9-bb1c773fe2ff",
+              "clientId": "<CONNECTOR_CLIENT_ID>",
+              "secret": "<CONNECTOR_CLIENT_SECRET>"
+            }
+          },
+          "runAfter": {
+            "Ask_the_steward": [
+              "Succeeded"
+            ]
+          },
+          "//": "The card's response goes VERBATIM to the gate as `card`; the LAB shapes it (contracts.card_answer, tested). A flow assembling the gate's keyed answer from N dynamic labels would be debuggable only against a live card and testable nowhere."
+        }
+      }
+    },
+    "connectionReferences": {
+      "shared_teams": {
+        "connectionName": "946b59cb04c54e13bed232924116a9b6",
+        "source": "Invoker",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_teams",
+        "tier": "NotSpecified"
+      }
+    },
+    "//": "T2.5 \u2014 a steward answers ON the card instead of following a deep link per term. Pair with TEAMS_STEWARD_ANSWERS_ON_CARD=true, which makes the fabric put inputs and a Submit on the card: turn it on WITH this flow and never before, because Teams renders a submit button on any card and has nowhere to post it unless something is waiting."
+  }
+}
