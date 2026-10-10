@@ -347,3 +347,15 @@ def test_the_licensed_workbooks_are_not_in_the_repository():
     assert not committed, committed
 
 
+
+
+def test_the_corpus_picture_gets_its_own_renderer():
+    """A record's view has a focus and a few nodes, so rings around the focus are right and need no
+    script. A corpus view has NO focus: the ring layout puts every node on one circle — it renders, and
+    it is unreadable. So the two are configured separately, and the corpus defaults to the simulating
+    adapter rather than inheriting a choice made for the other picture."""
+    from lab.platform import config
+    from lab.substrate.container import RENDERER_PROVIDERS, graph_renderer
+    assert config.FABRIC_CORPUS_RENDERER in RENDERER_PROVIDERS
+    assert graph_renderer(config.FABRIC_CORPUS_RENDERER).name == "d3"
+    assert config.FABRIC_RENDERER == "svg"          # ...and a record's view is unchanged by this

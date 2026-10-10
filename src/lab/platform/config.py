@@ -469,3 +469,9 @@ FABRIC_OWNER_MAP = _e("FABRIC_OWNER_MAP", str(REPO_ROOT / "config" / "fabric-own
 #: which `GraphRenderer` adapter draws a topology view (registry `lab.substrate.container.RENDERER_PROVIDERS`).
 #: `svg` is one self-contained page a person opens from a download; an interactive or raster adapter is a key.
 FABRIC_RENDERER = _e("FABRIC_RENDERER", "svg")
+#: What draws the WHOLE-CORPUS picture, which is a different problem from one record's and so is allowed a
+#: different adapter. A record's view has a focus and a handful of nodes: rings around the focus are exactly
+#: right, and need no script. A corpus view has NO focus, so a ring layout puts every node on one circle —
+#: it renders, and it is unreadable. A simulation is not a preference there, it is the only thing that can
+#: show what the picture is for: which records cluster, and which concept holds half the catalogue.
+FABRIC_CORPUS_RENDERER = _e("FABRIC_CORPUS_RENDERER", "d3")

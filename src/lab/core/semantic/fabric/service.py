@@ -25,7 +25,7 @@ from lab.core.viz import TopologyView
 from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
-from lab.core.semantic.fabric import topology
+from lab.core.semantic.fabric import corpus, topology
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
                                               iri_safe, pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
@@ -840,6 +840,29 @@ class FabricService:
         # The SAME schemes the derivation reads, so the picture can always explain the edges the derivation made.
         return topology.view_of(row, schemes=self._relational_schemes(), related=related, proposed=proposed,
                                 as_of=as_of, ontology_ring=ontology_ring)
+
+    def corpus_view(self, *, state: str = "", limit: int = 2000, as_of: str = "") -> TopologyView:
+        """The WHOLE catalogue in one picture: every record that is about something, the concepts they
+        share, and the vocabulary's own edges between those.
+
+        Walked in page order through the same keyset the bulk tools use, and resolved IN PROCESS: a
+        caller doing this over the gateway pays a round trip per record and trips its own rate limit at
+        about sixty (measured, 10 Oct 2026). `limit` is a ceiling on records READ, not on what is drawn
+        — a record with no subject is counted and left out by the view, which is where that rule belongs.
+
+        The same schemes as `topology`, for the same reason: a picture that could not explain its own
+        edges would be decoration."""
+        rows, after = [], ""
+        while len(rows) < limit:
+            page = self.catalog_page(after=after, limit=min(200, limit - len(rows)), state=state)
+            if not page:
+                break
+            for entry in page:
+                row = self.catalog_get(entry.iri)
+                if row:
+                    rows.append(row)
+            after = page[-1].iri
+        return corpus.view_of_corpus(rows, schemes=self._relational_schemes(), as_of=as_of)
 
     def recommend(self, text: str, *, limit: int = 5) -> list[dict]:
         """"Before you create": what already exists, PUBLISHED, on this topic — with its owner, so a person

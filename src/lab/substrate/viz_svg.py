@@ -20,23 +20,10 @@ import html
 import math
 from dataclasses import dataclass
 
-from lab.core.viz import FOCUS, PROPOSED, VOCABULARY, Node, Rendered, TopologyView
+from lab.core.viz import FOCUS, PROPOSED, VOCABULARY, Node, Rendered, TopologyView, colour
 
 __all__ = ["SvgHtmlRenderer", "build"]
 
-#: rung (or role) -> (fill, stroke, what it means in words). The words are the legend, and they are the same
-#: words the bot is told to answer with, so a picture and a sentence never disagree.
-PALETTE: dict[str, tuple[str, str, str]] = {
-    FOCUS: ("#1f2a44", "#0b1020", "this record"),
-    "C": ("#2e7d32", "#1b5e20", "looked up"),
-    "X": ("#1565c0", "#0d47a1", "found in the content"),
-    "H": ("#6a1b9a", "#4a148c", "confirmed by a person"),
-    "S": ("#ef6c00", "#e65100", "suggested by AI"),
-    "D": ("#00838f", "#006064", "derived by a rule"),
-    VOCABULARY: ("#546e7a", "#37474f", "the vocabulary"),
-    PROPOSED: ("#b71c1c", "#7f0000", "proposed, not admitted"),
-}
-_UNKNOWN = ("#455a64", "#263238", "unclassified")
 W, H = 1180, 820
 
 
@@ -48,7 +35,7 @@ class _Placed:
 
 
 def _colour(status: str) -> tuple[str, str, str]:
-    return PALETTE.get(status, _UNKNOWN)
+    return colour(status)              # the shared table in `lab.core.viz` — see PALETTE there
 
 
 def _ring(view: TopologyView) -> dict[str, int]:

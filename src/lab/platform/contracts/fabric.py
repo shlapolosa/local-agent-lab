@@ -77,6 +77,7 @@ class SemanticTools(ToolCatalogue):
     metrics = "semantic_metrics"                   # the published measurements (BR-8), numbers only
     derive = "semantic_derive"                     # rebuild rung D (two rules) — the publish workload, after a baseline
     topology = "semantic_topology"                 # what one record is about, drawn from the graph as it stands
+    view_corpus = "semantic_view_corpus"           # ...and the whole catalogue in one picture, narrowable
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
     # The CAFÉ views, one per step the CAFÉ bundle places one at — each read under the caller's pin
@@ -98,7 +99,7 @@ class SemanticTools(ToolCatalogue):
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
             catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
-            topology, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
+            topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, embed, derive)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept

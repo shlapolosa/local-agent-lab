@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import html
 import re
-from importlib import resources
 
+from lab.core import assets
 from lab.core.usecase.views.common import ViewError, script_json
 
 __all__ = ["render"]
@@ -164,7 +164,7 @@ window.__done=true;
 
 
 def _d3() -> str:
-    return resources.files("lab.core.usecase.views").joinpath("assets/d3.min.js").read_text()
+    return assets.d3()                       # ONE vendored copy, shared with the fabric's renderer
 
 
 def render(data, inp, *, context=None) -> dict:

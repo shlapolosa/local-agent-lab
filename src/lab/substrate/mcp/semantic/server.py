@@ -35,6 +35,7 @@ from lab.core.semantic.fabric.service import FabricService
 from lab.core.semantic.service import SemanticService
 from lab.core import ids
 from lab.platform import config, workflows
+from lab.substrate import container
 from lab.platform.contracts import ARTIFACT_INTAKE
 from lab.core.viz import CONCEPT
 from lab.platform.filetypes import content_type_for, file_slug
@@ -546,6 +547,35 @@ def semantic_topology(iri: str, ontology_ring: bool = True, proposed: list[str] 
     return {"ref": ref, "name": name, "media_type": out.media_type, "suffix": out.suffix,
             "nodes": len(view.nodes), "edges": len(view.edges), "title": view.title,
             "concepts": [n.label for n in view.nodes if n.kind == CONCEPT], "statuses": list(view.statuses)}
+
+
+@server.tool()
+def semantic_view_corpus(state: str = "", limit: int = 2000) -> dict:
+    """Draw the WHOLE catalogue — every record that is about something, the concepts they share, and the
+    vocabulary's own edges between those — and store the drawing. Returns the same shape as
+    `semantic_topology` plus `records`/`silent`.
+
+    The question it answers is the one no per-record picture can: what is our knowledge ABOUT, and what is
+    it silent on. Resolved in process, deliberately — a caller walking the catalogue over the gateway pays
+    a round trip per record and trips its own rate limit at about sixty.
+
+    `state` narrows to one lifecycle state (an unknown one is refused, so a typo never reads as "nothing
+    matched"); `limit` caps records READ. What is DRAWN is the view's decision: a record about nothing has
+    no edge, so it is counted in the subtitle rather than left on the rim saying nothing. Reading only."""
+    view = fabric().corpus_view(state=state, limit=limit,
+                                as_of=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    # Its OWN adapter (`FABRIC_CORPUS_RENDERER`), not the one a record's view uses: a focusless picture
+    # drawn in rings puts every node on one circle. Still chosen by configuration, never imported here.
+    out = container.graph_renderer(config.FABRIC_CORPUS_RENDERER).render(view)
+    name = f"{file_slug(view.title)}{out.suffix}"
+    ref = server.artifacts().put(name, out.content, out.media_type)
+    concepts = [n.label for n in view.nodes if n.kind == CONCEPT]
+    span().set_attributes({"fabric.corpus.nodes": len(view.nodes), "fabric.corpus.edges": len(view.edges),
+                           "fabric.corpus.concepts": len(concepts)})
+    return {"ref": ref, "name": name, "media_type": out.media_type, "suffix": out.suffix,
+            "nodes": len(view.nodes), "edges": len(view.edges), "records": len(view.nodes) - len(concepts),
+            "concepts": concepts, "statuses": list(view.statuses), "title": view.title,
+            "subtitle": view.subtitle}
 
 
 @server.tool()

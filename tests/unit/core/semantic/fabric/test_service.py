@@ -519,3 +519,34 @@ def test_a_relink_that_changes_nothing_retracts_nothing(fab):
     before = fab.catalog_get(a)["links"]
     fab.vocab_link(a, ["Triage", "Care Delivery"])
     assert fab.catalog_get(a)["links"] == before
+
+
+def test_corpus_view_walks_the_whole_catalogue_in_process(fab):
+    """The walk a CALLER must not do. Resolving the corpus over the gateway costs a round trip per record
+    and trips the key's own rate limit at about sixty (measured 10 Oct 2026, twice). Doing it here is one
+    tool call, and the paging is the same keyset the bulk tools use, so a catalogue that grows under a
+    long walk neither skips nor repeats."""
+    for n in range(5):
+        iri = fab.catalog_upsert(pointer={"source": "collab", "handle": f"collab://d/i{n}"},
+                                 title=f"doc{n}.md")["iri"]
+        fab.catalog_state(iri, "published")
+        if n < 3:                                        # two records are about nothing at all
+            fab.vocab_link(iri, ["Care Delivery"])
+
+    view = fab.corpus_view(as_of="2026-10-10")
+    drawn = {n.label for n in view.nodes if n.kind == "artifact"}
+    assert drawn == {"doc0.md", "doc1.md", "doc2.md"}    # the two about nothing are counted, not drawn
+    assert "2 records with no subject" in view.subtitle and view.as_of == "2026-10-10"
+    assert view.focus == "" and view.facet_values("state") == ("published",)
+    assert all(n.facet("source") == "collab" for n in view.nodes if n.kind == "artifact")
+
+
+def test_corpus_view_narrows_by_state_and_caps_what_it_reads(fab):
+    for n in range(4):
+        iri = fab.catalog_upsert(pointer={"source": "lab", "ref": f"art://r/{n}"}, title=f"r{n}.json")["iri"]
+        fab.catalog_state(iri, "published" if n % 2 else "pending")
+        fab.vocab_link(iri, ["Care Delivery"])
+    assert len([n for n in fab.corpus_view(state="published").nodes if n.kind == "artifact"]) == 2
+    assert len([n for n in fab.corpus_view(limit=1).nodes if n.kind == "artifact"]) == 1
+    with pytest.raises(ValueError):
+        fab.corpus_view(state="not-a-state")             # a typo must not read as "nothing matched"

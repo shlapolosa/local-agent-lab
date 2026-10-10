@@ -6,7 +6,8 @@ import pytest
 from lab.core.semantic.fabric.topology import view_of
 from lab.core.semantic.fabric.vocabulary import build as vocab
 from lab.core.viz import GraphRenderer, Rendered
-from lab.substrate.viz_svg import PALETTE, SvgHtmlRenderer
+from lab.core.viz import PALETTE                 # the shared table both renderers read
+from lab.substrate.viz_svg import SvgHtmlRenderer
 
 SCHEME = vocab(name="cafe", title="t",
                concepts=[{"id": "AIAgent", "name": "AI agent", "module": "ENG"},
@@ -77,7 +78,7 @@ def test_the_renderer_is_chosen_by_configuration_like_every_other_port():
     from lab.substrate import container as C
     assert isinstance(C.graph_renderer("svg"), GraphRenderer)
     with pytest.raises(ValueError, match="FABRIC_RENDERER"):
-        C.graph_renderer("d3")
+        C.graph_renderer("crayon")              # a name no registry entry claims — "d3" is one now
     with pytest.raises(TypeError, match="no options"):
         C.graph_renderer("svg", theme="dark")          # a setting that would never take effect
     c = C.build("semantic-mcp")

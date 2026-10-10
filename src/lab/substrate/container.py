@@ -69,7 +69,8 @@ REFERENCE_PROVIDERS: dict[str, str] = {
 # actually hand over. The registry is what makes the alternatives cheap: an interactive force-directed
 # page (one vendored library) or a raster image (one headless browser) is an entry plus its adapter,
 # and the fabric, which only ever builds a `TopologyView`, does not learn that either exists.
-RENDERER_PROVIDERS: dict[str, str] = {"svg": "lab.substrate.viz_svg"}
+RENDERER_PROVIDERS: dict[str, str] = {"svg": "lab.substrate.viz_svg",
+                                      "d3": "lab.substrate.viz_d3"}
 
 
 def graph_renderer(provider: str, **overrides):
