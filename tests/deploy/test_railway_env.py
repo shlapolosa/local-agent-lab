@@ -314,6 +314,21 @@ def test_a_channel_receives_only_its_own_settings_and_the_links_it_shows_a_human
     assert "TEAMS_WEBHOOK_URL" not in tg and "TELEGRAM_BOT_TOKEN" not in tm
 
 
+def test_the_steward_channel_holds_its_own_webhook_and_neither_owner_channels_token():
+    """The vocabulary queue is a separate channel, so it is a separate blast radius. Its own
+    Workflows webhook, Redis (its consumer group), the two links its card offers, tracing — and
+    nothing else. Crucially NOT `TEAMS_WEBHOOK_URL`: two channels sharing one destination is the
+    buried queue this split exists to undo (101 open term cards against ~37 of everything else,
+    measured 10 Oct 2026)."""
+    env = railway.env_for_role("steward", FAKE | {"TEAMS_STEWARD_WEBHOOK_URL": "https://hook/s"})
+    assert set(env) == {"TEAMS_STEWARD_WEBHOOK_URL", "REDIS_URL", "REVIEW_APP_URL", "JAEGER_UI_URL",
+                        "OTEL_EXPORTER_OTLP_ENDPOINT"}
+    assert not _has(env, "DATABASE_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
+                    "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "BA_", "ARCHITECT_", "ENTRA_",
+                    "MICROSOFT_", "GATEWAY_URL", "REVIEW_APP_PASSWORD", "TELEGRAM_", "MEETING_")
+    assert "TEAMS_WEBHOOK_URL" not in env
+
+
 def test_the_meeting_notifier_gets_redis_and_one_url_and_nothing_else():
     """It reads a finished run's state and POSTs ids, names, links and counts to ONE configured URL.
     It never opens an artifact it announces, never calls the provider and never calls the gateway —
@@ -338,6 +353,40 @@ def test_the_meeting_app_holds_its_own_identity_and_redis_and_no_data_credential
     assert not _has(env, "GRAPH_", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_",
                     "OLLAMA_", "ANTHROPIC_", "MCP_SHARED_SECRET", "GATEWAY_URL", "TEAMS_WEBHOOK_URL",
                     "TELEGRAM_", "MEETING_WEBHOOK_URL")
+
+
+def test_every_channel_classs_setting_and_audience_match_its_deploy_row():
+    """The CLASS and the deploy table are two statements of the same thing in different languages,
+    and no compiler spans them — the same gap `test_the_two_runners_agree_on_what_a_channel_is`
+    exists for. A channel whose `setting` drifted from its `requires` would be deployed by a gate
+    that thought it configured, read `None`, and exit "not configured" — silently, because the skip
+    line never prints. And an `audience` literal that drifted from the class's would make
+    `unserved_audiences` reassure a deploy about a queue nobody reads."""
+    from lab.platform import config
+    from lab.substrate.channels.steward import StewardChannel
+    from lab.substrate.channels.teams import TeamsChannel
+    from lab.substrate.channels.telegram import TelegramChannel
+    for cls in (TelegramChannel, TeamsChannel, StewardChannel):
+        row = railway.CHANNELS[cls.name]
+        assert row["audience"] == cls.audience.value, cls.name
+        if getattr(cls, "setting", None):                    # telegram needs two, so it declares none
+            assert cls.setting in row["requires"], cls.name
+            assert hasattr(config, cls.setting), cls.name    # a typo would be an AttributeError at boot
+    # every channel declares one, so `unserved_audiences` can never silently skip a queue
+    assert all(s.get("audience") for s in railway.CHANNELS.values())
+
+
+def test_an_audience_with_no_configured_channel_is_reported():
+    """The owner channels ask for their audience UNCONDITIONALLY, so an audience with no configured
+    channel is not merely quieter — its approvals are announced nowhere. The deploy profile is the
+    only place the whole set is visible, so it is the only place that can say so."""
+    assert railway.unserved_audiences({}) == ["owner", "steward"]          # nothing configured
+    assert railway.unserved_audiences(FAKE) == ["steward"]                 # teams + telegram, no steward
+    both = FAKE | {"TEAMS_STEWARD_WEBHOOK_URL": "https://hook/s"}
+    assert railway.unserved_audiences(both) == []
+    # reported, never refused: `up` prints and proceeds (a gate that blocks the repair of what it
+    # reports is worse than none), so the deploy table itself is unchanged by a quiet audience
+    assert set(railway.substrate_services(FAKE)) >= {"teams", "telegram"}
 
 
 def test_a_channel_is_a_substrate_service_only_while_it_is_configured():

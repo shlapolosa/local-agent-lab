@@ -2,8 +2,12 @@
 
 Why events: a write into the EA repository must wait for a person, and that person may be
 at the review app, on Teams or on Telegram. Publishing one durable request event that every channel
-consumes (its own consumer group, so each sees every request) and accepting the decision
-from whichever channel answers first keeps the workflow/tool side channel-agnostic.
+consumes (its own consumer group) and accepting the decision from whichever channel answers first
+keeps the workflow/tool side channel-agnostic.
+
+A channel reads either the WHOLE queue (the review app, where everything is answered) or just its
+AUDIENCE's — `channel_events(audience=...)`, the kind -> audience partition in
+`lab.platform.contracts`. That is triage, not dispatch: nothing else in the lab branches on it.
 
 Streams / keys
   approvals:requests   XADD per request; consumer groups = CHANNELS (each channel acks its copy)
@@ -34,11 +38,16 @@ from datetime import datetime, timezone
 
 from lab.platform import config, redis_client
 from lab.platform.streams import StreamGroup
-from lab.platform.contracts import APPROVAL_FINAL, ApprovalStatus, Decision, check_answer
+from lab.platform.contracts import (APPROVAL_FINAL, ApprovalStatus, Decision, approval_audience,
+                                    check_answer)
 
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
-CHANNELS = ("review-app", "telegram", "teams", "teams-app")
+CHANNELS = ("review-app", "telegram", "teams", "teams-app", "steward")
+# "steward" is the vocabulary queue: the same contract as any other channel, reading only
+# `STEWARD_KINDS` (see `channel_events`'s `audience`). A separate GROUP rather than a filter in front
+# of the Teams one, so the two feeds are independently acked and independently behind —
+# lab.substrate.channels.steward holds the measurement and the reasoning.
 # Consumer groups on the DECISIONS stream. The request stream feeds humans; this one is where
 # something ACTS on what a human said, and until now nothing consumed it at all. It is the only
 # place where "a person answered, from whichever channel they happened to use" is a single fact,
@@ -403,11 +412,15 @@ def channel_lag(channel, *, client=None):
     return None
 
 
-def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=True, client=None):
+def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=True, audience=None,
+                   client=None):
     """Read this channel's unseen request events (consumer group), returning
     [(entry_id, fields)]; call ack(channel, entry_id) once delivered to the human.
 
     `only_open` (the default) drops — and acks — events for requests a person has ALREADY decided.
+    `audience` (a `contracts.ApprovalAudience`) drops — and acks — events for the OTHER audience, so
+    a channel is told only about the approvals it is for; omitted, every kind is returned, which is
+    what the review app needs because it is where all of them are answered.
 
     Why that belongs here and not in each channel: a channel is a NOTIFIER, and its job is "what needs
     a person now", not "everything that ever happened". The stream is durable and a channel that has
@@ -433,6 +446,21 @@ def channel_events(channel, consumer="1", block_ms=0, count=20, *, only_open=Tru
     """
     r = _r(client)
     got = _requests(channel, consumer).read(block_ms=block_ms, count=count, client=r)
+    # TRIAGE on kind, which is the one thing kind is for: whose queue is this? Applied BEFORE the
+    # `only_open` shortcut, so an audit consumer that asks for a narrower audience gets one — an
+    # argument silently ignored in one combination is the kind of instrument this lab does not keep.
+    # Acked, not merely skipped, for the same reason a decided request is: an entry left unacked sits
+    # in this group's pending list for ever, where it looks like undelivered work and is reclaimed on
+    # every restart, and a card this channel will never show needs no delivery. An UNKNOWN kind
+    # resolves to OWNER (`approval_audience`), so nothing ever lands on no queue at all.
+    if audience is not None:
+        mine = []
+        for eid, f in got:
+            if approval_audience(f.get("kind")) is audience:
+                mine.append((eid, f))
+            else:
+                ack(channel, eid, client=r)
+        got = mine
     if not only_open:
         return got
     open_ = []

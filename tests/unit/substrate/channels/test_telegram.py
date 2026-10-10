@@ -121,8 +121,8 @@ def test_run_loop_notifies_acks_and_polls_its_own_commands(monkeypatch):
     acked, polled = [], []
     stop = _stopper(monkeypatch)
     monkeypatch.setattr(approvals, "channel_events",
-                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
-    monkeypatch.setattr(approvals, "ack", lambda name, eid: acked.append((name, eid)))
+                        lambda name, block_ms, **kw: (stop(), [("e1", REQ)])[1])
+    monkeypatch.setattr(approvals, "ack", lambda name, eid, **kw: acked.append((name, eid)))
     monkeypatch.setattr(ch, "poll_commands", lambda: polled.append(1))
     ch.run()
     assert acked == [("telegram", "e1")] and polled == [1]
@@ -138,7 +138,7 @@ def test_a_redis_blip_no_longer_ends_the_channel(monkeypatch):
     monkeypatch.setattr(ch, "poll_commands", lambda: None)
     calls = {"n": 0}
 
-    def flaky(name, block_ms):
+    def flaky(name, block_ms, **kw):
         calls["n"] += 1
         if calls["n"] == 1:
             raise TimeoutError("Timeout reading from 127.0.0.1:6379")
@@ -160,6 +160,19 @@ def test_main_entry_runs_the_channel(monkeypatch):
     with redirect_stdout(out):
         runpy.run_module("lab.substrate.channels.telegram", run_name="__main__")
     assert "NOT configured" in out.getvalue()
+
+
+def test_the_loop_asks_for_the_owner_audience_only(monkeypatch):
+    """As for Teams: an owner channel stops being told about the steward's vocabulary questions."""
+    from lab.platform.contracts import ApprovalAudience
+    ch = _enabled()
+    seen = []
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events",
+                        lambda name, block_ms=0, **kw: (stop(), seen.append(kw), [])[2])
+    monkeypatch.setattr(ch, "poll_commands", lambda: None)
+    ch.run()
+    assert seen and seen[0]["audience"] is ApprovalAudience.OWNER
 
 
 if __name__ == "__main__":

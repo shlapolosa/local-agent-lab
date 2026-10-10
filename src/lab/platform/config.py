@@ -81,6 +81,11 @@ TELEGRAM_BOT_TOKEN = _e("TELEGRAM_BOT_TOKEN")                             # Tele
 TELEGRAM_CHAT_ID   = _e("TELEGRAM_CHAT_ID")                               #  unset = channel disabled)
 TEAMS_WEBHOOK_URL  = _e("TEAMS_WEBHOOK_URL")                              # Teams approval channel: incoming
                                                                           #  webhook; unset = channel disabled
+# The STEWARD's queue — the same kind of Teams Workflows webhook, pointed at a different channel
+# (lab.substrate.channels.steward: why, and the measurement). Unset = that channel is disabled and
+# says so by name — and, since the owner channels filter unconditionally, its approvals are then
+# announced on no channel at all; `deploy/topology.unserved_audiences` is what reports that.
+TEAMS_STEWARD_WEBHOOK_URL = _e("TEAMS_STEWARD_WEBHOOK_URL")
 # Where the meeting notifier POSTs. A Power Automate "when a webhook request is received" flow
 # that posts into the meeting's own chat — Graph refuses to let an application post one, so
 # something holding a person's connection must. Unset = the notifier logs what it would say,

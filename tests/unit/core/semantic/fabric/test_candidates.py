@@ -96,3 +96,51 @@ def test_a_candidate_still_needs_a_label_and_an_author(fab):
     for bad in ({"label": "   "}, {"actor": ""}):
         with pytest.raises(ValueError):
             fab.vocab_propose(**{"label": "X", "actor": "a", "scheme": "syn-v1", "proposed_for": A1, **bad})
+
+
+def test_a_DECLINED_candidate_stays_declined_across_a_restart(fab):
+    """The defect that was actively generating the backlog, measured 10 Oct 2026: the reconciler's
+    "already asked" memory is a set in the PROCESS, so every restart re-asked every still-open candidate
+    with a fresh approval id. The open `concept-admission` cards went from 71 to 101 in one afternoon
+    while a steward decided nothing, and a cleanup run would have been undone by the next deploy.
+
+    A steward's "no" has to outlive the process that heard it. Recorded as `fab:Withdrawn` — the word
+    the artifact lifecycle already uses for "this will not proceed" — so the register stops returning it
+    and nothing re-asks."""
+    fab.vocab_propose("Knowledge Agent", actor="a", scheme="syn-v1", proposed_for=A1)
+    row = _only(fab)
+    out = fab.vocab_decline(row["iri"], actor="steward@x", reason="a phrasing, not a concept")
+    assert out["declined"] is True
+    assert fab.vocab_candidates() == []
+
+    # ...and it does not come back when the same word is met again: the answer was about the TERM
+    fab.vocab_propose("Knowledge Agent", actor="a", scheme="syn-v1", proposed_for=A2)
+    assert fab.vocab_candidates() == []
+
+
+def test_declining_names_the_person_and_refuses_an_unknown_candidate(fab):
+    fab.vocab_propose("Knowledge Agent", actor="a", scheme="syn-v1", proposed_for=A1)
+    row = _only(fab)
+    with pytest.raises(ValueError):
+        fab.vocab_decline(row["iri"], actor="", reason="why")
+    with pytest.raises(LookupError):
+        fab.vocab_decline("urn:fabric:candidate:nope", actor="s@x", reason="why")
+
+
+def test_a_row_from_before_the_count_existed_reports_NO_count_not_a_count_of_one(fab):
+    """Caught by measuring the live register the minute this deployed, not by the test written to prevent it.
+
+    `vocab_candidates` derived `proposals` as `len(proposed_for) or 1`, so a row from before the field
+    existed reported ONE rather than nothing — and `ask_open`'s "a candidate with no count is always asked"
+    guard never fired, because the count was present. All 46 surviving candidates would have been silenced
+    at threshold 2, silently, on the deploy that introduced the threshold.
+
+    Not recorded is not zero, and it is not one either."""
+    g = fab.ds.graph(__import__("lab.core.semantic.fabric.rungs", fromlist=["x"]).CANDIDATES_GRAPH)
+    fab.vocab_propose("Knowledge Agent", actor="a", scheme="syn-v1", proposed_for=A1)
+    row = _only(fab)
+    from rdflib import URIRef
+    from lab.core.semantic.fabric.service import FAB
+    g.remove((URIRef(row["iri"]), FAB.proposedFor, None))      # the shape every legacy row has
+    legacy = _only(fab)
+    assert legacy["proposals"] is None and legacy["proposed_for"] == []

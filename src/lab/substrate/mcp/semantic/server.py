@@ -580,6 +580,22 @@ def semantic_view_corpus(state: str = "", limit: int = 2000) -> dict:
 
 
 @server.tool()
+def semantic_vocab_decline(candidate: str, actor: str, reason: str = "") -> dict:
+    """Record a STEWARD'S NO about a candidate term, so nobody is asked about it again.
+
+    The decline used to live only on the approval, while the reconciler's "already asked" memory is a set in
+    the PROCESS — so every restart re-asked every still-open candidate with a fresh approval id. Measured
+    10 Oct 2026: the open concept-admission cards went from 71 to 101 in one afternoon while a steward
+    decided nothing. A person's answer has to outlive the process that heard it.
+
+    `actor` is the person, never an agent name — this is a decision about what the fabric will mean for every
+    document classified from now on. The term may be met again; it will not be asked about again."""
+    out = fabric().vocab_decline(candidate, actor=actor, reason=reason)
+    span().set_attributes({"fabric.candidate": candidate})
+    return out
+
+
+@server.tool()
 def semantic_validate_shapes() -> dict:
     """Run the fabric's SHACL shapes over its graphs now (metadata-only, owner provenance, assertion
     completeness) — the fitness function, on demand."""

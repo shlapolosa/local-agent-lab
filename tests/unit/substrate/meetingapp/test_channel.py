@@ -54,6 +54,23 @@ def test_an_open_speaker_question_is_posted_neutral_in_its_meeting_and_remembere
     assert len(post.sent) == 1, "acked: posted once"
 
 
+def test_it_declares_itself_an_owner_channel_and_never_sees_a_vocabulary_card():
+    """Every notifier states its audience, with no quiet exception: this one's own test
+    (`question_meeting`) already drops a vocabulary approval, but an invariant with an implicit
+    exception is not one — a future steward kind carrying a chat id would otherwise post into a
+    meeting. Asserted through the shared reader, so the declaration is load-bearing."""
+    from lab.platform.contracts import ApprovalAudience
+    assert channel.AUDIENCE is ApprovalAudience.OWNER
+    r, post = FakeRedis(), Poster()
+    registry.save(M, client=r)
+    term = ask(r, payload={"question": {"prompt": "Admit 'Agent'?"}},
+               kind=ApprovalKind.CONCEPT_ADMISSION.value)
+    asyncio.run(channel.approvals_pass(post, client=r))
+    assert post.sent == []
+    assert r.xpending(approvals.REQ, channel.CHANNEL)["pending"] == 0, "acked, not stranded"
+    assert approvals.status(term, client=r)["status"] == "pending", "and not decided by a channel"
+
+
 def test_a_question_for_a_chat_the_app_is_not_in_is_acked_and_not_posted():
     r, post = FakeRedis(), Poster()
     ask(r)                                             # nothing registered

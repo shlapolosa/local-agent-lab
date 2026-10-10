@@ -63,10 +63,51 @@ def question(payload: dict) -> list[dict]:
     ]
 
 
+def _batch_plan(candidates: list[dict], answer: dict, actor: str) -> list[tuple[str, dict]]:
+    """One verdict per TERM, from the one card a steward triaged. Pure.
+
+    `admit` accepts the parked candidate as it stands — the batch card does not ask for an id, a
+    definition or a parent, because eight terms times five fields is forty fields and nobody triages
+    forty. A term that deserves that detail gets the single-term card instead.
+
+    `decline` is RECORDED, not merely left on the approval: the reconciler's "already asked" memory is a
+    set in the process, so a restart used to re-ask everything a steward had just dismissed — measured
+    10 Oct 2026, 71 open cards became 101 in one afternoon while nobody decided anything."""
+    by_iri = {str(c.get("iri") or ""): c for c in candidates}
+    calls: list[tuple[str, dict]] = []
+    for label, entry in (answer or {}).items():
+        candidate = by_iri.get(label)
+        if candidate is None:
+            raise ValueError(f"{label!r} is not one of the terms on this card")
+        verdict = answer_value(entry).strip()
+        head, _, target = verdict.partition(":")
+        head = head.strip().lower()
+        if head == "decline":
+            calls.append((SemanticTools.vocab_decline,
+                          {"candidate": label, "actor": actor, "reason": f"a steward declined {candidate.get('label')!r}"}))
+        elif head == "existing":
+            if not target.strip():
+                raise ValueError(f"{verdict!r} names no concept — answer 'existing:<concept id>'")
+            calls.append((SemanticTools.vocab_amend,
+                          {"concept_id": target.strip(), "scheme": str(candidate.get("scheme") or ""),
+                           "alt": str(candidate.get("label") or ""), "actor": actor,
+                           "reason": f"a steward said this term means {target.strip()}"}))
+        elif head == "admit":
+            calls.append((SemanticTools.promote, {"subject": label, "actor": actor, "method": METHOD}))
+        else:
+            raise ValueError(f"{verdict!r} is not admit, existing:<id> or decline")
+    return calls
+
+
 def plan(payload: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
     """The calls that make the vocabulary say what the steward said. Pure."""
     if not actor:
         raise ValueError("a curation decision names the person: actor is required")
+    # A BATCH is recognised by what the card CARRIES, never by a flag somebody must remember to set: the
+    # asker put the terms in `context`, so an answer keyed on them is a batch and anything else is not.
+    batch = (payload.get("context") or {}).get("candidates")
+    if batch:
+        return _batch_plan(list(batch), answer, actor)
     decision = _one(answer, "decision").strip().lower()
     if not decision:
         raise ValueError("the steward's answer carries no decision")
@@ -113,6 +154,36 @@ PROMPT = ("The vocabulary the fabric classifies documents against needs a decisi
           "classified from then on.")
 
 
+BATCH_PROMPT = ("Triage the terms documents have asked for and the vocabulary has no concept for. "
+                "For each: ADMIT it, say it ALREADY EXISTS under a concept you name, or DECLINE it. "
+                "A decline is remembered — the term will not be asked about again.")
+
+
+def batch_question(candidates: list[dict]) -> list[dict]:
+    """ONE item per term, ONE word per item — the shape the speaker card proved (the meeting owner tags N
+    speakers on one card, so a steward triages N terms on one).
+
+    Keyed on the candidate IRI, not the label: `check_answer` keys the answer on the item label and
+    requires each exactly once, and two spellings of one word would collide. The LABEL a person reads is
+    in the samples, with the evidence they triage on — how many documents asked, which is the whole point
+    of counting.
+
+    Deliberately NOT the five fields the single-term card asks (decision, id, definition, module,
+    broader): eight terms would be forty fields, and nobody triages forty fields. The detailed form stays
+    for a term that deserves care; this one asks only what volume needs."""
+    out = []
+    for c in candidates:
+        label = str(c.get("label") or "")
+        asked = c.get("proposals")
+        evidence = f"asked for by {asked} documents" if asked else "asked for by an earlier run"
+        out.append({"label": str(c.get("iri") or ""), "samples": [
+            f"{label!r} — {evidence}, for {c.get('scheme') or 'the vocabulary'}",
+            f"admit — add it as a concept (id {concept_id_for(label)}) \u00b7 "
+            f"existing:<id> — it is another name for a concept already there \u00b7 "
+            "decline — it is not a concept, and nobody will be asked again"]})
+    return out
+
+
 def _wanted_enough(candidate: dict, threshold: int) -> bool:
     """Whether this term has been asked for often enough to be worth a steward's attention.
 
@@ -127,7 +198,7 @@ def _wanted_enough(candidate: dict, threshold: int) -> bool:
 
 
 async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
-                   threshold: int | None = None) -> list[dict]:
+                   threshold: int | None = None, batch: bool = True) -> list[dict]:
     """Ask a steward about what the vocabulary cannot answer: terms it has no concept for, and words it gives
     two meanings. Returns the approvals raised.
 
@@ -146,7 +217,23 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
     # steward may read the parked set whenever they choose. Bounding what is VISIBLE rather than what is
     # pushed would turn "parked" into "hidden", which is the defect this layer keeps producing in new places.
     want = config.FABRIC_CANDIDATE_THRESHOLD if threshold is None else threshold
-    for c in _fresh([c for c in candidates if _wanted_enough(c, want)], seen, limit):
+    wanted = _fresh([c for c in candidates if _wanted_enough(c, want)], seen, limit)
+    if batch and wanted:
+        # ONE card for every term at once. A card per candidate produced 101 open approvals against ~37 of
+        # everything else (measured 10 Oct 2026), which buries the owner's questions and the steward's alike.
+        got = (await go([(ApprovalTools.ask, {
+            "kind": ApprovalKind.CONCEPT_ADMISSION.value,
+            "subject": f"{len(wanted)} terms the vocabulary has no concept for",
+            "prompt": BATCH_PROMPT, "items": batch_question(wanted), "fields": ["value"],
+            "context": {"candidates": [{"iri": c.get("iri"), "label": c.get("label"),
+                                        "scheme": c.get("scheme")} for c in wanted]},
+            "process": "documentation-fabric"})]))[0]
+        got = json.loads(got) if isinstance(got, str) else (got or {})
+        for c in wanted:
+            seen.add(str(c.get("iri") or ""))
+        raised += [{**c, "request_id": str(got.get("request_id") or "")} for c in wanted]
+        wanted = []
+    for c in wanted:
         payload = {"kind": ApprovalKind.CONCEPT_ADMISSION.value, "scheme": c.get("scheme", ""),
                    "label": c.get("label", ""), "candidate": c.get("iri", ""),
                    "proposed_by": c.get("proposed_by", "")}

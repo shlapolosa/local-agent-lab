@@ -196,8 +196,8 @@ def test_run_notifies_and_acks_each_request(monkeypatch):
     acked = []
     stop = _stopper(monkeypatch)
     monkeypatch.setattr(approvals, "channel_events",
-                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
-    monkeypatch.setattr(approvals, "ack", lambda name, eid: acked.append((name, eid)))
+                        lambda name, block_ms, **kw: (stop(), [("e1", REQ)])[1])
+    monkeypatch.setattr(approvals, "ack", lambda name, eid, **kw: acked.append((name, eid)))
     ch.run()
     assert acked == [("teams", "e1")] and len(ch.sent) == 1
 
@@ -213,8 +213,8 @@ def test_a_delivered_card_says_so_in_the_log(monkeypatch):
     ch = T.TeamsChannel("https://hook.test/x", post=lambda payload: None)
     stop = _stopper(monkeypatch)
     monkeypatch.setattr(approvals, "channel_events",
-                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
-    monkeypatch.setattr(approvals, "ack", lambda name, eid: None)
+                        lambda name, block_ms, **kw: (stop(), [("e1", REQ)])[1])
+    monkeypatch.setattr(approvals, "ack", lambda name, eid, **kw: None)
     out = io.StringIO()
     with redirect_stdout(out):
         ch.run()
@@ -230,8 +230,8 @@ def test_send_failure_does_not_kill_the_loop_and_leaves_the_entry_unacked(monkey
     acked = []
     stop = _stopper(monkeypatch)
     monkeypatch.setattr(approvals, "channel_events",
-                        lambda name, block_ms: (stop(), [("e1", REQ)])[1])
-    monkeypatch.setattr(approvals, "ack", lambda name, eid: acked.append(eid))
+                        lambda name, block_ms, **kw: (stop(), [("e1", REQ)])[1])
+    monkeypatch.setattr(approvals, "ack", lambda name, eid, **kw: acked.append(eid))
     out = io.StringIO()
     with redirect_stdout(out):
         ch.run()
@@ -248,7 +248,7 @@ def test_a_redis_blip_no_longer_ends_the_channel(monkeypatch):
     monkeypatch.setattr(streams.time, "sleep", lambda _s: None)
     calls = {"n": 0}
 
-    def flaky(name, block_ms):
+    def flaky(name, block_ms, **kw):
         calls["n"] += 1
         if calls["n"] == 1:
             raise TimeoutError("Timeout reading from 127.0.0.1:6379")
@@ -260,6 +260,20 @@ def test_a_redis_blip_no_longer_ends_the_channel(monkeypatch):
     with redirect_stderr(err):
         ch.run()
     assert "Timeout reading" in err.getvalue() and calls["n"] == 2, "it kept serving"
+
+
+def test_the_loop_asks_for_the_owner_audience_only(monkeypatch):
+    """The other half of the steward split: an OWNER channel must STOP receiving the vocabulary
+    questions, or nothing is unburied. It asks `channel_events` for its audience rather than
+    filtering afterwards, so the cards it will not show are acked in the one reader instead of
+    piling up in this group's pending list."""
+    from lab.platform.contracts import ApprovalAudience
+    seen = []
+    stop = _stopper(monkeypatch)
+    monkeypatch.setattr(approvals, "channel_events",
+                        lambda name, block_ms=0, **kw: (stop(), seen.append(kw), [])[2])
+    _enabled().run()
+    assert seen and seen[0]["audience"] is ApprovalAudience.OWNER
 
 
 def test_teams_is_a_registered_approval_channel():
@@ -384,7 +398,7 @@ def test_the_ready_line_reports_the_groups_backlog(monkeypatch, capsys):
     "serving with 40 cards nobody has seen" print the same line."""
     ch = _enabled()
     stop = _stopper(monkeypatch)
-    monkeypatch.setattr(approvals, "channel_events", lambda name, block_ms: (stop(), [])[1])
+    monkeypatch.setattr(approvals, "channel_events", lambda name, block_ms, **kw: (stop(), [])[1])
     monkeypatch.setattr(approvals, "channel_lag", lambda name, client=None: {"pending": 3, "lag": 12})
     ch.run()
     assert "backlog lag=12 pending=3" in capsys.readouterr().out

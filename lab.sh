@@ -56,6 +56,7 @@ start_mcp() {   # name, module, port
 for_each_channel() {   # calls "$1 <name> <module> <required .env vars>" for every channel
   "$1" telegram lab.substrate.channels.telegram "TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID"
   "$1" teams    lab.substrate.channels.teams    "TEAMS_WEBHOOK_URL"
+  "$1" steward  lab.substrate.channels.steward  "TEAMS_STEWARD_WEBHOOK_URL"
   "$1" meeting-app lab.substrate.meetingapp.service "MEETING_APP_ID MEETING_APP_SECRET MEETING_APP_CATALOG_ID MEETING_APP_NOTIFY_STATE"
 }
 missing_settings() { local v out=""; for v in $1; do [ -n "${!v:-}" ] || out="$out $v"; done; echo "$out"; }

@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 
 from lab.platform import config, streams
+from lab.platform.contracts import ApprovalAudience
 from lab.substrate import approvals
 
 API = "https://api.telegram.org/bot{token}/{method}"
@@ -21,6 +22,9 @@ API = "https://api.telegram.org/bot{token}/{method}"
 
 class TelegramChannel:
     name = "telegram"
+    # An OWNER channel: it announces questions about somebody's ARTIFACT. The vocabulary questions
+    # go to the steward's own queue instead — see lab.substrate.channels.steward for why.
+    audience = ApprovalAudience.OWNER
 
     def __init__(self, token: str | None = None, chat: str | None = None, *, api=None,
                  review_url: str = config.REVIEW_APP_URL):
@@ -106,7 +110,8 @@ class TelegramChannel:
         # The SHARED loop — see the note in the Teams channel. `tick` is this channel's own extra:
         # it is the one that also LISTENS, so it polls its inbound commands each pass.
         streams.serve(name="telegram channel", ready="telegram channel serving",
-                      read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS),
+                      read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS,
+                                                            audience=self.audience),
                       handle=self.deliver, tick=self.poll_commands)
 
 

@@ -347,6 +347,55 @@ class ApprovalKind(StrEnum):
     IMPACT_NOTICE = "impact-notice"
 
 
+class ApprovalAudience(StrEnum):
+    """WHO an approval is for. Two audiences with different tempos, and until now one queue.
+
+    An OWNER is asked about THEIR artifact — urgent and personal, "your document, now". A STEWARD is
+    asked about the VOCABULARY — deliberate and periodic, "twenty terms when you have twenty
+    minutes". Measured on this lab's own stream 10 Oct 2026: 101 open `concept-admission` cards
+    against ~37 of everything else, so the vocabulary work buried the artifact work on every channel
+    and an owner had to scroll past it to find their own card.
+
+    This is TRIAGE, which is the one thing `kind` is documented to be for ("channels triage by it;
+    nothing dispatches on it"): a channel decides which feed is its own. Nothing else reads it — no
+    workflow, tool, review surface or applier branches on an audience, and the review app still sees
+    the whole queue, because it is where every channel's card sends a person to decide.
+    """
+
+    OWNER = "owner"
+    STEWARD = "steward"
+
+
+# The kind -> audience split, declared ONCE so the steward channel and the owner channels cannot
+# drift into both claiming a kind (announced twice) or neither claiming it (announced to nobody) —
+# both of which fail silently.
+#
+# BOTH SIDES ARE WRITTEN OUT, and that is the whole value of the pair. `OWNER_KINDS =
+# frozenset(ApprovalKind) - STEWARD_KINDS` was the first shape, and it makes the partition test
+# TAUTOLOGICAL: a complement can never disagree with its own definition, so a new ApprovalKind would
+# have become an owner's silently while a green test claimed it "cannot go unclassified". Declared,
+# the partition in `tests/unit/platform/test_contracts_approval_audience.py` is a real ratchet — it
+# fails on a member in neither set, which is the only reason to assert an invariant instead of a
+# list. These two names ARE the declaration; the test is their only other reader by design.
+STEWARD_KINDS = frozenset({ApprovalKind.CONCEPT_ADMISSION})
+OWNER_KINDS = frozenset({ApprovalKind.EA_IMPORT, ApprovalKind.SPEAKER_MAPPING,
+                         ApprovalKind.ASSOCIATION, ApprovalKind.DRAFT_REVIEW,
+                         ApprovalKind.IMPACT_NOTICE})
+
+
+def approval_audience(kind: str | None) -> ApprovalAudience:
+    """The audience of one approval, from the kind the request stream carries.
+
+    An UNKNOWN kind — the legacy `adoit-import` staged before the vendor-neutral rename, or anything
+    a future producer invents — resolves to OWNER, never to nothing: those are the channels that
+    always existed, so an unclassified question is announced exactly where it would have been
+    announced before. The same rule the rename itself relied on; a question reaching nobody is the
+    one outcome this gate must not have. It is `STEWARD_KINDS` that is consulted, not `OWNER_KINDS`,
+    precisely so an unknown WIRE string falls to OWNER while an unclassified ENUM MEMBER is still
+    caught by the partition test rather than quietly defaulting."""
+    return ApprovalAudience.STEWARD if kind in STEWARD_KINDS else ApprovalAudience.OWNER
+
+
 @dataclass(frozen=True)
 class ImportArtifact:
     """ONE file a human must carry into the EA repository, described BY THE ADAPTER that made it.
@@ -1454,7 +1503,9 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "ApprovalTools", "ApiRoles", "CollabTools", "SpeechTools", "ReferenceTools", "DecisionTools", "ValuationTools",
            "VectorStores", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
-           "Decision", "ApprovalStatus", "APPROVAL_FINAL", "ARTIFACT_INTAKE", "ARTIFACT_PUBLISH",
+           "Decision", "ApprovalStatus", "APPROVAL_FINAL",
+           "ApprovalAudience", "STEWARD_KINDS", "OWNER_KINDS", "approval_audience",
+           "ARTIFACT_INTAKE", "ARTIFACT_PUBLISH",
            "ArtifactChanged", "check_pointer", "check_event_id", "check_approval_id", "check_context", "check_title", "fit_title",
            "check_artifact_iri", "POINTER_SOURCES",
            "CONTEXT_KINDS", "ARTIFACT_CHANGES",

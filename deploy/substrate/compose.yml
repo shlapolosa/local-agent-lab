@@ -215,6 +215,10 @@ services:
     <<: *sub
     profiles: ["channels"]
     command: ["python", "-m", "lab.substrate.channels.teams"]
+  steward:                    # the vocabulary queue: the same adapter, its own webhook and consumer group
+    <<: *sub
+    profiles: ["channels"]
+    command: ["python", "-m", "lab.substrate.channels.steward"]
   meeting-app:                # the opt-in Teams meeting app: a channel that is also a bot, so it listens
     <<: *sub
     profiles: ["channels"]

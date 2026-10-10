@@ -18,7 +18,8 @@ from __future__ import annotations
 from typing import Awaitable, Callable
 
 from lab.platform import redis_client, workflows
-from lab.platform.contracts import TRANSCRIPT_TO_MINUTES, WorkflowStatus, continuation_of, speaker_prompts
+from lab.platform.contracts import (TRANSCRIPT_TO_MINUTES, ApprovalAudience, WorkflowStatus,
+                                    continuation_of, speaker_prompts)
 from lab.core.meetings import render
 from lab.substrate import approvals, artifacts, meeting_notifier
 from lab.substrate.meetingapp import bot, cards, registry
@@ -27,6 +28,7 @@ from lab.substrate.meetingapp.registry import Meeting
 __all__ = ["CHANNEL", "GROUP", "ensure", "approvals_pass", "minutes_pass"]
 
 CHANNEL = bot.CHANNEL            # the approval channel's consumer group, and the audit log's channel
+AUDIENCE = ApprovalAudience.OWNER      # it announces questions about somebody's RECORDING
 GROUP = "meeting-app"            # the finished-runs consumer group
 CONSUMER = "1"
 Post = Callable[[Meeting, dict], Awaitable[str]]
@@ -55,7 +57,12 @@ def _question_target(st: dict, client) -> tuple[Meeting, dict] | None:
 
 async def approvals_pass(post: Post, *, client=None) -> int:
     posted = 0
-    for eid, fields in approvals.channel_events(CHANNEL, CONSUMER, client=client):
+    # An OWNER channel, declared rather than implied. Its own test (`question_meeting`) is tighter
+    # and already drops everything that is not a speaker question for a meeting it is in — so this
+    # changes nothing today and costs one HGETALL less per vocabulary card. It is declared because
+    # "every notifier states its audience" is only an invariant if it has no quiet exception: a
+    # future steward kind carrying a chat-owning payload would otherwise post into a meeting.
+    for eid, fields in approvals.channel_events(CHANNEL, CONSUMER, audience=AUDIENCE, client=client):
         try:
             target = _question_target(approvals.status(fields.get("request_id", ""), client=client), client)
             if target is not None:

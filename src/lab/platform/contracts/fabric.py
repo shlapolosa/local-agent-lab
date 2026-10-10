@@ -80,6 +80,7 @@ class SemanticTools(ToolCatalogue):
     view_corpus = "semantic_view_corpus"           # ...and the whole catalogue in one picture, narrowable
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
+    vocab_decline = "semantic_vocab_decline"       # ...and a PERSON'S NO about a term, recorded so it sticks
     # The CAFÉ views, one per step the CAFÉ bundle places one at — each read under the caller's pin
     # and stored as an HTML page, by ref (they replaced the ArchiMate/draw.io views, 29 Sep 2026).
     view_capabilities = "semantic_view_capabilities"     # step 5: the capability map, impact-filled
@@ -105,7 +106,7 @@ class SemanticTools(ToolCatalogue):
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.
-    PROMOTE = (promote, vocab_retire, vocab_amend)
+    PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline)
     REINDEX = (reindex,)
     # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has

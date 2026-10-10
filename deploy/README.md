@@ -46,8 +46,9 @@ machine-local ones (Redis Cloud, Railway Jaeger) — secrets never leave `.env`.
 ./lab.sh cloud substrate env       # OFFLINE: the exact env KEY NAMES each service receives (no Railway call)
 ```
 
-- **Approval channels are OPTIONAL services:** `telegram` and `teams` are deployed only when their
-  settings are in the deploy profile (`TELEGRAM_BOT_TOKEN`+`TELEGRAM_CHAT_ID` / `TEAMS_WEBHOOK_URL`),
+- **Approval channels are OPTIONAL services:** `telegram`, `teams` and `steward` are deployed only when
+  their settings are in the deploy profile (`TELEGRAM_BOT_TOKEN`+`TELEGRAM_CHAT_ID` / `TEAMS_WEBHOOK_URL`
+  / `TEAMS_STEWARD_WEBHOOK_URL`),
   because an unconfigured channel exits immediately by design — `substrate up` prints `skipped (not
   configured: …)` for the others, and `lab.sh up` does the same locally. A channel is a loop with no
   ingress (`restartPolicyType=ALWAYS`, no domain) and gets ONLY its own webhook/token, `REDIS_URL`

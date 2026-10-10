@@ -42,6 +42,7 @@ Run: .venv/bin/python -m lab.substrate.channels.teams   (loop; exits immediately
 import json
 
 from lab.platform import config, contracts, streams
+from lab.platform.contracts import ApprovalAudience
 from lab.platform.webhook import post_json
 from lab.substrate import approvals
 
@@ -53,13 +54,18 @@ SUMMARY_FACTS = (("Elements", "elements"), ("Relationships", "relations"), ("Vie
 
 
 class TeamsChannel:
+    # The three things that make a Teams channel a DISTINCT queue, so a second one (the steward's
+    # vocabulary queue, `lab.substrate.channels.steward`) is a subclass overriding these and nothing
+    # else: same card, same loop, same unacked-on-failure rule, same inbound `decide` binding.
     name = "teams"
+    setting = "TEAMS_WEBHOOK_URL"                 # the config key its webhook comes from
+    audience = ApprovalAudience.OWNER             # whose approvals it is told about (contracts)
 
     def __init__(self, webhook: str | None = None, *, post=None,
                  review_url: str = config.REVIEW_APP_URL, jaeger_url: str = config.JAEGER_UI_URL):
         """Settings come from lab.platform.config unless injected; `post(payload)` replaces the
         webhook call (tests) — default is the urllib adapter `_post`."""
-        self.webhook = config.TEAMS_WEBHOOK_URL if webhook is None else webhook
+        self.webhook = getattr(config, self.setting) if webhook is None else webhook
         self.enabled = bool(self.webhook)
         self.review_url = review_url
         self.jaeger_url = (jaeger_url or "").rstrip("/")
@@ -145,7 +151,7 @@ class TeamsChannel:
     def notify(self, f):
         payload = self.card(f)
         if not self.enabled:
-            print("[teams not configured] would post:\n" + json.dumps(payload, indent=1)); return
+            print(f"[{self.name} not configured] would post:\n" + json.dumps(payload, indent=1)); return
         self._post(payload)
 
     # --- inbound: human -> decision (see the module docstring: path (b)) ---
@@ -172,7 +178,7 @@ class TeamsChannel:
         try:
             self.notify(fields)
         except Exception as e:              # noqa: BLE001 — a webhook hiccup is not this card's end
-            print(f'[teams] send failed for {fields.get("request_id")}: {e}', flush=True)
+            print(f'[{self.name}] send failed for {fields.get("request_id")}: {e}', flush=True)
             return
         # SAY SO ON SUCCESS TOO. Printing only on failure makes "sent every card" and "never saw an
         # event" produce byte-identical logs — which is exactly where an hour went when three
@@ -180,7 +186,7 @@ class TeamsChannel:
         # 202, and nothing anywhere could say whether this channel had run at all. An instrument
         # that cannot report success is not an instrument. Ids only, never the subject: a subject is
         # free text a person typed.
-        print(f'[teams] card sent for {fields.get("request_id")}', flush=True)
+        print(f'[{self.name}] card sent for {fields.get("request_id")}', flush=True)
         approvals.ack(self.name, eid)
 
     def probe(self):
@@ -190,14 +196,15 @@ class TeamsChannel:
         payload = {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
                    "content": {"type": "AdaptiveCard", "version": "1.4", "body": [
                        {"type": "TextBlock", "text": "fabric channel probe", "weight": "Bolder"},
-                       {"type": "TextBlock", "text": f"teams channel reachable at {_utc_now()} — no action needed", "wrap": True}]}}]}
+                       {"type": "TextBlock", "text": f"{self.name} channel reachable at {_utc_now()} — no action needed", "wrap": True}]}}]}
         if not self.enabled:
-            print("[teams not configured] would post a probe card"); return
+            print(f"[{self.name} not configured] would post a probe card"); return
         self._post(payload)
-        print("[teams] probe sent", flush=True)
+        print(f"[{self.name}] probe sent", flush=True)
 
     def run(self):
-        print(f"teams channel: {'enabled' if self.enabled else 'NOT configured (set TEAMS_WEBHOOK_URL) — plumbing only'}")
+        print(f"{self.name} channel: "
+              f"{'enabled' if self.enabled else f'NOT configured (set {self.setting}) — plumbing only'}")
         if not self.enabled:
             return
         lag = approvals.channel_lag(self.name)
@@ -207,8 +214,12 @@ class TeamsChannel:
         # approval was waiting, and a container stop killed it mid-delivery. The two newer consumers
         # were fixed for exactly that and the fix never came back here, because there was nothing
         # shared to fix.
-        streams.serve(name="teams channel", ready=f"teams channel serving  {backlog}",
-                      read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS),
+        # `audience` is what separates two Teams channels reading the ONE durable stream: the
+        # filter is asked for here and applied in `channel_events`, so the events this channel will
+        # never show are acked there rather than silently left in its pending list.
+        streams.serve(name=f"{self.name} channel", ready=f"{self.name} channel serving  {backlog}",
+                      read=lambda: approvals.channel_events(self.name, block_ms=streams.BLOCK_MS,
+                                                            audience=self.audience),
                       handle=self.deliver)
 
 

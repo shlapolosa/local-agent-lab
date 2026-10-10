@@ -38,7 +38,7 @@ from topology import (  # noqa: E402,F401 — re-exported: tests and scripts add
     BRANCH, CHANNELS, EMBED_MODEL, EMBED_NAME, IMAGE, IMAGE_TAG, JAEGER_NAME, MAX_REPLICAS, REDIS_NAME,
     REDIS_IMAGE, REPO, ROLE_ENV, S3_KEYS, SUBSTRATE, WORKLOAD_ENV, WORKLOADS, _OTLP, _head_tag, _print_env_keys,
     _value, deploy_profile, embedder_enabled, env_for_role, load_env_for_cloud, parse_env,
-    replica_services, substrate_names, substrate_services, workload_env,
+    replica_services, substrate_names, substrate_services, unserved_audiences, workload_env,
     VOICEPRINT_CMD, VOICEPRINT_IMAGE, VOICEPRINT_NAME, VOICEPRINT_PORT, voiceprint_enabled,
 )
 
@@ -721,6 +721,12 @@ def substrate_up():
     for name in CHANNELS:
         if name not in table:
             print(f"  {name:13} skipped  (not configured: {', '.join(CHANNELS[name]['requires'])})")
+    # ... and then the consequence, which no per-channel skip line can state: the owner channels
+    # filter by audience UNCONDITIONALLY, so an audience with no configured channel is not merely
+    # quieter — its approvals are announced nowhere and sit in the review app, which notifies nobody.
+    for audience in unserved_audiences(base):
+        print(f"  {'WARNING':13} no channel serves the '{audience}' audience — its approvals will be "
+              f"announced NOWHERE (only the review app, which notifies nobody)")
     if postgres_enabled(base):
         ensure_postgres(base)                              # first of all: the gateway runs prisma at boot
     else:

@@ -481,18 +481,21 @@ class FabricService:
                 return name
         return ""
 
-    def _open_candidate(self, label: str, scheme: str):
-        """The OPEN candidate for this term in this scheme, or None. Matched on the normalised label so a
-        difference of case or spacing is not a second question (`Decision record` / `Decision Record` were
-        two rows on the live register)."""
+    def _candidate_for(self, label: str, scheme: str):
+        """The candidate row for this term in this scheme, WHATEVER its state, or None. Matched on the
+        normalised label so a difference of case or spacing is not a second question (`Decision record` /
+        `Decision Record` were two rows on the live register).
+
+        State is deliberately NOT a filter here. A term a steward DECLINED must not quietly start a new row
+        the next time a document uses the word — the answer was about the term, so the new artifact joins
+        the row that already carries the answer, and `vocab_candidates` is the one place that decides
+        whether anybody is asked about it."""
         want, g = _norm(label), self.ds.graph(CANDIDATES_GRAPH)
         for node in g.subjects(RDF.type, SKOS.Concept):
             if _norm(str(g.value(node, SKOS.prefLabel) or "")) != want:
                 continue
             if str(g.value(node, FAB.candidateScheme) or "") != scheme:
                 continue                      # schemes are never merged: one word may be missing from each
-            if G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
-                continue                      # admitted already
             return node
         return None
 
@@ -523,7 +526,7 @@ class FabricService:
         if held:
             return {"label": label.strip(), "scheme": scheme, "held_by": held}
         g = self.ds.graph(CANDIDATES_GRAPH)
-        existing = self._open_candidate(label, scheme)
+        existing = self._candidate_for(label, scheme)
         if existing is not None:
             if proposed_for:
                 g.add((existing, FAB.proposedFor, URIRef(proposed_for)))
@@ -550,6 +553,32 @@ class FabricService:
         self._persist(("candidates",), lambda: g.remove((c, None, None)))
         return {"iri": str(c), "label": label.strip(), "scheme": scheme, "concept_id": concept_id,
                 "module": module, "held_by": ""}
+
+    def vocab_decline(self, candidate: str, *, actor: str, reason: str = "") -> dict:
+        """A steward's NO about a term, recorded where it survives the process that heard it.
+
+        The decline used to live only on the approval, while the reconciler's "already asked" memory was a
+        set in the PROCESS — so every restart re-asked every still-open candidate with a fresh approval id.
+        Measured 10 Oct 2026: the open `concept-admission` cards went from 71 to 101 in one afternoon while
+        a steward decided nothing, and any cleanup would have been undone by the next deploy.
+
+        `fab:Withdrawn`, not a state of its own: it is the word the artifact lifecycle already uses for
+        "this will not proceed", and a second word for one idea is how two readers come to disagree. The
+        answer is about the TERM, so meeting the word again does not reopen it — `vocab_propose` finds the
+        withdrawn row and adds the artifact to it, and the register still does not ask."""
+        if not actor:
+            raise ValueError("a decline names the person: actor is required")
+        c = URIRef(candidate)
+        g = self.ds.graph(CANDIDATES_GRAPH)
+        if (c, RDF.type, SKOS.Concept) not in g:
+            raise LookupError(f"no candidate {candidate}")
+        added = [(c, FAB.lifecycleState, FAB.Withdrawn), (c, G.PROV.wasAttributedTo, Literal(actor))]
+        if reason:
+            added.append((c, FAB.declineReason, Literal(reason)))
+        for t in added:
+            g.add(t)
+        self._persist(("candidates",), lambda: [g.remove(t) for t in added])
+        return {"iri": candidate, "declined": True, "actor": actor, "reason": reason}
 
     # ------------------------------------------------------------------ gate
 
@@ -713,8 +742,9 @@ class FabricService:
         for node in g.subjects(RDF.type, SKOS.Concept):
             label = str(g.value(node, SKOS.prefLabel) or "")
             name = str(g.value(node, FAB.candidateScheme) or "")
-            if G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
-                continue                                   # admitted already
+            state = g.value(node, FAB.lifecycleState)
+            if state == FAB.Withdrawn or G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
+                continue                     # a steward has answered: admitted, or declined and it STAYS declined
             if self._held_by(label):
                 continue      # ANY vocabulary holding it closes the question — not just this candidate's own,
                               # which is what let 25 document-type labels sit here as open subject questions
@@ -726,7 +756,13 @@ class FabricService:
             out.append({"iri": str(node), "label": label, "scheme": name,
                         "concept_id": str(g.value(node, FAB.candidateId) or ""),
                         "definition": str(g.value(node, SKOS.definition) or ""),
-                        "proposed_for": for_them, "proposals": len(for_them) or 1,
+                        # NOT RECORDED is not ONE. A row written before `proposedFor` existed carries no
+                        # artifacts, and defaulting it to 1 silenced the entire back catalogue at any
+                        # threshold above one — measured live 10 Oct 2026, the moment this deployed: all 46
+                        # surviving candidates reported `1` and NONE would have been pushed. The test for
+                        # exactly this regression passed throughout, because it asserted on an ABSENT count
+                        # while the derivation was busy inventing one.
+                        "proposed_for": for_them, "proposals": len(for_them) if for_them else None,
                         "proposed_by": str(g.value(node, G.PROV.wasAttributedTo) or "")})
         return sorted(out, key=lambda c: c["label"])
 

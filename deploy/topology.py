@@ -217,20 +217,45 @@ S3_KEYS = ("S3_ENDPOINT", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY
 # (ROLE_ENV below): its own webhook/token, Redis, and the link(s) it puts in front of the human.
 CHANNELS = {
     "telegram": {"cmd": "python -m lab.substrate.channels.telegram", "port": None, "restart": "ALWAYS",
-                 "requires": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")},
+                 "requires": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"), "audience": "owner"},
     "teams":    {"cmd": "python -m lab.substrate.channels.teams", "port": None, "restart": "ALWAYS",
-                 "requires": ("TEAMS_WEBHOOK_URL",)},
+                 "requires": ("TEAMS_WEBHOOK_URL",), "audience": "owner"},
+    # The STEWARD's queue: the same adapter and card, a DIFFERENT Teams Workflows webhook, and a feed
+    # carrying only `contracts.STEWARD_KINDS`. Its own service because its own consumer group means the
+    # two feeds are independently acked and independently behind — a steward who has not looked for a
+    # week must not hold up an owner's card. Measured 10 Oct 2026 on the one shared queue: 101 open
+    # concept-admission cards against ~37 of everything else.
+    "steward":  {"cmd": "python -m lab.substrate.channels.steward", "port": None, "restart": "ALWAYS",
+                 "requires": ("TEAMS_STEWARD_WEBHOOK_URL",), "audience": "steward"},
     # The opt-in Teams meeting app (lab.substrate.meetingapp): an approval channel that is ALSO a bot,
     # so it is the one channel with a public port — Teams posts activities to it and Graph posts the
     # recording notifications. MEETING_APP_PUBLIC_URL is not a gate: it is that domain, known only
     # after the first deploy creates it; until it is set the service runs but keeps no subscription.
     "meeting-app": {"cmd": "python -m lab.substrate.meetingapp.service", "port": 3978, "restart": "ALWAYS",
                     "requires": ("MEETING_APP_ID", "MEETING_APP_SECRET", "MEETING_APP_CATALOG_ID",
-                                 "MEETING_APP_NOTIFY_STATE"),
+                                 "MEETING_APP_NOTIFY_STATE"), "audience": "owner",
                     # OpenTelemetry auto-configuration also exports METRICS, which the lab does not collect:
                     # the trace endpoint answered every minute's batch with 404 and filled the log (6 Oct 2026)
                     "env": {"OTEL_METRICS_EXPORTER": "none"}},
 }
+
+
+# Each channel's `audience` above is the literal twin of its class's `ApprovalAudience`, kept in step
+# by a parity test rather than by an import, because this file stays pure and imports no lab module.
+# It exists for ONE instrument:
+def unserved_audiences(base_env: dict) -> list[str]:
+    """Audiences with no CONFIGURED channel in this deploy profile.
+
+    The measured hazard this reports (10 Oct 2026): splitting the queue made the owner channels ask
+    for `owner` UNCONDITIONALLY, so a deploy with `TEAMS_WEBHOOK_URL` and no
+    `TEAMS_STEWARD_WEBHOOK_URL` announces a vocabulary approval on no outbound channel at all — it
+    reaches only the review app, which notifies nobody. A channel cannot see another channel's
+    settings, and `lab.platform.contracts` cannot see a deploy profile; the profile is the one place
+    the whole set IS visible, so this is where it can be said. Reported, never refused: a gate that
+    blocks a deploy because one audience is quiet is worse than a line that says so."""
+    served = {s.get("audience") for s in CHANNELS.values()
+              if all(base_env.get(k) for k in s["requires"])}
+    return sorted({s.get("audience") for s in CHANNELS.values()} - served - {None})
 
 
 def substrate_services(base_env: dict) -> dict:
@@ -586,6 +611,14 @@ ROLE_ENV = {
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
         _OTLP,
     ],
+    "steward": [                                   # src/lab/substrate/channels/steward.py (the Teams adapter, second queue)
+        "TEAMS_STEWARD_WEBHOOK_URL",               # its OWN Adaptive Card webhook (unset = not deployed).
+                                                   # Deliberately NOT TEAMS_WEBHOOK_URL: two channels
+                                                   # sharing one destination is the buried queue this split undoes
+        "REDIS_URL",                               # approvals:requests consumer group "steward" + decisions
+        "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
+        _OTLP,
+    ],                                             # NOTHING else — a channel decides and posts
     # What EVERY workload needs, and nothing more. A workload reaches the substrate only through the
     # gateway, Redis and tracing — the same seam as Container Apps -> APIM. Anything process-specific
     # (its agents' credentials, its own settings) belongs in WORKLOAD_ENV below, not here: one shared

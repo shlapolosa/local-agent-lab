@@ -818,7 +818,7 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   bot to call with the **signed-in user as `actor`** — a blank actor RAISES, never defaults, because
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
-  `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams")`).
+  `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams", "teams-app", "steward")`).
   **Reading a stream, and serving one, live in ONE place: `lab.platform.streams`.** `StreamGroup`
   (`ensure`/`read`/`ack`) and `serve` — every reader and every long-lived consumer goes through them,
   and each rule below was learned once and now applies everywhere instead of to whichever copy got
@@ -838,6 +838,33 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   domain** — `approvals.channel_events` still drops and acks requests a person has already decided,
   because a channel announces what needs somebody NOW.
   *(Moved to `docs/features/speech.md`, loaded automatically when working in that feature's code.)*
+
+  **An approval has TWO audiences, and they no longer share a queue (10 Oct 2026).** An OWNER is asked
+  about THEIR artifact — urgent, personal (`association`, `draft-review`, `speaker-mapping`,
+  `ea-import`, `impact-notice`); a STEWARD is asked about the VOCABULARY — deliberate and periodic
+  (`concept-admission`). Measured on this lab's own stream: **101 open concept-admission cards against
+  ~37 of everything else**, so each audience buried the other on every channel. The split is by
+  approval KIND — which is exactly what `kind` is documented for, "channels triage by it; nothing
+  dispatches on it" — declared ONCE in `lab.platform.contracts` as `STEWARD_KINDS` / `OWNER_KINDS`
+  with a test asserting the two PARTITION every `ApprovalKind` member (claimed by both = announced
+  twice, claimed by neither = announced to nobody, and both fail silently); an UNKNOWN kind, such as
+  the legacy `adoit-import`, resolves to OWNER so nothing lands on no queue. It is applied in ONE
+  place, `approvals.channel_events(audience=…)`, beside the already-decided filter and acking what it
+  drops for the same reason. `lab.substrate.channels.steward` is the steward's channel: the Teams
+  adapter SUBCLASSED — same Adaptive Card, same `streams.serve` loop, same unacked-on-failure rule,
+  same inbound `decide` — overriding only its consumer group, its setting
+  (**`TEAMS_STEWARD_WEBHOOK_URL`**, a second Workflows webhook; unset = disabled, by name) and its
+  audience. Its own GROUP rather than a filter in front of Teams, because that is what makes the two
+  feeds independently acked and independently behind. The review app is deliberately UNFILTERED: it is
+  where every channel's card sends a person to decide — which also means the measured burial is only
+  gone from the CHANNELS, not from the review app's own pending list.
+  **The owner channels stopped carrying steward kinds UNCONDITIONALLY, so the second webhook is not
+  optional in the way the other channels' are.** A channel cannot see another channel's settings, so
+  Teams and Telegram ask for `OWNER` whether or not `TEAMS_STEWARD_WEBHOOK_URL` is set — and while it
+  is unset a `concept-admission` card is announced on NO outbound channel at all and sits only in the
+  review app, which notifies nobody. The deploy profile is the one place the whole set IS visible, so
+  that is where it is reported: `topology.unserved_audiences()` names every audience with no
+  configured channel and the kinds that go silent, printed by `substrate up` beside the skip lines.
 
   **A channel is told only about approvals still awaiting a person** — `approvals.channel_events`
   filters (and acks) anything already decided, in the ONE reader every channel shares. A channel that

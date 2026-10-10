@@ -120,7 +120,10 @@ def test_the_steward_is_asked_about_open_conflicts_and_parked_candidates_once_ea
                 out.append({})
         return out
 
-    made = asyncio.run(V.ask_open(call=call, seen=set()))
+    # `batch=False` on purpose: the ONE-TERM card is still a real path — it is the detailed form,
+    # five fields deep, for a term that deserves care rather than triage. The batch is the default
+    # because volume is the common case; this pins that the careful one still works.
+    made = asyncio.run(V.ask_open(call=call, seen=set(), batch=False))
     assert len(made) == 2 and {a["kind"] for a in asked} == {ApprovalKind.CONCEPT_ADMISSION.value}
     candidate, conflict = asked                                      # what has NO meaning, then what has two
     assert [i["label"] for i in candidate["items"]][:2] == ["decision", "concept_id"]
@@ -208,3 +211,120 @@ def test_a_candidate_from_before_the_count_existed_is_still_asked_about():
                 out.append({"request_id": "apr-9"})
         return out
     assert [m["label"] for m in asyncio.run(V.ask_open(call=call, seen=set(), threshold=2))] == ["Legacy"]
+
+
+# ------------------------------------------- T2.3: one card, N terms — the shape the speaker card proved
+def test_the_steward_is_asked_about_many_terms_on_ONE_card():
+    """The user's observation, 10 Oct 2026: the meeting owner already tags N speakers on ONE Teams card,
+    so a steward should triage N terms the same way. It is the same machinery — `approvals_ask` takes
+    `items`, `check_answer` already enforces that every label is answered, and every surface renders a
+    form from it — so this is not new plumbing, it is passing a list where a loop used to be.
+
+    It had to change, not merely improve: one card per candidate produced 101 open cards against ~37 of
+    everything else, and a steward opening Teams saw a wall of term questions.
+
+    ONE WORD PER TERM, deliberately. The single-term card asks five things (decision, id, definition,
+    module, broader); eight of those on one card is forty fields and nobody triages forty fields. So the
+    batch asks the only question volume needs — admit, or it already exists, or no — and the detailed
+    form stays for a term that deserves care."""
+    asked = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            if name == SemanticTools.vocab_candidates:
+                out.append([{"iri": f"urn:fabric:candidate:{i}", "label": label, "scheme": "cafe",
+                             "proposals": n, "proposed_for": [f"a{j}" for j in range(n)]}
+                            for i, (label, n) in enumerate((("Transcript", 3), ("Knowledge Agent", 2),
+                                                            ("Seen once", 1)))])
+            elif name == SemanticTools.vocab_conflicts:
+                out.append([])
+            else:
+                asked.append(args)
+                out.append({"request_id": "apr-batch"})
+        return out
+
+    made = asyncio.run(V.ask_open(call=call, seen=set(), threshold=2, batch=True))
+    assert len(asked) == 1, "a steward gets ONE card, not one per term"
+    card = asked[0]
+    labels = [i["label"] for i in card["items"]]
+    assert set(labels) == {"urn:fabric:candidate:0", "urn:fabric:candidate:1"}, "keyed on the candidate"
+    assert len(set(labels)) == len(labels)          # check_answer keys on the label: each exactly once
+    body = str(card)
+    assert "Transcript" in body and "Knowledge Agent" in body and "Seen once" not in body
+    assert "3 documents" in body and "2 documents" in body     # the evidence a steward triages on
+    assert len(made) == 2                                      # what was asked about, for the caller's `seen`
+
+
+def test_the_batch_card_offers_the_commonest_answer_as_a_PICK():
+    """`vocab_candidates`' own docstring says a steward most often settles a term by making it another
+    name for a concept already held. A card that only offered "admit" or "decline" would make the
+    commonest answer the hardest to give — the same reason the speaker card offers attendees beside free
+    text, and never instead of it."""
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            if name == SemanticTools.vocab_candidates:
+                out.append([{"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer",
+                             "scheme": "cafe", "proposals": 2, "proposed_for": ["a", "b"]}])
+            elif name == SemanticTools.vocab_conflicts:
+                out.append([])
+            else:
+                out.append({"request_id": "apr-batch", "args": args})
+                call.card = args
+        return out
+    asyncio.run(V.ask_open(call=call, seen=set(), threshold=2, batch=True))
+    item = call.card["items"][0]
+    samples = " ".join(item["samples"])
+    for option in ("admit", "existing:", "decline"):
+        assert option in samples, f"{option} is not offered"
+    assert call.card["fields"] == ["value"]        # one thing to say per term, as every surface renders it
+
+
+# -------------------------------------------------- T2.3: applying a batch answer, one verdict per term
+def _batch_payload():
+    return {"kind": "concept-admission",
+            "context": {"candidates": [
+                {"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer", "scheme": "cafe"},
+                {"iri": "urn:fabric:candidate:1", "label": "Agentic retrieval", "scheme": "cafe"},
+                {"iri": "urn:fabric:candidate:2", "label": "CSV file", "scheme": "cafe"}]}}
+
+
+def test_one_card_carries_three_verdicts_and_each_lands_where_it_belongs():
+    """The steward triages a list; every term gets its own outcome from the one decision. `admit` accepts
+    the parked candidate, `existing:<id>` makes the term another name for a concept already there (the
+    commonest answer), and `decline` is RECORDED — not merely left on the approval, which is what let a
+    restart re-ask 30 declined terms in a single afternoon."""
+    answer = {"urn:fabric:candidate:0": {"value": "existing:ClinicalReview"},
+              "urn:fabric:candidate:1": {"value": "admit"},
+              "urn:fabric:candidate:2": {"value": "decline"}}
+    calls = V.plan(_batch_payload(), answer, "steward@x")
+    tools = [t for t, _ in calls]
+    assert SemanticTools.vocab_amend in tools        # existing: another name for a held concept
+    assert SemanticTools.promote in tools            # admit: the candidate becomes a concept
+    assert SemanticTools.vocab_decline in tools      # decline: recorded, so nobody is asked again
+
+    amend = next(a for t, a in calls if t == SemanticTools.vocab_amend)
+    assert amend["concept_id"] == "ClinicalReview" and amend["alt"] == "Clinical Reviewer"
+    promote = next(a for t, a in calls if t == SemanticTools.promote)
+    assert promote["subject"] == "urn:fabric:candidate:1" and promote["actor"] == "steward@x"
+    decline = next(a for t, a in calls if t == SemanticTools.vocab_decline)
+    assert decline["candidate"] == "urn:fabric:candidate:2" and decline["actor"] == "steward@x"
+
+
+def test_a_batch_verdict_must_be_one_of_the_three_and_name_a_term_on_the_card():
+    payload = _batch_payload()
+    for bad in ({"urn:fabric:candidate:0": {"value": "maybe"}},
+                {"urn:fabric:candidate:0": {"value": "existing:"}},
+                {"urn:fabric:candidate:9": {"value": "admit"}}):
+        with pytest.raises(ValueError):
+            V.plan(payload, bad, "steward@x")
+
+
+def test_the_single_term_card_still_applies_the_way_it_always_did():
+    """One card per term is still a real path — the detailed form. Its answer shape is unchanged, which
+    is what `context.candidates` being ABSENT selects: the batch is recognised by what it carries, never
+    by a flag somebody must remember to set."""
+    calls = V.plan({"scheme": "cafe", "label": "Model card"},
+                   {"decision": {"value": "admit"}, "concept_id": {"value": "ModelCard"}}, "s@x")
+    assert [t for t, _ in calls] == [SemanticTools.vocab_propose, SemanticTools.promote]
