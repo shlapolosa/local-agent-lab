@@ -62,7 +62,8 @@ microsoftTeams.app.initialize().then(function () {
   microsoftTeams.pages.config.registerOnSaveHandler(function (e) {
     microsoftTeams.pages.config.setConfig({
       entityId: "fabric-corpus",
-      contentUrl: window.location.origin + "/tab",
+      // the key this page was opened with is the key the tab it creates must carry
+      contentUrl: window.location.origin + "/tab" + window.location.search,
       suggestedDisplayName: "Fabric"
     });
     e.notifySuccess();

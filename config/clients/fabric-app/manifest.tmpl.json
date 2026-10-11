@@ -25,18 +25,19 @@
     "isNotificationOnly": false
   }],
 
+  "//key": "The app's OWN key rides these URLs. It is not MCP_SHARED_SECRET — this is a browser surface, not an MCP server, and a value in a URL reaches a manifest zip, a browser history and a referrer header. The manifest only ever travels inside the tenant, so the gate keeps the internet out, not colleagues, which is exactly the threat model a tab has.",
   "//staticTabs": "The picture, per person. Teams gives this one no configuration step, so it is the surface a researcher opens without being added to anything.",
   "staticTabs": [{
     "entityId": "fabric-corpus",
     "name": "Corpus",
-    "contentUrl": "https://${HOST}/tab",
-    "websiteUrl": "https://${HOST}/tab",
+    "contentUrl": "https://${HOST}/tab?k=${APP_KEY}",
+    "websiteUrl": "https://${HOST}/tab?k=${APP_KEY}",
     "scopes": ["personal"]
   }],
 
   "//configurableTabs": "...and the same picture in a channel, which is where a team looks at it together. The configuration page is MANDATORY: with none, Teams shows 'Not Found' with Save disabled and cancels the add (measured on the meeting app, 6 Oct 2026).",
   "configurableTabs": [{
-    "configurationUrl": "https://${HOST}/tab/config",
+    "configurationUrl": "https://${HOST}/tab/config?k=${APP_KEY}",
     "canUpdateConfiguration": false,
     "scopes": ["team"]
   }],

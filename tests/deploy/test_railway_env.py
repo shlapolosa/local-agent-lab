@@ -750,3 +750,18 @@ def test_the_ingress_can_resolve_an_items_folder_because_the_allowlist_may_ask()
                          f"item's path through the gateway, but fabric-ingress lacks {sorted(missing)} — that "
                          "read would raise and every lab-delivered file in that drive would dead-letter "
                          "instead of being admitted")
+
+
+def test_the_fabric_app_is_granted_the_key_it_refuses_to_start_without():
+    """It binds 0.0.0.0 and calls `netbind.refuse_open`, so a role missing this variable is not a
+    degraded service — it is a restart loop behind a 502, which is how this was found (11 Oct 2026).
+    Least privilege keeps catching the lab out this way: an absent variable is silent twice over,
+    once in the allowlist and once as a default."""
+    assert "FABRIC_APP_KEY" in set(railway.ROLE_ENV["fabric-app"])
+
+
+def test_the_fabric_app_is_NOT_given_the_key_to_every_mcp_server():
+    """Satisfying `refuse_open` with `MCP_SHARED_SECRET` would have been one line and wrong twice: the
+    app enforces its own key, so the guard would pass on a secret nobody checks; and the value travels
+    in a URL, so the shared secret would reach a manifest zip and a browser history."""
+    assert "MCP_SHARED_SECRET" not in set(railway.ROLE_ENV["fabric-app"])

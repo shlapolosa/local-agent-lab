@@ -551,10 +551,13 @@ ROLE_ENV = {
     ],                                             # provider credential. It cannot read what it releases.
     "fabric-app": [
         "FABRIC_APP_PORT", "FABRIC_APP_PUBLIC_URL",   # the port it binds and the origin the manifest names
-        "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",   # it DRAWS through the gateway
+        "FABRIC_APP_KEY",                              # its OWN gate — see below; deliberately not the
+        "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",   # shared secret. It DRAWS through the gateway
         "ARTIFACTS_URL",                               # ...and reads the drawing back by ref
         _OTLP,                                         # NOTHING else: no Redis (it holds no queue), no
-    ],                                                 # bot credential, no Entra, no store but this one
+    ],   # bot credential, no Entra, no store but this one — and NOT `MCP_SHARED_SECRET`, which would
+         # have satisfied `netbind.refuse_open` while gating nothing (this is a browser surface, not an
+         # MCP server) and put the key to every MCP server into a manifest zip and a browser history.
     "fabric-ingress": [                            # src/lab/substrate/fabric_ingress.py + lab.platform.{fabric_events,workflows,delivery}
         "REDIS_URL", "FABRIC_EVENTS", "FABRIC_ALLOWLIST",
         # ONE governed read, and only when the allow-list scopes a drive BY FOLDER: a finished-run event

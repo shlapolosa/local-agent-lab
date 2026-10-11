@@ -52,5 +52,22 @@ def test_each_app_renders_with_no_placeholder_left_behind(app):
     """A `${...}` that survives means a value nobody supplied — and it reaches Teams as a literal."""
     import json
     m = pkg.render("h.example", "11111111-2222-3333-4444-555555555555", "n", "9.9.9", app=app)
-    assert "${" not in json.dumps(m)
+    assert "${" not in str(m)
     assert m["version"] == "9.9.9" and m["validDomains"] == ["h.example"]
+
+
+def test_the_fabric_manifest_carries_the_apps_own_key_on_every_surface_teams_loads():
+    """The tab's drawing is gated on a key Teams cannot send as a header, so the manifest is what
+    carries it. A package built without one renders a tab that is a 401 — visible only to whoever
+    opens it, which is why the packager takes the key rather than defaulting it."""
+    m = pkg.render("fab.example", "bot-1", "Fabric", "1.0.0", app="fabric", key="K3Y")
+    urls = [m["staticTabs"][0]["contentUrl"], m["staticTabs"][0]["websiteUrl"],
+            m["configurableTabs"][0]["configurationUrl"]]
+    assert all(u.endswith("k=K3Y") for u in urls), urls
+
+
+def test_the_meeting_manifest_has_no_app_key_to_leave_behind():
+    """`${APP_KEY}` is the fabric template's alone. If it ever appeared unrendered in the other app's
+    manifest, Teams would load a literal `${APP_KEY}` and the failure would be a blank tab."""
+    m = pkg.render("m.example", "bot-2", "Meeting", "1.0.0", app="meeting")
+    assert "${" not in str(m)

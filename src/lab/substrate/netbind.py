@@ -14,12 +14,20 @@ __all__ = ["LOOPBACK", "dual_stack_sockets", "refuse_open", "run"]
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
-def refuse_open(service: str) -> None:
-    """An open service on a network is ungoverned, so a misconfiguration must fail loudly, not warn."""
-    if config.BIND_HOST not in LOOPBACK and not config.MCP_SHARED_SECRET:
+def refuse_open(service: str, *, credential: str | None = None,
+                credential_name: str = "MCP_SHARED_SECRET") -> None:
+    """An open service on a network is ungoverned, so a misconfiguration must fail loudly, not warn.
+
+    The guard asserts two things at once — *this service binds past loopback* AND *this service checks
+    a bearer* — so it is only honest when the credential it reads is the one the service ENFORCES.
+    Most services enforce `MCP_SHARED_SECRET` and say nothing; one that enforces its own key names it,
+    because holding a secret it never checks would satisfy the guard while gating nothing.
+    """
+    held = config.MCP_SHARED_SECRET if credential is None else credential
+    if config.BIND_HOST not in LOOPBACK and not held:
         raise SystemExit(f"{service}: refusing to start — BIND_HOST={config.BIND_HOST} with no "
-                         "MCP_SHARED_SECRET would expose an ungoverned service to the network; "
-                         "set MCP_SHARED_SECRET or bind to loopback")
+                         f"{credential_name} would expose an ungoverned service to the network; "
+                         f"set {credential_name} or bind to loopback")
 
 
 def dual_stack_sockets(port: int) -> list:

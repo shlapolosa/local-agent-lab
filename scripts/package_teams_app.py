@@ -42,8 +42,13 @@ APPS = {
 }
 
 
-def render(host: str, bot_id: str, name: str, version: str, *, app: str = "meeting") -> dict:
+def render(host: str, bot_id: str, name: str, version: str, *, app: str = "meeting",
+           key: str = "") -> dict:
+    # `key` is the app's OWN credential, carried on the URLs Teams loads. A package built without
+    # one renders a tab whose drawing is 401 wherever the service is gated, so it is passed in
+    # rather than defaulted: the packager must not quietly ship a manifest that cannot draw.
     values = {"HOST": host, "BOT_ID": bot_id, "AGENT_BOT_ID": bot_id, "NAME": name, "VERSION": version,
+              "APP_KEY": key,
               "TEAMS_APP_ID": str(uuid.uuid5(uuid.NAMESPACE_URL,
                                              APPS[app]["seed"].format(bot=bot_id)))}
     text = (ROOT / APPS[app]["template"]).read_text()
@@ -97,7 +102,8 @@ def main() -> int:
     ap.add_argument("--version", default="1.0.0")
     a = ap.parse_args()
     spec = APPS[a.app]
-    manifest = render(a.host, os.environ[spec["bot_env"]], a.name or spec["name"], a.version, app=a.app)
+    manifest = render(a.host, os.environ[spec["bot_env"]], a.name or spec["name"], a.version, app=a.app,
+                      key=os.environ.get("FABRIC_APP_KEY", ""))
     # Validate against the schema the manifest itself names. Teams' upload dialog reports a schema
     # violation as "UnknownError" (measured: a short description of 107 chars, limit 80), so this is
     # the only place the real reason is visible.

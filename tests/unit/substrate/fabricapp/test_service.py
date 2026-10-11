@@ -92,3 +92,48 @@ def test_it_holds_no_bot_because_the_agent_IS_the_bot():
     from pathlib import Path
     names = {p.name for p in Path(pkg.__file__).parent.glob("*.py")}
     assert names == {"__init__.py", "service.py", "tab.py"}, names
+
+
+# --- the gate -----------------------------------------------------------------------------------
+# A tab binds to the open internet, and `netbind.refuse_open` exists so that a service which does
+# cannot start without a credential it ENFORCES. This app is not an MCP server: handing it
+# MCP_SHARED_SECRET would satisfy the guard while gating nothing, and would put the key to every MCP
+# server into a manifest zip and a browser history. So it holds its OWN key, carried by the manifest
+# (which only ever reaches people inside the tenant) and checked here.
+
+def gated(key="s3kr3t"):
+    async def call(calls):
+        return [{"ref": "art://corpus/1.html"}]
+    return TestClient(service.web(call=call, read=lambda ref: b"<html>drawn</html>", key=key))
+
+
+def test_the_drawing_is_refused_without_the_apps_own_key():
+    assert gated().get("/corpus").status_code == 401
+
+
+@pytest.mark.parametrize("ask", [
+    lambda c: c.get("/corpus?k=s3kr3t"),
+    lambda c: c.get("/corpus", headers={"Authorization": "Bearer s3kr3t"}),
+])
+def test_the_drawing_is_served_to_a_caller_that_carries_the_key(ask):
+    """Teams loads an iframe, which cannot carry a header — so the query parameter is the one that
+    matters in production and the bearer is what a script or a probe would use."""
+    got = ask(gated())
+    assert got.status_code == 200 and b"drawn" in got.content
+
+
+def test_a_wrong_key_is_refused_as_firmly_as_none():
+    assert gated().get("/corpus?k=nearly").status_code == 401
+
+
+def test_the_tab_hands_the_drawing_the_key_it_was_opened_with():
+    """The shell page is public — it is a frame and says so. The key rides the URL Teams was given in
+    the manifest, and the frame must pass it on or the picture inside it is a 401."""
+    body = gated().get("/tab?k=s3kr3t").text
+    assert "/corpus?k=s3kr3t" in body
+
+
+def test_with_no_key_configured_the_drawing_is_open():
+    """Local development binds to loopback, where `refuse_open` already permits no credential at all.
+    A gate that could not be switched off would make the offline loop need a secret to draw a picture."""
+    assert gated(key="").get("/corpus").status_code == 200

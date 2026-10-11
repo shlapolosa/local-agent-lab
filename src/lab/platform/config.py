@@ -311,6 +311,12 @@ FABRIC_APP_PORT = int(_e("FABRIC_APP_PORT", "3979"))
 #: The public origin Teams loads the tab from. It is the manifest's `validDomains` entry, and a tab
 #: served from anywhere else simply does not render — Teams refuses a frame it was not told about.
 FABRIC_APP_PUBLIC_URL = _e("FABRIC_APP_PUBLIC_URL")
+#: The app's OWN key, carried by the manifest and checked on the drawing. NOT `MCP_SHARED_SECRET`: this
+#: service is a browser surface, not an MCP server, and the value travels in a URL — into a manifest
+#: zip, a browser history and a referrer header. Giving it the key to every MCP server to satisfy
+#: `netbind.refuse_open` would have widened that secret's blast radius to buy a guard that gated
+#: nothing. Unset = the drawing is open, which is right on loopback and refused in the open.
+FABRIC_APP_KEY = _e("FABRIC_APP_KEY")
 #: Who the steward's questions are ASKED of, comma-separated. A proactive message from the agent can only
 #: reach a personal chat, so an ask needs a name; and stewardship is a role somebody holds rather than
 #: whoever happens to be in a channel (BRS: "curated by a named steward per scheme"). Unset = the queue

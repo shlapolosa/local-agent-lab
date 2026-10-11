@@ -11,8 +11,9 @@ the port exists precisely so there is one.
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import quote
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from lab.platform import config, mcp_client
@@ -30,6 +31,13 @@ SERVICE = "fabric-app"
 CACHE_S = 60
 
 
+def _carried(request: Request) -> str:
+    """The key a caller offered, from the query string or a bearer header."""
+    header = str(request.headers.get("authorization") or "")
+    bearer = header[7:].strip() if header[:7].lower() == "bearer " else ""
+    return str(request.query_params.get("k") or "") or bearer
+
+
 async def _draw(call) -> bytes:
     """The corpus, as bytes, through the gateway. `call` is the transport (injected by a test)."""
     view = (await call([(SemanticTools.view_corpus, {})]))[0]
@@ -39,14 +47,15 @@ async def _draw(call) -> bytes:
     return ref
 
 
-def web(*, call=None, read=None, now=None) -> FastAPI:
-    """The app. `call` reaches the gateway, `read` reads an `art://` ref — both injected so the pages
-    can be exercised without a gateway or a store."""
+def web(*, call=None, read=None, now=None, key=None) -> FastAPI:
+    """The app. `call` reaches the gateway, `read` reads an `art://` ref, `key` is the app's own
+    credential — all injected so the pages can be exercised without a gateway, a store or a secret."""
     from lab.substrate import artifacts, fabric_gateway
 
     go = call or fabric_gateway.call
     fetch = read or (lambda ref: artifacts.store().get(ref))
     clock = now or (lambda: asyncio.get_event_loop().time())
+    gate = config.FABRIC_APP_KEY if key is None else key
     app = FastAPI()
     cached: dict = {}
 
@@ -71,10 +80,18 @@ def web(*, call=None, read=None, now=None) -> FastAPI:
         # The view a person LANDS on, by the role the install declares. A courtesy, never a control —
         # every mode is one click away on the drawing itself, and authority lives in the gateway.
         role = str(request.query_params.get("role") or "").strip().lower()
-        return tab.shell_page("/corpus", mode=tab.MODE_FOR.get(role, "about"))
+        # The frame is public and says so; the DRAWING is not. The key rides the URL Teams was
+        # given in the manifest, so the frame must hand it on or the picture inside it is a 401.
+        given = str(request.query_params.get("k") or "")
+        view = "/corpus?k=" + quote(given, safe="") if given else "/corpus"
+        return tab.shell_page(view, mode=tab.MODE_FOR.get(role, "about"))
 
     @app.get("/corpus")
-    async def corpus() -> Response:
+    async def corpus(request: Request) -> Response:
+        # Teams loads an iframe, which cannot carry a header, so the query parameter is the one
+        # that matters in production; the bearer is what a script or a probe would use.
+        if gate and _carried(request) != gate:
+            raise HTTPException(status_code=401, detail="the fabric app's key is required")
         drawn = cached.get("bytes")
         if drawn is None or clock() - cached.get("at", 0) > CACHE_S:
             ref = await _draw(go)
@@ -89,7 +106,8 @@ def web(*, call=None, read=None, now=None) -> FastAPI:
 
 def main() -> None:
     port = config.FABRIC_APP_PORT
-    netbind.refuse_open(SERVICE)
+    netbind.refuse_open(SERVICE, credential=config.FABRIC_APP_KEY,
+                        credential_name="FABRIC_APP_KEY")
     print(f"{SERVICE} ready  port={port}", flush=True)
     netbind.run(web(), port, sockets=netbind.dual_stack_sockets(port))
 
