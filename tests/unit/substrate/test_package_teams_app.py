@@ -71,3 +71,34 @@ def test_the_meeting_manifest_has_no_app_key_to_leave_behind():
     manifest, Teams would load a literal `${APP_KEY}` and the failure would be a blank tab."""
     m = pkg.render("m.example", "bot-2", "Meeting", "1.0.0", app="meeting")
     assert "${" not in str(m)
+
+
+def test_the_fabric_app_declares_NO_bot():
+    """Measured 11 Oct 2026, and it is a platform CONSTRAINT, not a preference.
+
+    The plan was one app: the Corpus tab plus the Copilot Studio agent declared as its bot. A Teams
+    app that declares a `botId` must also carry `webApplicationInfo` so Teams can sign the user in
+    silently — and that requires an identifier URI, an `access_as_user` scope and the two Teams
+    clients pre-authorised ON THAT BOT'S ENTRA APP. A Copilot Studio agent's bot has no application
+    registration in the tenant at all: it is a Microsoft-managed `ServiceIdentity` service principal
+    ("Documentation Fabric (Microsoft Copilot Studio)", no owner tenant), so none of that can be
+    added. You may declare YOUR OWN bot in a custom app; you may not declare somebody else's.
+
+    Declaring it anyway is not inert. Teams keyed the existing conversation to that bot id, so this
+    app TOOK OVER the agent's chat — renaming it — and with no SSO block the agent, whose
+    authentication is Integrated with trigger Always, could never sign the user in. Its MCP tools
+    were therefore unavailable in Teams and the orchestrator fell through to knowledge, Escalate and
+    Fallback. The agent's own Copilot Studio-published Teams app is the only correct chat surface;
+    this app is the picture, and nothing else.
+    """
+    m = pkg.render("fab.example", "bot-1", "Fabric", "1.0.0", app="fabric", key="K3Y")
+    assert "bots" not in m, "a Copilot Studio agent's bot cannot be declared by a custom app"
+    assert m["staticTabs"] and m["configurableTabs"], "...but the tab is the whole point of it"
+
+
+def test_the_fabric_app_keeps_its_identity_although_it_no_longer_declares_the_bot():
+    """The bot id still SEEDS the app id, so dropping the bot from the manifest must not re-mint it —
+    that would orphan the install rather than fix it."""
+    bot = "11111111-2222-3333-4444-555555555555"
+    want = str(uuid.uuid5(uuid.NAMESPACE_URL, f"teams-app/fabric/{bot}"))
+    assert pkg.render("h.example", bot, "n", "1.0.0", app="fabric")["id"] == want

@@ -17,13 +17,7 @@
   "icons": {"color": "color.png", "outline": "outline.png"},
   "accentColor": "#2F5D8A",
 
-  "//bots": "The COPILOT STUDIO agent is this app's bot — its own bot registration, the tools it already holds (approvals_list / approvals_get / approvals_decide, verified live 10 Oct 2026) and no bot code of ours. `personal` is where an ASK arrives, because a proactive message can only reach a personal chat; `team` is where the same agent can be mentioned beside the record.",
-  "bots": [{
-    "botId": "${AGENT_BOT_ID}",
-    "scopes": ["personal", "team"],
-    "supportsFiles": false,
-    "isNotificationOnly": false
-  }],
+  "//nobot": "NO BOT, and it is a CONSTRAINT rather than a choice (measured 11 Oct 2026). Declaring a `botId` obliges the manifest to carry `webApplicationInfo` so Teams can sign the user in; that needs an identifier URI, an `access_as_user` scope and the two Teams clients pre-authorised on the BOT'S Entra app. A Copilot Studio agent has no application registration in the tenant — only a Microsoft-managed ServiceIdentity service principal — so none of it can be added. Declaring it anyway made Teams key the agent's existing conversation to THIS app, which renamed the chat and left the agent (Integrated auth, trigger Always) unable to sign anyone in, so its MCP tools were never available and the orchestrator fell through to knowledge, Escalate and Fallback. The agent keeps its own Copilot Studio-published Teams app for chat; this app is the picture.",
 
   "//key": "The app's OWN key rides these URLs. It is not MCP_SHARED_SECRET — this is a browser surface, not an MCP server, and a value in a URL reaches a manifest zip, a browser history and a referrer header. The manifest only ever travels inside the tenant, so the gate keeps the internet out, not colleagues, which is exactly the threat model a tab has.",
   "//staticTabs": "The picture, per person. Teams gives this one no configuration step, so it is the surface a researcher opens without being added to anything.",
