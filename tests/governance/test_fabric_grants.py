@@ -135,7 +135,10 @@ SUBSTRATE_CONSUMERS = {
         (fabric_reconciler, ()),
         (fabric_vocabulary, (SemanticTools.vocab_conflicts, SemanticTools.vocab_candidates, ApprovalTools.ask)),
         (fabric_projector, (SemanticTools.catalog_get, SemanticTools.store_page, SemanticTools.catalog_assert,
-                            SemanticTools.topology, SemanticTools.view_corpus, CollabTools.put)),
+                            SemanticTools.topology, SemanticTools.view_corpus, CollabTools.put,
+                            # ...and `trace`, which resolves a subject to the records that share the concept
+                            # so a projection page can link to them
+                            SemanticTools.trace)),
         (fabric_metrics, (SemanticTools.query, SemanticTools.store_page, CollabTools.put)),
     ),
 }

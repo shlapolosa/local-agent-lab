@@ -1,0 +1,60 @@
+{
+  "properties": {
+    "displayName": "Fabric \u2014 ask a named person, as the agent",
+    "state": "Started",
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "Http",
+          "inputs": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "actions": {
+        "Ask_the_person": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+              "connectionName": "shared_teams",
+              "operationId": "PostCardToConversation"
+            },
+            "parameters": {
+              "poster": "Power Virtual Agents",
+              "location": "Chat with Flow bot",
+              "body/recipient": "@{triggerBody()?['recipient']}",
+              "body/messageBody": "@{string(triggerBody()?['attachments'][0]['content'])}"
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {}
+        }
+      }
+    },
+    "connectionReferences": {
+      "shared_teams": {
+        "connectionName": "946b59cb04c54e13bed232924116a9b6",
+        "source": "Invoker",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_teams",
+        "tier": "NotSpecified"
+      }
+    },
+    "//": "T3.4 \u2014 the ASK. A proactive message from a Copilot Studio agent can reach ONLY a personal chat (learn.microsoft.com/microsoft-copilot-studio/advanced-proactive-message), which is why an ask is a DM and a channel is the record. The lab posts {recipient, attachments:[card]} here and this posts it as the AGENT, so the person answers in a chat the agent is already in and its Ask with Adaptive Card topic receives the submit. ESTABLISHED BY API, 11 Oct 2026: `poster` takes the enum ['Power Apps', 'Power Virtual Agents', 'Flow bot', 'User'] and 'Power Virtual Agents' IS the Copilot Studio agent (its former name), on operation PostCardToConversation. NOT CREATED BY API: `POST /flows` refused it with OpenApiOperationParameterValidationFailed \u2014 posting as the agent resolves its recipient shape at DESIGN time, the same class of trap as PostCardAndWaitForResponse on 10 Oct. Build this ONE action in the designer (Post card in a chat or channel; Post as: your agent; Post in: Chat with the agent) and everything around it is settled."
+  }
+}

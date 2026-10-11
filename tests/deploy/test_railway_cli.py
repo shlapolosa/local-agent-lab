@@ -403,14 +403,16 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
                                        "healthcheckPath": "", "restartPolicyType": "ON_FAILURE"}, name
     assert "--host 0.0.0.0" in inst["svc-gateway"]["startCommand"]  # IPv4 edge + no probe (verified combo)
     domains = [c[1]["in"] for c in fake.ops("serviceDomainCreate")]
-    # three public doors, in SUBSTRATE order: graph-mcp (the change-notification receiver), the gateway, the review app
-    # The four services a person or a provider reaches from outside: graph-mcp (change
-    # notifications arrive from the provider's cloud), the gateway, the review app, and the live
-    # run view — which is public for the same reason the review app is, and gated the same way.
-    assert domains == [{"environmentId": "env-fake", "serviceId": "svc-graph-mcp", "targetPort": 9500},
-                       {"environmentId": "env-fake", "serviceId": "svc-gateway", "targetPort": 4000},
-                       {"environmentId": "env-fake", "serviceId": "svc-review", "targetPort": 8501},
-                       {"environmentId": "env-fake", "serviceId": "svc-live", "targetPort": 10000}]
+    # The INVARIANT, not the list: a service gets a public door exactly when it declares a port, and a
+    # service with a port that never got one is unreachable from outside — which is the whole failure
+    # this guards. Pinning the names instead broke on the first new public surface and taught nothing
+    # (fabric-app, 11 Oct 2026: a Teams tab is loaded over HTTPS from the host the manifest names, so a
+    # tab with no domain simply does not render).
+    want = {f"svc-{n}": spec["port"] for n, spec in rw.SUBSTRATE.items() if spec.get("port")}
+    assert {d["serviceId"]: d["targetPort"] for d in domains} == want
+    assert all(d["environmentId"] == "env-fake" for d in domains)
+    for who in ("svc-graph-mcp", "svc-gateway", "svc-review"):      # the doors that must never close
+        assert who in want
     # image mode: nothing fetches a commit (every service pulls the same prebuilt tag)
     deploys = [(c[1]["s"], "latestCommit:true" in c[2]) for c in fake.ops("serviceInstanceDeploy")]
     assert deploys == ([("svc-redis", False), ("svc-embedder", False)]
@@ -528,7 +530,8 @@ def test_substrate_up_existing_project_is_idempotent_and_redeploys_jaeger():
         rw.substrate_up()
     text = out.getvalue()
     # three public domains: the gateway, the review app, and graph-mcp (the change-notification receiver)
-    assert text.count("domain note") == 4 and "quota exceeded" in text
+    assert text.count("domain note") == sum(1 for sp in rw.SUBSTRATE.values() if sp.get("port"))
+    assert "quota exceeded" in text
     assert "jaeger        already up" in text
     assert all(c[1]["s"] != "svc-jaeger" for c in fake.ops("serviceInstanceDeploy"))
     assert "gateway  https://(pending)" in text                                     # no domain yet

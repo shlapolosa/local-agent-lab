@@ -29,7 +29,8 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from lab.core.collab import ChangeType, Drive, DriveItem, MediaKind, MediaRecord, Meeting, Site, Watch
+from lab.core.collab import (ChangeType, Drive, DriveItem, MediaKind, MediaRecord, Meeting, Site,
+                             Watch, normalise_web_url)
 
 __all__ = ["ENCODED_PREFIX", "encode_id", "decode_id", "meeting_ref", "split_meeting_ref", "site",
            "drive", "drive_item", "meeting", "media_record", "watch", "subscription_body",
@@ -84,6 +85,18 @@ def decode_id(safe: str) -> str:
         return base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode()
     except (binascii.Error, UnicodeDecodeError, ValueError) as e:
         raise ValueError(f"malformed provider id: {safe!r}") from e
+
+
+def share_id(url: str) -> str:
+    """A web URL as the SHARING TOKEN Graph resolves it by: `u!` + url-safe base64 of the url with the
+    padding stripped (Microsoft's documented encoding for `GET /shares/{id}/driveItem`).
+
+    It normalises FIRST (`lab.core.collab.normalise_web_url`), so the two shapes of one address a
+    person is likely to paste — the `?web=1` "Copy link" adds, a `#heading` anchor, the host in
+    another case — become one question instead of one hit and one miss.
+    """
+    text = normalise_web_url(url)
+    return "u!" + base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
 
 
 def meeting_ref(user_id: str, meeting_id: str) -> str:

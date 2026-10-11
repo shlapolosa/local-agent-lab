@@ -323,3 +323,47 @@ def test_reclassify_refuses_a_record_it_cannot_re_read():
     re-read. Submitting it anyway would spend a run to fail, and on a ninety-record sweep that failure
     would read as a classifier fault rather than a catalogue one."""
     assert "no catalogued artifact" in call_error("semantic_catalog_reclassify", iri="urn:fabric:artifact:nope")
+
+
+# ---------------------------------------------------------------- custody by url (FR-4.1.4)
+BY_URL_DOC = {"source": "collab", "handle": "collab://item/drive-1/by-url"}
+BY_URL = "https://tenant.sharepoint.com/sites/poc/Shared%20Documents/BRS.md"
+
+
+def _resolving(to):
+    """The gateway transport the tool resolves through: one `collab_item_by_url`, answered with `to`."""
+    async def call(batch):
+        assert len(batch) == 1
+        return [to]
+    return call
+
+
+def test_a_web_url_answers_the_record_that_url_names(monkeypatch):
+    row = call("semantic_catalog_upsert", pointer=BY_URL_DOC, title="Business requirements")
+    monkeypatch.setattr(srv.fabric_custody.fabric_gateway, "call",
+                        _resolving({"handle": BY_URL_DOC["handle"], "name": "BRS.md"}))
+    got = call("semantic_catalog_by_url", url=BY_URL)
+    assert got["iri"] == row["iri"] and got["title"] == "Business requirements"
+    assert "links" in got                         # the same shape `catalog_get` answers with
+
+
+def test_a_url_the_provider_cannot_resolve_answers_nothing(monkeypatch):
+    """Never a title match. A url outside the tenant's custody is not a record, and saying so is the
+    whole point: the fallback this tool removes was matching on title, which agrees with the wrong
+    record exactly when two share one."""
+    monkeypatch.setattr(srv.fabric_custody.fabric_gateway, "call", _resolving(None))
+    assert call("semantic_catalog_by_url", url=BY_URL) is None
+
+
+def test_a_url_that_resolves_to_an_uncatalogued_item_answers_nothing(monkeypatch):
+    monkeypatch.setattr(srv.fabric_custody.fabric_gateway, "call",
+                        _resolving({"handle": "collab://item/drive-1/never-seen"}))
+    assert call("semantic_catalog_by_url", url=BY_URL) is None
+
+
+def test_something_that_is_not_a_web_url_is_refused_rather_than_resolved():
+    assert "web url" in call_error("semantic_catalog_by_url", url="collab://item/drive-1/by-url")
+
+
+def test_resolving_a_record_by_url_is_a_READ_power():
+    assert SemanticTools.catalog_by_url in SemanticTools.READ

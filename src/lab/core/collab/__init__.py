@@ -11,8 +11,10 @@ from lab.core.collab.model import (DEFAULT_LIMIT, MAX_LIMIT, ChangeType, Content
                                    ContentStream, Drive, DriveItem, HandleKind, MediaKind,
                                    MediaRecord, Meeting, Page, Site, Watch, clamp_limit)
 from lab.core.collab.port import CAPABILITIES, CollabRepository
+from lab.core.collab.weburl import normalise_web_url
 
 __all__ = ["CollabRepository", "CAPABILITIES",
            "ContentHandle", "ContentStream", "HandleKind", "Site", "Drive", "DriveItem", "Meeting", "MediaKind",
            "MediaRecord", "ChangeType", "Watch", "Page", "clamp_limit", "DEFAULT_LIMIT", "MAX_LIMIT",
-           "CollabError", "CollabUnavailable", "CollabNotConfigured", "CollabThrottled"]
+           "CollabError", "CollabUnavailable", "CollabNotConfigured", "CollabThrottled",
+           "normalise_web_url"]

@@ -39,6 +39,12 @@ class SemanticTools(ToolCatalogue):
     # a query port is not a process, so it does not sit on workflow-mcp. The Catalog row, the rung-graph
     # edges, the vocabulary links and the facade over the embedding index (which proposes, never decides).
     catalog_get = "semantic_catalog_get"
+    # ...and the row by the one name a PERSON has: the web url of the document. Retrieval (search, a
+    # Copilot citation, a pasted link) names a file that way and nothing else could turn it into the
+    # custody pointer the catalogue is keyed by — without this an overlay would have to match on
+    # TITLE, which is silently wrong exactly when two records share one (FR-3.3, FR-4.1.4). A READ:
+    # it resolves and reveals custody, never content, and the provider's permissions still apply.
+    catalog_by_url = "semantic_catalog_by_url"
     # Walking the catalogue, which nothing could do: the port had `get` by iri, `by_pointer`, ranked
     # `similar` and `unindexed(model)` — a scan keyed on an embedding model, the wrong question for
     # anything but re-indexing. An OPERATOR's verb: it enumerates the estate, so it is granted to the
@@ -100,7 +106,7 @@ class SemanticTools(ToolCatalogue):
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
-            catalog_get, trace, impact, similar, search, recommend, metrics, validate_shapes,
+            catalog_get, catalog_by_url, trace, impact, similar, search, recommend, metrics, validate_shapes,
             topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, vocab_asked, embed, derive)

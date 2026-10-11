@@ -8,7 +8,7 @@ every implementation, and a new provider adapter joins by adding one line to `IM
 Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/mcp/graph/test_port_contract.py"""
 import pytest
 
-from fixtures.graph import FakeGraph, FakeSleep, FakeTokens, FakeTransport
+from fixtures.graph import NOT_FOUND, FakeGraph, FakeSleep, FakeTokens, FakeTransport
 from lab.core.collab import (CollabError, CollabRepository, ContentHandle, Drive, DriveItem,
                              HandleKind, MAX_LIMIT, Page)
 from lab.substrate.mcp.graph import graph_repository
@@ -26,6 +26,9 @@ def graph_adapter():
     transport = (FakeTransport()
                  # the personal-drive route answers a single drive, not a page (rules match in order)
                  .expect("chair%40lab.example/drive", body=USER_DRIVE, times=None)
+                 # ...and the sharing-token route knows no address, which is what a url resolution
+                 # must be able to answer. Before the catch-all, because rules match in order.
+                 .expect("/shares/", status=404, body=NOT_FOUND, times=None)
                  .expect("", body=PAGES, times=None))
     tokens = FakeTokens("tok", ("Sites.Read.All", "Files.Read.All"))
     client = GraphClient(tokens, transport=transport, sleep=FakeSleep(), now=lambda: 0.0)
@@ -96,3 +99,16 @@ def test_a_refusal_is_always_typed_and_renders_a_sentence(repository):
         assert e.sentence.endswith(".") and e.to_dict()["capability"]
     except NotImplementedError:                      # a read-only implementation is allowed to say so
         pass
+
+
+def test_an_unresolvable_url_is_nothing_in_every_implementation(repository):
+    """`item_by_url` promises an ABSENCE, not an exception and not a near match — the catalogue's
+    answer to "is this document governed" must be able to be no. Asserted for both implementations
+    because a caller written against the fake would otherwise meet a raise against the provider."""
+    assert repository.item_by_url("https://tenant.example/sites/x/nothing-here.md") is None
+
+
+@pytest.mark.parametrize("bad", ["", "collab://item/d/i", "/sites/x/BRS.md"])
+def test_a_url_that_is_not_a_web_url_is_a_caller_error_in_every_implementation(repository, bad):
+    with pytest.raises(ValueError):
+        repository.item_by_url(bad)

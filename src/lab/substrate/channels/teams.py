@@ -200,11 +200,22 @@ class TeamsChannel:
                                 "to decide."})
         return out
 
+    #: Who an ASK is addressed to. Empty = the room. A proactive message from the agent can reach only a
+    #: PERSONAL chat (Microsoft's constraint, verified 11 Oct 2026), which turns out to be the right
+    #: shape: an ask names one human, a channel broadcasts. The channel keeps the RECORD — what is open,
+    #: who decided — and the DM carries the ASK. Interruption versus visibility, again.
+    recipients: tuple[str, ...] = ()
+
     def notify(self, f):
         payload = self.card(f)
         if not self.enabled:
             print(f"[{self.name} not configured] would post:\n" + json.dumps(payload, indent=1)); return
-        self._post(payload)
+        # Named people get the ask each in their own chat; with nobody named it goes to the room, which
+        # is still VISIBLE. A gate whose question reaches nobody is the one outcome it may never produce.
+        for who in self.recipients or ():
+            self._post({**payload, "recipient": who})
+        if not self.recipients:
+            self._post(payload)
 
     # --- inbound: human -> decision (see the module docstring: path (b)) ---
     def decide(self, request_id, decision, actor, comment=""):

@@ -177,3 +177,35 @@ def test_a_question_with_no_items_gets_no_submit_button():
     ch.answers_on_card = True
     content = _card(ch, question={"prompt": "nothing to answer", "items": []})
     assert not [a for a in content["actions"] if a["type"] == "Action.Submit"]
+
+
+# ----------------------------------------------- T3.4: an ASK is addressed to a person, not to a room
+def test_the_ask_NAMES_the_person_it_is_for_when_stewards_are_named(monkeypatch):
+    """A proactive message from the agent can only reach a PERSONAL chat — Microsoft's constraint, not a
+    preference (verified 11 Oct 2026). So the envelope carries WHO the question is for, and the flow
+    posts as the agent to that person.
+
+    It turns out to be the right shape anyway: an ask names one human and a channel broadcasts to a
+    room. The channel keeps the RECORD — what is open, who decided — and the DM carries the ASK. The
+    same distinction the candidate threshold draws: interruption versus visibility.
+
+    And it is why stewards must be NAMED. A channel makes stewardship "whoever is in the room"; a DM
+    makes it a role somebody holds — which is what the BRS already says, "curated by a named steward
+    per scheme"."""
+    sent = []
+    ch = S.StewardChannel("https://hook.test/steward", post=lambda p: sent.append(p))
+    monkeypatch.setattr(ch, "recipients", ("ste@ward.test", "other@ward.test"))
+    ch.notify({"request_id": "apr-1", "kind": "concept-admission", "subject": "2 terms",
+               "payload": json.dumps({"question": _question()})})
+    assert [p.get("recipient") for p in sent] == ["ste@ward.test", "other@ward.test"]
+    assert all(p.get("type") == "message" and p.get("attachments") for p in sent), "still a card"
+
+
+def test_with_NO_named_steward_it_posts_to_the_channel_exactly_as_before():
+    """Unset means the room, not silence. A gate whose question reaches nobody is the one outcome this
+    may never produce — so an un-named steward queue is still visible where a person can find it."""
+    sent = []
+    ch = S.StewardChannel("https://hook.test/steward", post=lambda p: sent.append(p))
+    ch.notify({"request_id": "apr-1", "kind": "concept-admission", "subject": "2 terms",
+               "payload": json.dumps({"question": _question()})})
+    assert len(sent) == 1 and "recipient" not in sent[0]

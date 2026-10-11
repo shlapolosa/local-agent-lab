@@ -78,6 +78,24 @@ class CollabRepository(Protocol):
         """The metadata of one file, by the handle a listing minted for it — name, size, modified.
         Raises `ValueError` for a handle of the wrong kind, `CollabUnavailable` when it cannot be read."""
 
+    def item_by_url(self, url: str) -> DriveItem | None:
+        """The item one WEB URL addresses — the address a person copied out of a browser — or `None`.
+
+        The third way of naming a file (`DriveItem.url`) resolved back to the first (its handle), and
+        the ONLY verb that goes that direction. It exists because everything that hands a url to the
+        lab — a search result, an assistant's citation, a person pasting a link — names a file the
+        way a HUMAN can, while everything the lab records about it is keyed by custody.
+
+        The PROVIDER resolves it, and no implementation may answer from an index of its own: a web
+        URL is path-based, so renaming or moving the file changes it while the item behind it is
+        unchanged — a remembered url is wrong from the moment somebody tidies a library, and wrong
+        in the direction that looks like an answer.
+
+        `None` is the honest ABSENCE (the provider knows no such address), distinct from a
+        `CollabUnavailable` (it will not say). Neither is ever a near-enough match: resolution is
+        exact or it is nothing. A `url` that is not an absolute web URL is a caller error
+        (`ValueError`) and must not reach the provider."""
+
     def open(self, handle: ContentHandle) -> ContentStream:
         """The content, STREAMED — the single verb that produces bytes, for every kind of handle (a
         file, a recording, a transcript). It streams because a recording does not fit in memory; the

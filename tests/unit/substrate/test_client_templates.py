@@ -24,8 +24,15 @@ def test_there_are_templates_to_check():
 def test_a_template_is_json_and_carries_no_secret(path):
     body = open(path).read()
     json.loads(body)                                   # placeholders are inside strings, so it parses
-    for leak in ("sk-", "-----BEGIN", "password"):
-        assert leak not in body, f"{leak} in {path}"
+    # SHAPES, not substrings. `sk-` on its own matched the words "Ask-with-Adaptive-Card" in a comment
+    # (11 Oct 2026) — a guard that cries wolf on prose is a guard somebody eventually deletes, and this
+    # one protects against committing a live key. An API key is a prefix FOLLOWED BY a long opaque run;
+    # two characters of English are not.
+    for name, shape in (("an API key", r"\bsk-[A-Za-z0-9_-]{16,}"),
+                        ("a private key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+                        ("a password", r"\"?password\"?\s*[:=]\s*\"?[^\"\s<$]")):
+        found = re.search(shape, body)
+        assert not found, f"{name} in {path}: {found.group(0)[:40]!r}"
 
 
 SWAGGERS = [p for p in TEMPLATES if json.load(open(p)).get("swagger")]
@@ -144,3 +151,22 @@ def test_a_yaml_template_says_the_same_thing_as_its_json_twin():
         twin = path[: -len(".template.yaml")] + ".template.json"
         assert os.path.exists(twin), f"{path} has no JSON twin"
         assert _yaml.safe_load(open(path)) == json.load(open(twin)), f"{path} has drifted from {twin}"
+
+
+def test_the_secret_scanner_still_catches_what_it_is_FOR(tmp_path):
+    """The shapes were loosened on 11 Oct because `sk-` matched the words "Ask-with-Adaptive-Card" in a
+    comment. A guard that cries wolf on prose is one somebody eventually deletes — but a loosened guard
+    that no longer catches a real key is worse than the false positive it fixed, so this pins both ends."""
+    import re
+    shapes = [r"\bsk-[A-Za-z0-9_-]{16,}", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+              r"\"?password\"?\s*[:=]\s*\"?[^\"\s<$]"]
+
+    def caught(text):
+        return any(re.search(sh, text) for sh in shapes)
+
+    assert caught('"key": "sk-proj-abcdefghij0123456789XYZ"')      # a live API key
+    assert caught("-----BEGIN RSA PRIVATE KEY-----")               # a key file pasted in
+    assert caught('"password": "hunter2"')                          # a credential typed in
+    assert not caught("its Ask-with-Adaptive-Card topic receives the submit")   # the false positive
+    assert not caught('"password": "${PASSWORD}"')                  # a placeholder IS the point
+    assert not caught('"password": "<your password>"')

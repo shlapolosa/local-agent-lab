@@ -14,7 +14,8 @@ from lab.core.collab.model import (ContentHandle, ContentStream, Drive, DriveIte
                                    MediaRecord, Meeting, Page, Site, Watch, clamp_limit)
 from lab.core.collab.port import CAPABILITIES, CollabRepository
 
-PORT_METHODS = ("capabilities", "sites", "drives", "user_drive", "items", "item", "open", "put",
+PORT_METHODS = ("capabilities", "sites", "drives", "user_drive", "items", "item", "item_by_url",
+                "open", "put",
                 "meetings", "recordings", "transcripts", "watches", "watch", "renew", "unwatch")
 
 
@@ -39,6 +40,9 @@ class _Fake:
 
     def item(self, handle):
         return DriveItem(handle.id, "policy.docx", handle.scope)
+
+    def item_by_url(self, url):
+        return DriveItem("i1", "policy.docx", "d1", url=url) if url.startswith("https://") else None
 
     def put(self, parent, name, content, media_type=""):
         scope = parent.drive_id if isinstance(parent, DriveItem) else str(parent).split("/")[-2]

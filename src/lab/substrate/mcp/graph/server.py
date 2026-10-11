@@ -291,6 +291,27 @@ def collab_item(handle: str) -> dict:
     return _item(server.collab().item(_handle(handle)))
 
 
+@governed
+def collab_item_by_url(url: str) -> dict | None:
+    """Resolve the WEB URL of a file — the `https://...` address a person copies out of a browser, or
+    that a search result cites — to the item it names, INCLUDING its collab://item/... handle.
+    Answers null when the provider knows no such address.
+
+    This is the one verb that goes that direction, and the PROVIDER does the resolving: a web url is
+    path-based, so it changes when a file is renamed or moved while the item behind it does not — a
+    url remembered in an index of our own would be wrong from the first tidy-up. A `?web=1`, a
+    `#heading` anchor and the host's letter case are normalised away; the path is left exactly as
+    given, so two files whose names differ only in escaping cannot be confused for one.
+
+    null means NOT FOUND and nothing else: never the nearest file, and never a match on name. A url
+    this deployment is not allowed to see is a refusal with a sentence, not a null."""
+    item = server.collab().item_by_url(url)
+    # The url itself never reaches the span: it can embed a person (a personal drive's address
+    # carries its owner), and a span goes to a collector the guardrail never sees.
+    span().set_attribute("collab.resolved", item is not None)
+    return _item(item) if item is not None else None
+
+
 # ----------------------------------------------------------------------------- meetings
 @governed
 def collab_meetings(since: str = "", until: str = "", organizer: str = "",

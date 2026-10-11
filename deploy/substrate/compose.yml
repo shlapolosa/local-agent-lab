@@ -205,6 +205,11 @@ services:
     command: ["python", "-m", "lab.substrate.live.server"]
     ports: ["10000:10000"]
 
+  fabric-app:                 # the fabric's Teams app: the corpus drawing in a tab, and no bot of its own
+    <<: *sub
+    command: ["python", "-m", "lab.substrate.fabricapp.service"]
+    ports: ["3979:3979"]
+
   # --- approval channels: OPTIONAL, started only when configured (mirrors deploy/railway.py CHANNELS
   # and lab.sh's table). `docker compose --profile channels up` to run them.
   telegram:

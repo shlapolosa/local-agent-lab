@@ -305,6 +305,17 @@ MEETING_APP_SECRET = _e("MEETING_APP_SECRET", "")
 # The meeting app's own service: where Teams and Graph reach it, the org-catalog id its one Graph
 # subscription is scoped to, and the shared secret that subscription's notifications must carry.
 MEETING_APP_PORT = int(_e("MEETING_APP_PORT", "3978"))
+#: The fabric's own Teams app — its OWN service and port, never the meeting app's. "Related by code, not
+#: by runtime" (user, 11 Oct 2026): the two may share modules, never a process.
+FABRIC_APP_PORT = int(_e("FABRIC_APP_PORT", "3979"))
+#: The public origin Teams loads the tab from. It is the manifest's `validDomains` entry, and a tab
+#: served from anywhere else simply does not render — Teams refuses a frame it was not told about.
+FABRIC_APP_PUBLIC_URL = _e("FABRIC_APP_PUBLIC_URL")
+#: Who the steward's questions are ASKED of, comma-separated. A proactive message from the agent can only
+#: reach a personal chat, so an ask needs a name; and stewardship is a role somebody holds rather than
+#: whoever happens to be in a channel (BRS: "curated by a named steward per scheme"). Unset = the queue
+#: is posted to the steward channel instead, which is visible to everyone and interrupts nobody.
+FABRIC_STEWARDS = tuple(x.strip() for x in _e("FABRIC_STEWARDS", "").split(",") if x.strip())
 MEETING_APP_PUBLIC_URL = _e("MEETING_APP_PUBLIC_URL", "")
 MEETING_APP_CATALOG_ID = _e("MEETING_APP_CATALOG_ID", "")
 MEETING_APP_NOTIFY_STATE = _e("MEETING_APP_NOTIFY_STATE", "")

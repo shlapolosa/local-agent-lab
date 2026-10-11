@@ -235,6 +235,17 @@ class GraphCollabRepository:
         js = self._call("items", self.client.get, f"/drives/{_seg(handle.scope)}/items/{_seg(handle.id)}")
         return graph_map.drive_item(js, handle.scope)
 
+    def item_by_url(self, url: str) -> DriveItem | None:
+        """The item a web URL addresses, resolved BY THE PROVIDER — `/shares/{u!…}/driveItem`.
+
+        `graph_map.share_id` normalises and encodes the url; `tolerate=(404,)` makes "no such
+        address" the absence the port promises rather than a refusal, while a 403 still leaves here
+        as one. Nothing is cached: a url is path-based and a remembered one is wrong the moment
+        someone renames the file."""
+        js = self._call("items", self.client.get, f"/shares/{graph_map.share_id(url)}/driveItem",
+                        tolerate=(404,))
+        return graph_map.drive_item(js) if js else None
+
     # ------------------------------------------------------------------ uploads (WRITE)
     def put(self, parent, name: str, content: bytes, media_type: str = "") -> DriveItem:
         """Write one small file into a folder. The mirror of `open`, and deliberately not streamed.

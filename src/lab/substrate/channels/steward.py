@@ -37,6 +37,9 @@ class StewardChannel(TeamsChannel):
     setting = "TEAMS_STEWARD_WEBHOOK_URL"             # a DIFFERENT Teams channel's Workflows webhook
     answers_on_card = config.TEAMS_STEWARD_ANSWERS_ON_CARD
     audience = ApprovalAudience.STEWARD               # ... carrying only the vocabulary questions
+    #: The named stewards. A role somebody HOLDS, which is what the BRS means by "curated by a named
+    #: steward per scheme" — not "whoever is in the channel". Unset = the queue goes to the room.
+    recipients = config.FABRIC_STEWARDS
 
 
 if __name__ == "__main__":

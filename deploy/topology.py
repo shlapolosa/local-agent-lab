@@ -191,6 +191,12 @@ SUBSTRATE = {
                             "--server.address :: --server.headless true'", "port": 8501,
                      "s3": True,    # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
                      "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no reader DSN
+    # The fabric's OWN Teams app (lab.substrate.fabricapp): four pages and the corpus drawing, and NO
+    # bot — the Copilot Studio agent is this app's bot, so there is no bot code and no bot credential
+    # here. A public port because Teams loads a tab over HTTPS from the host the manifest names in
+    # `validDomains`, and a tab served from anywhere else simply does not render. Independent of the
+    # meeting app at RUNTIME (user, 11 Oct 2026): the two share modules and never a process.
+    "fabric-app":   {"cmd": "python -m lab.substrate.fabricapp.service", "port": 3979},
     # The LIVE run view. Its own service because Streamlit cannot be driven by an event stream —
     # it is server-rendered, so the only way to change a page is a script rerun, and a three-second
     # reload made the Runs board unusable. It serves the page AND the stream so the two are
@@ -306,6 +312,7 @@ SERVICE_PORTS = {
     "adoit-mcp": 9100, "semantic-mcp": 9200, "storage-mcp": 9300, "workflow-frontdoor": 9400,
     "graph-mcp": 9500, "speech-mcp": 9600, "reference-mcp": 9700, "decision-mcp": 9800,
     "valuation-mcp": 9900, "gateway": 4000, "review": 8501, "live": 10000, "meeting-app": 3978,
+    "fabric-app": 3979,
 }
 EMBED_PORT = 11434
 #: Every MCP server a gateway fronts: alias -> (the URL variable the gateway config reads, the service
@@ -438,7 +445,14 @@ ROLE_ENV = {
         "FABRIC_DB_URL",                           # the fabric's catalog tables (falls back to DATABASE_URL)
         "REDIS_URL",                               # rung_store: the index of the latest rung-graph refs + the single-writer lock.   # + fabric:metrics, the numbers semantic_metrics answers with
                                                    # Missing here = boot() crashes on 127.0.0.1:6379 (measured, first cloud deploy)
-        "GATEWAY_URL", "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",   # the fabric's index posts to the gateway
+        "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",
+        # `semantic_catalog_by_url` resolves a web URL to custody by ASKING THE PROVIDER, through the
+        # gateway as the fabric's own identity — so the lookup is metered, ACL'd and on the span like any
+        # other tool call. It does not record the url when an item is catalogued, deliberately: a web URL
+        # is PATH-based, so a rename or a move makes it stale by returning NOTHING, which reads as "this
+        # document is not governed". `fabric-ingress` is the precedent for a substrate service holding
+        # this key for exactly one governed collab read.
+         "REFERENCE_EMBED_MODEL", "REFERENCE_EMBED_DIM", "REFERENCE_EMBED_KEY",   # the fabric's index posts to the gateway
         "REFERENCE_MCP_URL", "REFERENCE_RING", "REFERENCE_PROVIDER",   # the CAFÉ views read the corpus
                                                    # THROUGH reference-mcp (views.py), never a DSN
         # The domain vocabulary the FABRIC owns, by reference for the same reason the licensed workbooks
@@ -535,6 +549,12 @@ ROLE_ENV = {
         "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",   # fabric_curator: a person's fabric decision applied at rung H
         _OTLP,                                     # NOTHING else: no store, no bucket, no model and no
     ],                                             # provider credential. It cannot read what it releases.
+    "fabric-app": [
+        "FABRIC_APP_PORT", "FABRIC_APP_PUBLIC_URL",   # the port it binds and the origin the manifest names
+        "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY",   # it DRAWS through the gateway
+        "ARTIFACTS_URL",                               # ...and reads the drawing back by ref
+        _OTLP,                                         # NOTHING else: no Redis (it holds no queue), no
+    ],                                                 # bot credential, no Entra, no store but this one
     "fabric-ingress": [                            # src/lab/substrate/fabric_ingress.py + lab.platform.{fabric_events,workflows,delivery}
         "REDIS_URL", "FABRIC_EVENTS", "FABRIC_ALLOWLIST",
         # ONE governed read, and only when the allow-list scopes a drive BY FOLDER: a finished-run event
@@ -619,6 +639,9 @@ ROLE_ENV = {
         # least privilege working exactly as designed, and silently, because an absent variable is a
         # default and a default is not an error.
         "TEAMS_STEWARD_ANSWERS_ON_CARD",
+        # Who the asks are FOR. Without it the channel posts to the room, which is visible and
+        # interrupts nobody — correct as a fallback, wrong as the only behaviour once asks are DMs.
+        "FABRIC_STEWARDS",
         "TEAMS_STEWARD_WEBHOOK_URL",               # its OWN Adaptive Card webhook (unset = not deployed).
                                                    # Deliberately NOT TEAMS_WEBHOOK_URL: two channels
                                                    # sharing one destination is the buried queue this split undoes

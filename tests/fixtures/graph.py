@@ -19,7 +19,7 @@ import json
 from lab.core.collab import (CAPABILITIES, ChangeType, CollabUnavailable, ContentHandle,
                              ContentStream, Drive,
                              DriveItem, HandleKind, MediaKind, MediaRecord, Meeting, Page, Site,
-                             Watch, clamp_limit)
+                             Watch, clamp_limit, normalise_web_url)
 from lab.substrate.mcp.graph.graph_rest import Response
 
 __all__ = ["FakeTransport", "FakeSleep", "FakeTokens", "FakeGraph", "NOT_FOUND"]
@@ -184,6 +184,13 @@ class FakeGraph:
         if found is None:
             raise CollabUnavailable("items", f"no item {handle.id}", "check the id")
         return found
+
+    def item_by_url(self, url):
+        """The provider resolves a url; this fake matches on the item's OWN `url`, and answers None
+        for anything it does not hold — the absence the port promises, never a near match."""
+        wanted = normalise_web_url(url)          # the same caller error the real adapter makes
+        self._check("items", wanted)
+        return next((i for i in self._items if i.url and normalise_web_url(i.url) == wanted), None)
 
     def open(self, handle):
         self._check("content", str(handle))

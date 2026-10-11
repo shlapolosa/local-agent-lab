@@ -41,7 +41,7 @@ from lab.core.viz import CONCEPT
 from lab.platform.filetypes import content_type_for, file_slug
 from lab.platform.fabric_events import METRICS_KEY
 from lab.platform.filetypes import content_type_for
-from lab.substrate import fabric_publication
+from lab.substrate import fabric_custody, fabric_publication
 from lab.substrate.mcp.semantic import views, vocab_seed
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
@@ -317,6 +317,27 @@ def semantic_catalog_get(iri: str = "", pointer: dict | None = None) -> dict | N
     """The Catalog row for an artifact — by IRI, or by POINTER ({source, handle|ref|…}) — plus its graph
     links by rung (delivery, references, subjects, facets), or null. Identity and custody only — never content."""
     return fabric().catalog_get(iri, pointer=pointer)
+
+
+@server.tool()
+def semantic_catalog_by_url(url: str) -> dict | None:
+    """The Catalog row for the document ONE WEB URL names — the `https://...` address a person copies
+    out of a browser, or that a search result or a citation gives — or null when no record is held
+    for it. Same shape as `semantic_catalog_get`: identity and custody, never content.
+
+    This is how a question about a document somebody is LOOKING at ("who owns this, is it approved,
+    what does it affect") reaches the governed record. null means exactly that no catalogued artifact
+    has that url's custody — it is never the record with the nearest title, because two records
+    sharing a title is precisely the case a title match gets wrong and nobody can see it has.
+
+    The url is resolved by the PROVIDER through the governed collaboration port, not from an index of
+    the fabric's own: a web url is path-based, so renaming or moving a file changes it while the item
+    it names does not (`lab.substrate.fabric_custody` records the full reasoning)."""
+    pointer = asyncio.run(fabric_custody.pointer_for(url))
+    span().set_attributes({"fabric.by_url.resolved": pointer is not None})   # never the url: it can embed a person
+    if pointer is None:
+        return None
+    return fabric().catalog_get(pointer=pointer)
 
 
 @server.tool()

@@ -609,3 +609,23 @@ def test_an_item_answer_carries_label_and_author_but_never_the_url():
     i = DriveItem(id="01X", name="ADR-14.docx", drive_id="b!d", label="Confidential", author="ann@x", url="https://x/y")
     out = S._item(i)
     assert (out["label"], out["author"]) == ("Confidential", "ann@x") and "url" not in out
+
+
+# ---------------------------------------------------------------- custody by url
+def test_a_web_url_resolves_to_the_items_custody_handle(graph, server):
+    """The lookup retrieval needs: the address a PERSON has, answered with the handle everything the
+    lab records is keyed by. The url goes IN as an argument and does not come back on the item —
+    the caller already has it, and a personal drive's url embeds its owner."""
+    graph._items = (DriveItem("item-1", "BRS.md", "drive-1", url="https://t.example/sites/p/BRS.md"),)
+    got = call(server, CollabTools.item_by_url, url="https://t.example/sites/p/BRS.md?web=1")
+    assert got["handle"] == "collab://item/drive-1/item-1" and got["name"] == "BRS.md"
+    assert "url" not in got
+
+
+def test_a_url_nobody_recognises_answers_nothing_rather_than_the_nearest_file(graph, server):
+    graph._items = (DriveItem("item-1", "BRS.md", "drive-1", url="https://t.example/sites/p/BRS.md"),)
+    assert call(server, CollabTools.item_by_url, url="https://t.example/sites/p/OTHER.md") is None
+
+
+def test_resolving_a_url_is_a_READ_power(server):
+    assert CollabTools.item_by_url in CollabTools.READ

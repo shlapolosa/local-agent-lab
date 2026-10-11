@@ -245,6 +245,12 @@ class CollabTools(ToolCatalogue):
     user_drive = "collab_user_drive"         # a PERSON's own drive: content no team ever filed
     list = "collab_list"
     item = "collab_item"
+    # The ONE verb that goes from the address a PERSON has to the handle everything else is keyed by.
+    # It is a READ: it resolves, it reveals no content, and the provider's own permissions still
+    # apply. Retrieval (a search result, an assistant's citation, a pasted link) names a file by url
+    # and nothing else could turn that into custody — without it a caller would have to match on
+    # TITLE, which is silently wrong exactly when two records share one.
+    item_by_url = "collab_item_by_url"
     meetings = "collab_meetings"
     recordings = "collab_recordings"
     transcripts = "collab_transcripts"
@@ -255,8 +261,8 @@ class CollabTools(ToolCatalogue):
     watch_renew = "collab_watch_renew"
     unwatch = "collab_unwatch"
 
-    READ = (capabilities, sites, drives, user_drive, list, item, meetings, recordings, transcripts,
-            fetch, watches)
+    READ = (capabilities, sites, drives, user_drive, list, item, item_by_url, meetings, recordings,
+            transcripts, fetch, watches)
     # WRITE is not one thing. A SUBSCRIPTION is egress to a caller-supplied url and a durable object
     # outliving the run; PUT writes lab-authored content into someone else's tenant under the
     # provider's identity. Both are writes and both are granted deliberately, but they are different

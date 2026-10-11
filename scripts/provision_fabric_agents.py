@@ -66,6 +66,10 @@ CURATOR_TOOLS = {
     # on the first cloud sweep: `tool *collab_list not exposed by gateway` — a grant table that named
     # only the semantic server.
     CollabTools.SERVER: [CollabTools.list, CollabTools.item, CollabTools.put, CollabTools.capabilities,
+                         # ...and resolving a web URL to custody, which semantic-mcp acts with on behalf of
+                         # whoever asked `semantic_catalog_by_url`: retrieval names a document by the address a
+                         # person has, and a lookup that could not resolve it would have to match on title.
+                         CollabTools.item_by_url,
                          # the reconciler renews the lab's own subscriptions: renewal cannot change a
                          # destination or a resource, so it is the one SUBSCRIBE verb a consumer may hold
                          CollabTools.watches, CollabTools.watch_renew],
