@@ -1,0 +1,46 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "${VERSION}",
+  "id": "${TEAMS_APP_ID}",
+  "developer": {
+    "name": "Lab",
+    "websiteUrl": "https://${HOST}",
+    "privacyUrl": "https://${HOST}/tab/privacy",
+    "termsOfUseUrl": "https://${HOST}/tab/terms"
+  },
+  "name": {"short": "Fabric", "full": "Documentation Fabric — ask it, and see what it holds"},
+  "description": {
+    "short": "Ask the fabric who owns a document, and see the corpus drawn.",
+    "full": "The Documentation Fabric knows what the organisation has written, who owns it, whether it was approved and what it is about. Ask it in chat — who owns this, is it approved, what does this change affect, how do we know. The tab draws every record and the concepts it is about, redrawn each time you open it. The fabric holds no document content: it points at the system of record, which decides who may read it."
+  },
+  "icons": {"color": "color.png", "outline": "outline.png"},
+  "accentColor": "#2F5D8A",
+
+  "//bots": "The COPILOT STUDIO agent is this app's bot — its own bot registration, the tools it already holds (approvals_list / approvals_get / approvals_decide, verified live 10 Oct 2026) and no bot code of ours. `personal` is where an ASK arrives, because a proactive message can only reach a personal chat; `team` is where the same agent can be mentioned beside the record.",
+  "bots": [{
+    "botId": "${AGENT_BOT_ID}",
+    "scopes": ["personal", "team"],
+    "supportsFiles": false,
+    "isNotificationOnly": false
+  }],
+
+  "//staticTabs": "The picture, per person. Teams gives this one no configuration step, so it is the surface a researcher opens without being added to anything.",
+  "staticTabs": [{
+    "entityId": "fabric-corpus",
+    "name": "Corpus",
+    "contentUrl": "https://${HOST}/tab",
+    "websiteUrl": "https://${HOST}/tab",
+    "scopes": ["personal"]
+  }],
+
+  "//configurableTabs": "...and the same picture in a channel, which is where a team looks at it together. The configuration page is MANDATORY: with none, Teams shows 'Not Found' with Save disabled and cancels the add (measured on the meeting app, 6 Oct 2026).",
+  "configurableTabs": [{
+    "configurationUrl": "https://${HOST}/tab/config",
+    "canUpdateConfiguration": false,
+    "scopes": ["team"]
+  }],
+
+  "permissions": ["identity"],
+  "validDomains": ["${HOST}"]
+}

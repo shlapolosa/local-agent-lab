@@ -32,8 +32,10 @@ var/
 # TEMPLATES tracked: they end in .template.json, which the first pattern would otherwise swallow.
 config/clients/**/*.json
 !config/clients/**/*.template.json
-# The Teams app manifest is rendered PER TIER by scripts/package_teams_app.py (it names the host),
-# not by `./lab.sh clients`, so it is deliberately not a *.template.json.
-!config/clients/teams-app/manifest.tmpl.json
+# A Teams app manifest is rendered PER TIER by scripts/package_teams_app.py (it names the host), not by
+# `./lab.sh clients`, so it is deliberately not a *.template.json. The pattern is by NAME, not by app:
+# naming one app's path swallowed the fabric app's manifest the day it was added (11 Oct 2026) — the
+# file existed locally so every local test passed, and only CI, which has a fresh clone, saw it missing.
+!config/clients/**/manifest.tmpl.json
 config/clients/**/*.yaml
 !config/clients/**/*.template.yaml
