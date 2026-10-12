@@ -125,7 +125,15 @@ def test_a_minutes_run_output_is_a_fact_gets_drafts_and_ends_on_a_draft_review()
     # classify: the type was a fact, so NO suggestion was asserted for it; subjects linked, the miss proposed
     assert [a for a in fab.asserts if a["field"] == "document_type" and a["iri"] == out["artifact_iri"]] == []
     assert calls(h, SemanticTools.vocab_link)[0]["terms"] == ["Care Delivery", "Unknown Term"]
-    assert calls(h, SemanticTools.vocab_propose)[0]["label"] == "Unknown Term"
+    proposal = calls(h, SemanticTools.vocab_propose)[0]
+    assert proposal["label"] == "Unknown Term"
+    # ...and WHICH artifact used the word. `vocab_propose` accumulates `proposed_for` so one term is ONE
+    # candidate carrying the documents behind it; the caller never passed it, so every candidate in the
+    # live register was countless and provenance-less (measured 12 Oct 2026: 45 candidates, 0 with either).
+    # Two features silently did nothing as a result — the frequency threshold reads a count that was always
+    # null, so every term was asked on first sight (58 open cards), and admission propagates to exactly
+    # `proposed_for`, so admitting a concept re-matched no document at all.
+    assert proposal["proposed_for"] == out["artifact_iri"], "a candidate must name the artifact that used it"
     # synthesise: one draft per decision, its type a FACT (C), referencing the minutes (C)
     assert out["draft_refs"] == ["art://store/00000000000000000000000001.d1.decision-record.json"]
     draft = [a for a in fab.asserts if a["field"] == "document_type" and a["iri"] != out["artifact_iri"]][0]

@@ -293,8 +293,17 @@ def build_workflow(cfg):
                 # steward — without this it is invisible everywhere except the curated graph.
                 conflicts = out.get("conflicts") or []
                 for term in missed:
+                    # `proposed_for` is THIS artifact, and leaving it out quietly disabled two features that
+                    # are implemented and tested in the service. `vocab_propose` keeps one row per term and
+                    # accumulates the artifacts behind it, so without it every candidate carried no count and
+                    # no provenance (measured 12 Oct 2026: 45 candidates, 0 with either). The frequency
+                    # threshold then reads a count that is always null and asks about every term on first
+                    # sight — 58 open concept-admission cards — and admission propagates to exactly
+                    # `proposed_for`, so admitting a concept re-matched no document at all. The register was
+                    # recording that a word was unknown while forgetting who had used it.
                     await gateway.call(cfg, SemanticTools.vocab_propose,
                                        {"label": term, "actor": "classifier-agent", "scheme": cfg.get("vocabulary", ""),
+                                        "proposed_for": state["iri"],
                                         "definition": f"proposed while classifying {state['title']}"})
             # owner and label are LOOKED UP at C (FR-2.2.2): the item's own label, else the site default; the owner
             # map, else the run's requester, else the item's author — never the model. Unresolved → the review asks.
