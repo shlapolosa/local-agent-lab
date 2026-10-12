@@ -26,7 +26,6 @@ MAXLEN = 50_000
 MAX_ATTEMPTS = 3
 METRICS_KEY = "fabric:metrics"       # the reconciler's tick writes the measurements here; semantic_metrics reads them
 WRITTEN = "fabric:written:"
-WRITTEN_TTL = 7 * 24 * 60 * 60
 
 
 def _r(client=None):
@@ -79,9 +78,21 @@ def dead_letter(entry_id: str, fields: dict, reason: str, *, client=None) -> Non
 def mark_written(pointer_key: str, version: str, kind: str, run_id: str, *, client=None) -> None:
     """Record that the fabric wrote this item at this version. Called by whoever holds the write — today
     the projector — AFTER the write lands, never before. An EMPTY version tags every version of the item:
-    right for a page the fabric owns outright, wrong for anything a person is expected to edit."""
+    right for a page the fabric owns outright, wrong for anything a person is expected to edit.
+
+    **The mark does not expire.** A guard has to outlive the thing it guards, and a page stays in the
+    library for ever. While this mark expired after seven days, the reconciler sweep would list a `.md`
+    the catalogue had never seen, the ingress would find no tag, and the fabric catalogued its OWN
+    projection as an artifact — measured 12 Oct 2026, two records (`screening-json.md` typed
+    `screening-report`, `01-sanity-3-csv.md` typed `solution-design`).
+
+    A TTL protected nothing it was reached for. Where the mark names a VERSION, `written_by_fabric` is
+    already version-scoped: a person's edit changes the version, the tag stops matching, and their change
+    enters the pipeline unaided. Where it does NOT name one, the blanket tag is the deliberate choice of a
+    caller that owns the item outright — a projection is nobody's to edit — so expiring it is wrong there
+    too, and that is the case the projector actually hits whenever the provider answers with no stamp."""
     _r(client).set(WRITTEN + pointer_key, json.dumps({"version": version, "kind": kind, "runId": run_id}),
-                   ex=WRITTEN_TTL)
+                   ex=None)
 
 
 def written_by_fabric(pointer_key: str, version: str = "", *, client=None) -> dict | None:

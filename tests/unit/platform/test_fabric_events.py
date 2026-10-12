@@ -59,3 +59,26 @@ def test_emit_cli_publishes(monkeypatch, capsys):
     assert fe.main(["emit", json.dumps(payload)]) == 0
     assert r.xlen(fe.STREAM) == 1
     assert fe.main(["nope"]) == 2
+
+
+def test_the_loop_guard_mark_never_expires_because_the_page_it_guards_never_does():
+    """The defect this closes (confirmed 12 Oct 2026): the mark expired after seven days while the page it
+    protects stayed in the library for ever. The reconciler sweep then listed a `.md` the catalogue had
+    never seen, the ingress found no tag, and the fabric catalogued its OWN projection as an artifact —
+    `screening-json.md` became a record typed `screening-report` and `01-sanity-3-csv.md` one typed
+    `solution-design`.
+
+    Asserted for BOTH mark shapes, because the shapes fail differently and a rule that covered only one
+    would have left the bug where it actually bites. A VERSIONED mark needs no expiry: the guard is
+    version-scoped, so a person's edit changes the version, the tag stops matching, and their change
+    enters the pipeline unaided — which is the only thing an expiry could have been for. A VERSION-LESS
+    mark is the deliberate choice of a caller that owns the item outright (a projection is nobody's to
+    edit), and it is the case the projector actually hits whenever the provider answers with no stamp —
+    so expiring that one re-opens the hole in precisely the degraded path nobody watches."""
+    r = FakeRedis()
+    for key, version in (("collab:collab://item/d/01VERSIONED", "7.0"), ("collab:collab://item/d/01BLANKET", "")):
+        fe.mark_written(key, version, "projection", "run-1", client=r)
+        assert r.ttl.get(fe.WRITTEN + key) is None, f"a mark (version={version!r}) must outlive its page"
+        assert fe.written_by_fabric(key, client=r)["kind"] == "projection"
+    # the version-scoped one still yields to a person, which is what makes the durability safe
+    assert fe.written_by_fabric("collab:collab://item/d/01VERSIONED", "8.0", client=r) is None

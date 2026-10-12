@@ -490,10 +490,14 @@ def test_relinking_REPLACES_the_extracted_subjects_instead_of_accumulating(fab):
     fab.vocab_link(a, ["Triage", "Care Delivery"])
     assert len(G.find(fab.ds, URIRef(a), G.DCT.subject)) == 2
 
-    fab.vocab_link(a, ["Triage"])                      # a narrower, better-evidenced reading
+    kept = fab.vocab_link(a, ["Triage"])               # a narrower, better-evidenced reading
     live = G.find(fab.ds, URIRef(a), G.DCT.subject)
     assert len(live) == 1, "the dropped subject must not survive a re-link"
-    assert "Triage" in str(live[0][1][2]) or True      # the surviving link is the one just asserted
+    # WHICH subject survived, not merely how many. The count alone passes just as happily when the
+    # retraction takes the wrong one, and "it kept exactly one link" is the symptom either way.
+    survivor = str(live[0][1][2])
+    assert survivor == kept["linked"][0]["concept"], "the surviving link must be the one this run asserted"
+    assert "Care Delivery" not in {r["label"] for r in kept["linked"]}
     assert fab.validate().conforms
 
 
