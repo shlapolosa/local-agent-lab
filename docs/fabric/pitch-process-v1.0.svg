@@ -56,7 +56,7 @@
 <text x="1094.5" y="368.0" text-anchor="middle" font-size="11" fill="#666">yes</text>
 <rect x="1155.0" y="476.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="1260" y="501" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Candidate register</text>
-<text x="1260" y="520" text-anchor="middle" font-size="11" fill="#555">parked; no count yet</text>
+<text x="1260" y="520" text-anchor="middle" font-size="11" fill="#555">one row per term · counted, unbackfilled</text>
 <rect x="1161.0" y="467.0" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC code decides — no model in the path</title></rect>
 <text x="1171.5" y="480.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
 <circle cx="1351.0" cy="490.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
@@ -66,13 +66,13 @@
 <text x="1510" y="510" text-anchor="middle" font-size="15" fill="#555">?</text>
 <text x="1510" y="473" text-anchor="middle" font-size="12" font-weight="700" fill="#333">threshold?</text>
 <text x="1510" y="546" text-anchor="middle" font-size="10" fill="#777">a term seen once is not a concept</text>
-<circle cx="1530" cy="485" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"><title>not implemented</title></circle>
+<circle cx="1530" cy="485" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
 <rect x="1482.0" y="472.0" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC code decides — no model in the path</title></rect>
 <text x="1492.5" y="485.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
 <path d="M1365,505 L1486,505" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
 <rect x="1405.0" y="674.0" width="210" height="62" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
 <text x="1510" y="701" text-anchor="middle" font-size="14" font-weight="700" fill="#222">STEWARD admits the term</text>
-<text x="1510" y="720" text-anchor="middle" font-size="11" fill="#555">one at a time, never exercised</text>
+<text x="1510" y="720" text-anchor="middle" font-size="11" fill="#555">batched on one card, never exercised</text>
 <rect x="1411.0" y="665.0" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.2"><title>a PERSON decides — the only way knowledge moves up</title></rect>
 <text x="1421.5" y="678.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">H</text>
 <circle cx="1601.0" cy="688.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
@@ -80,10 +80,10 @@
 <text x="1510.0" y="594.5" text-anchor="middle" font-size="11" fill="#666">reached</text>
 <rect x="1155.0" y="573.0" width="210" height="54" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2" stroke-dasharray="7 4"/>
 <text x="1260" y="596" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Re-match what waited</text>
-<text x="1260" y="615" text-anchor="middle" font-size="11" fill="#555">FR-1.1.5</text>
+<text x="1260" y="615" text-anchor="middle" font-size="11" fill="#555">FR-1.1.5 · needs the counted register</text>
 <rect x="1161.0" y="564.0" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC code decides — no model in the path</title></rect>
 <text x="1171.5" y="577.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
-<circle cx="1351.0" cy="587.0" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"><title>not implemented</title></circle>
+<circle cx="1351.0" cy="587.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
 <path d="M1405,705 L1260,705 L1260,627" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
 <text x="1260.0" y="659.0" text-anchor="middle" font-size="11" fill="#666">on admission</text>
 <path d="M1155,600 L760,600 L760,404" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)" stroke-dasharray="6 4"/>
@@ -153,22 +153,22 @@
 <path d="M2155,375 L2010,375 L2010,478" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="2155.0" y="476.0" width="210" height="58" rx="7" fill="#f3f0fa" stroke="#5b4b8a" stroke-width="2"/>
 <text x="2260" y="501" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Project a page</text>
-<text x="2260" y="520" text-anchor="middle" font-size="11" fill="#555">metadata only, never content</text>
+<text x="2260" y="520" text-anchor="middle" font-size="11" fill="#555">OFF — pages were indexed as the register</text>
 <rect x="2161.0" y="467.0" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC code decides — no model in the path</title></rect>
 <text x="2171.5" y="480.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
-<circle cx="2351.0" cy="490.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
+<circle cx="2351.0" cy="490.0" r="7" fill="#8a8a8a" stroke="#fff" stroke-width="2"><title>built and deliberately OFF — the caption says why</title></circle>
 <path d="M2115,505 L2155,505" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="2155.0" y="833.0" width="210" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
 <text x="2260" y="858" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Pages · MCP</text>
-<text x="2260" y="877" text-anchor="middle" font-size="11" fill="#555">no links between pages yet</text>
-<circle cx="2351.0" cy="847.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
+<text x="2260" y="877" text-anchor="middle" font-size="11" fill="#555">linked pages built; none written now</text>
+<circle cx="2351.0" cy="847.0" r="7" fill="#8a8a8a" stroke="#fff" stroke-width="2"><title>built and deliberately OFF — the caption says why</title></circle>
 <path d="M2260,534 L2260,833" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <rect x="1655.0" y="833.0" width="210" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
 <text x="1760" y="858" text-anchor="middle" font-size="14" font-weight="700" fill="#222">Copilot answers</text>
-<text x="1760" y="877" text-anchor="middle" font-size="11" fill="#555">no retrieval source wired</text>
+<text x="1760" y="877" text-anchor="middle" font-size="11" fill="#555">custody by url · answered in Teams</text>
 <rect x="1661.0" y="824.0" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="1.5"><title>an AGENT decides — schema-validated output, gated after</title></rect>
 <text x="1671.5" y="837.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">A</text>
-<circle cx="1851.0" cy="847.0" r="7" fill="#d68910" stroke="#fff" stroke-width="2"><title>built, unproven or partial</title></circle>
+<circle cx="1851.0" cy="847.0" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"><title>running, exercised on real records</title></circle>
 <path d="M2155,862 L1865,862" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
 <text x="60" y="866" font-size="12.5" font-weight="700" fill="#333">What decides each step</text>
 <rect x="66.0" y="865.5" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="1.5"><title>an AGENT decides — schema-validated output, gated after</title></rect>
@@ -181,12 +181,14 @@
 <text x="76.5" y="923.0" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">H</text>
 <text x="92" y="{y}" font-size="12.5" fill="#555">{esc(words)}</text>
 <text x="2360" y="976" text-anchor="end" font-size="13" fill="#777">&#9671; gateway</text>
-<circle cx="1990" cy="904" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"/>
-<text x="2008" y="908" font-size="12.5" fill="#555">running, exercised on real records</text>
-<circle cx="1990" cy="926" r="7" fill="#d68910" stroke="#fff" stroke-width="2"/>
-<text x="2008" y="930" font-size="12.5" fill="#555">built, unproven or partial</text>
-<circle cx="1990" cy="948" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"/>
-<text x="2008" y="952" font-size="12.5" fill="#555">not implemented</text>
-<text x="1990" y="888" font-size="12.5" font-weight="700" fill="#333">Status, 9 Oct 2026 — what is true in the cloud</text>
+<circle cx="1990" cy="896" r="7" fill="#1e8449" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="900" font-size="12.5" fill="#555">running, exercised on real records</text>
+<circle cx="1990" cy="918" r="7" fill="#d68910" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="922" font-size="12.5" fill="#555">built, unproven or partial</text>
+<circle cx="1990" cy="940" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="944" font-size="12.5" fill="#555">not implemented</text>
+<circle cx="1990" cy="962" r="7" fill="#8a8a8a" stroke="#fff" stroke-width="2"/>
+<text x="2008" y="966" font-size="12.5" fill="#555">built and deliberately OFF — see the caption</text>
+<text x="1990" y="880" font-size="12.5" font-weight="700" fill="#333">Status, 12 Oct 2026 — what is true in the cloud</text>
 <text x="60" y="976" font-size="13" fill="#777">Rungs: O observed &#183; S suggested &#183; X extracted &#183; C constructed &#183; H human-confirmed &#183; D derived &#8212; only C&#183;X&#183;H answer &#8220;what does this change break?&#8221;</text>
 </svg>

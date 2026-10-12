@@ -29,9 +29,15 @@ OUT = ("#e7f3ec", "#1e8449")      # surfaces people and agents meet
 #: RAG — what is TRUE in the cloud today, not what is designed. GREEN is running and has been exercised
 #: on real records; AMBER is built but unproven or only half of it is there; RED is not implemented. The
 #: status is on the picture because a diagram of an intention is the easiest kind to believe.
-RAG = {"green": "#1e8449", "amber": "#d68910", "red": "#c0392b"}
+#: GREY is the fourth state and it was earned, not invented: on 12 Oct 2026 the projector was switched
+#: off deliberately — its pages were indexed by the site-scoped knowledge source and the fabric read its
+#: own renderings back as the register. Three states could not say that. RED would read as "not
+#: implemented", so someone would go and build what already exists; GREEN would claim a surface that no
+#: longer answers. A suspended capability is a DECISION, and a picture that cannot show one invites
+#: somebody to undo it by accident.
+RAG = {"green": "#1e8449", "amber": "#d68910", "red": "#c0392b", "grey": "#8a8a8a"}
 RAG_WHY = {"green": "running, exercised on real records", "amber": "built, unproven or partial",
-           "red": "not implemented"}
+           "red": "not implemented", "grey": "built and deliberately OFF \u2014 the caption says why"}
 
 LANES = [
     ("AUTHOR", "writes where they already work", 70, 180, "#fbf7f0"),
@@ -182,17 +188,19 @@ def main(out: Path) -> None:
     s.box(C[4], TOP, BOXW, 58, "Subject link at rung X", "replaced on a re-read", rag="green", mode="D")
     s.flow([(C[3] + 24, TOP), (C[4] - BOXW // 2, TOP)], "yes")
 
-    s.box(C[4], MID, BOXW, 58, "Candidate register", "parked; no count yet", rag="amber", mode="D")
+    s.box(C[4], MID, BOXW, 58, "Candidate register", "one row per term \u00b7 counted, unbackfilled",
+          rag="amber", mode="D")
     s.flow([(C[3], TOP + 24), (C[3], MID), (C[4] - BOXW // 2, MID)], "no")
 
-    s.gate(C[5], MID, "threshold?", "a term seen once is not a concept", rag="red")
+    s.gate(C[5], MID, "threshold?", "a term seen once is not a concept", rag="amber")
     s.flow([(C[4] + BOXW // 2, MID), (C[5] - 24, MID)], dashed=True)
 
     s.box(C[5], PEOPLE, BOXW, 62, "STEWARD admits the term",
-          "one at a time, never exercised", kind=HUM, rag="amber", mode="H")
+          "batched on one card, never exercised", kind=HUM, rag="amber", mode="H")
     s.flow([(C[5], MID + 24), (C[5], PEOPLE - 31)], "reached", dashed=True)
 
-    s.box(C[4], LOW, BOXW, 54, "Re-match what waited", "FR-1.1.5", dashed=True, rag="red", mode="D")
+    s.box(C[4], LOW, BOXW, 54, "Re-match what waited", "FR-1.1.5 \u00b7 needs the counted register",
+          dashed=True, rag="amber", mode="D")
     s.flow([(C[5] - BOXW // 2, PEOPLE), (C[4], PEOPLE), (C[4], LOW + 27)], "on admission", dashed=True)
     s.flow([(C[4] - BOXW // 2, LOW), (C[2], LOW), (C[2], TOP + 29)], dashed=True)
 
@@ -231,13 +239,16 @@ def main(out: Path) -> None:
     s.box(C[7], MID, BOXW, 54, "Index for search", "embeddings \u00b7 from the LINKED labels", rag="green", mode="D")
     s.flow([(C[8] - BOXW // 2, TOP), (C[7], TOP), (C[7], MID - 27)])
 
-    s.box(C[8], MID, BOXW, 58, "Project a page", "metadata only, never content", rag="green", mode="D")
+    s.box(C[8], MID, BOXW, 58, "Project a page", "OFF \u2014 pages were indexed as the register",
+          rag="grey", mode="D")
     s.flow([(C[7] + BOXW // 2, MID), (C[8] - BOXW // 2, MID)])
 
-    s.box(C[8], SURFACE, BOXW, 58, "Pages \u00b7 MCP", "no links between pages yet", kind=OUT, rag="amber")
+    s.box(C[8], SURFACE, BOXW, 58, "Pages \u00b7 MCP", "linked pages built; none written now",
+          kind=OUT, rag="grey")
     s.flow([(C[8], MID + 29), (C[8], SURFACE - 29)])
 
-    s.box(C[6], SURFACE, BOXW, 58, "Copilot answers", "no retrieval source wired", kind=OUT, rag="amber", mode="A")
+    s.box(C[6], SURFACE, BOXW, 58, "Copilot answers", "custody by url \u00b7 answered in Teams",
+          kind=OUT, rag="green", mode="A")
     s.flow([(C[8] - BOXW // 2, SURFACE), (C[6] + BOXW // 2, SURFACE)])
 
     s.p.append(f'<text x="60" y="{H - 134}" font-size="12.5" font-weight="700" fill="#333">'
@@ -252,12 +263,13 @@ def main(out: Path) -> None:
                f'&#9671; gateway</text>')
     for i, (k, label) in enumerate((("green", "running, exercised on real records"),
                                     ("amber", "built, unproven or partial"),
-                                    ("red", "not implemented"))):
-        y = H - 92 + i * 22
+                                    ("red", "not implemented"),
+                                    ("grey", "built and deliberately OFF \u2014 see the caption"))):
+        y = H - 100 + i * 22
         s.p.append(f'<circle cx="{W - 430}" cy="{y - 4}" r="7" fill="{RAG[k]}" stroke="#fff" stroke-width="2"/>')
         s.p.append(f'<text x="{W - 412}" y="{y}" font-size="12.5" fill="#555">{esc(label)}</text>')
-    s.p.append(f'<text x="{W - 430}" y="{H - 112}" font-size="12.5" font-weight="700" fill="#333">'
-               f'Status, 9 Oct 2026 \u2014 what is true in the cloud</text>')
+    s.p.append(f'<text x="{W - 430}" y="{H - 120}" font-size="12.5" font-weight="700" fill="#333">'
+               f'Status, 12 Oct 2026 \u2014 what is true in the cloud</text>')
     s.p.append(f'<text x="60" y="{H - 24}" font-size="13" fill="#777">'
                f'Rungs: O observed &#183; S suggested &#183; X extracted &#183; C constructed &#183; '
                f'H human-confirmed &#183; D derived &#8212; only C&#183;X&#183;H answer '
