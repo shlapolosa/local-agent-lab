@@ -568,12 +568,19 @@ ROLE_ENV = {
         _OTLP,
     ],
     "fabric-projector": [                          # src/lab/substrate/fabric_projector.py — a published record becomes a wiki page
+        # FABRIC_WIKI_FOLDER is deliberately EMPTY since 12 Oct 2026, so this service logs the page it would
+        # write and writes nothing. A page is a RENDERING carrying metadata only, and the Copilot knowledge
+        # source is SITE scoped — so every page the projector wrote was indexed and read back as the register.
+        # The key stays here because refilling it (with a library the knowledge source does NOT cover) must be
+        # a config change and not a code change. See the PARKED block in `.env`.
         "REDIS_URL", "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY", "FABRIC_WIKI_FOLDER",
         _OTLP,                                     # reads the record and writes the page THROUGH the gateway; no store credential
     ],
     "fabric-reconciler": [                         # src/lab/substrate/fabric_reconciler.py — the timer sweep of the allow-listed drives
         "REDIS_URL", "GATEWAY_URL", "GATEWAY_MCP_SERVERS", "FABRIC_CURATOR_KEY", "FABRIC_EVENTS", "FABRIC_ALLOWLIST", "FABRIC_SWEEP_*",
-        "FABRIC_WIKI_FOLDER",   # the measurements page (fabric_metrics.tick) lands beside the record pages
+        "FABRIC_WIKI_FOLDER",   # the measurements page (fabric_metrics.tick) landed beside the record pages; EMPTY
+                                # since 12 Oct 2026 — `semantic_metrics` answers from Redis, so the page was a
+                                # second rendering of numbers that have a live home. Same reasoning as the projector.
         _OTLP,
     ],
     "meeting-notifier": [       # src/lab/substrate/meeting_notifier.py + lab.platform.workflows — Redis ONLY
