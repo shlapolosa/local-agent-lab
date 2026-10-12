@@ -765,3 +765,27 @@ def test_the_fabric_app_is_NOT_given_the_key_to_every_mcp_server():
     app enforces its own key, so the guard would pass on a secret nobody checks; and the value travels
     in a URL, so the shared secret would reach a manifest zip and a browser history."""
     assert "MCP_SHARED_SECRET" not in set(railway.ROLE_ENV["fabric-app"])
+
+
+def test_no_role_is_given_a_wiki_FOLDER_so_a_projection_cannot_reach_the_indexed_library():
+    """Parked 12 Oct 2026, and enforced HERE rather than in `.env` on purpose.
+
+    A projection page is a rendering of a record carrying metadata only — never the artifact's text — so
+    no retrieval question can be answered from one, while every one of them WAS indexed: the Copilot
+    knowledge source is site-scoped, and on 11 Oct a stewardship answer came back from a projection page
+    as if the fabric had confirmed it.
+
+    Emptying the setting in `.env` would not hold. CD feeds the `LAB_ENV` secret to `substrate up`, the
+    secret cannot be written with this project's token, and GitHub snapshots it at workflow start — so the
+    old value would be written back over the new one on the next push, silently, which is exactly the
+    failure mode `LAB_ENV` already has a memory about. A decision a stale secret can undo belongs in the
+    table, where it is in git and this test can see it.
+
+    Asserted across EVERY role, not just the projector and the reconciler: the next service to want a
+    page would add the variable to its own row, and the reasoning above applies to all of them equally.
+    Refilling it is then a deliberate one-line change here, with a library the knowledge source does not
+    cover — which is the right weight for a decision with this much behind it."""
+    carriers = sorted(r for r, keys in railway.ROLE_ENV.items() if "FABRIC_WIKI_FOLDER" in set(keys))
+    assert not carriers, (f"{carriers} would receive FABRIC_WIKI_FOLDER and write projection pages into "
+                          "the library the Copilot knowledge source indexes, so the fabric would read its "
+                          "own renderings back as the register")
