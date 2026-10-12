@@ -487,8 +487,13 @@ def test_relinking_REPLACES_the_extracted_subjects_instead_of_accumulating(fab):
     replaced is the SET, so the extracted subjects this run did not produce are retracted once, at the end.
     """
     a = fab.catalog_upsert(DOC)["iri"]
-    fab.vocab_link(a, ["Triage", "Care Delivery"])
+    first = fab.vocab_link(a, ["Triage", "Care Delivery"])
     assert len(G.find(fab.ds, URIRef(a), G.DCT.subject)) == 2
+    # Triage's concept IRI as the FIRST pass resolved it — the independent yardstick for which subject
+    # survived. A concept id here is a hash of its label path, so the IRI does not spell the label and
+    # the survivor cannot be identified by reading it.
+    triage = next(r["concept"] for r in first["linked"] if r["label"] == "Triage")
+    dropped = next(r["concept"] for r in first["linked"] if r["label"] == "Care Delivery")
 
     kept = fab.vocab_link(a, ["Triage"])               # a narrower, better-evidenced reading
     live = G.find(fab.ds, URIRef(a), G.DCT.subject)
@@ -497,7 +502,12 @@ def test_relinking_REPLACES_the_extracted_subjects_instead_of_accumulating(fab):
     # retraction takes the wrong one, and "it kept exactly one link" is the symptom either way.
     survivor = str(live[0][1][2])
     assert survivor == kept["linked"][0]["concept"], "the surviving link must be the one this run asserted"
-    assert "Care Delivery" not in {r["label"] for r in kept["linked"]}
+    assert survivor == triage, "and it is Triage, judged against the first pass rather than this call's answer"
+    # The DROPPED one is NAMED in `retracted`, which nothing asserted. Saying "Care Delivery is not in
+    # linked" would have re-asserted the input instead: only ["Triage"] was passed, so it could not be
+    # there however the retraction behaved. A re-classification whose removals are invisible is
+    # indistinguishable from one that did nothing, so the report of them is part of the contract.
+    assert kept["retracted"] == [dropped], kept["retracted"]
     assert fab.validate().conforms
 
 

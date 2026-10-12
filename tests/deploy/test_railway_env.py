@@ -9,6 +9,7 @@ Run:  .venv/bin/python tests/deploy/test_railway_env.py      (also pytest-compat
 """
 import importlib.util
 import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -781,11 +782,21 @@ def test_no_role_is_given_a_wiki_FOLDER_so_a_projection_cannot_reach_the_indexed
     failure mode `LAB_ENV` already has a memory about. A decision a stale secret can undo belongs in the
     table, where it is in git and this test can see it.
 
-    Asserted across EVERY role, not just the projector and the reconciler: the next service to want a
-    page would add the variable to its own row, and the reasoning above applies to all of them equally.
-    Refilling it is then a deliberate one-line change here, with a library the knowledge source does not
-    cover — which is the right weight for a decision with this much behind it."""
+    Asserted across every role in THIS table, not just the projector and the reconciler: the next service
+    to want a page would add the variable to its own row, and the reasoning above applies to all of them
+    equally. Refilling it is then a deliberate one-line change here, with a library the knowledge source
+    does not cover — which is the right weight for a decision with this much behind it.
+
+    SCOPE, because the name would otherwise overclaim: this table is the RAILWAY delivery path. The local
+    stack (`lab.sh`) starts the projector from a sourced `.env` and honours no table, so a local run still
+    projects wherever `FABRIC_WIKI_FOLDER` points — which is harmless, because a local library is not the
+    indexed one. Compose used to pass the variable too and no longer does; the assertion below keeps that
+    from drifting back, since the compose parity test compares service NAMES and would not have noticed."""
     carriers = sorted(r for r, keys in railway.ROLE_ENV.items() if "FABRIC_WIKI_FOLDER" in set(keys))
     assert not carriers, (f"{carriers} would receive FABRIC_WIKI_FOLDER and write projection pages into "
                           "the library the Copilot knowledge source indexes, so the fabric would read its "
                           "own renderings back as the register")
+    compose = (pathlib.Path(__file__).resolve().parents[2] / "deploy/substrate/compose.yml").read_text()
+    assert "FABRIC_WIKI_FOLDER" not in compose, ("compose would deliver the variable the role table "
+                                                 "withholds, and the compose parity test compares only "
+                                                 "service names, so nothing else would catch it")

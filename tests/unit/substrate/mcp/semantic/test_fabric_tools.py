@@ -163,8 +163,14 @@ def test_an_artifacts_life_through_the_tools():
 def test_a_candidate_concept_is_parked_then_ADMITTED_and_findable_from_then_on():
     """The whole point of the gate: a steward's acceptance puts the concept IN the vocabulary, so the next
     document about it is linked instead of proposing the same term again."""
+    # `proposed_for` is passed THROUGH THE TOOL on purpose. The domain method took it while the tool did
+    # not, so intake's call was refused by fastmcp with "Unexpected keyword argument" — a run killed, not a
+    # field dropped, because a ToolError is not transient and nothing retries it. The workload's own test
+    # passed throughout: its fake gateway validates no arguments. So the argument is proved HERE, where an
+    # in-memory client drives the real server and the signature is the thing under test.
+    a1 = call("semantic_catalog_upsert", pointer={"source": "collab", "handle": "collab://s/d/a1"})["iri"]
     c = call("semantic_vocab_propose", label="Discharge Summary", actor="classifier-agent",
-             definition="Sent at discharge", scheme="cafe")
+             definition="Sent at discharge", scheme="cafe", proposed_for=a1)
     assert c["iri"].startswith("urn:fabric:candidate:")
     assert call("semantic_concepts", scheme="cafe", kind="") and not any(
         x["label"] == "Discharge Summary" for x in call("semantic_concepts", scheme="cafe", kind=""))

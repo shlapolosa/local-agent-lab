@@ -409,13 +409,22 @@ def semantic_vocab_link(iri: str, terms: list[str], schemes: list[str] | None = 
 
 @server.tool()
 def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader: str = "",
-                           scheme: str = "", concept_id: str = "", module: str = "") -> dict:
+                           scheme: str = "", concept_id: str = "", module: str = "",
+                           proposed_for: str = "") -> dict:
     """Park a candidate concept for a steward. Not in any scheme until a person accepts it (semantic_promote
     with the candidate's IRI and no predicate), at which point it IS admitted and findable from then on.
     `scheme` is the vocabulary it would join and `concept_id` the id it would take — the steward supplies
-    whichever is missing at the gate, because a concept with no home cannot be looked up."""
+    whichever is missing at the gate, because a concept with no home cannot be looked up.
+
+    `proposed_for` is the ARTIFACT whose words proposed the term. There is ONE row per term and this is
+    accumulated onto it, so a steward is asked once however many documents want the word, the count of
+    them is the evidence of whether it matters, and admitting it re-matches exactly those artifacts
+    instead of the whole catalogue. Omit it and the candidate is parked with no provenance: the frequency
+    threshold reads a count that is then always null and asks about every term on first sight, and
+    admission propagates to nothing."""
     return fabric().vocab_propose(label, definition=definition, actor=actor, broader=broader,
-                                  scheme=scheme, concept_id=concept_id, module=module)
+                                  scheme=scheme, concept_id=concept_id, module=module,
+                                  proposed_for=proposed_for)
 
 
 @server.tool()

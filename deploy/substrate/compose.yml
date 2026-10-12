@@ -153,7 +153,6 @@ services:
     environment:
       <<: *env
       FABRIC_CURATOR_KEY: ${FABRIC_CURATOR_KEY:-}
-      FABRIC_WIKI_FOLDER: ${FABRIC_WIKI_FOLDER:-}
 
   fabric-reconciler:          # the timer sweep: allow-listed drives against the catalog -> change events,
     <<: *sub                  # so a missed notification is said later. Never writes the catalog.

@@ -188,3 +188,25 @@ files sit in the risky state and for how long.
 The proportionate fix is a **folder-level exclusion** — the sweep skips the wiki folder because it is
 the fabric's own, not because a marker happens to be fresh. A TTL is a race; a rule is a rule. Deferred
 deliberately (user, 11 Oct 2026) rather than taken mid-phase, and first in the next one.
+
+**It then happened, within the day (12 Oct 2026).** Two projections had already been catalogued as
+artifacts: `screening-json.md` as a `screening-report` and `01-sanity-3-csv.md` as a `solution-design`.
+Both records are withdrawn, and the eight fabric-written files in the library root are deleted.
+
+Two things changed, and neither is the exclusion rule:
+
+  * **The TTL is gone** (`fabric_events.mark_written` no longer passes an expiry; `WRITTEN_TTL` is
+    removed). A guard has to outlive what it guards, and nothing legitimately needed a bounded mark: a
+    versioned mark already yields to a person's edit because the version changes, and a version-less one
+    is the deliberate choice of a caller that owns the page outright.
+  * **Projection is suspended at the source.** `FABRIC_WIKI_FOLDER` is withheld from every role in
+    `deploy/topology.py` (and no longer passed by compose), so the projector logs the page it would write
+    and writes nothing. That decision was taken for RETRIEVAL rather than for ingestion — a page carries
+    metadata only, so no retrieval question can be answered from one, while a site-scoped knowledge source
+    indexed every one of them — but it closes this exposure too, for as long as it holds.
+
+So the sweep-side exclusion is still the durable rule and still the first item of the next phase. The
+mark now lives in Redis with no expiry, which is bounded (one key per fabric-owned page) but is still
+state in a CACHE: a flush, a tier migration or an eviction policy loses the memory and this defect
+returns silently. The rule does not depend on Redis remembering anything. It becomes load-bearing again
+the moment anyone refills `FABRIC_WIKI_FOLDER`, so it belongs in that same change.

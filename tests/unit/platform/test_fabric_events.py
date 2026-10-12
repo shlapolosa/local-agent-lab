@@ -74,11 +74,19 @@ def test_the_loop_guard_mark_never_expires_because_the_page_it_guards_never_does
     enters the pipeline unaided — which is the only thing an expiry could have been for. A VERSION-LESS
     mark is the deliberate choice of a caller that owns the item outright (a projection is nobody's to
     edit), and it is the case the projector actually hits whenever the provider answers with no stamp —
-    so expiring that one re-opens the hole in precisely the degraded path nobody watches."""
+    so expiring that one re-opens the hole in precisely the degraded path nobody watches.
+
+    `r.ttl` is the DOUBLE's bookkeeping — `FakeRedis.set` records it only when an `ex` is passed — so these
+    assert that no expiry was asked for, not an observed expiry; the fake has no clock. That is the right
+    thing to pin here, and it does fail on the old code, where `ex` was 604800."""
     r = FakeRedis()
-    for key, version in (("collab:collab://item/d/01VERSIONED", "7.0"), ("collab:collab://item/d/01BLANKET", "")):
+    versioned, blanket = "collab:collab://item/d/01VERSIONED", "collab:collab://item/d/01BLANKET"
+    for key, version in ((versioned, "7.0"), (blanket, "")):
         fe.mark_written(key, version, "projection", "run-1", client=r)
         assert r.ttl.get(fe.WRITTEN + key) is None, f"a mark (version={version!r}) must outlive its page"
         assert fe.written_by_fabric(key, client=r)["kind"] == "projection"
-    # the version-scoped one still yields to a person, which is what makes the durability safe
-    assert fe.written_by_fabric("collab:collab://item/d/01VERSIONED", "8.0", client=r) is None
+    # ...and the two shapes still DIFFER, which is the whole reason both are asserted: the versioned mark
+    # yields to a person (what makes its durability safe), the blanket one covers every version (what makes
+    # its durability the deliberate choice of a caller that owns the page).
+    assert fe.written_by_fabric(versioned, "8.0", client=r) is None
+    assert fe.written_by_fabric(blanket, "9.9", client=r), "a blanket mark covers a version it never saw"
