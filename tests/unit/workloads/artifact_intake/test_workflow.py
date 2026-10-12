@@ -50,8 +50,9 @@ class FakeAgent:
 class Fabric:
     """A canned semantic-mcp: rows by pointer, every write recorded with its rung."""
 
-    def __init__(self, similar=None):
+    def __init__(self, similar=None, search=None):
         self.rows, self.asserts, self.edges, self.similar_answer = {}, [], [], similar or []
+        self.search_answer = search or []
         self.n = 0
 
     def upsert(self, a):
@@ -80,6 +81,7 @@ class Fabric:
             "semantic_impact": [{"iri": "urn:fabric:artifact:other", "title": "ADR-3", "rung": "X"}],
             "semantic_embed": {"iri": "x", "model": "m", "dim": 8},
             "semantic_similar": lambda a: self.similar_answer,
+            "semantic_search": lambda a: self.search_answer,
             "semantic_store_spec": lambda a: {"spec_ref": f"art://store/{a['name']}"},
             "storage_read_artifact": MINUTES_DOC,
             "collab_item": {"name": "ADR-14 Event bus.docx", "path": "/EA/decisions", "modified": "2026-09-11T00:00:00Z"},
@@ -865,3 +867,42 @@ def test_a_RECLASSIFY_sweep_still_asks_nobody_when_only_the_READING_moved():
     finally:
         h.close()
     assert not calls(h, ApprovalTools.ask)
+
+
+def test_a_CITED_document_becomes_a_references_edge_at_the_extracted_rung():
+    """Impact walks INBOUND over `references`, and until 12 Oct 2026 the only thing that produced that
+    edge was a synthesised draft pointing at its source. So a human-authored document that cited another
+    in prose produced nothing: measured on three eRx documents that cite each other by name,
+    `references=0` on all of them, and `semantic_impact` over any of them returned 0 records — not
+    because the graph was empty but because nothing had ever looked.
+
+    The classifier now reports what the excerpt CITES, verbatim; a bounded search proposes candidates and
+    `citations.resolve` decides. The edge is EXTRACTED, which is what it is — read out of the text, never
+    confirmed by anybody — so impact reads it (trusted rungs) while nobody mistakes it for a fact."""
+    fab = Fabric(search=[{"iri": "urn:fabric:artifact:CITED", "title": "ADR-041-prescription-identifier.md"}])
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION,
+                                           "references": ["ADR-041 Prescription identifier format"]}))
+    try:
+        out = run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    refs = [e for e in fab.edges if str(e.get("predicate", "")).endswith("references")]
+    assert refs, "a cited document must become a references edge"
+    assert refs[0]["object"] == "urn:fabric:artifact:CITED"
+    assert refs[0]["subject"] == out["artifact_iri"]
+    assert refs[0]["rung"] == "X", "a citation is EXTRACTED — read from the text, confirmed by nobody"
+
+
+def test_a_citation_the_rule_CANNOT_PLACE_is_dropped_rather_than_guessed():
+    """A wrong edge is worse than a missing one: it puts a document inside the blast radius of a change
+    that cannot affect it, and nothing on screen would say so. Search surfacing a plausible candidate is
+    not proof — the acronym `eRx-BRS.md` cannot be shown to be what 'eRx Business Requirements
+    Specification' names, so no edge is written even though search ranked it first."""
+    fab = Fabric(search=[{"iri": "urn:fabric:artifact:BRS", "title": "eRx-BRS.md"}])
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION,
+                                           "references": ["eRx Business Requirements Specification"]}))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    assert not [e for e in fab.edges if str(e.get("predicate", "")).endswith("references")]

@@ -78,6 +78,10 @@ When the brief carries no `concepts`, describe the subjects in short noun phrase
 - `document_types`: the closed list of types the fabric knows, each with its IRI, label and
   alternative labels. Choose ONE of these IRIs or `null`.
 - `hints`: any other metadata (author, modified time, size). Weak evidence; treat it as such.
+- `excerpt`: a bounded extract of the document's own text, when one could be read. It is the strongest
+  evidence you are given — far stronger than a file name — and it is the only place a citation can be
+  found. It is an EXTRACT: a document may cite something beyond where it stops, and you must not pretend
+  to have seen what is not there.
 
 ## What you answer
 
@@ -88,6 +92,7 @@ Emit ONE JSON object and nothing else:
   "document_type": "urn:fabric:scheme:doc-types#minutes",
   "confidence": 0.82,
   "subjects": ["Care Delivery", "Discharge"],
+  "references": ["ADR-041 Prescription identifier format"],
   "rationale": "Named 'Minutes 2026-09-01' in the EA meetings folder."
 }
 ```
@@ -98,11 +103,18 @@ Emit ONE JSON object and nothing else:
   ("Care Delivery", not "care delivery stuff"). These are matched against the reference vocabulary
   by label; a term that matches nothing becomes a candidate concept for a steward, so prefer
   established vocabulary over your own coinage.
-- `rationale`: one sentence a reviewer can check against the metadata.
+- `references`: other DOCUMENTS this one cites, each spelled as the excerpt spells it — "ADR-041
+  Prescription identifier format", not a paraphrase and not an IRI. Only what you can see named; never a
+  document you infer from the subject matter. The fabric resolves each against the catalogue and links
+  only an unambiguous match, so a citation it cannot place is dropped rather than guessed. Give it the
+  words on the page. `[]` when the excerpt names none, which is the ordinary answer for a short document.
+- `rationale`: one sentence a reviewer can check against the evidence you were given.
 
 ## Rules
 
-1. Metadata only. You are not shown the body and you must not pretend to have read it.
+1. Evidence only. Where an `excerpt` is given, read it — it is why your answer is worth more than a
+   guess from a file name. Where it is absent, say what the metadata supports and no more; a document
+   whose text you have not seen has no citations you can report.
 2. Never answer for `owner` or `sensitivity_label`. The fabric constructs those from reference
    data; a guessed owner is worse than none.
 3. When `produced_by` is set, keep `document_type` equal to the type that process produces and

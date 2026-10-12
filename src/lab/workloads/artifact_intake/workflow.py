@@ -19,6 +19,7 @@ import re
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
+from lab.core.semantic.fabric import citations
 from lab.core.semantic.fabric.catalog import describe
 from lab.core.semantic.fabric.owners import OwnerMap
 from lab.core.semantic.fabric.service import PERSON
@@ -275,6 +276,7 @@ def build_workflow(cfg):
                 state = state | {"type_rung": CONSTRUCTED if recorded else "",
                                  "suggested_type": "" if by_process or proposed == recorded else proposed}
             linked, missed, conflicts, retracted = [], [], [], []
+            cited, cited_missed = [], []
             # `if subjects` would skip the call on an empty answer, and `vocab_link` is where supersession
             # happens — so a record could only ever GAIN subjects and "nothing applies" was unrepresentable
             # (measured 9 Oct 2026: the classifier returned none for a bake-off transcript and the record
@@ -305,6 +307,30 @@ def build_workflow(cfg):
                                        {"label": term, "actor": "classifier-agent", "scheme": cfg.get("vocabulary", ""),
                                         "proposed_for": state["iri"],
                                         "definition": f"proposed while classifying {state['title']}"})
+            # WHAT THIS DOCUMENT CITES. Impact walks INBOUND over `references`, and the only producer of
+            # that edge was a synthesised draft pointing back at its source — so an authored document that
+            # cited another in prose produced nothing, and impact over it returned nothing and always
+            # would have (measured 12 Oct 2026 on three eRx documents citing each other by name).
+            # Search PROPOSES and a pure rule DISPOSES: `citations.resolve` links only an unambiguous
+            # match and drops the rest, because a wrong edge puts a document inside the blast radius of a
+            # change that cannot affect it and nothing on screen would say so. Rung X — read out of the
+            # text, confirmed by nobody.
+            for cite in (suggestion or {}).get("references") or []:
+                try:
+                    found = await gateway.call(cfg, SemanticTools.search, {"text": cite, "limit": 5})
+                    rows = found if isinstance(found, list) else (found or {}).get("results") or []
+                    target = citations.resolve(cite, [{"iri": r.get("iri"), "title": r.get("title")}
+                                                      for r in rows], exclude=state["iri"])
+                except Exception as e:                       # noqa: BLE001 — a citation is evidence, not a gate
+                    print(f"[intake] citation {cite[:48]!r} unresolved: {type(e).__name__}", flush=True)
+                    continue
+                if not target:
+                    cited_missed.append(cite)
+                    continue
+                await gateway.call(cfg, SemanticTools.edge_assert,
+                                   {"subject": state["iri"], "predicate": REFERENCES, "object": target,
+                                    "rung": EXTRACTED, "method": "cited-in-content"})
+                cited.append({"citation": cite, "object": target})
             # owner and label are LOOKED UP at C (FR-2.2.2): the item's own label, else the site default; the owner
             # map, else the run's requester, else the item's author — never the model. Unresolved → the review asks.
             hints = state.get("hints") or {}

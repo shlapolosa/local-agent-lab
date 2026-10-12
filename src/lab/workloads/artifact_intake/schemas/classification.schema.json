@@ -44,6 +44,16 @@
         "maximum": 1
       },
       "description": "How sure you are of EACH subject, keyed by the id you returned. One can be certain while another is a guess, which a single confidence for the whole classification cannot say. Anything below the deployment's floor never becomes a link."
+    },
+    "references": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "string",
+        "minLength": 4,
+        "maxLength": 160
+      },
+      "description": "Other DOCUMENTS this one cites, each spelled as the text spells it \u2014 'ADR-041 Prescription identifier format', not a paraphrase and not an IRI. Only a document you can see named in the excerpt; never one you infer from the subject matter. The fabric resolves each against the catalogue and links only an unambiguous match, so a citation it cannot place is dropped rather than guessed \u2014 give it the words on the page and let it decide. OPTIONAL, deliberately: a citation is evidence, not a gate \u2014 a classification that omits it is a weaker answer, not an invalid one, and failing a whole run over a missing list would make the pipeline more brittle for a secondary field."
     }
   }
 }
