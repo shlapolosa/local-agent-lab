@@ -64,7 +64,18 @@ PREV=$(sed -n "s/^$ENVVAR=//p" "$ROOT/.env")
 ID=$(curl -sf -X POST "${GATEWAY_URL:-http://127.0.0.1:4000}/v1/skills?beta=true" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -F "custom_llm_provider=litellm_proxy" -F "display_title=$SKILL" -F "files[]=@$ZIP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 PATH="/opt/homebrew/opt/libpq/bin:$PATH" psql "$DATABASE_URL" -qtAc "update \"LiteLLM_SkillsTable\" set created_by='team:$TEAM' where skill_id='$ID';"
-if grep -q "^$ENVVAR=" "$ROOT/.env"; then sed -i '' "s/^$ENVVAR=.*/$ENVVAR=$ID/" "$ROOT/.env"; else echo "$ENVVAR=$ID" >> "$ROOT/.env"; fi
+# Record the new id. `sed -i` REFUSES a symlink ("in-place editing only works for regular files"), and
+# every worktree symlinks `.env` at the canonical one — so from a worktree this failed, execution carried
+# on, the PREVIOUS skill was deleted on the next line, and `.env` was left pointing at an id that no
+# longer existed. The only sign was one stderr line in the middle of normal output. A redirection follows
+# the symlink and writes the real file, so the canonical `.env` is updated wherever this is run from, and
+# the write is VERIFIED rather than assumed.
+if grep -q "^$ENVVAR=" "$ROOT/.env"; then
+  TMP="$(mktemp)"; sed "s/^$ENVVAR=.*/$ENVVAR=$ID/" "$ROOT/.env" > "$TMP" && cat "$TMP" > "$ROOT/.env"; rm -f "$TMP"
+else
+  echo "$ENVVAR=$ID" >> "$ROOT/.env"
+fi
+grep -q "^$ENVVAR=$ID$" "$ROOT/.env" || { echo "FAILED to record $ENVVAR=$ID in $ROOT/.env — not deleting the previous skill" >&2; exit 1; }
 [ -n "$PREV" ] && [ "$PREV" != "$ID" ] && curl -sf -o /dev/null -X DELETE "${GATEWAY_URL:-http://127.0.0.1:4000}/v1/skills/$PREV?beta=true&custom_llm_provider=litellm_proxy" \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" && echo "removed previous skill $PREV"
 echo "registered $ID as $ENVVAR (owner team:$TEAM) — restart the gateway to clear the skill cache"
