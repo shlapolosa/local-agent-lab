@@ -392,8 +392,15 @@ def build_workflow(cfg):
                     name = f"{stem}.{rec['id']}.decision-record.json"
                     stored = await gateway.call(cfg, SemanticTools.store_spec, {"spec": rec, "name": name})
                     dref = gateway.ref_from(stored)
+                    # `produced_by` is THIS process: the fabric drafted it. The source record's upsert
+                    # (above) passes the field and this one did not, so every synthesised draft was
+                    # catalogued as an orphan — 66 of them live, measured 12 Oct 2026. An orphaned lab
+                    # record is precisely what `fabric_hygiene.is_working_file` read as a working file, so
+                    # the fabric's own products sat one catalogue-wide hygiene pass from being withdrawn.
+                    # A record that cannot say what made it cannot be told from somebody's leftovers.
                     row = await gateway.call(cfg, SemanticTools.catalog_upsert, {
                         "pointer": {"source": "lab", "ref": dref}, "title": rec["title"][:300],
+                        "produced_by": ARTIFACT_INTAKE.name,
                         "context": state.get("context") or "", "source_kind": "lab"})
                     await gateway.call(cfg, SemanticTools.catalog_assert, {
                         "iri": row["iri"], "field": "document_type", "value": DECISION_RECORD,

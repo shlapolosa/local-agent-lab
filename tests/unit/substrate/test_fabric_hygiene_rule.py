@@ -64,3 +64,35 @@ def test_a_source_the_rule_does_not_know_is_left_alone():
     """Silence is the safe answer for a source nobody has considered: it stays in the lifecycle and a person
     decides, rather than being withdrawn by a rule that was never written with it in mind."""
     assert H.is_working_file({"pointer": {"source": "ado", "workItem": "123"}, "produced_by": ""}) is False
+
+
+def test_a_lab_record_whose_PRODUCER_IS_UNKNOWN_is_kept_for_a_person_to_decide():
+    """The rule must never withdraw what it cannot explain, which is what its own docstring already
+    promises — "deliberately NARROW … a rule that withdrew a business case would be worse than the defect
+    it fixes". `spec is None` meant the opposite: an unresolvable producer was read as workings.
+
+    Measured 12 Oct 2026 against the live catalogue: 66 records were `source=lab` with an EMPTY
+    `produced_by` — every synthesised decision-record draft the fabric has ever made, because the draft's
+    `catalog_upsert` omitted the field the source record's upsert passes. The rule called all 66 working
+    files. Nothing had withdrawn them only because `fabric_hygiene` reaches records through their OPEN
+    DRAFT-REVIEW CARD and these have none; the first person to give it catalogue-wide reach — which
+    `semantic_catalog_list` now makes a one-line change — would have withdrawn the fabric's own products."""
+    assert H.is_working_file({"pointer": {"source": "lab", "ref": "art://s/x.json"}, "produced_by": ""}) is False
+    assert H.is_working_file({"pointer": {"source": "lab", "ref": "art://s/x.json"}}) is False
+    assert H.is_working_file(lab("art://s/x.json", process="a_process_that_does_not_exist")) is False
+
+
+def test_a_SYNTHESISED_DRAFT_is_the_product_not_a_working_file():
+    """`artifact_intake` declares no `products`, and "declares no products" is read as "everything it
+    leaves behind is workings" — true for `meeting_to_transcript`, whose outputs really are transcripts,
+    and false here. The synthesised decision record IS the artifact the fabric made (FR-4 Synthesize); it
+    is what the draft-review card asks a person about."""
+    assert H.is_working_file(lab("art://s/01ABC.d1.decision-record.json", process="artifact_intake")) is False
+
+
+def test_a_per_lane_segments_file_is_still_a_working_file():
+    """The population the hygiene pass is actually for, and the one the loosened rule must not lose: 22
+    pending records measured 12 Oct 2026, `produced_by=transcript_to_minutes`, one per speech provider for
+    the same recording. Only `minutes.json` is that process's product."""
+    assert H.is_working_file(lab("art://s/rec.munsit.segments.json")) is True
+    assert H.is_working_file(lab("art://s/rec.minutes.json")) is False

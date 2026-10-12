@@ -136,6 +136,14 @@ def test_a_minutes_run_output_is_a_fact_gets_drafts_and_ends_on_a_draft_review()
     assert proposal["proposed_for"] == out["artifact_iri"], "a candidate must name the artifact that used it"
     # synthesise: one draft per decision, its type a FACT (C), referencing the minutes (C)
     assert out["draft_refs"] == ["art://store/00000000000000000000000001.d1.decision-record.json"]
+    # the draft RECORDS WHAT MADE IT. The source record's upsert passes `produced_by` and the draft's did
+    # not, so every synthesised draft was catalogued as an orphan — 66 of them live, measured 12 Oct 2026.
+    # An orphaned lab record is what `fabric_hygiene.is_working_file` reads as a working file, so the
+    # fabric's own products were one catalogue-wide hygiene pass away from being withdrawn.
+    drafts = [c for c in calls(h, SemanticTools.catalog_upsert)
+              if str((c.get("pointer") or {}).get("ref", "")).endswith(".decision-record.json")]
+    assert drafts, "the run drafted nothing, so this assertion proves nothing"
+    assert all(d.get("produced_by") == "artifact_intake" for d in drafts), [d.get("produced_by") for d in drafts]
     draft = [a for a in fab.asserts if a["field"] == "document_type" and a["iri"] != out["artifact_iri"]][0]
     assert (draft["value"], draft["rung"], draft["method"]) == (W.DECISION_RECORD, "C", "drafted-by-fabric")
     # the draft references the minutes AND is synthesised from them — the second is what rung D derives the context from

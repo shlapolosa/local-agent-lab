@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab.platform import mcp_client                                              # noqa: E402
-from lab.platform.contracts import PROCESSES, ApprovalTools, SemanticTools      # noqa: E402
+from lab.platform.contracts import ARTIFACT_INTAKE, PROCESSES, ApprovalTools, SemanticTools  # noqa: E402
 
 WORKING_FILE = "not a managed artifact — a working file stays a pointer (WP12)"
 SUPERSEDED = "superseded by a later run of the same product (WP13)"
@@ -54,7 +54,23 @@ def is_working_file(row: dict) -> bool:
         return False
     process = row.get("produced_by") or ""
     spec = PROCESSES.get(process)
-    if spec is None or not spec.products:
+    # An UNRESOLVABLE producer is not evidence of workings, and reading it as such contradicted the
+    # paragraph above. Measured 12 Oct 2026: 66 live records were `source=lab` with an empty
+    # `produced_by` — every synthesised decision-record draft the fabric had ever made, because the
+    # draft's own `catalog_upsert` omitted the field the source record's upsert passes. This rule called
+    # all 66 working files. They survived only because this script reaches records through their OPEN
+    # DRAFT-REVIEW CARD and they have none; catalogue-wide reach is now one `semantic_catalog_list` call
+    # away, and whoever took it would have withdrawn the fabric's own products. So: no producer, no
+    # verdict — a person decides.
+    if spec is None:
+        return False
+    # ...and `artifact_intake` is the exception to "declares no products, so it makes only workings".
+    # That reading is right for `meeting_to_transcript`, whose outputs really are transcripts, and wrong
+    # here: the synthesised decision record IS the artifact the fabric made (FR-4 Synthesize), and it is
+    # what the draft-review card asks a person about.
+    if process == ARTIFACT_INTAKE.name:
+        return False
+    if not spec.products:
         return True                                    # a non-producer's output (recording, transcript)
     ref = str(pointer.get("ref") or "")
     if process == "transcript_to_minutes":
