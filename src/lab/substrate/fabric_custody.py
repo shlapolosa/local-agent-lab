@@ -54,7 +54,24 @@ async def pointer_for(url: str, *, call=None) -> dict | None:
     injected by a test."""
     wanted = normalise_web_url(url)                 # raises before anything is spent
     go = call or fabric_gateway.call
-    item = (await go([(CollabTools.item_by_url, {"url": wanted})]))[0]
+    try:
+        item = (await go([(CollabTools.item_by_url, {"url": wanted})]))[0]
+    except Exception as e:                          # noqa: BLE001 — see below; the reason is PRINTED
+        # A provider REFUSAL is an absence here. SharePoint answers a `shares/{url}` lookup for an
+        # address that does not resolve with 403 rather than 404 (measured in UAT, 12 Oct 2026), so
+        # `graph_probe.explain` reads it as a consent problem and the caller is told to grant
+        # `Files.Read.All` — when the truth is that nobody has catalogued that document. This function
+        # promises "None when the provider knows no such address", and a url the provider will not
+        # resolve is exactly that from the fabric's side.
+        #
+        # Never SILENT, though, because the same 403 is what a genuinely unconsented application
+        # returns, and then every lookup would answer "not catalogued" and the catalogue would look
+        # empty. This line in the service log is the whole difference between a wrong answer a person
+        # can find and one nobody can. The trade is deliberate: the common case is answered truthfully
+        # in the researcher's chat, the rare case is loud in the operator's log.
+        print(f"[custody] could not resolve a url through the provider — treating it as absent: "
+              f"{type(e).__name__}: {str(e)[:160]}", flush=True)
+        return None
     handle = (item or {}).get("handle")
     # A folder resolves but carries no handle, so there is nothing to key a record by — an absence,
     # not a malformed pointer the catalogue would be asked about.

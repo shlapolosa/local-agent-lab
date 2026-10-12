@@ -62,3 +62,25 @@ def test_anything_that_is_not_a_web_url_never_reaches_the_gateway(bad):
     with pytest.raises(ValueError):
         asyncio.run(C.pointer_for(bad, call=call))
     assert asked == []
+
+
+def test_a_url_the_provider_REFUSES_is_an_absence_too_and_says_so_out_loud(capsys):
+    """Measured in UAT, 12 Oct 2026. SharePoint answers a `shares/{url}` lookup for an address that does
+    not resolve with **403, not 404**, so `graph_probe.explain` reads it as a consent problem and the
+    caller gets "grant the application permission Files.Read.All … and give it admin consent". A
+    researcher who pastes the url of a document the fabric simply does not hold is told the platform is
+    misconfigured. `semantic_catalog_by_url` promises the opposite in its own words: "null means exactly
+    that no catalogued artifact has that url".
+
+    So a provider refusal on THIS lookup is an absence — but never a silent one. If the application
+    really did lose its permission, every lookup would return nothing, and the only thing standing
+    between that and "the catalogue is empty" is this line in the log. The trade is deliberate: the
+    common case (an uncatalogued document) gets the truthful answer, and the rare case (a real consent
+    failure) is loud in the service log rather than in a researcher's chat."""
+    boom = RuntimeError("items is unavailable: the Microsoft Graph permission this needs is not consented")
+
+    async def call(batch):
+        raise boom
+
+    assert asyncio.run(C.pointer_for(URL, call=call)) is None
+    assert "could not resolve" in capsys.readouterr().out.lower()
