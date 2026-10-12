@@ -77,6 +77,86 @@ def text_block(text: str):
     return SimpleNamespace(type="text", text=text)
 
 
+
+#: tool name -> the parameters its SERVER accepts. Built once, lazily, by importing the server modules
+#: offline — the same thing `tests/governance/test_contracts_match_servers.py` does. None until first use,
+#: and `{}` if the servers cannot be imported at all (a focused unit test must not fail because an
+#: unrelated server's import broke; the governance test owns that).
+_ACCEPTED: dict[str, set[str]] | None = None
+
+
+def _accepted() -> dict[str, set[str]]:
+    global _ACCEPTED
+    if _ACCEPTED is not None:
+        return _ACCEPTED
+    _ACCEPTED = {}
+    import asyncio
+    import importlib
+    import os
+    import tempfile
+    try:
+        from fastmcp import FastMCP
+
+        from lab.platform import config
+        from tests.governance.test_contracts_match_servers import SERVER_MODULES
+    except Exception:                                    # noqa: BLE001 — see the note above
+        return _ACCEPTED
+    tmp = tempfile.mkdtemp(prefix="router-args-")
+    os.makedirs(os.path.join(tmp, "nr"), exist_ok=True)
+    saved_env = {k: os.environ.get(k) for k in ("OTEL_EXPORTER_OTLP_ENDPOINT", "MCP_SHARED_SECRET")}
+    os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    os.environ["MCP_SHARED_SECRET"] = "shh"
+    saved = {k: getattr(config, k) for k in ("ARTIFACTS_URL", "UPLOADS_URL", "REFERENCE_MODELS_DIR")}
+    config.ARTIFACTS_URL = config.UPLOADS_URL = f"file://{tmp}/store"
+    config.REFERENCE_MODELS_DIR = os.path.join(tmp, "nr")
+    try:
+        for module in SERVER_MODULES.values():
+            try:
+                m = importlib.import_module(module)
+                mcp = next((getattr(v, "mcp") for v in vars(m).values()
+                            if isinstance(getattr(v, "mcp", None), FastMCP)),
+                           next((v for v in vars(m).values() if isinstance(v, FastMCP)), None))
+                if mcp is None:
+                    continue
+                tools = mcp.list_tools()
+                if asyncio.iscoroutine(tools):
+                    tools = asyncio.run(tools)
+                for tool in (tools.values() if isinstance(tools, dict) else tools):
+                    _ACCEPTED[tool.name] = set((tool.parameters or {}).get("properties") or {})
+            except Exception:                            # noqa: BLE001, PERF203
+                continue
+    finally:
+        for k, v in saved.items():
+            setattr(config, k, v)
+        for k, v in saved_env.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    return _ACCEPTED
+
+
+def _refuse_unknown_arguments(suffix: str, args: dict) -> None:
+    """A real gateway REFUSES an argument its tool does not declare, and this double used to accept any.
+
+    `names()` above was hardened after the version-skew failure — "test doubles must model a REAL
+    gateway" — and argument shape was the half left behind. It cost two live defects: the `approvals_ask`
+    payload-vs-context regression (three weeks of zero steward questions) and, on 12 Oct 2026,
+    `artifact_intake` passing `proposed_for` to a `semantic_vocab_propose` that did not accept it, which
+    killed every run that met an unknown term and reached the cloud green.
+
+    Unknown keywords only. A missing argument is NOT checked: a tool is legitimately called with its
+    defaults, and a schema's `required` says what the FUNCTION demands rather than what a caller must
+    spell out. A tool no server in the table declares is left alone — the parity test owns that question.
+    """
+    params = _accepted().get(suffix)
+    if params is None:
+        return
+    unknown = set(args) - params
+    if unknown:
+        raise AssertionError(
+            f"{suffix} does not accept {sorted(unknown)} — a real gateway answers 'Unexpected keyword "
+            f"argument' and the run dies. It accepts {sorted(params)}. "
+            "Either the caller is wrong or the server's signature is missing the argument.")
+
+
 class Router:
     """One in-memory gateway MCP. `tools` maps a tool-name SUFFIX to a canned result — a value, a
     FakeResult, a callable(args), or an Exception to raise. Tool names are prefixed like the gateway
@@ -100,6 +180,7 @@ class Router:
 
     def call(self, name, args):
         suffix = name.split("-", 1)[1]
+        _refuse_unknown_arguments(suffix, args)
         self.calls.append((suffix, args))
         h = self.tools[suffix]
         if isinstance(h, Exception):
