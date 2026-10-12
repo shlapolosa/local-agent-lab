@@ -80,6 +80,25 @@ def is_working_file(row: dict) -> bool:
     return False
 
 
+def unreachable_workings(pending: list[dict], carded: set[str]) -> list[dict]:
+    """PURE: the working files this script's CARD-DRIVEN pass cannot see.
+
+    A record is matched to an open draft-review card by title and only then judged, so one that entered the
+    lifecycle without a card — or whose card a person already decided — sits pending for ever, invisible to
+    the only pass that exists to catch it. Measured 12 Oct 2026: 22 per-lane `.segments.json` records,
+    `produced_by=transcript_to_minutes`, one per speech provider for the same recording, none carded.
+
+    A record WITH an open card is excluded deliberately: that one belongs to the carded path, which declines
+    the question as well as withdrawing the record. Withdrawing it from under an open card would leave a
+    person holding a question about something that no longer exists.
+
+    The act this enables is also SMALLER than the carded one, which is why it is separated rather than
+    folded in: there is no decision to decline, so it needs no actor and overrides nothing a person did —
+    the record is withdrawn from a lifecycle it should never have entered.
+    """
+    return [r for r in pending if r.get("iri") not in carded and is_working_file(r)]
+
+
 def superseded(rows: list[dict]) -> list[dict]:
     """PURE: for lab records sharing (produced_by, context, title) — two runs of one product before WP13 gave
     products an identity — keep the LATEST; the rest are superseded. Two records that merely share a title
@@ -137,6 +156,13 @@ async def main(argv: list[str] | None = None) -> int:
             if a.apply:
                 await call(ApprovalTools.decide, request_id=rid, decision="decline", actor=a.actor, channel="cli", comment=why)
                 await call(SemanticTools.catalog_state, iri=row["iri"], state="withdrawn")
+    # ...and the working files no card points at, which the pass above structurally cannot see.
+    orphans = unreachable_workings(pending, carded={r["iri"] for r in rows_by_card.values()})
+    print(f"\nuncarded working files (no decision to decline): {len(orphans)} of {len(pending)} pending")
+    for row in orphans:
+        print(f"  [WP12*] {'WITHDRAW' if a.apply else 'would withdraw'} {row['title'][:62]!r}  ({row.get('produced_by')})")
+        if a.apply:
+            await call(SemanticTools.catalog_state, iri=row["iri"], state="withdrawn")
     return 0
 
 

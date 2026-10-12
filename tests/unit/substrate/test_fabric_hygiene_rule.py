@@ -96,3 +96,32 @@ def test_a_per_lane_segments_file_is_still_a_working_file():
     the same recording. Only `minutes.json` is that process's product."""
     assert H.is_working_file(lab("art://s/rec.munsit.segments.json")) is True
     assert H.is_working_file(lab("art://s/rec.minutes.json")) is False
+
+
+def test_a_working_file_with_NO_open_card_is_found_too():
+    """The reach gap, measured 12 Oct 2026. This script matches an open draft-review CARD to a record and
+    judges only what it matched, so a record that entered the lifecycle without a card — or whose card was
+    already decided — stays pending for ever, invisible to the one pass that exists to catch it. Live: 22
+    per-lane `.segments.json` records, `produced_by=transcript_to_minutes`, one per speech provider for the
+    same recording, none of them with a card.
+
+    Reported separately from the carded ones because the ACT is different and smaller: there is no decision
+    to decline, so no actor is needed and nothing a person did is being overridden. The record is simply
+    withdrawn from a lifecycle it should never have entered."""
+    carded = lab("art://s/a.segments.json")
+    orphan = lab("art://s/b.segments.json")
+    product = lab("art://s/c.minutes.json")
+    draft = lab("art://s/d.decision-record.json", process="artifact_intake")
+    rows = [{**carded, "iri": "urn:a"}, {**orphan, "iri": "urn:b"},
+            {**product, "iri": "urn:c"}, {**draft, "iri": "urn:d"}]
+    found = H.unreachable_workings(rows, carded={"urn:a"})
+    assert [r["iri"] for r in found] == ["urn:b"], "only the uncarded working file"
+
+
+def test_the_uncarded_pass_never_reaches_a_record_a_person_is_deciding():
+    """A record WITH an open card belongs to the carded path, which declines the card as well as
+    withdrawing the record. Withdrawing it from under an open card would leave a person holding a question
+    about something already gone."""
+    r = {**lab("art://s/a.segments.json"), "iri": "urn:a"}
+    assert H.unreachable_workings([r], carded={"urn:a"}) == []
+    assert [x["iri"] for x in H.unreachable_workings([r], carded=set())] == ["urn:a"]
