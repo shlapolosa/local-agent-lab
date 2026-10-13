@@ -1,6 +1,32 @@
 # Azure as production, Railway as development (24 Sep 2026)
 
-Status: ACCEPTED 24 Sep 2026 — Phases 0 and 1 live; Phase 2 (APIM) cut over 25 Sep, exit-tested end to end and the prod LiteLLM app retired 4 Oct 2026.
+Status: **PARKED 13 Oct 2026 — production torn down on cost; the IaC is kept.** (Was: ACCEPTED 24 Sep 2026 — Phases 0 and 1 live; Phase 2 (APIM) cut over 25 Sep, exit-tested end to end and the prod LiteLLM app retired 4 Oct 2026.)
+
+## PARKED (13 Oct 2026) — and how to bring it back
+
+User decision: the cost was too high for a lab with no production traffic (≈$15/day measured 4 Oct; the
+$150 budget already exceeded). Resource group `rg-lab-prod` was DELETED whole — 29 Container Apps, the
+environment, APIM (Developer), Postgres Flexible, Foundry + its deployments, Key Vault, App Insights, Log
+Analytics, the UAMI — and the soft-deleted Key Vault, Foundry account and APIM were purged so a redeploy can
+reuse their names. Kept, because they cost nothing: the subscription and its budget, the dev meeting
+app's Azure Bot (F0, moved to `rg-lab-dev`), every Entra app registration (`*-prod` included), the CI
+identity `lab-deployer`, the GitHub `production` environment, and the Power Platform PAYG plan (billed per
+use only). Railway (dev) is untouched.
+
+CD no longer releases to Azure: `deploy-prod` runs only when the repository variable
+`AZURE_PROD_ENABLED` is `true`.
+
+State was backed up first, to `var/backups/azure-prod-2026-10-13/` (git-ignored, operator's machine only):
+`litellm.dump` and `reference.dump` (`pg_dump -Fc`), `keyvault-secrets.json` (mode 600, 124 secrets) and
+`rg-lab-prod-resources.json`. `.env.azure` still holds the prod profile.
+
+**To spin it back up**, in order: Phase 0 `foundation.bicep` (new RG; Postgres gets a new admin password —
+`pg_restore` the two dumps, then re-point `DATABASE_URL`/`REFERENCE_DB_URL` in `.env.azure`); re-grant
+`lab-deployer` Contributor on the new RG (the role assignment died with the old one); `aca.py secrets sync`;
+`aca.py substrate up` + `workload <n> up`; `apim.bicep` then `apim.py apply models` and `apim.py apply mcp`;
+re-point the two "(Prod)" Copilot connectors at the new APIM host if it changed; set
+`AZURE_PROD_ENABLED=true`. Expect the Foundry `gpt-5-mini` quota to need re-requesting.
+
 
 ## Decisions taken (user, 24 Sep 2026)
 
