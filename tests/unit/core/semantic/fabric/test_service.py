@@ -642,3 +642,95 @@ def test_without_an_embedder_the_semantic_tier_says_so_and_does_not_pretend():
     f = FabricService(ds, MemoryCatalog(), DocumentTypes(), schemes=lambda: {sc.name: sc}, embedder=None)
     out = f.concept_match("anything", scheme=sc.name)
     assert out["concept"] == "" and out["unavailable"] is True
+
+
+def _about(fab, ref, concepts, *, state=""):
+    iri = fab.catalog_upsert({"source": "lab", "ref": ref})["iri"]
+    for c in concepts:
+        fab.graph_assert(iri, str(G.DCT.subject), c, rung="X", method="label-match")
+    if state:
+        fab.catalog_state(iri, state)
+    return iri
+
+
+def test_RELATED_ranks_by_the_rarest_shared_concept_not_by_how_many(fab):
+    """What a researcher means by "what else is about this". Two documents sharing a concept everything
+    shares are not related in any useful sense; two sharing a rare one are. So the score is the specificity
+    of the RAREST shared concept, and a document sharing several common concepts ranks BELOW one sharing a
+    single precise concept.
+
+    Document frequency is counted now, over the live graph, because specificity is a property of the corpus
+    as it stands — a concept that distinguished a document among forty stops distinguishing it among four
+    thousand."""
+    c = [f"urn:lab:semantic:ref:syn#c{n}" for n in range(5)]
+    me = _about(fab, "art://s/me", [c[0], c[1], c[2]])
+    common = _about(fab, "art://s/common", [c[0], c[1]])     # two shared, both widespread
+    precise = _about(fab, "art://s/precise", [c[2]])         # one shared, and nobody else has it
+    _about(fab, "art://s/noise", [c[0], c[1], c[3]])
+    _about(fab, "art://s/more-noise", [c[0], c[1], c[4]])
+
+    out = fab.related(me)
+    assert [r["iri"] for r in out] == [precise, common, *sorted({r["iri"] for r in out} - {precise, common})][:len(out)]
+    assert out[0]["iri"] == precise, "one rare shared concept outranks two widespread ones"
+    assert out[0]["score"] > out[1]["score"]
+    assert out[0]["via"] == c[2], "the answer names WHICH concept earned the rank"
+    assert [sh["concept"] for sh in out[0]["shared"]] == [c[2]]
+
+
+def test_RELATED_does_not_pad_the_answer_with_links_worth_nothing(fab):
+    """A concept carried by EVERY record in the population scores exactly zero: it would relate all of them
+    to each other with equal confidence. The filter is already computed, so returning those rows would pad
+    one answer with non-answers a caller — especially a model — cannot tell apart from the answer.
+
+    The consequence is deliberate: where every record shares one subject, that subject relates nobody."""
+    hub = "urn:lab:semantic:ref:syn#hub"
+    me = _about(fab, "art://s/me", [hub])
+    for n in range(4):
+        _about(fab, f"art://s/other{n}", [hub])
+    assert fab.related(me) == [], "a subject on the whole corpus is not a relation"
+
+
+def test_RELATED_hides_a_withdrawn_record_exactly_as_search_does(fab):
+    """The same corpus must not answer "what reads like this" without a withdrawn record and "what is about
+    the same thing" with it. A withdrawn record is not knowledge any more."""
+    rare = "urn:lab:semantic:ref:syn#rare"
+    me = _about(fab, "art://s/me", [rare])
+    gone = _about(fab, "art://s/gone", [rare], state="withdrawn")
+    _about(fab, "art://s/filler", ["urn:lab:semantic:ref:syn#other"])
+
+    assert fab.related(me) == []
+    asked = fab.related(me, state="withdrawn")
+    assert [r["iri"] for r in asked] == [gone], "hidden unless that state is ASKED for"
+    assert asked[0]["state"] == "withdrawn", "and the row says so, so a caller can tell"
+
+
+def test_RELATED_reads_the_catalogue_only_for_what_it_RETURNS(fab, monkeypatch):
+    """Ranking happens on the graph, which is in process; the catalogue is Postgres in the cloud, where one
+    read per CANDIDATE is a round trip each. Every record sharing any concept is a candidate, so hydrating
+    before truncating is linear in the corpus to return `limit` rows."""
+    concepts_ = [f"urn:lab:semantic:ref:syn#c{n}" for n in range(12)]
+    me = _about(fab, "art://s/me", concepts_)
+    for n, c in enumerate(concepts_):
+        _about(fab, f"art://s/other{n}", [c])
+
+    reads = []
+    inner = fab.catalog.get
+    monkeypatch.setattr(fab.catalog, "get", lambda i: (reads.append(i), inner(i))[1])
+    out = fab.related(me, limit=3)
+    assert len(out) == 3
+    assert len(reads) == 3, f"one read per RETURNED row, not per candidate (got {len(reads)})"
+
+
+def test_RELATED_caps_its_own_limit_so_one_call_cannot_hydrate_the_estate(fab):
+    """A ceiling, as `corpus_view` has: an uncapped `limit` lets one tool call read the whole catalogue."""
+    concepts_ = [f"urn:lab:semantic:ref:syn#c{n}" for n in range(105)]
+    me = _about(fab, "art://s/me", concepts_)
+    for n, c in enumerate(concepts_):
+        _about(fab, f"art://s/other{n}", [c])      # one shared concept each, so all 105 score above zero
+    assert len(fab.related(me, limit=10_000)) == 100
+    assert len(fab.related(me, limit=0)) == 1, "...and a floor, so a caller cannot ask for nothing"
+
+
+def test_RELATED_of_a_record_sharing_nothing_is_empty(fab):
+    alone = fab.catalog_upsert({"source": "lab", "ref": "art://s/alone"})["iri"]
+    assert fab.related(alone) == []

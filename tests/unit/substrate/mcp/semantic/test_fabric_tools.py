@@ -373,3 +373,23 @@ def test_something_that_is_not_a_web_url_is_refused_rather_than_resolved():
 
 def test_resolving_a_record_by_url_is_a_READ_power():
     assert SemanticTools.catalog_by_url in SemanticTools.READ
+
+
+def test_related_answers_what_else_is_about_this_and_names_the_concept():
+    """The wrapper calls through, and the rule arrives intact over the tool boundary: ranked on the RAREST
+    shared concept, naming it, and never padding with a concept the whole population carries."""
+    pair = [call("semantic_catalog_upsert", pointer={"source": "collab", "handle": f"collab://s/rel/{n}"},
+                 title=f"Related {n}")["iri"] for n in range(2)]
+    for iri in pair:
+        call("semantic_vocab_link", iri=iri, terms=["AI agent", "Use case"])
+    spread = [call("semantic_catalog_upsert", pointer={"source": "collab", "handle": f"collab://s/spread/{n}"},
+                   title=f"Spread {n}")["iri"] for n in range(3)]
+    for iri in spread:                               # "Use case" is everywhere, "AI agent" is not
+        call("semantic_vocab_link", iri=iri, terms=["Use case"])
+
+    out = call("semantic_related", iri=pair[0])
+    assert out and out[0]["iri"] == pair[1], f"the one sharing the rarer concept, got {[r['iri'] for r in out]}"
+    assert out[0]["via_label"] == "AI agent", "the row names the concept that earned the rank"
+    assert out[0]["score"] > 0.0 and all(r["score"] > 0.0 for r in out), "no link worth nothing is returned"
+    assert "AI agent" in {sh["label"] for sh in out[0]["shared"]}
+    assert out[0]["title"] == "Related 1" and out[0]["state"]

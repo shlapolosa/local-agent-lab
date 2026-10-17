@@ -87,3 +87,47 @@ def test_nothing_to_choose_from_matches_nothing():
 
 def test_the_candidates_need_not_arrive_sorted():
     assert C.match(scored(("Low", 0.2), ("Best", 0.9), ("Mid", 0.5)), floor=0.5, margin=0.05) == "Best"
+
+
+# ----------------------------------------------------------------------------- specificity
+def test_a_concept_on_EVERYTHING_carries_almost_no_weight():
+    """`UseCase` sat on 37 of the 40 records that carried any subject. As a link that is worthless — it
+    would connect 37 documents to each other with equal confidence and tell a researcher nothing. This is
+    IDF restated: a term that appears everywhere carries no information."""
+    assert C.specificity(37, 40) < 0.1
+
+
+def test_a_concept_on_ONE_document_carries_the_most():
+    assert C.specificity(1, 40) > 0.9
+    assert C.specificity(1, 40) > C.specificity(4, 40) > C.specificity(20, 40)
+
+
+def test_specificity_survives_the_degenerate_corpus():
+    """A fabric with one record, or none, must not divide by zero or claim certainty it cannot have."""
+    assert C.specificity(0, 0) == 0.0
+    assert C.specificity(1, 1) == 0.0          # on the only document there is, it distinguishes nothing
+    assert 0.0 <= C.specificity(5, 3) <= 1.0   # more hits than documents is nonsense, not a crash
+
+
+def test_RAREST_names_the_concept_and_breaks_ties_on_the_id():
+    """A score with no `via` is a number a person cannot check, so the rule returns the pair. Equally common
+    concepts resolve on the id — same answer on every call, because a ranking that reshuffles between calls is
+    one nobody trusts twice."""
+    df, total = {"a": 1, "b": 9, "c": 1}, 10
+    assert C.rarest(["b", "c", "a"], df, total=total) == ("a", C.specificity(1, 10))
+    assert C.rarest(["c", "a"], df, total=total)[0] == "a", "a tie resolves on the id, not on input order"
+    assert C.rarest(["a", "c"], df, total=total)[0] == "a"
+    assert C.rarest([], df, total=total) == ("", 0.0)
+
+
+def test_the_RAREST_shared_concept_beats_the_most_shared_ones():
+    """Not by how MANY concepts two documents share. Two sharing five hub concepts have told you nothing;
+    two sharing one rare one have told you something specific, and the second pair is the useful answer."""
+    df = {"urn:common": 37, "urn:rare": 2}
+    strong = C.rarest(["urn:common", "urn:rare"], df, total=40)
+    weak = C.rarest(["urn:common"], df, total=40)
+    assert strong[0] == "urn:rare", "the rare concept is what relates them"
+    assert strong[1] > weak[1], "one rare concept outranks a hub concept"
+    assert weak[1] < 0.05, "a concept on all but three of forty records barely relates anybody"
+    assert C.rarest(["urn:common"], {"urn:common": 40}, total=40)[1] == 0.0, \
+        "and one on EVERY record relates nobody at all — exactly zero, which is what `related` filters on"

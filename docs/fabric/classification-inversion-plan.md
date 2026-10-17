@@ -87,10 +87,42 @@ review card never said which subjects a run took away.
 - **2.4** on admit, write the `altLabel`; the next document using that word matches deterministically and
   never reaches the embedder. **The vocabulary improves itself.**
 
-### Phase 3 — specificity
-- **3.1** concept document-frequency across the catalogue.
-- **3.2** link strength on the subject edge — a concept on most of the corpus carries little.
-- **3.3** "related documents" ranks by the RAREST shared concept, not the count of shared concepts.
+### Phase 3 — specificity — DONE (17 Oct 2026)
+
+- **3.1** `concepts.specificity(df, total)` — `log(N/df)/log(N)`, so a concept on every record scores 0 and a
+  concept on one scores 1, on a scale that does not change meaning when the corpus grows.
+- **3.2** **link strength is NOT stored on the assertion.** It is computed per call, over the graph as it
+  stands: a concept that distinguished a document among forty stops distinguishing it among four thousand,
+  and a number frozen at assert time would keep insisting otherwise. The population is the records that are
+  about something at all — a record with no subject is not one this concept failed to distinguish.
+- **3.3** `concepts.rarest()` / `relatedness()` + `FabricService.related()` + the governed tool
+  **`semantic_related`** (catalogue `SemanticTools.related`, in `READ`). Ranked on the RAREST shared concept,
+  with ties broken on the concept id so the order is the same on every call. Each row names the concept that
+  earned the rank, because a score with no `via` is a number a person cannot check.
+
+  Read at `IMPACT_READS`, so a model's suggestion at rung S never ranks as a relation. One scan of the
+  subject assertions serves both the shared sets and the frequencies.
+
+**The complement of `semantic_similar`, not a duplicate of it**: `similar` embeds a record's facets and
+answers "what reads like this"; `related` reads asserted subjects and answers "what is about the same
+thing". The first is a guess that needs no vocabulary; the second is evidence and names it.
+
+**Deliberately not fed into `impact`** — shared-concept links are associative, not causal, and feeding them
+in would make every change appear to break everything it resembles.
+
+**Three things design review changed, all of them about what the answer must NOT contain:**
+- **A link worth nothing is not returned.** A concept carried by every record in the population scores
+  exactly zero. Returning those rows padded one real answer with thirty-six non-answers a caller — and
+  especially a model — cannot tell apart from the answer, while the filter was already computed and thrown
+  away. The consequence is deliberate: where every record shares one subject, that subject relates nobody.
+- **A withdrawn record is hidden** unless that state is asked for, exactly as in `search`. The same corpus
+  must not answer "what reads like this" without it and "what is about the same thing" with it.
+- **The catalogue is read only for what is RETURNED.** Hydrating per candidate was one Neon round trip per
+  record sharing any concept — ~36 queries to return 20 rows today, ~4,000 at corpus scale — for a title.
+  Ranking happens on the in-process graph; `limit` reads follow, and `limit` itself is capped at 100.
+
+Grants follow from `READ`, which both `scripts/provision_fabric_agents.py` and `deploy/grants.py` derive
+programmatically — but each still needs its apply run before a caller sees the tool.
 
 ### Phase 4 — topology (steward B)
 - **4.1** propose/accept `broader` / `related` between ADMITTED concepts. Today `broader` is settable only

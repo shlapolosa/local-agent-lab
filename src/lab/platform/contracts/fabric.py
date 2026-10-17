@@ -85,6 +85,10 @@ class SemanticTools(ToolCatalogue):
     concept_match = "semantic_concept_match"
     search = "semantic_search"
     recommend = "semantic_recommend"               # published only, with owners: "before you create" (BR-4)
+    #: ...and its complement: what else the corpus is ABOUT this, ranked by the rarest concept shared.
+    #: `similar` answers "what reads like this" from an embedding; this answers "what is about the
+    #: same thing" from asserted subjects, and names the concept that earned each rank.
+    related = "semantic_related"
     metrics = "semantic_metrics"                   # the published measurements (BR-8), numbers only
     derive = "semantic_derive"                     # rebuild rung D (two rules) — the publish workload, after a baseline
     topology = "semantic_topology"                 # what one record is about, drawn from the graph as it stands
@@ -111,7 +115,7 @@ class SemanticTools(ToolCatalogue):
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
-            catalog_get, catalog_by_url, trace, impact, similar, search, recommend, metrics, validate_shapes,
+            catalog_get, catalog_by_url, trace, impact, similar, search, recommend, related, metrics, validate_shapes,
             topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, vocab_asked, embed, derive, concept_match)

@@ -566,6 +566,20 @@ def semantic_recommend(text: str, limit: int = 5) -> list:
 
 
 @server.tool()
+def semantic_related(iri: str, limit: int = 20, state: str = "") -> list:
+    """What else the corpus is ABOUT this record — ranked by the RAREST concept the two share, each row naming
+    that concept so a reader can check the rank.
+
+    The complement of `semantic_similar`, which proposes neighbours from an embedding of a record's facets and
+    so answers "what reads like this". This reads asserted subjects on the trusted rungs only, so a model's
+    suggestion never ranks as a relation. Rarest, not most: two records sharing five concepts that everything
+    shares have said nothing, and a count would rank them above one exact match — and a concept the WHOLE corpus
+    carries relates nobody, so it is left out rather than padding the answer. A withdrawn record is hidden
+    unless `state` asks for it, as in `semantic_search`. Facets and scores, never content."""
+    return fabric().related(iri, limit=limit, state=state)
+
+
+@server.tool()
 def semantic_store_page(text: str, name: str) -> dict:
     """Store a text document (Markdown, HTML) in the artifact store AS ITSELF and return its art:// ref.
 

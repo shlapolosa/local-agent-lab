@@ -23,6 +23,7 @@ records). Two findings shape this file:
 """
 from __future__ import annotations
 
+import math
 import re
 
 _WS = re.compile(r"\s+")
@@ -85,4 +86,39 @@ def match(scores: list[dict], *, floor: float, margin: float) -> str | None:
     return str(ranked[0]["id"])
 
 
-__all__ = ["ground", "normalise", "match"]
+def specificity(document_frequency: int, total: int) -> float:
+    """How much a concept NARROWS the corpus — 0.0 for one on everything, exactly 1.0 for one on a
+    single document. IDF, normalised, and the reason it is needed is measured: `UseCase` sat on 37 of the
+    40 records carrying any subject. As a link that is worthless, because it would connect 37 documents
+    to each other with equal confidence and tell a researcher nothing.
+
+    Computed at QUERY time, never stored on the assertion. Specificity is a property of the corpus NOW,
+    not of the moment a link was written: a concept that distinguished a document in a corpus of forty
+    stops distinguishing it in a corpus of four thousand, and a number frozen at assert time would keep
+    insisting otherwise."""
+    df, n = max(int(document_frequency), 0), max(int(total), 0)
+    if n <= 1 or df <= 0:
+        return 0.0                 # on the only document there is, a concept distinguishes nothing
+    df = min(df, n)                # more hits than documents is nonsense; clamp rather than raise
+    return max(0.0, min(1.0, math.log(n / df) / math.log(n)))
+
+
+def rarest(shared: list[str], document_frequency: dict[str, int], *, total: int) -> tuple[str, float]:
+    """The rarest of the concepts two documents SHARE, and its specificity — the pair, because a score with
+    no `via` is a number a person cannot check.
+
+    The RAREST, not a count of them. Counting would reward the hubs: two documents sharing five concepts
+    that everything shares have told you nothing, while two sharing one rare concept have told you
+    something exact. Taking the rarest also makes the score impossible to inflate by adding more general
+    subjects, which is the failure mode of every "N tags in common" ranking.
+
+    Ties break on the concept id, so two equally common concepts give the same answer on every run: a
+    ranking that reshuffles between calls is one nobody trusts twice."""
+    if not shared:
+        return "", 0.0
+    scored = sorted(((specificity(document_frequency.get(c, 0), total), c) for c in set(shared)),
+                    key=lambda t: (-t[0], t[1]))
+    return scored[0][1], scored[0][0]
+
+
+__all__ = ["ground", "normalise", "match", "specificity", "rarest"]

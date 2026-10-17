@@ -203,9 +203,9 @@ class FabricService:
             if p not in _LINKS:
                 continue
             link = {"predicate": _short(p), "object": str(o), "rung": r}
-            label = self.ds.value(o, SKOS.prefLabel) if isinstance(o, URIRef) else None
-            if label is not None:                     # a concept reads by its label, not its hashed id
-                link["label"] = str(label)
+            label = self._concept_label(str(o)) if isinstance(o, URIRef) else ""
+            if label:                                 # a concept reads by its label, not its hashed id
+                link["label"] = label
             links.append(link)
         return {**e.to_dict(), "links": links}
 
@@ -1103,6 +1103,80 @@ class FabricService:
                     rows.append(row)
             after = page[-1].iri
         return corpus.view_of_corpus(rows, schemes=self._relational_schemes(), as_of=as_of)
+
+    def related(self, iri: str, *, limit: int = 20, state: str = "") -> list[dict]:
+        """What else the corpus is ABOUT this record — ranked by the rarest concept shared, not by how many.
+
+        The complement of `similar`, which proposes neighbours from an embedding of a record's facets and so
+        answers "what reads like this". This answers "what is about the same thing", from assertions a person
+        or a derivation stands behind, and it names the concept that earned each rank — the part a researcher
+        can check.
+
+        Specificity is computed HERE, per call, and never stored on the assertion: a concept that
+        distinguished a document among forty stops distinguishing it among four thousand, and a number frozen
+        at assert time would keep insisting otherwise. The population is the records that are about something
+        at all, since a record with no subject is not one this concept failed to distinguish.
+
+        **A link worth nothing is not returned.** A concept carried by every record in the population scores
+        exactly zero — it would relate all of them to each other with equal confidence and tell a reader
+        nothing. The filter is already computed, so returning those rows would mean padding one answer with
+        thirty-six non-answers that a caller, and especially a model, cannot tell apart from the answer. The
+        consequence is deliberate: in a corpus whose every record shares one subject, that subject relates
+        nobody, and an empty answer is the honest one.
+
+        Read at `IMPACT_READS` — the rungs the derivation and the topology picture trust — so a model's
+        suggestion at rung S never ranks as a relation. ONE in-process scan of the subject assertions serves
+        both the shared sets and the document frequencies; the catalogue is then read for the survivors only,
+        AFTER ranking and truncation, so the cost is `limit` reads and not one per candidate (the store is
+        Postgres in the cloud, where per-candidate would be a round trip each).
+
+        A withdrawn record is hidden unless that state is asked for, exactly as in `search`: the same corpus
+        must not answer "what reads like this" without it and "what is about the same thing" with it."""
+        limit = max(1, min(int(limit), 100))      # a ceiling, as `corpus_view` has, so one call cannot hydrate the estate
+        by_record: dict[str, set[str]] = {}
+        for _, (subject, _, obj) in G.find(self.ds, None, DCT.subject, None, rungs=tuple(IMPACT_READS)):
+            by_record.setdefault(str(subject), set()).add(str(obj))
+        mine = by_record.get(iri)
+        if not mine:
+            return []
+        frequency: dict[str, int] = {}
+        for subs in by_record.values():
+            for c in subs:
+                frequency[c] = frequency.get(c, 0) + 1
+        ranked = []
+        for other, subs in by_record.items():
+            shared = sorted(mine & subs)
+            if other == iri or not shared:
+                continue
+            via, score = concepts.rarest(shared, frequency, total=len(by_record))
+            if score <= 0.0:                      # a concept everything carries is not a relation
+                continue
+            ranked.append({"iri": other, "score": score, "via": via, "shared": shared})
+        # Score, then IRI: a stable order, because a ranking that reshuffles between calls is one nobody
+        # trusts twice. Sorted BEFORE the catalogue is touched — see the docstring on cost.
+        ranked.sort(key=lambda r: (-r["score"], r["iri"]))
+        out = []
+        for row in ranked:
+            if len(out) >= limit:
+                break
+            entry = self.catalog.get(row["iri"])
+            # A subject assertion whose record the catalogue does not hold is a divergence, not a document to
+            # offer: a nameless row in an answer about documents is worse than one row fewer.
+            if entry is None or (entry.state == "withdrawn" if not state else entry.state != state):
+                continue
+            out.append({**row, "state": entry.state, "title": entry.title or "",
+                        "via_label": self._concept_label(row["via"]),
+                        # Every shared concept by its label, not just the winner: a reader checking WHY two
+                        # records are related should not be handed one readable concept and N hashed ids.
+                        "shared": [{"concept": c, "label": self._concept_label(c)} for c in row["shared"]]})
+        return out
+
+    def _concept_label(self, concept: str) -> str:
+        """A concept reads by its label — a reference concept's id is a hash of its label path. One home for
+        resolving that ON THE DATASET; the scheme, candidate and vocabulary graphs are read where they are
+        trusted, deliberately not folded in here."""
+        label = self.ds.value(URIRef(concept), SKOS.prefLabel) if concept else None
+        return str(label) if label is not None else ""
 
     def recommend(self, text: str, *, limit: int = 5) -> list[dict]:
         """"Before you create": what already exists, PUBLISHED, on this topic — with its owner, so a person
