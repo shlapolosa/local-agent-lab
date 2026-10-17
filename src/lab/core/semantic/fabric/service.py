@@ -22,7 +22,7 @@ from rdflib.namespace import Namespace
 from lab.core import ids
 from lab.core.delivery import DeliveryContext
 from lab.core.viz import TopologyView
-from lab.core.semantic.fabric import concepts
+from lab.core.semantic.fabric import concepts, relations, renderings
 from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
@@ -72,6 +72,13 @@ def _prefixed(prefix: str, what: str) -> Callable[[Any], URIRef]:
 #: catalog facet -> (the predicate its assertion carries, how its value becomes a typed term). The facets are
 #: TYPED here rather than guessed by `term()`: an owner is a person IRI, a type is a doc-types concept, a label
 #: is always a literal (NFR-3 is about where the label comes from, not what it looks like).
+def _rendering(v: Any) -> Literal:
+    name = str(v or "").strip()
+    if name not in renderings.RENDERINGS:
+        raise ValueError(f"rendering must be one of {sorted(renderings.RENDERINGS)}, not {name!r}")
+    return Literal(name)
+
+
 FACETS: dict[str, tuple[URIRef, Callable[[Any], URIRef | Literal]]] = {
     "document_type": (FAB.documentType, _prefixed(DOC_TYPE_SCHEME, "document_type")),
     "owner": (FAB.ownedBy, _prefixed(PERSON, "owner")),
@@ -80,6 +87,11 @@ FACETS: dict[str, tuple[URIRef, Callable[[Any], URIRef | Literal]]] = {
     # not a thing the graph names — `dcat:landingPage` is "a web page to navigate to in order to gain access
     # to the resource", which is exactly what the projector writes.
     "projection_url": (DCAT.landingPage, lambda v: Literal(str(v))),
+    # HOW the text a record's concepts were grounded in was read. A LITERAL from a declared ladder, and
+    # refused when undeclared — unlike `renderings.of()`, which is deliberately forgiving because an
+    # unclassified INPUT must still be ingestible. A caller naming a rendering is making a claim, and a
+    # typo in a claim must fail loudly rather than quietly become the weakest reading.
+    "rendering": (FAB.rendering, _rendering),
 }
 #: the identity facts mirrored into graph C on upsert — set, not asserted (they ARE the catalog row), so a
 #: caller may never retract one edge-wise: `catalog_state` moves them.
@@ -87,7 +99,7 @@ _MIRRORED = (RDF.type, DCT.title, DCAT.accessURL, FAB.lifecycleState, FAB.produc
              FAB.baselineVersion, FAB.unassociated)
 #: the edges `catalog_get` reports beside the row
 _LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, FAB.relatedTo, FAB.synthesisedFrom, DCT.subject, FAB.documentType,
-          FAB.ownedBy, FAB.sensitivityLabel, DCAT.landingPage)
+          FAB.ownedBy, FAB.sensitivityLabel, DCAT.landingPage, FAB.rendering)
 #: persisted name -> named graph: the five rungs, the PROV records, the candidates
 def concept_id_for(label: str) -> str:
     """The id a NEW concept takes when the steward names none: the label as one word, in the shape the seeded
@@ -735,6 +747,93 @@ class FabricService:
         return {"scheme": scheme, "concept_id": cid, "concept": str(sc.uri(cid)), "alt": alt,
                 "actor": actor, "rung": to, "assertion": written}
 
+    def vocab_relation_candidates(self, arrows: Iterable[Mapping[str, Any]], *, scheme: str) -> dict:
+        """What a structured diagram proposes about the vocabulary's TOPOLOGY — steward B's only feeder.
+
+        The boxes are terms and the arrows are relations, so a diagram is the one artifact that carries how
+        the things a corpus is about are CONNECTED, rather than just which they are. Resolution goes through
+        `find`, so an alt label works and an AMBIGUOUS term resolves to nothing: choosing between two meanings
+        narrows the vocabulary, and that is not a question a diagram may settle.
+
+        It proposes and parks nothing, deliberately. A term candidate arrives one document at a time from many
+        documents and has to wait to be batched; a relation candidate is only answerable with the diagram in
+        front of the person, and a steward reads these beside it and calls `vocab_relate`. Nothing durable
+        means nothing to replay, and no second lifecycle to keep honest.
+
+        Box labels are TERMS, which is what this layer already accepts from a classifier (`vocab_link`) — not
+        a document's body, which never crosses this boundary."""
+        sc = self._scheme(scheme)
+
+        def resolve(term: str) -> str:
+            # `find` folds case and strips, nothing more. A diagram's boxes are hand-authored, so they arrive
+            # plural, with an article and wrapped across two lines — each of which became a GAP asking a
+            # steward to admit a concept the vocabulary already held, while the relation drawn on it was
+            # dropped. The SECOND attempt goes through the classifier's own normaliser, so the two lanes
+            # cannot disagree about what a term is.
+            hits = {c["id"] for c in sc.find(term)} or {c["id"] for c in sc.find(relations.normalise(term))}
+            return next(iter(hits)) if len(hits) == 1 else ""      # ambiguous is not resolved; it is a gap
+
+        def states(subject: str, predicate: str, obj: str) -> bool:
+            edges = [e for e in sc.relationships if e["subject"] == subject and e["object"] == obj]
+            # An UNNAMED arrow is satisfied by any edge already joining the two: the diagram says they
+            # connect, and the vocabulary already says how.
+            return bool(edges) if not predicate else any(
+                str(e["predicate"]).casefold() == predicate.casefold() for e in edges)
+
+        found, gaps = relations.candidates(arrows, resolve=resolve, states=states)
+        return {"scheme": scheme, "candidates": found, "gaps": gaps}
+
+    def vocab_place(self, cid: str, *, scheme: str, parent: str, actor: str, reason: str = "",
+                    to: str = CONFIRMED) -> dict:
+        """Put an admitted concept under a broader one — steward B's first act.
+
+        `broader` was settable only at proposal time and the batch card deliberately collects no parent, so
+        almost every admitted concept arrives unplaced and the hierarchy froze at admission. A person's
+        decision, recorded as one: `actor` is refused blank for the same reason a retirement's is."""
+        if not actor:
+            raise ValueError("a placement is a person's decision: actor is required")
+        sc = self._scheme(scheme)
+        before = dict(sc.concepts.get(cid) or {})
+        placed = sc.place(cid, parent=parent)
+        try:
+            written = self._record_curation(scheme, "placed", {"id": cid, "parent": parent, "reason": reason},
+                                            actor=actor, method="place", to=to)
+        except Exception:
+            # The row AND the hierarchy. `place` moves a whole SUBTREE, so restoring the one concept it names
+            # is not a rollback: measured, a refused persist left a three-deep subtree at depths 4 and 5 while
+            # its root was back at 1, and a stale level reaches an agent's prompt through the concept doc
+            # string. The older acts (`retire`, `amend`) touch a single row, which is why copying their idiom
+            # was the defect. The row restore includes `curated`: a seed concept left marked that way would
+            # be published as part of the delta by a write the store never took.
+            if before:
+                sc.concepts[cid] = before
+                sc.levels()
+            raise
+        return {"scheme": scheme, "concept_id": cid, "concept": str(sc.uri(cid)),
+                "parent": placed.get("parent") or "", "level": placed.get("level"),
+                "actor": actor, "rung": to, "assertion": written}
+
+    def vocab_relate(self, *, scheme: str, subject: str, predicate: str, object: str, actor: str,
+                     cardinality: str = "", note: str = "", to: str = CONFIRMED) -> dict:
+        """State how two concepts are connected, with a typed predicate — steward B's second act.
+
+        TYPED, because `skos:related` cannot carry what the derived rung needs: "A is about X, X relates to Y,
+        B is about Y" is answerable only if the edge names its predicate."""
+        if not actor:
+            raise ValueError("a relation is a person's decision: actor is required")
+        sc = self._scheme(scheme)
+        edge = sc.relate(subject=subject, predicate=predicate, object=object, cardinality=cardinality, note=note)
+        # `note` only: `_replay` reads that, and recording the same wording twice invites the two to drift.
+        row = {"subject": subject, "predicate": predicate, "object": object,
+               "cardinality": cardinality, "note": note}
+        try:
+            written = self._record_curation(scheme, "related", row, actor=actor, method="relate", to=to)
+        except Exception:
+            sc.relationships.remove(edge)
+            raise
+        return {"scheme": scheme, **{k: edge[k] for k in ("subject", "predicate", "object", "cardinality", "note")},
+                "actor": actor, "rung": to, "assertion": written}
+
     def _record_curation(self, scheme: str, act: str, row: Mapping[str, Any], *, actor: str, method: str,
                          to: str) -> str:
         """One curation decision, durably, with who made it. The curated graph is PERSISTED, so a boot that
@@ -856,6 +955,21 @@ class FabricService:
                 return False
             sc.amend(cid, alt=alt)
             return True
+        if act == "placed":
+            parent = str(g.value(node, FAB.parent) or "")
+            held = sc.concepts.get(cid) or {}
+            if (held.get("parent") or "") == parent:
+                return False
+            sc.place(cid, parent=parent)
+            return True
+        if act == "related":
+            edge = {k: str(g.value(node, FAB[k]) or "") for k in ("subject", "predicate", "object")}
+            if any(e["subject"] == edge["subject"] and e["predicate"] == edge["predicate"]
+                   and e["object"] == edge["object"] for e in sc.relationships):
+                return False
+            sc.relate(**edge, cardinality=str(g.value(node, FAB.cardinality) or ""),
+                      note=str(g.value(node, FAB.note) or ""))
+            return True
         if act == "retired":
             if (sc.concepts.get(cid) or {}).get("retired"):
                 return False
@@ -884,7 +998,8 @@ class FabricService:
         three decisions and one that had nothing to do both return zeros otherwise, and the scheme is wrong
         in exactly one of those cases."""
         g = self.ds.graph(CURATED_GRAPH)
-        counts = {"admitted": 0, "amended": 0, "retired": 0, "skipped": 0, "failed": 0}
+        counts = {"admitted": 0, "amended": 0, "placed": 0, "related": 0, "retired": 0,
+                  "skipped": 0, "failed": 0}
         rows = [(str(g.value(n, FAB.curationAct) or ""), n) for n in g.subjects(RDF.type, FAB.Curation)]
         # (time, node) so a tie is at least DETERMINISTIC; ULIDs are monotonic per process, not across them
         rows.sort(key=lambda r: (str(g.value(r[1], G.PROV.generatedAtTime) or ""), str(r[1])))
@@ -959,7 +1074,7 @@ class FabricService:
                 continue
             # label AND definition: the label alone is what tier 1 already matches on, so a vector of it
             # would make tier 2 a fuzzy repeat of tier 1 rather than a different question.
-            texts = [f"{c.get('label') or cid}. {c.get('definition') or ''}".strip() for _cid, c in missing]
+            texts = [f"{c.get('label') or cid}. {c.get('definition') or ''}".strip() for cid, c in missing]
             for (cid, _c), vec in zip(missing, emb.embed(texts, purpose="document")):
                 self.catalog.put_concept_embedding(str(sc.uri(cid)), vec, emb.model, scheme=name)
                 done += 1

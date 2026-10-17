@@ -50,6 +50,8 @@ fab:duplicateOf     a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range
 fab:ownedBy         a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:Person .
 fab:documentType    a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:DocumentType .
 fab:sensitivityLabel a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
+fab:rendering       a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string ;
+    rdfs:comment "HOW the text this record's concepts were grounded in was read — one of the declared ladder (lab.core.semantic.fabric.renderings), ordered by distance from the artifact. A record carries its WEAKEST reading." .
 fab:askedIn         a owl:DatatypeProperty ; rdfs:comment "the approval a candidate was asked in" .
 fab:lifecycleState  a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:LifecycleState .
 fab:baselineVersion a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .

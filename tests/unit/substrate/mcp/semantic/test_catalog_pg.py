@@ -229,20 +229,30 @@ def test_page_refuses_a_state_that_does_not_exist():
         catalog().page(state="publishd")
 
 
-def test_the_projection_page_url_is_a_column_ADDED_in_place():
-    """The table predates the facet and holds live records, so it is widened the way the reference layer
-    widens its own — `ADD COLUMN IF NOT EXISTS`, which `CREATE TABLE IF NOT EXISTS` can never notice. It is
-    appended, LAST, because that is where the ALTER physically puts it and the positional row map
-    (`_COLUMNS`) is read against the table."""
-    assert catalog_pg._COLUMNS[-1] == "projection_url"
-    assert any("ALTER TABLE fabric_artifact ADD COLUMN IF NOT EXISTS projection_url" in sql
-               for sql in MIGRATIONS)
+def test_a_LATER_facet_is_a_column_ADDED_in_place_after_the_ones_the_table_was_created_with():
+    """The table predates these facets and holds live records, so it is widened the way the reference layer
+    widens its own — `ADD COLUMN IF NOT EXISTS`, which `CREATE TABLE IF NOT EXISTS` can never notice.
+
+    The INVARIANT, not a position: an ALTERed column sits after every column the CREATE TABLE declared,
+    because that is where the ALTER physically puts it and the row map is read against the table. Pinning one
+    name to `_COLUMNS[-1]` broke on the next facet and caught nothing — the ordering is what matters."""
+    added = [c for c in ("projection_url", "rendering")
+             if any(f"ADD COLUMN IF NOT EXISTS {c} " in sql for sql in MIGRATIONS)]
+    assert added == ["projection_url", "rendering"], "both facets are ALTERed in, in the order they landed"
+    created = catalog_pg._COLUMNS[:-len(added)]
+    assert list(catalog_pg._COLUMNS[-len(added):]) == added
+    assert not set(created) & set(added)
     e = catalog({"WHERE iri": [ROW]}).get("urn:fabric:artifact:A")
     assert e.projection_url == "https://wiki/notes.md"
     c = catalog()
-    c.put(CatalogEntry("urn:fabric:artifact:A", P, projection_url="https://wiki/notes.md"))
+    c.put(CatalogEntry("urn:fabric:artifact:A", P, projection_url="https://wiki/notes.md",
+                       rendering="transcript"))
     sql, params = c.log[0]
-    assert params[-1] == "https://wiki/notes.md" and "projection_url = EXCLUDED.projection_url" in sql
+    by_name = dict(zip(catalog_pg._COLUMNS, params))
+    assert by_name["projection_url"] == "https://wiki/notes.md" and by_name["rendering"] == "transcript"
+    for col in added:
+        assert f"{col} = EXCLUDED.{col}" in sql
+    assert "created_at = EXCLUDED" not in sql, "a row's creation time must survive an update"
 
 
 def test_EVERY_vector_table_is_dimensioned_not_just_the_last_one():

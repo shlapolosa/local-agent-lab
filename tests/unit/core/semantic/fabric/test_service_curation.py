@@ -216,3 +216,147 @@ def test_admitting_the_same_concept_twice_admits_it_once(fab):
     # ...and the word now MEANS something, so proposing it again is answered, not parked
     again = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
     assert again["held_by"] == "cafe" and "iri" not in again
+
+
+def test_placing_and_relating_are_a_persons_decisions_recorded_at_their_rung(fab):
+    """The two acts steward B has, and both are a person's: `actor` is refused blank for the same reason a
+    retirement's is — "who organised this vocabulary" is what the record is for."""
+    c = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
+    fab.promote(c["iri"], actor="s@x", method="review")
+    assert fab.scheme.concepts["ModelCard"]["parent"] is None
+
+    placed = fab.vocab_place("ModelCard", scheme="cafe", parent="AIAgent", actor="s@x", reason="assurance")
+    assert (placed["parent"], placed["rung"], placed["actor"]) == ("AIAgent", CONFIRMED, "s@x")
+    assert placed["assertion"] and placed["concept"].endswith("ModelCard")
+    assert fab.scheme.concepts["ModelCard"]["parent"] == "AIAgent"
+
+    related = fab.vocab_relate(scheme="cafe", subject="ModelCard", predicate="documents", object="UseCase",
+                               actor="s@x", note="per the brief")
+    assert (related["predicate"], related["object"], related["actor"]) == ("documents", "UseCase", "s@x")
+    assert ("documents", "UseCase", "out") in fab.scheme.relations_of("ModelCard")
+
+    for blank in (lambda: fab.vocab_place("ModelCard", scheme="cafe", parent="UseCase", actor=""),
+                  lambda: fab.vocab_relate(scheme="cafe", subject="ModelCard", predicate="x",
+                                           object="AIAgent", actor="")):
+        with pytest.raises(ValueError, match="actor is required"):
+            blank()
+
+
+def test_a_placement_and_a_relation_survive_the_rebuild_like_every_other_decision(fab):
+    """The trap this phase had to avoid: a new curation act that `_replay` does not know is DURABLE AND
+    INVISIBLE — recorded faithfully, replayed never, and so lost at the first boot. `recurate` raises on an
+    act it cannot apply, which is why the act and its replay land together."""
+    c = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
+    fab.promote(c["iri"], actor="s@x", method="review")
+    fab.vocab_place("ModelCard", scheme="cafe", parent="AIAgent", actor="s@x")
+    fab.vocab_relate(scheme="cafe", subject="ModelCard", predicate="documents", object="UseCase", actor="s@x")
+
+    fresh = scheme()
+    fab._schemes = lambda: {"cafe": fresh}
+    counts = fab.recurate()
+    assert counts["failed"] == 0, "an act the replay cannot apply is the whole failure mode here"
+    assert counts["placed"] == 1 and counts["related"] == 1
+    assert fresh.concepts["ModelCard"]["parent"] == "AIAgent" and fresh.concepts["ModelCard"]["level"] == 2
+    assert ("documents", "UseCase", "out") in fresh.relations_of("ModelCard")
+    twice = fab.recurate()
+    assert twice["placed"] == twice["related"] == twice["failed"] == 0 and twice["skipped"] == 3
+
+
+def test_a_placement_replays_AFTER_the_admission_it_depends_on(fab):
+    """A placement names a parent, and the concept it places may itself have been admitted in the same second.
+    Admissions replay first and in passes for exactly that reason; a placement must not be what breaks it."""
+    for label, cid in (("Model card", "ModelCard"), ("Eval report", "EvalReport")):
+        c = fab.vocab_propose(label, actor="s@x", scheme="cafe")
+        fab.promote(c["iri"], actor="s@x", method="review")
+    fab.vocab_place("EvalReport", scheme="cafe", parent="ModelCard", actor="s@x")
+
+    fresh = scheme()
+    fab._schemes = lambda: {"cafe": fresh}
+    counts = fab.recurate()
+    assert counts["failed"] == 0 and counts["admitted"] == 2 and counts["placed"] == 1
+    assert fresh.concepts["EvalReport"]["parent"] == "ModelCard" and fresh.concepts["EvalReport"]["level"] == 2
+
+
+def test_a_placement_that_cannot_be_applied_leaves_the_scheme_as_it_was(fab):
+    """`place` recomputes the level, which is what catches a cycle — and the whole row is restored, because
+    `place` also sets `curated` and a seed concept left marked that way would be published as part of the
+    delta by a write the store never took."""
+    c = fab.vocab_propose("Model card", actor="s@x", scheme="cafe")
+    fab.promote(c["iri"], actor="s@x", method="review")
+    fab.vocab_place("ModelCard", scheme="cafe", parent="AIAgent", actor="s@x")
+    with pytest.raises(ValueError, match="cycle"):
+        fab.vocab_place("AIAgent", scheme="cafe", parent="ModelCard", actor="s@x")
+    assert fab.scheme.concepts["AIAgent"].get("parent") is None
+    assert not fab.scheme.concepts["AIAgent"].get("curated"), "a refused placement marks nothing as curated"
+
+
+def test_a_diagram_yields_relation_candidates_resolved_against_the_vocabulary(fab):
+    """Steward B's feeder, through the real scheme. The two seams the pure rule needs come from here: a term
+    resolves through `find` (so an ALT label works), and "already stated" is read off the vocabulary's own
+    relationships — the seed's and the curated ones alike."""
+    arrows = [{"from": "AI agent", "to": "Use case", "label": "realises"},      # the seed already states this
+              {"from": "Agent", "to": "Legacy agent", "label": "supersedes"},   # 'Agent' is an ALT of AIAgent
+              {"from": "AI agent", "to": "Billing engine", "label": "feeds"},   # a box with no concept
+              {"from": "AI agent", "to": "Legacy agent"}]                       # drawn, unnamed
+    out = fab.vocab_relation_candidates(arrows, scheme="cafe")
+    assert out["gaps"] == ["Billing engine"], "a box the vocabulary cannot name is the finding, not an error"
+    assert [(c["subject"], c["predicate"], c["object"]) for c in out["candidates"]] == [
+        ("AIAgent", "", "LegacyAgent"), ("AIAgent", "supersedes", "LegacyAgent")]
+    assert out["candidates"][0]["unnamed"] is True
+    assert out["scheme"] == "cafe"
+
+
+def test_an_AMBIGUOUS_box_resolves_to_nothing_rather_than_to_a_guess(fab):
+    """'Agent' is an alt of AIAgent here; make it ambiguous and the box must stop resolving. Choosing between
+    two meanings narrows the vocabulary, and that is not a question a diagram may settle."""
+    fab.scheme.amend("UseCase", alt="Agent")                      # now 'Agent' means two things
+    out = fab.vocab_relation_candidates([{"from": "Agent", "to": "Legacy agent", "label": "x"}], scheme="cafe")
+    assert out["candidates"] == [] and out["gaps"] == ["Agent"]
+
+
+def test_a_relation_a_steward_has_already_stated_stops_being_proposed(fab):
+    arrows = [{"from": "AI agent", "to": "Legacy agent", "label": "supersedes"}]
+    assert fab.vocab_relation_candidates(arrows, scheme="cafe")["candidates"]
+    fab.vocab_relate(scheme="cafe", subject="AIAgent", predicate="supersedes", object="LegacyAgent", actor="s@x")
+    assert fab.vocab_relation_candidates(arrows, scheme="cafe")["candidates"] == []
+
+
+def test_a_placement_the_STORE_REFUSES_restores_every_descendants_level_too(fab):
+    """A placement moves a whole SUBTREE, so restoring the one row it names is not a rollback. The older acts
+    (`retire`, `amend`) touch a single concept, which is why copying their idiom was the defect: measured, a
+    refused persist left a three-deep subtree reporting depths 4 and 5 while its root was back at 1.
+
+    `level` is not inert — `SkosScheme` puts `L{level}` into the concept doc string an agent is shown, so a
+    stale depth reaches a classifier's prompt."""
+    sc = fab.scheme
+    sc.admit(id="Deep", label="Deep", parent="AIAgent")
+    sc.admit(id="X", label="X")
+    sc.admit(id="D", label="D", parent="X")
+    sc.admit(id="E", label="E", parent="D")
+    before = {c: sc.concepts[c]["level"] for c in ("X", "D", "E")}
+    row = dict(sc.concepts["X"])
+
+    fab._on_write = lambda touched: (_ for _ in ()).throw(RuntimeError("the store did not take it"))
+    with pytest.raises(RuntimeError, match="did not take"):
+        fab.vocab_place("X", scheme="cafe", parent="Deep", actor="s@x")
+
+    assert sc.concepts["X"]["parent"] is None, "the placed concept is back where it was"
+    assert {c: sc.concepts[c]["level"] for c in ("X", "D", "E")} == before, "and so is its whole subtree"
+    assert sc.concepts["X"] == row, "the row comes back exactly as it was, `curated` included — a seed " \
+                                    "concept left marked would be published by a write never taken"
+
+
+def test_a_diagram_BOX_resolves_through_the_same_normaliser_the_classifier_uses(fab):
+    """`find` folds case and strips, nothing more. A diagram's boxes are authored by hand, so they arrive
+    plural, with an article, and wrapped across two lines — and each of those became a GAP asking a steward to
+    admit a concept the vocabulary already held, while the relation it was drawn on was dropped.
+
+    This is the one place the diagram lane and the classifier lane could disagree about what a term IS, which
+    is what `concepts.normalise` exists to prevent."""
+    arrows = [{"from": "AI agents", "to": "Legacy agent", "label": "supersedes"},      # plural
+              {"from": "The AI agent", "to": "Legacy agent", "label": "replaces"},     # leading article
+              {"from": "AI   agent", "to": "Legacy agent", "label": "informs"}]        # a wrapped caption
+    out = fab.vocab_relation_candidates(arrows, scheme="cafe")
+    assert out["gaps"] == [], f"every box names a concept the vocabulary holds: {out['gaps']}"
+    assert {c["subject"] for c in out["candidates"]} == {"AIAgent"}
+    assert len(out["candidates"]) == 3

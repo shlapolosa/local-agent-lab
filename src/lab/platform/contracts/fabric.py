@@ -95,6 +95,17 @@ class SemanticTools(ToolCatalogue):
     view_corpus = "semantic_view_corpus"           # ...and the whole catalogue in one picture, narrowable
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
+    #: Steward B's two acts — the vocabulary's own TOPOLOGY, as against steward A's membership. `broader` was
+    #: settable only at proposal time and the batch card collects no parent, so a concept arrives unplaced and
+    #: the hierarchy froze at admission. A relation is TYPED because `skos:related` cannot carry what the
+    #: derived rung needs. Both are in PROMOTE for the reason `vocab_amend` is: an agent that could reorganise
+    #: the vocabulary it is classified against would be marking its own homework.
+    vocab_place = "semantic_vocab_place"           # ...put an admitted concept under a broader one
+    vocab_relate = "semantic_vocab_relate"         # ...and state how two concepts are connected
+    #: ...and what a DIAGRAM proposes about that topology: its boxes are terms, its arrows are relations, so
+    #: it is the one artifact carrying how the things a corpus is about are connected. Read-only — it resolves
+    #: and proposes, a steward decides with `vocab_relate`.
+    relation_candidates = "semantic_vocab_relation_candidates"
     vocab_decline = "semantic_vocab_decline"       # ...and a PERSON'S NO about a term, recorded so it sticks
     vocab_asked = "semantic_vocab_asked"           # a term a steward HAS been asked about — so nobody asks twice
     # The CAFÉ views, one per step the CAFÉ bundle places one at — each read under the caller's pin
@@ -115,14 +126,15 @@ class SemanticTools(ToolCatalogue):
     # (`test_no_grant_hands_a_team_a_guarded_write_by_accident`) covers this catalogue too.
     READ = (ontologies, describe, classify, check, validate_model, load_model, query, schemes, concepts,
             export_archimate, store_spec, store_page, questions, ask,
-            catalog_get, catalog_by_url, trace, impact, similar, search, recommend, related, metrics, validate_shapes,
-            topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
+            catalog_get, catalog_by_url, trace, impact, similar, search, recommend, metrics, validate_shapes,
+            topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master,
+            related, relation_candidates) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
                 vocab_propose, vocab_asked, embed, derive, concept_match)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.
-    PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline)
+    PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline, vocab_place, vocab_relate)
     REINDEX = (reindex,)
     # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has

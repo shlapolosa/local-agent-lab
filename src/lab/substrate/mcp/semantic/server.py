@@ -362,7 +362,7 @@ def semantic_catalog_state(iri: str, state: str, baseline_version: str | None = 
 @server.tool()
 def semantic_catalog_assert(iri: str, field: str, value: str, rung: str, method: str, actor: str = "",
                             confidence: float | None = None) -> dict:
-    """Assert a classified facet (document_type | owner | sensitivity_label | projection_url) at a provenance
+    """Assert a classified facet (document_type | owner | sensitivity_label | projection_url | rendering) at a provenance
     rung: the row's column AND the graph triple with its PROV record. Owner and label are refused anywhere
     but C (NFR-3)."""
     return fabric().catalog_assert(iri, field, value, rung=rung, method=method, actor=actor, confidence=confidence)
@@ -468,6 +468,50 @@ def semantic_vocab_amend(concept_id: str, scheme: str, alt: str, actor: str, rea
     linked instead of proposing the same candidate again. The steward's answer to "this term has no concept"
     when it does, under a different name — admitting a second would be the duplicate this prevents."""
     return fabric().vocab_amend(concept_id, scheme=scheme, alt=alt, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_vocab_relation_candidates(arrows: list[dict], scheme: str) -> dict:
+    """What a structured diagram proposes about the vocabulary's TOPOLOGY, resolved against it.
+
+    `arrows` are a parsed diagram's connectors — `{"from": <box text>, "to": <box text>, "label": <arrow text>}`,
+    the shape `storage_read_vsdx` already returns. The boxes are terms and the arrows are relations, which makes
+    a diagram the one artifact carrying how the things a corpus is about are CONNECTED rather than just which
+    they are.
+
+    Returns `{candidates, gaps, scheme}`. A box the vocabulary cannot name is a GAP, not an error — it is a
+    term a steward can admit, and dropping it silently is how a diagram stops being evidence. An AMBIGUOUS box
+    resolves to nothing: choosing between two meanings narrows the vocabulary, which no diagram may settle. An
+    unlabelled arrow is a candidate marked `unnamed` — the diagram says two concepts connect, not how, and a
+    guessed predicate is an edge no author drew.
+
+    Read-only. It proposes; a steward writes with `semantic_vocab_relate`."""
+    return fabric().vocab_relation_candidates(arrows, scheme=scheme)
+
+
+@server.tool()
+def semantic_vocab_place(concept_id: str, scheme: str, parent: str, actor: str, reason: str = "") -> dict:
+    """Put an admitted concept UNDER a broader one — or, with an empty parent, back at the root.
+
+    The vocabulary's topology, as against its membership. `broader` is settable only at proposal time and the
+    steward's batch card deliberately collects no parent, so a concept arrives unplaced and the hierarchy
+    froze at admission: this is how it gets organised afterwards, which is when somebody usually knows where a
+    concept belongs. A cycle is refused by name rather than hanging the next reader, and a retired concept is
+    refused at either end. `actor` is the signed-in steward and is required."""
+    return fabric().vocab_place(concept_id, scheme=scheme, parent=parent, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_vocab_relate(scheme: str, subject: str, predicate: str, object: str, actor: str,
+                          cardinality: str = "", note: str = "") -> dict:
+    """State how two concepts are connected, with a TYPED predicate.
+
+    `skos:related` cannot carry what the derived rung needs — "A is about X, X relates to Y, B is about Y" is
+    answerable only if the edge names its predicate — so a steward's relation arrives in the same shape as the
+    vocabulary's own and publishes through the relationships master unchanged. A dangling end, a retired end,
+    a self-relation and a duplicate are each refused by name. `actor` is the signed-in steward and is required."""
+    return fabric().vocab_relate(scheme=scheme, subject=subject, predicate=predicate, object=object,
+                                 actor=actor, cardinality=cardinality, note=note)
 
 
 @server.tool()

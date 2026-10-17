@@ -24,6 +24,7 @@ from lab.core.semantic.fabric.catalog import describe
 from lab.core.semantic.fabric.owners import OwnerMap
 from lab.core.semantic.fabric.service import PERSON
 from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DECISION_RECORD, DELIVERED_UNDER, REFERENCES, SYNTHESISED_FROM
+from lab.core.semantic.fabric import renderings
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, EXTRACTED, SUGGESTED
 from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIPT_TO_MINUTES, ApprovalKind,
                                     ApprovalTools, CollabTools, Continuation, SemanticTools, StorageTools)
@@ -52,8 +53,44 @@ PROMPT_REVIEW = ("Review this artifact's record before it is published: is the d
                  "does it belong to the delivery context shown? Confirm each item or type the correct value.")
 
 
-async def _excerpt(cfg, pointer: dict) -> str:
-    """The first `EXCERPT_CHARS` of what is being classified, or "" when it cannot be read.
+#: Processes whose output is a machine's reading of the world rather than a document — one line each, so a
+#: new input source declares where it sits on the ladder instead of being assumed to be the artifact itself.
+#: Measured why it matters (12 Sep 2026): on one bilingual recording the tenant's own transcript returned 53
+#: words and silently dropped every Arabic turn, while the same audio rendered into English returned 97.
+RENDERING_BY_PROCESS: dict[str, str] = {
+    "transcript_to_minutes": "transcript-translated",
+    "meeting_to_transcript": "transcript",
+}
+
+
+def _weakest(held: str, read: str) -> str:
+    """The weaker of what the record already says and what this run read.
+
+    Subjects ACCUMULATE on a record and a record can be read more than once, so the facet must be monotone
+    downward: a reclassify that reads the document body would otherwise supersede `transcript-translated`
+    with `document`, leaving concepts grounded in a machine translation on a record claiming the artifact's
+    own words. A record is only as strong as the weakest evidence carried on it.
+
+    An unrecorded value is NOT treated as weak here, unlike `renderings.of` — on an input, silence means
+    nobody classified the source and the conservative reading is the weakest; on a record, it means no run
+    has recorded a reading yet, and there is nothing to be weaker than."""
+    if not held:
+        return read
+    if not read:
+        return held
+    return held if renderings.weaker(held, than=read) else read
+
+
+def _rendering_for(produced_by: str, read_as: str) -> str:
+    """The rendering a reading gets: what the WRITING process read, if it read through a machine, else how
+    this node read it. The writer's rendering wins — it is the one further from the artifact, and evidence is
+    only as strong as its weakest hop."""
+    return RENDERING_BY_PROCESS.get(str(produced_by or "").strip(), read_as)
+
+
+async def _excerpt(cfg, pointer: dict, *, produced_by: str = "") -> tuple[str, str]:
+    """The first `EXCERPT_CHARS` of what is being classified, and the RENDERING it came through — ("", "")
+    when it cannot be read.
 
     Classification used to run on a TITLE, a file name and a path — never a byte of the document — and the
     subjects it produced were guesses dressed as facts: measured 6 Oct 2026, `Clinical document` on 39 of 93
@@ -68,6 +105,14 @@ async def _excerpt(cfg, pointer: dict) -> str:
     Degrades, never fails: no grant, an unreadable body, a provider outage — the record is still catalogued
     from its metadata. An unclassified artifact is worse than an unlinked one, and that ordering is why this
     returns "" instead of raising.
+
+    The RENDERING is how far the text is from the artifact (`lab.core.semantic.fabric.renderings`), and the
+    two readers answer it differently. A document read as a document is the artifact's own words. A lab
+    artifact is `structured` — its own fields, read rather than interpreted — UNLESS the process that wrote it
+    read something else first: a minutes record's text is a machine translation of speech, two rungs down the
+    ladder, and calling that "structured" would be true of the JSON and false about the evidence. So
+    `RENDERING_BY_PROCESS` names the processes that read the world through a machine, which is why it lives
+    here and not in the domain: `lab.core` cannot know what the lab's processes are.
     """
     ref = str(pointer.get("ref") or "")
     try:
@@ -78,7 +123,7 @@ async def _excerpt(cfg, pointer: dict) -> str:
             # collab document was classified from its file name while the run reported success.
             ref = gateway.ref_from(got, "ref")
         if not ref:
-            return ""
+            return "", ""
         # TWO readers, and they refuse each other's files. `read_artifact` serves .json/.xml/.svg/
         # .xlsx/.html; a document goes to `read_document`, which also applies the cap itself rather
         # than decoding a whole file for the caller to slice. Asking the wrong one is not a soft
@@ -88,13 +133,17 @@ async def _excerpt(cfg, pointer: dict) -> str:
         if filetypes.kind_for(ref.rsplit("/", 1)[-1]) == "document":
             text = await gateway.call(cfg, StorageTools.read_document,
                                       {"ref": ref, "max_chars": EXCERPT_CHARS})
-            return text if isinstance(text, str) else json.dumps(text, ensure_ascii=False)[:EXCERPT_CHARS]
+            read = text if isinstance(text, str) else json.dumps(text, ensure_ascii=False)[:EXCERPT_CHARS]
+            # A rendering is a claim that something WAS read. An empty body would otherwise record "the
+            # artifact's own words" on a record where nothing was grounded — the structured branch below is
+            # careful about exactly this, and this one was not.
+            return read, (_rendering_for(produced_by, "document") if read.strip() else "")
         doc = await gateway.call(cfg, StorageTools.read_artifact, {"ref": ref})
         if isinstance(doc, str):
             try:
                 doc = json.loads(doc)
             except ValueError:
-                return doc[:EXCERPT_CHARS]
+                return doc[:EXCERPT_CHARS], _rendering_for(produced_by, "structured")
         # A lab artifact has no `text` key — it IS the text. A minutes record parses into
         # {"summary": …, "concepts": […]}, so looking only for `text`/`content` found neither and
         # returned "" with nothing raised and nothing logged: the classifier saw a file name and
@@ -106,11 +155,13 @@ async def _excerpt(cfg, pointer: dict) -> str:
             text = json.dumps(text, ensure_ascii=False)
         # An EMPTY structure serialises to "{}" — truthy, and meaningless. Reading it as content would
         # hand the classifier two characters and call that evidence.
-        return "" if text.strip() in ("", "{}", "[]", "null") else text[:EXCERPT_CHARS]
+        if text.strip() in ("", "{}", "[]", "null"):
+            return "", ""
+        return text[:EXCERPT_CHARS], _rendering_for(produced_by, "structured")
     except Exception as e:                      # noqa: BLE001 — see the docstring: evidence is best effort
         print(f"[intake] no excerpt for {pointer.get('ref') or pointer.get('handle')}: "
               f"{type(e).__name__}: {e}", flush=True)
-        return ""
+        return "", ""
 
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
@@ -206,7 +257,9 @@ def build_workflow(cfg):
         label-matched into the vocabulary at X; misses parked as candidates. Owner and label are never
         guessed — the label is the site default at C when nothing better is known."""
         with gateway.node_span(cfg, "classify"):
-            suggestion = None
+            # Bound HERE, not in the branch below: a run with no classifier reads nothing, and a rendering
+            # left unbound made the no-agent path raise rather than simply have nothing to record.
+            suggestion, rendering = None, ""
             if cfg["agents"].get("classifier") and classify_gate is not None:
                 brief = {"title": state["title"], "name": _label_of(state["pointer"]),
                          "path": (state.get("hints") or {}).get("path", ""),
@@ -214,7 +267,8 @@ def build_workflow(cfg):
                          "document_types": [{"iri": k, **v} for k, v in cfg["doc_types"].items()],
                          "concepts": await _vocabulary(cfg),
                          "hints": state.get("hints") or {}}
-                excerpt = await _excerpt(cfg, state["pointer"])
+                excerpt, rendering = await _excerpt(cfg, state["pointer"],
+                                                    produced_by=state.get("produced_by") or "")
                 if excerpt:                      # absent, not empty: the prompt must not read "" as "blank document"
                     brief["excerpt"] = excerpt
                 else:
@@ -271,6 +325,18 @@ def build_workflow(cfg):
             if unsure:
                 subjects = [t for t in subjects if t not in unsure]
                 print(f"[intake] dropped {len(unsure)} subject(s) below the {floor} floor: {unsure}", flush=True)
+            # HOW this run read the artifact, recorded BEFORE anything is linked from it, and at X because it
+            # is derived from which reader answered rather than suggested by anybody. A reader weighing a
+            # concept's evidence asks the record, not each assertion: one run reads one excerpt, so every
+            # term it grounds shares this rendering.
+            # Monotone downward against what the record already holds — see `_weakest`. Read off the ROW,
+            # because a reclassify starts a fresh state and would otherwise compare against nothing.
+            rendering = _weakest(str((state.get("row") or {}).get("rendering") or ""), rendering)
+            if rendering and rendering != (state.get("row") or {}).get("rendering"):
+                await gateway.call(cfg, SemanticTools.catalog_assert, {
+                    "iri": state["iri"], "field": "rendering", "value": rendering,
+                    "rung": EXTRACTED, "method": "read-as"})
+                state = state | {"rendering": rendering}
             if not state.get("document_type") and (suggestion or {}).get("document_type"):
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "document_type", "value": suggestion["document_type"],

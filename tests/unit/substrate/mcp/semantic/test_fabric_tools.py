@@ -393,3 +393,41 @@ def test_related_answers_what_else_is_about_this_and_names_the_concept():
     assert out[0]["score"] > 0.0 and all(r["score"] > 0.0 for r in out), "no link worth nothing is returned"
     assert "AI agent" in {sh["label"] for sh in out[0]["shared"]}
     assert out[0]["title"] == "Related 1" and out[0]["state"]
+
+
+def test_steward_B_organises_the_vocabulary_through_the_tools():
+    """Membership is steward A's; TOPOLOGY is steward B's, and these are its two verbs. Both are in PROMOTE,
+    never PIPELINE: an agent that could reorganise the vocabulary it is classified against would be marking
+    its own homework."""
+    c = call("semantic_vocab_propose", label="Assurance note", actor="s@x", scheme="cafe",
+             definition="What an assurance reviewer recorded")
+    call("semantic_promote", subject=c["iri"], actor="s@x", method="steward-review")
+
+    placed = call("semantic_vocab_place", concept_id="AssuranceNote", scheme="cafe", parent="AIAgent", actor="s@x")
+    assert (placed["parent"], placed["level"]) == ("AIAgent", 2) and placed["assertion"]
+    related = call("semantic_vocab_relate", scheme="cafe", subject="AssuranceNote", predicate="documents",
+                   object="SoftwareAgent", actor="s@x", note="per the brief")
+    assert (related["subject"], related["predicate"], related["object"]) == ("AssuranceNote", "documents", "SoftwareAgent")
+
+    assert "cycle" in call_error("semantic_vocab_place", concept_id="AIAgent", scheme="cafe",
+                                 parent="AssuranceNote", actor="s@x")
+    assert "already" in call_error("semantic_vocab_relate", scheme="cafe", subject="AssuranceNote",
+                                  predicate="documents", object="SoftwareAgent", actor="s@x")
+
+    # ...and both reach the master an operator publishes, or the topology dies at the next boot
+    masters = call("semantic_vocab_master", scheme="cafe")
+    page = STORE.get(masters["ontology-relationships"]["ref"]).decode()
+    assert "| AssuranceNote | documents | SoftwareAgent |" in page
+    concepts_page = STORE.get(masters["ontology-concepts"]["ref"]).decode()
+    assert "| AssuranceNote | Assurance note |" in concepts_page and "| AIAgent |" in concepts_page
+
+
+def test_a_diagrams_arrows_come_back_as_relation_candidates_and_gaps():
+    """The feeder, over the tool boundary, in the shape `storage_read_vsdx` already returns."""
+    out = call("semantic_vocab_relation_candidates", scheme="cafe",
+               arrows=[{"from": "AI agent", "to": "Nowhere", "label": "feeds"},
+                       {"from": "AI agent", "to": "Assurance note", "label": "assures"}])
+    assert "Nowhere" in out["gaps"], "a box the vocabulary cannot name is the finding, not an error"
+    assert ("AIAgent", "assures", "AssuranceNote") in {
+        (c["subject"], c["predicate"], c["object"]) for c in out["candidates"]}
+    assert all(c["subject"] and c["object"] for c in out["candidates"])

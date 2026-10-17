@@ -17,6 +17,7 @@ Pure: dicts in, a scheme out. Reading a workbook or a master belongs to whoever 
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from rdflib import RDF, Literal, Namespace, URIRef
@@ -36,6 +37,12 @@ BASE = "urn:lab:semantic:domain:"
 
 #: the columns `build` interprets; anything else on a row is carried through untouched as `extra`
 MODELLED = ("id", "name", "label", "kind", "parent", "definition", "module", "alt")
+
+#: A predicate becomes an IRI local name in the scheme's own namespace (`graph()`), so it must be a NAME.
+#: Prose with a space produces a graph rdflib refuses to serialise — and the arrow captions a diagram feeds
+#: this from are prose ("sends a prescription to"), so the refusal belongs where the relation is recorded
+#: rather than at the first serialisation: a curated relation replays on every boot.
+_LOCAL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
 
 def _text(row: Mapping[str, Any], *names: str) -> str:
@@ -226,6 +233,78 @@ class DomainScheme(SkosScheme):
             c.setdefault("alt", []).append(text)
             c["curated"] = True
         return c
+
+    def place(self, cid: str, *, parent: str) -> dict:
+        """Put an admitted concept under a broader one — or, with no parent, back at the root.
+
+        Its own act, because `broader` was settable only at proposal time and the batch card deliberately
+        collects no parent ("eight terms times five fields is forty fields and nobody triages forty"). So
+        almost every admitted concept arrives unplaced, and a vocabulary whose hierarchy froze at admission
+        is one a steward can grow but never organise. A concept earns its parent once somebody knows where
+        it belongs, which is usually later than the moment it was needed.
+
+        The level is recomputed, which is what catches a cycle: `_level_of` walks upward with a seen-set, so
+        an edge that would make a concept its own ancestor is NAMED rather than hanging the next reader."""
+        cid, to = str(cid or "").strip(), str(parent or "").strip()
+        if cid not in self.concepts:
+            raise ValueError(f"{self.name} does not hold a concept {cid!r}")
+        c = self.concepts[cid]
+        if c.get("retired"):
+            raise ValueError(f"{cid!r} is retired (it resolves to {c.get('resolves_to')!r}) — place the live concept")
+        if to == cid:
+            raise ValueError(f"{cid!r} cannot be its own parent")
+        if to and to not in self.concepts:
+            raise ValueError(f"{self.name} does not hold a concept {to!r}")
+        if to and self.concepts[to].get("retired"):
+            raise ValueError(f"{to!r} is retired — name a parent that is live")
+        was = c.get("parent")
+        c["parent"] = to or None
+        try:
+            c["level"] = _level_of(cid, self.concepts)
+        except ValueError:
+            c["parent"] = was                     # raised BEFORE the subtree moved, so this is the whole undo
+            c["level"] = _level_of(cid, self.concepts)
+            raise
+        self.levels()
+        c["curated"] = True
+        return c
+
+    def levels(self) -> None:
+        """Recompute every concept's depth. ONE home, because a placement moves a whole subtree and a caller
+        undoing one must restore all of them: a stale level is not inert — it reaches an agent's prompt
+        through the concept's doc string (`L{level}`). Retired concepts included, so the invariant holds for
+        every row the scheme can hand out."""
+        for cid in self.concepts:
+            self.concepts[cid]["level"] = _level_of(cid, self.concepts)
+
+    def relate(self, *, subject: str, predicate: str, object: str, cardinality: str = "", note: str = "") -> dict:
+        """State how two concepts are connected, with a TYPED predicate.
+
+        `skos:related` cannot carry what the derived rung needs: "A is about X, X relates to Y, B is about Y"
+        is answerable only if the edge names its predicate. So a steward's relation arrives in the same shape
+        as the seed's own, publishes through the relationships master unchanged, and is marked curated so it
+        stays separable from the seed it was grown onto."""
+        sub, pred, obj = (str(x or "").strip() for x in (subject, predicate, object))
+        if not pred:
+            raise ValueError("a relation is named by its predicate, and none was given")
+        if not _LOCAL_NAME.match(pred):
+            raise ValueError(f"a predicate is an IRI local name (realisedBy, documents), not prose: {pred!r} "
+                             "— name it in one word and put the author's wording in `note`")
+        if sub == obj:
+            raise ValueError(f"{sub!r} cannot be related to itself")
+        for end in (sub, obj):
+            if end not in self.concepts:
+                raise ValueError(f"{self.name} does not hold a concept {end!r}")
+            if self.concepts[end].get("retired"):
+                raise ValueError(f"{end!r} is retired (it resolves to "
+                                 f"{self.concepts[end].get('resolves_to')!r}) — name the live concept")
+        if any(e["subject"] == sub and str(e["predicate"]).casefold() == pred.casefold()
+               and e["object"] == obj for e in self.relationships):
+            raise ValueError(f"{self.name} already states {sub!r} {pred!r} {obj!r}")
+        edge = {"subject": sub, "predicate": pred, "object": obj,
+                "cardinality": str(cardinality or ""), "note": str(note or ""), "curated": True}
+        self.relationships.append(edge)
+        return edge
 
     def live(self) -> list[dict]:
         """The concepts a classifier may choose from — everything not retired."""

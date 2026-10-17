@@ -124,17 +124,105 @@ in would make every change appear to break everything it resembles.
 Grants follow from `READ`, which both `scripts/provision_fabric_agents.py` and `deploy/grants.py` derive
 programmatically — but each still needs its apply run before a caller sees the tool.
 
-### Phase 4 — topology (steward B)
-- **4.1** propose/accept `broader` / `related` between ADMITTED concepts. Today `broader` is settable only
-  at proposal time, so the relation graph is effectively frozen after publication.
-- **4.2** a structured diagram yields relation candidates — its boxes are terms, its arrows are relations.
-  **This is the only feeder steward B has.**
+### Phase 4 — topology (steward B) — DONE (17 Oct 2026)
 
-### Phase 5 — fidelity
-- **5.1** render-to-text records WHICH rendering the text came from, and its fidelity.
-- **5.2** fidelity rides the assertion: a concept grounded in one provider's transcript is weaker evidence
-  than the same concept in the document itself. Measured, not theoretical — Teams' own transcript of a
-  bilingual meeting returned 53 words against soniox-en's 97, having silently dropped a language.
+Steward A decides MEMBERSHIP; steward B decides TOPOLOGY. Both acts are in `PROMOTE`, never `PIPELINE`, for
+the reason `vocab_amend` is: an agent that could reorganise the vocabulary it is classified against would be
+marking its own homework.
+
+- **4.1** two acts, because they write two different things — a parent is a concept COLUMN and a relation is a
+  relationships ROW:
+  - `DomainScheme.place` / `vocab_place` / **`semantic_vocab_place`** — put an admitted concept under a
+    broader one, or lift it back to the root. `broader` was settable only at proposal time and the batch card
+    deliberately collects no parent, so nearly every admitted concept arrived unplaced and the hierarchy froze
+    at admission. A cycle is refused by NAME (the level is recomputed, and `_level_of` walks with a seen-set),
+    a retired concept is refused at either end, and every DESCENDANT's level is recomputed — a stale level
+    would misreport the depth of a whole subtree.
+  - `DomainScheme.relate` / `vocab_relate` / **`semantic_vocab_relate`** — a TYPED relation, because
+    `skos:related` cannot carry what the derived rung needs. Dangling end, retired end, self-relation and
+    duplicate are each refused by name.
+
+  **`_replay` learned both in the same change**, which was the trap: a curation act the replay does not know
+  is recorded faithfully, replayed never, and so lost at the first boot — durable and invisible. `recurate`
+  raises on an unknown act, so the test that matters asserts `failed == 0` after a reseed. Admissions still
+  replay first and in passes, so a placement naming a freshly admitted parent applies either way.
+
+  Both survive publication: the concepts master already carries `parent`, and the relationships master is
+  rendered from `scheme.relationships` — so a steward's topology reaches the corpus unchanged.
+
+- **4.2** `lab.core.semantic.fabric.relations` + **`semantic_vocab_relation_candidates`** — a diagram's boxes
+  are terms and its arrows are relations, in the shape `storage_read_vsdx` already returns. Pure, with the
+  vocabulary arriving as two seams (`resolve`, `states`), so one function serves a `.vsdx`, a Lucidchart
+  export or anything else that yields boxes and arrows. Three decisions:
+  - **a box the vocabulary cannot name is a GAP, not an error** — a term a steward can admit, and dropping it
+    silently is how a diagram stops being evidence;
+  - **an AMBIGUOUS box resolves to nothing** — choosing between two meanings narrows the vocabulary, which no
+    diagram may settle;
+  - **an unlabelled arrow is a candidate marked `unnamed`** — the diagram says two concepts connect, not how,
+    and a guessed predicate is an edge no author drew.
+
+  It parks nothing, deliberately: a term candidate arrives one document at a time and must wait to be
+  batched, while a relation candidate is only answerable with the diagram in front of the person. Nothing
+  durable means nothing to replay and no second lifecycle to keep honest.
+
+### Phase 5 — fidelity — DONE (17 Oct 2026)
+
+- **5.1** `lab.core.semantic.fabric.renderings` — the ladder, as a registry: adding an input source is one
+  line. **Fidelity is a RANK, not a score.** The honest claim is an ORDERING, and this lab has the
+  measurements for an ordering rather than a probability: on one bilingual recording the tenant's own
+  transcript returned 53 words having silently dropped every Arabic turn, a verbatim provider returned 86-97
+  with both turns present, and an English rendering returned 97 translated. No experiment here yields "a
+  transcript is 0.7 of a document", and a number invented to look rigorous would be read as one that was
+  measured. An UNDECLARED rendering is treated as the WEAKEST, never the strongest — an unstated provenance
+  is where the fabric knows least, and defaulting it to the document's own words would make the least
+  trustworthy evidence indistinguishable from the most.
+
+- **5.2** fidelity rides the **RECORD**, not each assertion — a deliberate deviation from the plan's wording,
+  for two reasons. One run produces one excerpt, so every term it grounds shares a rendering. And nothing in
+  this layer reads per-assertion provenance: `FAB.confidence` has been written since the beginning and is
+  read nowhere, so a field added there would be invisible — the shape of a defect this repo has already paid
+  for twice. So `rendering` is a FACET (`fabric_artifact.rendering`, `fab:rendering`, in the closed SHACL
+  shape with a two-way parity test against the ladder), asserted at X by the intake node before anything is
+  linked, and returned by `catalog_get` like any other facet.
+
+  **The sharp case is a minutes record.** It is the lab's own JSON — `structured` by how the node reads it —
+  but its words are a machine translation of speech. `RENDERING_BY_PROCESS` lives in the WORKLOAD, because
+  `lab.core` cannot know what the lab's processes are, and the writing process's rendering wins: evidence is
+  only as strong as its weakest hop.
+
+  **The facet is MONOTONE DOWNWARD — a record carries its weakest reading.** Design review found the hole in
+  "one run produces one excerpt": subjects ACCUMULATE and a record can be read more than once, so a
+  reclassify that read the document body would supersede `transcript-translated` with `document` and leave
+  three concepts grounded in a machine translation on a record claiming the artifact's own words. `_weakest`
+  compares against the ROW (a reclassify starts a fresh state), and it is also what gives the ladder's
+  ordering its first production reader — a rank nobody consults being the exact defect this phase set out to
+  avoid.
+
+**What design review changed, beyond that** (two of them real defects it reproduced with probes):
+
+- **A predicate is an IRI local name, not prose.** `relate` accepted any non-empty string, and the diagram
+  lane feeds it arrow captions — so `"sends a prescription to"` became an IRI the scheme's own graph could no
+  longer serialise. Recorded in the curated graph, it would replay on every boot and travel out through the
+  relationships master: a one-way door. The author's wording lives in `note`, where `graph()` already puts it.
+- **A refused placement now restores the whole SUBTREE.** `place` recomputes every level, and the service's
+  rollback restored only the row it named — measured, a three-deep subtree left at depths 4 and 5 while its
+  root was back at 1. `level` is not inert: `SkosScheme` puts `L{level}` into the concept doc string an agent
+  is shown. The older acts (`retire`, `amend`) touch one row each, which is why copying their idiom was the
+  defect; `DomainScheme.levels()` is now the one home both paths call.
+- **A diagram box resolves through the classifier's own normaliser.** `find` only folds case and strips, so a
+  hand-authored box arriving plural, with an article, or wrapped across two lines became a GAP asking a
+  steward to admit a concept the vocabulary already held — while the relation drawn on it was dropped. That
+  was the one place the two lanes could disagree about what a term IS.
+- **An empty document no longer claims it was read.** The document branch returned its rendering
+  unconditionally, so an empty body recorded "the artifact's own words" on a record where nothing was grounded.
+- **`fab:rendering` is declared in `fab.ttl`**, and `tests/governance/test_fabric_facets.py` now holds the
+  four places a facet lives in parity — `FACETS`, the ontology, the closed shape, and the row. Adding the
+  fifth facet touched all four and nothing would have failed if one had been missed.
+- Dropped: `curated_relationships()` (no caller — publication renders from `relationships`), `gaps` as an
+  option (every caller passed it), a duplicated `reason` on the relation's curation row, and the `getattr`
+  default in `put()` that would have stored `''` for a column whose field was forgotten. The duplicate check
+  now folds case, as `find` and the diagram lane both do. `MAX_ARROWS` refuses an oversized diagram rather
+  than halving it silently; the by-ref door is the upgrade when a model rather than a steward surface calls.
 
 ## Sequencing
 

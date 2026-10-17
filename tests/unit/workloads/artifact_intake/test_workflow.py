@@ -12,6 +12,7 @@ import json
 import pytest
 
 from fixtures.workflow import Router, run_spine, spine
+from lab.core.semantic.fabric import renderings
 from lab.core.semantic.fabric.owners import OwnerMap
 from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalKind, ApprovalTools, SemanticTools
 from lab.workloads.artifact_intake import agents as A
@@ -1029,3 +1030,38 @@ def test_a_term_NOTHING_matched_is_proposed_with_no_target_at_all():
         h.close()
     proposed = calls(h, SemanticTools.vocab_propose)
     assert proposed and not proposed[0].get("alias_of")
+
+
+def test_a_MINUTES_record_is_read_as_a_TRANSLATED_TRANSCRIPT_not_as_structured_json():
+    """The sharp case for the rendering ladder. A minutes artifact is the lab's own JSON — `structured` by how
+    this node reads it — but its words are a machine translation of speech, two rungs further from the
+    meeting than a document is from itself. Calling it `structured` would be true of the file and false about
+    the evidence, so the WRITING process's rendering wins: evidence is only as strong as its weakest hop."""
+    assert W._rendering_for("transcript_to_minutes", "structured") == "transcript-translated"
+    assert W._rendering_for("meeting_to_transcript", "structured") == "transcript"
+    assert W._rendering_for("", "document") == "document", "a document nobody machine-read is its own words"
+    assert W._rendering_for("artifact_intake", "structured") == "structured"
+
+
+def test_every_declared_process_rendering_is_one_the_LADDER_knows():
+    """Two homes, one vocabulary: a typo here would be refused by the facet's shape at the gateway, after the
+    run had already done its reading."""
+    assert set(W.RENDERING_BY_PROCESS.values()) <= set(renderings.RENDERINGS)
+    assert all(renderings.weaker(r, than="document") for r in W.RENDERING_BY_PROCESS.values()), \
+        "a process is listed here only because it reads the world through a machine"
+
+
+def test_a_RECLASSIFIED_record_keeps_its_WEAKEST_reading(monkeypatch):
+    """The hole in "one run produces one excerpt": subjects ACCUMULATE on a record, and a record can be read
+    more than once. Run 1 reads a minutes JSON and links three concepts grounded in a machine translation of
+    speech; a later run reads the document body and would SUPERSEDE the rendering with `document` — leaving
+    those three concepts on a record that claims the artifact's own words.
+
+    So the facet is monotone downward: the weakest reading ever recorded wins, because a record is only as
+    strong as the weakest evidence on it. This is also what gives the ladder's ordering a production reader —
+    a rank nobody consults is the defect this phase set out to avoid."""
+    assert W._weakest("document", "transcript-translated") == "transcript-translated"
+    assert W._weakest("transcript-translated", "document") == "transcript-translated"
+    assert W._weakest("", "document") == "document", "nothing recorded yet is not evidence of strength"
+    assert W._weakest("transcript", "") == "transcript"
+    assert W._weakest("", "") == ""

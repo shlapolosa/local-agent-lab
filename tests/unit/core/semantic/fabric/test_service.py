@@ -6,6 +6,7 @@ from rdflib import RDF, Dataset, Literal, URIRef
 from fixtures.embed import HashEmbedder
 from fixtures.skos import scheme
 from lab.core.semantic.fabric import graph as G
+from lab.core.semantic.fabric import renderings
 from lab.core.semantic.fabric.catalog import MemoryCatalog
 from lab.core.semantic.fabric.ontology import DocumentTypes
 from lab.core.semantic.fabric.rungs import CANDIDATES_GRAPH, CONFIRMED, CONSTRUCTED, EXTRACTED, PROV_GRAPH, SUGGESTED, graph_iri
@@ -734,3 +735,24 @@ def test_RELATED_caps_its_own_limit_so_one_call_cannot_hydrate_the_estate(fab):
 def test_RELATED_of_a_record_sharing_nothing_is_empty(fab):
     alone = fab.catalog_upsert({"source": "lab", "ref": "art://s/alone"})["iri"]
     assert fab.related(alone) == []
+
+
+def test_HOW_a_record_was_READ_is_a_facet_so_a_reader_can_weigh_the_evidence(fab):
+    """Phase 5. A concept grounded in a document's own words is stronger evidence than the same concept
+    grounded in a machine translation of speech, and until now an assertion said `label-match` either way.
+
+    The rendering rides the RECORD rather than each assertion, deliberately: one run produces one excerpt, so
+    every term it grounds shares a rendering, and nothing in this layer reads per-assertion provenance — a
+    field written there would be invisible, which is the shape of a defect this repo has already paid for."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://run/minutes.json"}, title="Minutes")["iri"]
+    fab.catalog_assert(iri, field="rendering", value="transcript-translated", rung="X", method="read-as")
+    row = fab.catalog_get(iri)
+    assert row["rendering"] == "transcript-translated"
+    assert ("rendering", "X") in {(l["predicate"], l["rung"]) for l in row["links"]}
+    assert renderings.weaker(row["rendering"], than="document"), "and a reader can ORDER it"
+
+
+def test_an_undeclared_rendering_is_refused_like_any_other_facet_value(fab):
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://run/x.json"})["iri"]
+    with pytest.raises(ValueError, match="rendering"):
+        fab.catalog_assert(iri, field="rendering", value="made-up", rung="X", method="read-as")

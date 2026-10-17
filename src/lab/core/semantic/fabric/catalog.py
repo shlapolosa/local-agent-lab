@@ -20,7 +20,7 @@ STATES: tuple[str, ...] = ("pending", "in-review", "published", "withdrawn")
 STATE_IRI: dict[str, str] = {"pending": "urn:fabric:ont#Pending", "in-review": "urn:fabric:ont#InReview",
                              "published": "urn:fabric:ont#Published", "withdrawn": "urn:fabric:ont#Withdrawn"}
 #: The classified facets — each is asserted at a provenance rung, never merely set (note 005).
-FIELDS: tuple[str, ...] = ("document_type", "owner", "sensitivity_label", "projection_url")
+FIELDS: tuple[str, ...] = ("document_type", "owner", "sensitivity_label", "projection_url", "rendering")
 MAX_TITLE = 300
 
 
@@ -81,6 +81,7 @@ class CatalogEntry:
     source_kind: str = ""
     baseline_version: str = ""
     projection_url: str = ""         # the projection page a person opens (`dcat:landingPage`), written by the projector
+    rendering: str = ""              # HOW the text its concepts were grounded in was read (`fabric.renderings`)
     unassociated: bool = False
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)

@@ -79,6 +79,10 @@ MIGRATIONS: tuple[str, ...] = (
     # The table predates this facet and holds live records, so the column is ADDED in place — the way the
     # reference layer widens its own tables. `CREATE TABLE IF NOT EXISTS` above can never notice a new column.
     "ALTER TABLE fabric_artifact ADD COLUMN IF NOT EXISTS projection_url TEXT NOT NULL DEFAULT ''",
+    # HOW the text a record's concepts were grounded in was read. Empty on every row that predates it, and
+    # that is the honest value: it says "nobody recorded the reading", which `renderings.of` then treats as
+    # the weakest evidence rather than quietly as the document's own words.
+    "ALTER TABLE fabric_artifact ADD COLUMN IF NOT EXISTS rendering TEXT NOT NULL DEFAULT ''",
     """CREATE TABLE IF NOT EXISTS fabric_embedding (
          iri TEXT PRIMARY KEY REFERENCES fabric_artifact ON DELETE CASCADE,
          model TEXT NOT NULL,
@@ -102,7 +106,7 @@ MIGRATIONS: tuple[str, ...] = (
 #: the positional row map, read against the table — so an added column goes LAST, where the ALTER puts it
 _COLUMNS = ("iri", "pointer", "pointer_key", "title", "document_type", "owner", "sensitivity_label", "state",
             "produced_by", "context", "source_kind", "baseline_version", "unassociated", "created_at", "updated_at",
-            "projection_url")
+            "projection_url", "rendering")
 _SELECT = "SELECT " + ", ".join(_COLUMNS) + " FROM fabric_artifact"
 
 
@@ -215,23 +219,25 @@ class PostgresCatalog:
         rows = self._rows(_SELECT + " WHERE pointer_key = %s ORDER BY created_at LIMIT 1", (key,))
         return _entry(rows[0]) if rows else None
 
+    #: Everything but the conflict key and `created_at` — an insert's own creation time must survive an
+    #: update, or a row's age resets every time a sweep touches it. GENERATED from `_COLUMNS` rather than
+    #: listed again: this is the third place a facet's column had to be named, and the two hand-written
+    #: copies are what a fourth facet would silently miss.
+    _SETTABLE = tuple(c for c in _COLUMNS if c not in ("iri", "created_at"))
     _UPSERT = """
         INSERT INTO fabric_artifact (""" + ", ".join(_COLUMNS) + """)
         VALUES (""" + ", ".join(["%s"] * len(_COLUMNS)) + """)
-        ON CONFLICT (iri) DO UPDATE SET
-          pointer = EXCLUDED.pointer, pointer_key = EXCLUDED.pointer_key, title = EXCLUDED.title,
-          document_type = EXCLUDED.document_type, owner = EXCLUDED.owner,
-          sensitivity_label = EXCLUDED.sensitivity_label, state = EXCLUDED.state,
-          produced_by = EXCLUDED.produced_by, context = EXCLUDED.context, source_kind = EXCLUDED.source_kind,
-          baseline_version = EXCLUDED.baseline_version, unassociated = EXCLUDED.unassociated,
-          projection_url = EXCLUDED.projection_url, updated_at = EXCLUDED.updated_at"""
+        ON CONFLICT (iri) DO UPDATE SET """ + ", ".join(f"{c} = EXCLUDED.{c}" for c in _SETTABLE)
 
     def put(self, entry: CatalogEntry) -> CatalogEntry:
-        self._write([(self._UPSERT, (
-            entry.iri, json.dumps(entry.pointer), pointer_key(entry.pointer), entry.title, entry.document_type,
-            entry.owner, entry.sensitivity_label, entry.state, entry.produced_by, entry.context,
-            entry.source_kind, entry.baseline_version, entry.unassociated, entry.created_at, entry.updated_at,
-            entry.projection_url))])
+        # By NAME against `_COLUMNS`, so a column added to the table cannot be paired with the wrong value:
+        # a positional tuple is correct only while two lists stay in step, and it fails silently when they do
+        # not — the facet lands in the previous column and reads back as a plausible value.
+        # No getattr DEFAULT: a column added to `_COLUMNS` without its dataclass field must raise on the
+        # first write rather than silently store "". An instrument that cannot fail loudly is not one.
+        values = {**{c: getattr(entry, c) for c in _COLUMNS if c != "pointer_key"},
+                  "pointer": json.dumps(entry.pointer), "pointer_key": pointer_key(entry.pointer)}
+        self._write([(self._UPSERT, tuple(values[c] for c in _COLUMNS))])
         return entry
 
     def put_embedding(self, iri: str, vector: list[float], model: str) -> None:

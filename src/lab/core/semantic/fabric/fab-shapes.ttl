@@ -22,6 +22,12 @@ fab:ArtifactShape a sh:NodeShape ;
     sh:property [ sh:path fab:documentType ; sh:maxCount 1 ] ;
     sh:property [ sh:path fab:ownedBy ; sh:maxCount 1 ] ;
     sh:property [ sh:path fab:sensitivityLabel ; sh:maxCount 1 ; sh:maxLength 120 ] ;
+    # HOW the text this record's concepts were grounded in was read — one reading at a time, and one of the
+    # declared ladder (`lab.core.semantic.fabric.renderings`): a reader weighs the evidence by ordering it,
+    # which only works while the value comes from a closed set.
+    sh:property [ sh:path fab:rendering ; sh:maxCount 1 ;
+                  sh:in ( "document" "structured" "page-image" "figure" "transcript" "transcript-translated" ) ;
+                  sh:message "a rendering is one of the declared ladder (fabric.renderings)" ] ;
     sh:property [ sh:path fab:lifecycleState ; sh:minCount 1 ; sh:maxCount 1 ;
                   sh:in ( fab:Pending fab:InReview fab:Published fab:Withdrawn ) ] ;
     sh:property [ sh:path fab:baselineVersion ; sh:maxCount 1 ; sh:maxLength 64 ] ;
