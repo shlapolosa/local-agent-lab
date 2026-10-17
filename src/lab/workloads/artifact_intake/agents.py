@@ -19,11 +19,17 @@ from openai import AsyncOpenAI
 from lab.workloads import skills
 
 HERE = Path(__file__).resolve().parent
-SKILL = {"classifier": "fabric-classification", "synthesis": "fabric-decision-record"}
+#: kind -> the registered skill directory. The EXTRACTOR is the inverted classifier's reader: it is shown
+#: the artifact and no vocabulary at all, because a model handed a closed set will find something in it
+#: that fits (measured: `UseCase` on 37 of the 40 records carrying any subject). Matching happens after
+#: it, deterministically, against definitions.
+SKILL = {"classifier": "fabric-classification", "synthesis": "fabric-decision-record",
+         "extractor": "fabric-extraction"}
 
 
 def schema(kind: str) -> dict:
-    name = {"classifier": "classification", "synthesis": "decision_records"}[kind]
+    name = {"classifier": "classification", "synthesis": "decision_records",
+            "extractor": "extraction"}[kind]
     return json.loads((HERE / "schemas" / f"{name}.schema.json").read_text(encoding="utf-8"))
 
 

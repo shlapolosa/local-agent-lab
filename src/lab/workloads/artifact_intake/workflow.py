@@ -19,7 +19,7 @@ import re
 
 from agent_framework import WorkflowBuilder, WorkflowContext, executor
 
-from lab.core.semantic.fabric import citations
+from lab.core.semantic.fabric import citations, concepts
 from lab.core.semantic.fabric.catalog import describe
 from lab.core.semantic.fabric.owners import OwnerMap
 from lab.core.semantic.fabric.service import PERSON
@@ -116,14 +116,18 @@ async def _excerpt(cfg, pointer: dict) -> str:
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
              schemas: dict | None = None, doc_types: dict | None = None, threshold: float = 0.75,
              default_label: str = "", owners: OwnerMap | None = None, overlap_threshold: float = 0.85,
-             subject_floor: float = 0.0,
+             subject_floor: float = 0.0, extract_first: bool = False,
              vocabulary: str = "", tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment.
-    `agents` and `schemas` are keyed `classifier` / `synthesis`; an absent agent makes its step a pass-through."""
+    `agents` and `schemas` are keyed by agent KIND (`agents.SKILL`); an absent agent makes its step a
+    pass-through. `extract_first` picks which reader supplies the SUBJECTS — the classifier shown the
+    vocabulary, or the extractor shown none of it; the document TYPE comes from the classifier either
+    way."""
     from lab.platform import config
     return {"headers": gateway.auth_headers(credential, traceparent), "mcp_url": mcp_url or config.GATEWAY_MCP_URL,
             "credential": credential, "agents": dict(agents or {}), "schemas": dict(schemas or {}),
             "doc_types": dict(doc_types or {}), "threshold": float(threshold), "default_label": default_label,
+            "extract_first": bool(extract_first),
             "owners": owners or OwnerMap.empty(), "overlap_threshold": float(overlap_threshold),
             "subject_floor": float(subject_floor),
             "vocabulary": vocabulary, "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
@@ -170,6 +174,7 @@ def _type_label(cfg, iri: str | None) -> str:
 def build_workflow(cfg):
     schemas = cfg.get("schemas") or {}
     classify_gate = validator_for(schemas["classifier"]) if schemas.get("classifier") else None
+    extract_gate = validator_for(schemas["extractor"]) if schemas.get("extractor") else None
     synth_gate = validator_for(schemas["synthesis"]) if schemas.get("synthesis") else None
 
     @executor(id="identify")
@@ -237,6 +242,21 @@ def build_workflow(cfg):
                     suggestion["document_type"] = None
             subjects = list((suggestion or {}).get("subjects") or [])
             confidence = float((suggestion or {}).get("confidence") or 0.0)
+            # EXTRACT-FIRST. The classifier keeps the document TYPE — a closed set of ten, where being
+            # shown the options is appropriate — and the SUBJECTS come instead from a reader that was
+            # shown no vocabulary at all. A term may be inferred; its evidence may not, so a span absent
+            # from the excerpt takes its term with it.
+            ungrounded, grounded_any = 0, False
+            if cfg.get("extract_first") and cfg["agents"].get("extractor") and extract_gate is not None:
+                got = await run_gated(cfg["agents"]["extractor"], json.dumps(brief, ensure_ascii=False),
+                                      step="extraction", validator=extract_gate)
+                terms = list((got or {}).get("terms") or [])
+                kept = [x for x in terms if concepts.ground(str(x.get("evidence_span") or ""), excerpt)]
+                ungrounded = len(terms) - len(kept)
+                grounded_any = bool(kept)
+                subjects = [str(x.get("term") or "") for x in kept]
+                print(f"[intake] extracted {len(terms)} term(s), {len(kept)} grounded, "
+                      f"{ungrounded} discarded", flush=True)
             # A subject the model is GUESSING at never becomes a link. The excerpt fixed what the
             # classifier can SEE; this is what it does when it sees nothing that fits, and the two are
             # different defects: measured 9 Oct 2026, minutes whose content had been read correctly were
@@ -283,7 +303,17 @@ def build_workflow(cfg):
             # kept four links from the run before). An empty answer from a classifier that RAN is an
             # opinion; a run with no classifier has none, which is why the guard tests the suggestion and
             # not the list.
-            if suggestion is not None:
+            # "I could not ground anything" is NOT "I grounded nothing". `vocab_link` replaces the
+            # extracted subject set wholesale, and `_excerpt` returns "" on ANY failure — a missing
+            # grant, a provider outage, an empty artifact. Composed naively, one storage blip means zero
+            # terms, an empty link call, and every rung-X subject on that record retracted; swept across
+            # the estate that erases the subject graph. So a run that extracted terms and grounded NONE
+            # of them leaves the prior set standing and says so.
+            blind = bool(cfg.get("extract_first")) and ungrounded > 0 and not grounded_any
+            if blind:
+                print(f"[intake] {ungrounded} term(s) and nothing grounded — leaving the subjects as they "
+                      f"are rather than retracting them", flush=True)
+            if suggestion is not None and not blind:
                 out = await gateway.call(cfg, SemanticTools.vocab_link, {"iri": state["iri"], "terms": subjects})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
                 # What a RE-READ took back: subjects an earlier pass extracted that this one no longer
@@ -346,6 +376,10 @@ def build_workflow(cfg):
                     "iri": state["iri"], "field": "owner", "value": PERSON + owner, "rung": CONSTRUCTED, "method": method})
             state = state | {"subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
                              "conflicts": conflicts, "retracted": retracted, "unsure": unsure,
+                             # how many readings were dropped for want of evidence — a reviewer judging a
+                             # thin set of subjects should know whether the reader said little or was
+                             # disbelieved, and they are very different things
+                             "ungrounded": ungrounded,
                              "confidence": confidence, "rationale": (suggestion or {}).get("rationale", "")}
         await ctx.send_message(state)
 
@@ -527,7 +561,10 @@ def build_workflow(cfg):
                        # the one person asked to confirm the record as the only one not told. Named for
                        # the same reason as `dropped_unsure`: a reviewer can only object to a removal
                        # they can see.
-                       "retracted": state.get("retracted") or []}
+                       "retracted": state.get("retracted") or [],
+                       # how many readings were dropped for want of evidence — a reviewer judging a thin
+                       # set of subjects should know whether the reader said little or was disbelieved
+                       "ungrounded": state.get("ungrounded") or 0}
             cont = Continuation(process=ARTIFACT_PUBLISH.name, inputs={"artifact_iri": state["iri"]},
                                 requester=state.get("requester") or "")
             artifacts = {f'{d["id"]} {d["title"][:60]}'.strip(): d["ref"] for d in state.get("drafts") or []}

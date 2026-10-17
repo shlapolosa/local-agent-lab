@@ -50,15 +50,22 @@ async def run_once(root, pointer: dict, event_id: str, *, context: str = "", pro
         headers["traceparent"] = c.traceparent_header
         common = dict(gateway_url=config.GATEWAY_URL, model=config.FABRIC_AGENT_MODEL, headers=headers,
                       store=config.AGENT_RESPONSES_STORE)
+        # The extractor reads on the CLASSIFIER's credential, deliberately. A third Entra identity buys
+        # separately attributable spend and nothing else — it reads the same excerpt, in the same run, for
+        # the same process — and it would cost a provisioning change, a topology env prefix and a third
+        # `AGENTS` entry before the inversion has earned any of them. Split it when the spend question is
+        # asked, not before.
         agents = {"classifier": A.make_agent("classifier", credential=tools_cred, **common),
+                  "extractor": A.make_agent("extractor", credential=tools_cred, **common),
                   "synthesis": A.make_agent("synthesis", credential=_cred(SYNTHESIS_PREFIX), **common)}
         return make_cfg(credential=tools_cred, traceparent=c.traceparent_header, agents=agents,
-                        schemas={"classifier": A.schema("classifier"), "synthesis": A.schema("synthesis")},
+                        schemas={k: A.schema(k) for k in A.SKILL},
                         doc_types=DocumentTypes().suggestable(), threshold=config.FABRIC_ASSOCIATION_THRESHOLD,
                         default_label=config.FABRIC_DEFAULT_LABEL, owners=OwnerMap.load(config.FABRIC_OWNER_MAP),
                         overlap_threshold=config.FABRIC_OVERLAP_THRESHOLD,
                         vocabulary=config.FABRIC_VOCAB_SCHEME,
                         subject_floor=config.FABRIC_SUBJECT_FLOOR,
+                        extract_first=config.FABRIC_EXTRACT_FIRST,
                         tracer=c.tracer, root_ctx=c.root_ctx,
                         mcp_url=c.mcp_url, run_id=c.run_id)
 

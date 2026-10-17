@@ -91,15 +91,18 @@ class Fabric:
         return {k: v for k, v in t.items() if v is not None}
 
 
-def harness(fab: Fabric, *, classifier=None, synthesis=None, threshold=0.75, default_label="", tools=None,
+def harness(fab: Fabric, *, classifier=None, synthesis=None, extractor=None, extract_first=False,
+            threshold=0.75, default_label="", tools=None,
             owners=None, vocabulary="", subject_floor=0.0):
     # `None` for a tool = the gateway does NOT expose it (a missing grant, a version skew): unlisted, not just unanswered
     hidden = {k for k, v in (tools or {}).items() if v is None}
     router = Router(fab.tools(**(tools or {})), hidden=hidden, full=True)
     ctx = spine(W, router)
     h = ctx.__enter__()
-    h.cfg.update({"agents": {k: v for k, v in (("classifier", classifier), ("synthesis", synthesis)) if v},
-                  "schemas": {"classifier": A.schema("classifier"), "synthesis": A.schema("synthesis")},
+    h.cfg.update({"agents": {k: v for k, v in (("classifier", classifier), ("synthesis", synthesis),
+                                               ("extractor", extractor)) if v},
+                  "schemas": {k: A.schema(k) for k in A.SKILL},
+                  "extract_first": extract_first,
                   "doc_types": DOC_TYPES, "threshold": threshold, "default_label": default_label,
                   # the shipped map's lab rule: a lab product's owner is the person who asked for the run
                   "owners": owners or OwnerMap.from_dict({"lab": {"transcript_to_minutes": "requester"}}),
@@ -923,3 +926,63 @@ def test_the_review_card_SAYS_WHICH_SUBJECTS_THE_RUN_TOOK_AWAY():
     finally:
         h.close()
     assert "retracted" in out["summary"], out["summary"]
+
+
+#: One span IS in the minutes excerpt (which is the artifact JSON, so its text appears verbatim) and one
+#: is not — the pair the grounding rule exists to tell apart.
+EXTRACTION = {"terms": [
+    {"term": "legacy portal retirement", "evidence_span": "Retire the legacy portal", "salience": 0.9},
+    {"term": "a thing the document never says", "evidence_span": "not in the excerpt at all", "salience": 0.8},
+]}
+
+
+def test_EXTRACT_FIRST_grounds_each_term_and_drops_the_ungrounded_one():
+    """The inversion's reading step. A term may be INFERRED — naming what a document is about without
+    using its words is the point — but the evidence may not. So a span that is not in the excerpt takes
+    its term with it, and the run says how many went that way rather than losing them silently."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), extractor=FakeAgent(EXTRACTION),
+                synthesis=FakeAgent(RECORDS), extract_first=True)
+    try:
+        out = run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:AAMk1",
+                               "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+    finally:
+        h.close()
+    linked = calls(h, SemanticTools.vocab_link)
+    assert linked, "the grounded term must still reach the vocabulary"
+    assert "legacy portal retirement" in linked[0]["terms"]
+    assert "a thing the document never says" not in linked[0]["terms"]
+    assert out["summary"]["ungrounded"] == 1
+
+
+def test_EXTRACT_FIRST_with_NOTHING_grounded_does_not_retract_the_record_s_subjects():
+    """The hazard that shaped this branch. `vocab_link` replaces the EXTRACTED subject set wholesale, and
+    `_excerpt` returns "" on ANY failure — a missing grant, a provider outage, an empty artifact. Composed
+    naively, one storage blip means zero grounded terms, an empty `vocab_link`, and EVERY subject on that
+    record retracted. Run across the estate under a reclassify sweep, that erases the subject graph.
+
+    So "I could not ground anything" is not "I grounded nothing": the first leaves the prior set standing
+    and says so, and only the second is allowed to replace it."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION),
+                extractor=FakeAgent({"terms": [{"term": "an unevidenced reading",
+                                               "evidence_span": "nowhere in the text", "salience": 0.5}]}),
+                extract_first=True)
+    try:
+        out = run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    assert not calls(h, SemanticTools.vocab_link), "an all-ungrounded run must not touch the subject set"
+    assert out["summary"]["ungrounded"] == 1
+
+
+def test_WITHOUT_the_flag_nothing_changes():
+    """Flag-guarded coexistence: the extractor is built and not consulted, so the old path is bit-for-bit
+    what it was and reverting is an env change rather than a redeploy."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), extractor=FakeAgent(EXTRACTION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    assert calls(h, SemanticTools.vocab_link)[0]["terms"] == ["Care Delivery", "Unknown Term"]

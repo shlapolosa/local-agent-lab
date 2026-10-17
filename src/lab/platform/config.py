@@ -470,6 +470,12 @@ FABRIC_SWEEP_LIMIT = int(_e("FABRIC_SWEEP_LIMIT", "500"))
 #: 2026, a speech-provider bake-off's minutes were still filed under `Clinical document` because CAFE is
 #: healthcare-shaped and something always looks vaguely close. 0 keeps every subject, as before.
 FABRIC_SUBJECT_FLOOR = float(_e("FABRIC_SUBJECT_FLOOR", "0.6"))
+#: Read the ARTIFACT first and match afterwards, instead of handing the classifier the vocabulary and
+#: asking which of it fits. Off by default: both paths are built so the new one can be compared on live
+#: data before it is committed to, and reverting is an env change rather than a redeploy. Note this
+#: governs SUBJECTS only — the document TYPE stays a closed-set choice either way, because ten stable
+#: options are a case where being shown the list is appropriate.
+FABRIC_EXTRACT_FIRST = _bool(_e("FABRIC_EXTRACT_FIRST"))
 # The FIRST sweep after a start waits: a deploy restarts every service together and the gateway is the
 # slowest up, so a sweep at boot queued runs that died at preflight on a 502 (measured, first cloud deploy).
 FABRIC_SWEEP_FIRST_S = int(_e("FABRIC_SWEEP_FIRST_S", "180"))

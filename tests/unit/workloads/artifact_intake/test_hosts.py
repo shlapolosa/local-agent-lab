@@ -8,6 +8,7 @@ import pytest
 from fixtures.fakes import FakeRedis
 from fixtures.host import make_root
 from lab.platform import config
+from lab.workloads.artifact_intake import agents as A
 from lab.platform.contracts import PROCESSES
 from lab.workloads.artifact_intake import host as intake
 from lab.workloads.artifact_intake import workflow as W
@@ -30,7 +31,7 @@ def test_each_host_has_its_own_service_name_process_and_identity():
     assert intake._cred(intake.CLASSIFIER_PREFIX) == "sk-classifier_agent"
 
 
-def test_the_intake_host_injects_two_agents_the_schemas_and_the_settings(monkeypatch):
+def test_the_intake_host_injects_EVERY_agent_kind_the_schemas_and_the_settings(monkeypatch):
     seen = []
 
     async def run_workflow(cfg, inputs):
@@ -41,8 +42,13 @@ def test_the_intake_host_injects_two_agents_the_schemas_and_the_settings(monkeyp
     out = asyncio.run(intake.run_once(make_root(intake.SERVICE, redis=FakeRedis()), POINTER, "01J",
                                       context="meeting:AAMk1", produced_by="transcript_to_minutes", requester="a@x"))
     cfg, inputs = seen[0]
-    assert set(cfg["agents"]) == {"classifier", "synthesis"} and set(cfg["schemas"]) == {"classifier", "synthesis"}
-    assert cfg["agents"]["classifier"].name == "fabric-classifier" and cfg["agents"]["synthesis"].name == "fabric-synthesis"
+    # Against `A.SKILL` rather than a literal set: a kind the host forgets to build is a silently absent
+    # agent, and the workflow's own guard (`cfg["agents"].get(kind)`) would read that as "this deployment
+    # chose not to run it" — which is how a missing agent becomes a quiet no-op instead of a failure.
+    assert set(cfg["agents"]) == set(A.SKILL) and set(cfg["schemas"]) == set(A.SKILL)
+    assert all(cfg["agents"][k].name == f"fabric-{k}" for k in A.SKILL)
+    # the extractor reads on the classifier's credential — one identity until spend attribution is asked for
+    assert cfg["agents"]["extractor"].name == "fabric-extractor"
     assert cfg["credential"] == "sk-classifier_agent" and cfg["threshold"] == 0.6 and cfg["default_label"] == "Internal"
     # A setting the workflow declares and the host never passes is a setting that silently keeps its
     # default. `subject_floor` shipped that way and the confidence floor was inert in production while

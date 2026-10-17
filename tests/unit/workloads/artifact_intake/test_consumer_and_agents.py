@@ -1,6 +1,7 @@
 """The intake's consumer forwards every input the contract declares; its agents compose the registered skill
 with the schema the gate holds them to."""
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -45,7 +46,7 @@ def test_the_log_line_names_ids_never_a_person():
 
 
 def test_agents_compose_the_skill_and_the_schema():
-    for kind in ("classifier", "synthesis"):
+    for kind in A.SKILL:
         text = A.instructions(kind, A.schema(kind))
         assert "## The schema" in text and '"$schema"' in text and not text.lstrip().startswith("---")
     assert "document_type" in A.schema("classifier")["properties"]
@@ -65,6 +66,28 @@ def test_classification_is_SAMPLED_AT_ZERO_because_it_is_a_judgement_not_a_draft
     creative latitude worth sampling for — the variance was pure noise, and it was about to be averaged
     away with a three-run ensemble that would have cost three sweeps to hide a one-line cause.
     """
-    for kind in ("classifier", "synthesis"):
+    for kind in A.SKILL:
         agent = A.make_agent(kind, credential="k", gateway_url="http://gw", model="m")
         assert agent.default_options["temperature"] == 0, f"{kind} must not sample"
+
+
+def test_the_EXTRACTOR_is_shown_no_vocabulary_at_all():
+    """The inversion in one assertion. A classifier is handed ~130 concepts and asked which fit, which
+    anchors the answer — `UseCase` landed on 37 of the 40 records carrying any subject. The extractor
+    cannot make that mistake because it is never told what the options are, so its skill must not
+    mention a scheme, a concept list or a taxonomy, and its schema must not carry an enum of them."""
+    text = A.instructions("extractor", A.schema("extractor"))
+    lowered = text.casefold()
+    for forbidden in ("document_types", "the vocabulary you are given", "choose one of these iris"):
+        assert forbidden not in lowered, forbidden
+    props = A.schema("extractor")["properties"]["terms"]["items"]["properties"]
+    assert set(props) == {"term", "evidence_span", "salience"}
+    assert "enum" not in json.dumps(A.schema("extractor")), "a closed set is what we are escaping"
+
+
+def test_the_extractor_asks_for_EVIDENCE_not_only_a_term():
+    """A term may be inferred; the evidence may not. That asymmetry is the whole grounding rule, so it
+    has to survive in the contract the model is actually shown."""
+    schema = A.schema("extractor")["properties"]["terms"]["items"]
+    assert schema["required"] == ["term", "evidence_span", "salience"]
+    assert "copied exactly" in schema["properties"]["evidence_span"]["description"].casefold()
