@@ -482,7 +482,7 @@ class FabricService:
                 return name
         return ""
 
-    def _candidate_for(self, label: str, scheme: str):
+    def _candidate_for(self, label: str, scheme: str, alias_of: str = ""):
         """The candidate row for this term in this scheme, WHATEVER its state, or None. Matched on the
         normalised label so a difference of case or spacing is not a second question (`Decision record` /
         `Decision Record` were two rows on the live register).
@@ -497,12 +497,19 @@ class FabricService:
                 continue
             if str(g.value(node, FAB.candidateScheme) or "") != scheme:
                 continue                      # schemes are never merged: one word may be missing from each
+            # ...and a different PROPOSED TARGET is a different question. The key used to be label +
+            # scheme alone, which was enough while every candidate meant "invent a concept for this". Once
+            # a matcher can say "this looks like another word for X", a term parked with no target and the
+            # same term later matched to one would join the same row and the target would simply vanish —
+            # the second answer lost to the first with nothing on screen to say so.
+            if str(g.value(node, FAB.aliasOf) or "") != alias_of:
+                continue
             return node
         return None
 
     def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
                       scheme: str = "", concept_id: str = "", module: str = "",
-                      proposed_for: str = "") -> dict:
+                      proposed_for: str = "", alias_of: str = "") -> dict:
         """Park a candidate concept for a steward (the candidates graph is not a scheme: a steward accepts
         it with `promote`, which records the acceptance at rung H).
 
@@ -527,7 +534,7 @@ class FabricService:
         if held:
             return {"label": label.strip(), "scheme": scheme, "held_by": held}
         g = self.ds.graph(CANDIDATES_GRAPH)
-        existing = self._candidate_for(label, scheme)
+        existing = self._candidate_for(label, scheme, alias_of)
         if existing is not None:
             if proposed_for:
                 g.add((existing, FAB.proposedFor, URIRef(proposed_for)))
@@ -541,6 +548,12 @@ class FabricService:
         g.add((c, G.PROV.wasAttributedTo, Literal(actor)))
         if proposed_for:
             g.add((c, FAB.proposedFor, URIRef(proposed_for)))
+        if alias_of:
+            # A SUGGESTION on the row, never a write to the scheme. `vocab_amend` lives in the PROMOTE
+            # grant and the pipeline does not hold it, because an agent that could narrow the vocabulary
+            # it is classified against would be marking its own homework. This lets the card ask the cheap
+            # question — "is this another word for X?" — with X already filled in.
+            g.add((c, FAB.aliasOf, URIRef(alias_of)))
         if definition:
             g.add((c, SKOS.definition, Literal(definition)))
         if broader:
@@ -784,6 +797,11 @@ class FabricService:
             out.append({"iri": str(node), "label": label, "scheme": name,
                         "concept_id": str(g.value(node, FAB.candidateId) or ""),
                         "definition": str(g.value(node, SKOS.definition) or ""),
+                        # The concept a matcher thinks this is a WORD FOR, when one was found. It turns
+                        # the card's expensive question ("what does it mean and where does it sit?") into
+                        # the cheap one ("is this another word for X?"), which is the difference between
+                        # a steward answering eight terms and a steward answering one.
+                        "alias_of": str(g.value(node, FAB.aliasOf) or ""),
                         # NOT RECORDED is not ONE. A row written before `proposedFor` existed carries no
                         # artifacts, and defaulting it to 1 silenced the entire back catalogue at any
                         # threshold above one — measured live 10 Oct 2026, the moment this deployed: all 46

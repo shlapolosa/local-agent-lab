@@ -161,3 +161,31 @@ def test_being_ASKED_is_recorded_on_the_candidate_and_is_idempotent(fab):
     assert fab.vocab_asked(row["iri"])["already"] is True    # an answered candidate is not re-asked
     with pytest.raises(LookupError):
         fab.vocab_asked("urn:fabric:candidate:nope")
+
+
+def test_a_candidate_can_carry_the_concept_a_matcher_thinks_it_is_a_WORD_FOR(fab):
+    """The third outcome needs somewhere to live. A term no label matched may still be another word for
+    a concept the vocabulary holds — and a candidate that cannot say so arrives at the steward's card
+    indistinguishable from a proposal to invent something new, which is the expensive question.
+
+    It is a SUGGESTION on the row, never a write to the scheme: `vocab_amend` is in the PROMOTE grant
+    and the pipeline does not hold it, because "an agent that could narrow the vocabulary it is
+    classified against would be marking its own homework"."""
+    out = fab.vocab_propose("clinical review workflow", actor="classifier-agent", scheme="syn-v1",
+                            proposed_for=A1, alias_of="urn:lab:semantic:ref:syn#c1")
+    assert out["iri"].startswith("urn:fabric:candidate:")
+    row = next(c for c in fab.vocab_candidates() if c["iri"] == out["iri"])
+    assert row["alias_of"] == "urn:lab:semantic:ref:syn#c1"
+
+
+def test_two_candidates_for_one_word_with_DIFFERENT_targets_do_not_silently_merge(fab):
+    """`_candidate_for` dedupes on normalised label + scheme, with state deliberately not a filter. Add a
+    proposed target and that key is no longer enough: a term parked with no target, then matched later to
+    a concept, would join the first row and the target would vanish — the second answer lost to the first
+    with nothing on screen to say so."""
+    first = fab.vocab_propose("care coordination", actor="classifier-agent", scheme="syn-v1", proposed_for=A1)
+    second = fab.vocab_propose("care coordination", actor="classifier-agent", scheme="syn-v1",
+                               proposed_for=A1, alias_of="urn:lab:semantic:ref:syn#c1")
+    assert second["iri"] != first["iri"], "a different proposed target is a different question"
+    targets = {c.get("alias_of") or "" for c in fab.vocab_candidates() if c["label"] == "care coordination"}
+    assert targets == {"", "urn:lab:semantic:ref:syn#c1"}

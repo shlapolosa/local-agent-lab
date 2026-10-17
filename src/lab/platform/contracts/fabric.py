@@ -78,6 +78,11 @@ class SemanticTools(ToolCatalogue):
     embed = "semantic_embed"
     reindex = "semantic_reindex"
     similar = "semantic_similar"
+    #: Which concept a TERM means, matched against definitions — the semantic tier of the inverted
+    #: classifier, for a term no label matched. In PIPELINE rather than READ although it reads: it
+    #: lazily indexes the definitions it compares against, and a verb's grant should describe what it
+    #: can WRITE, not what its name suggests.
+    concept_match = "semantic_concept_match"
     search = "semantic_search"
     recommend = "semantic_recommend"               # published only, with owners: "before you create" (BR-4)
     metrics = "semantic_metrics"                   # the published measurements (BR-8), numbers only
@@ -109,7 +114,7 @@ class SemanticTools(ToolCatalogue):
             catalog_get, catalog_by_url, trace, impact, similar, search, recommend, metrics, validate_shapes,
             topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
-                vocab_propose, vocab_asked, embed, derive)
+                vocab_propose, vocab_asked, embed, derive, concept_match)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.

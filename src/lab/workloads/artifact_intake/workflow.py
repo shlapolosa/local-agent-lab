@@ -325,6 +325,25 @@ def build_workflow(cfg):
                 # steward — without this it is invisible everywhere except the curated graph.
                 conflicts = out.get("conflicts") or []
                 for term in missed:
+                    # TIER 2. No LABEL matched this term, but a DEFINITION may: ask what it MEANS before
+                    # proposing to invent a concept for it. Measured 17 Oct 2026, ZERO of 30 terms on real
+                    # prose matched a label — the extractor says "dispense confirmation callback" and the
+                    # vocabulary says `Dispense` — so without this every one of them would become a
+                    # proposal for a concept the fabric already holds.
+                    #
+                    # The two questions cost a steward very different amounts: "is this another word for
+                    # X?" is seconds, and "what does this mean and where does it sit?" is not. Asking the
+                    # expensive one by default is how 45 terms became 58 cards.
+                    alias_of = ""
+                    try:
+                        found = await gateway.call(cfg, SemanticTools.concept_match,
+                                                   {"term": term, "scheme": cfg.get("vocabulary", "")})
+                        found = found if isinstance(found, dict) else {}
+                        alias_of = str(found.get("concept") or "")
+                    except Exception as e:                   # noqa: BLE001 — a suggestion, never a gate
+                        # The term still reaches the register: an unavailable tier means the steward is
+                        # asked the expensive question, not that the word is lost.
+                        print(f"[intake] no concept match for {term[:40]!r}: {type(e).__name__}", flush=True)
                     # `proposed_for` is THIS artifact, and leaving it out quietly disabled two features that
                     # are implemented and tested in the service. `vocab_propose` keeps one row per term and
                     # accumulates the artifacts behind it, so without it every candidate carried no count and
@@ -335,7 +354,7 @@ def build_workflow(cfg):
                     # recording that a word was unknown while forgetting who had used it.
                     await gateway.call(cfg, SemanticTools.vocab_propose,
                                        {"label": term, "actor": "classifier-agent", "scheme": cfg.get("vocabulary", ""),
-                                        "proposed_for": state["iri"],
+                                        "proposed_for": state["iri"], "alias_of": alias_of,
                                         "definition": f"proposed while classifying {state['title']}"})
             # WHAT THIS DOCUMENT CITES. Impact walks INBOUND over `references`, and the only producer of
             # that edge was a synthesised draft pointing back at its source — so an authored document that

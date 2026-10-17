@@ -408,9 +408,31 @@ def semantic_vocab_link(iri: str, terms: list[str], schemes: list[str] | None = 
 
 
 @server.tool()
+def semantic_concept_match(term: str, scheme: str = "", limit: int = 5) -> dict:
+    """Which concept a TERM means — matched against concept DEFINITIONS, for a term whose words matched
+    no label. The semantic tier of the inverted classifier: `{term, concept, label, score, margin,
+    scheme, unavailable}`, where an empty `concept` is the ORDINARY answer.
+
+    Nothing is not a failure. Measured 17 Oct 2026 on real documents, 19 of 30 extracted terms matched
+    no concept confidently, and the ones refused include `dead-letter handling rota -> Migration
+    disposition` — nonsense an absolute score threshold would have accepted. A term that falls through
+    becomes a candidate for a steward, which is how the vocabulary learns what the corpus needed and it
+    did not have.
+
+    `unavailable` is NOT a miss: it means no embedder is configured, so the question could not be asked
+    at all. "The vocabulary has no such concept" is a claim about the corpus; "I could not ask" is a
+    claim about the deployment, and reading one as the other would make an outage look like a
+    vocabulary gap.
+
+    It INDEXES lazily — definitions not yet in the embedder's space are embedded on the way past, which
+    is why it is a pipeline verb and not a read."""
+    return fabric().concept_match(term, scheme=scheme, limit=limit)
+
+
+@server.tool()
 def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader: str = "",
                            scheme: str = "", concept_id: str = "", module: str = "",
-                           proposed_for: str = "") -> dict:
+                           proposed_for: str = "", alias_of: str = "") -> dict:
     """Park a candidate concept for a steward. Not in any scheme until a person accepts it (semantic_promote
     with the candidate's IRI and no predicate), at which point it IS admitted and findable from then on.
     `scheme` is the vocabulary it would join and `concept_id` the id it would take — the steward supplies
@@ -421,10 +443,15 @@ def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader
     them is the evidence of whether it matters, and admitting it re-matches exactly those artifacts
     instead of the whole catalogue. Omit it and the candidate is parked with no provenance: the frequency
     threshold reads a count that is then always null and asks about every term on first sight, and
-    admission propagates to nothing."""
+    admission propagates to nothing.
+
+    `alias_of` is the concept a matcher thinks this term is another WORD FOR, when the semantic tier
+    found one. It is a suggestion recorded on the candidate, never a write to the vocabulary — amending
+    a scheme is a steward's act behind the PROMOTE grant. It turns the card's expensive question ("what
+    does this mean, and where does it sit?") into the cheap one ("is this another word for X?")."""
     return fabric().vocab_propose(label, definition=definition, actor=actor, broader=broader,
                                   scheme=scheme, concept_id=concept_id, module=module,
-                                  proposed_for=proposed_for)
+                                  proposed_for=proposed_for, alias_of=alias_of)
 
 
 @server.tool()

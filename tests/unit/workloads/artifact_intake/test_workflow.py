@@ -50,9 +50,11 @@ class FakeAgent:
 class Fabric:
     """A canned semantic-mcp: rows by pointer, every write recorded with its rung."""
 
-    def __init__(self, similar=None, search=None):
+    def __init__(self, similar=None, search=None, concept_hits=None):
         self.rows, self.asserts, self.edges, self.similar_answer = {}, [], [], similar or []
         self.search_answer = search or []
+        #: term -> the concept the semantic tier found for it. Anything unlisted is an honest miss.
+        self.concept_hits = dict(concept_hits or {})
         self.n = 0
 
     def upsert(self, a):
@@ -64,6 +66,13 @@ class Fabric:
                               "context": a.get("context", ""), "state": "pending", "links": []}
         self.rows[key].update({k: a[k] for k in ("title", "context") if a.get(k)})
         return dict(self.rows[key])
+
+    def concept_answer(self, args: dict) -> dict:
+        term = str(args.get("term") or "")
+        hit = self.concept_hits.get(term)
+        return {"term": term, "concept": hit or "", "label": (hit or "").rsplit("#", 1)[-1],
+                "score": 0.6 if hit else 0.2, "margin": 0.09 if hit else 0.004,
+                "scheme": "syn", "unavailable": False}
 
     def tools(self, **over):
         t = {
@@ -82,6 +91,7 @@ class Fabric:
             "semantic_embed": {"iri": "x", "model": "m", "dim": 8},
             "semantic_similar": lambda a: self.similar_answer,
             "semantic_search": lambda a: self.search_answer,
+            "semantic_concept_match": lambda a: self.concept_answer(a),
             "semantic_store_spec": lambda a: {"spec_ref": f"art://store/{a['name']}"},
             "storage_read_artifact": MINUTES_DOC,
             "collab_item": {"name": "ADR-14 Event bus.docx", "path": "/EA/decisions", "modified": "2026-09-11T00:00:00Z"},
@@ -986,3 +996,36 @@ def test_WITHOUT_the_flag_nothing_changes():
     finally:
         h.close()
     assert calls(h, SemanticTools.vocab_link)[0]["terms"] == ["Care Delivery", "Unknown Term"]
+
+
+def test_a_term_no_LABEL_matched_but_a_DEFINITION_does_becomes_an_ALIAS_candidate():
+    """The third outcome, and the one that did not exist before. A term whose words match no label can
+    still be a word for a concept the vocabulary already holds — measured 17 Oct, ZERO of 30 terms on
+    real prose matched a label, so without this tier every one of them would become a proposal to invent
+    a concept that already exists.
+
+    An alias is a cheap question (`is this another word for X?`) and a new concept is an expensive one
+    (`what does it mean, and where does it sit?`). Asking the expensive one by default is what made 58
+    cards out of 45 terms."""
+    fab = Fabric(concept_hits={"Unknown Term": "urn:lab:semantic:domain:syn#ClinicalReview"})
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    proposed = calls(h, SemanticTools.vocab_propose)
+    assert proposed, "the term still has to reach the register"
+    assert proposed[0]["alias_of"] == "urn:lab:semantic:domain:syn#ClinicalReview"
+
+
+def test_a_term_NOTHING_matched_is_proposed_with_no_target_at_all():
+    """The honest miss stays honest. A candidate carrying a target nobody can defend would put a
+    steward's `existing:<id>` answer one tap away from a relationship the fabric invented."""
+    fab = Fabric()                                   # no concept hits at all
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    proposed = calls(h, SemanticTools.vocab_propose)
+    assert proposed and not proposed[0].get("alias_of")
