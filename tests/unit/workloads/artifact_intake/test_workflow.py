@@ -906,3 +906,20 @@ def test_a_citation_the_rule_CANNOT_PLACE_is_dropped_rather_than_guessed():
     finally:
         h.close()
     assert not [e for e in fab.edges if str(e.get("predicate", "")).endswith("references")]
+
+
+def test_the_review_card_SAYS_WHICH_SUBJECTS_THE_RUN_TOOK_AWAY():
+    """A reviewer confirming a record is shown what it gained and never what it lost.
+
+    `vocab_link` replaces the EXTRACTED subject set wholesale, so a re-read silently retracts whatever it
+    no longer stands behind. The reclassify branch reports `retracted` on the run, but the approval
+    summary omits it — so the one person asked to confirm the record is the one person not told. Named,
+    not counted, for the same reason `dropped_unsure` is: a reviewer can only object to a removal they
+    can see."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        out = run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    assert "retracted" in out["summary"], out["summary"]

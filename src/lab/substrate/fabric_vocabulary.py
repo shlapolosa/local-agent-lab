@@ -375,9 +375,16 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
         if tool == SemanticTools.promote:
             # The concept IRI is only known once the promotion has RUN, which is why this is here and not
             # in `plan`: a pure planner cannot name a thing the gate has not yet created.
+            #
+            # The key is `concept`. `_admit` answers {from, scheme, concept_id, concept, label, actor,
+            # rung, assertion} and has never emitted `iri` — which this read for, so `_propagate` was
+            # handed "" on every admission, returned [] at its own guard, and FR-1.1.5 linked NOBODY in
+            # production. It stayed invisible because the test's fake answered with an `iri` the real
+            # service does not have, so a double more generous than production hid a defect for as long
+            # as the feature has existed.
             got = json.loads(got) if isinstance(got, str) else (got or {})
             candidate = by_candidate.get(str(args.get("subject") or "")) or {}
-            for t, a in _propagate(candidate, str(got.get("iri") or ""), actor):
+            for t, a in _propagate(candidate, str(got.get("concept") or ""), actor):
                 await go([(t, a)])
                 made.append((t, a))
     # ASK AGAIN for what could not be read — after applying what could. `AnswerRejected` re-opens the card

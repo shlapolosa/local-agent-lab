@@ -520,7 +520,14 @@ def build_workflow(cfg):
                        "terms_for_a_steward": len(state.get("conflicts") or []),
                        # NAMED, not counted: a floor nobody can see is a floor nobody can tune, and the
                        # reviewer is the person best placed to say the model was right to hesitate
-                       "dropped_unsure": state.get("unsure") or []}
+                       "dropped_unsure": state.get("unsure") or [],
+                       # ...and what the run took AWAY. `vocab_link` replaces the extracted subject set
+                       # wholesale, so a re-read silently retracts whatever it no longer stands behind.
+                       # The reclassify branch reported this on the run and the card did not, which left
+                       # the one person asked to confirm the record as the only one not told. Named for
+                       # the same reason as `dropped_unsure`: a reviewer can only object to a removal
+                       # they can see.
+                       "retracted": state.get("retracted") or []}
             cont = Continuation(process=ARTIFACT_PUBLISH.name, inputs={"artifact_iri": state["iri"]},
                                 requester=state.get("requester") or "")
             artifacts = {f'{d["id"]} {d["title"][:60]}'.strip(): d["ref"] for d in state.get("drafts") or []}

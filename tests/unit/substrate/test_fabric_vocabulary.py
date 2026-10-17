@@ -361,7 +361,13 @@ def test_admitting_a_term_links_EXACTLY_the_documents_that_asked_for_it():
         out = []
         for name, args in calls:
             seen.append((name, args))
-            out.append({"concept_id": "ClinicalReviewer", "iri": "urn:lab:semantic:domain:cafe#ClinicalReviewer"}
+            # EXACTLY what `_admit` returns — `concept`, never `iri`. The fake used to answer with a
+            # key the real service has never emitted, so this test passed green for the whole time
+            # FR-1.1.5 was inert in production: `_propagate` read `iri`, got "", and linked nobody.
+            out.append({"from": "candidates", "scheme": "cafe", "concept_id": "ClinicalReviewer",
+                        "concept": "urn:lab:semantic:domain:cafe#ClinicalReviewer",
+                        "label": "Clinical Reviewer", "actor": "steward@x", "rung": "H",
+                        "assertion": "urn:fabric:assertion:1"}
                        if name == SemanticTools.promote else {})
         return out
 
