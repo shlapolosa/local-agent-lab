@@ -214,10 +214,23 @@ def batch_question(candidates: list[dict]) -> list[dict]:
         label = str(c.get("label") or "")
         asked = c.get("proposals")
         evidence = f"asked for by {asked} documents" if asked else "asked for by an earlier run"
+        # The concept a matcher thinks this is another WORD for, when the semantic tier found one. Offered
+        # ready to paste, because `existing:<id>` is already an answer the grammar takes and the work is
+        # to SHOW the id rather than make a steward go and find it. Measured 17 Oct 2026: zero of thirty
+        # terms from real prose matched a concept LABEL, so without this every term arrives as "invent a
+        # concept" — the expensive question, and the reason 45 terms became 58 cards.
+        #
+        # A SUGGESTION, never a default: nothing is pre-selected, the id is simply in front of them. A
+        # term nothing matched is offered the unfilled form, because a target the fabric invented would
+        # be one tap from becoming a relationship nobody checked.
+        alias = str(c.get("alias_of") or "")
+        suggested = (f"existing:{alias.rsplit('#', 1)[-1]} — the matcher reads this as another name for "
+                     f"{alias.rsplit('#', 1)[-1]!r}" if alias else
+                     "existing:<id> — it is another name for a concept already there")
         out.append({"label": str(c.get("iri") or ""), "samples": [
             f"{label!r} — {evidence}, for {c.get('scheme') or 'the vocabulary'}",
             f"admit — add it as a concept (id {concept_id_for(label)}) \u00b7 "
-            f"existing:<id> — it is another name for a concept already there \u00b7 "
+            f"{suggested} \u00b7 "
             "decline — it is not a concept, and nobody will be asked again"]})
     return out
 
@@ -372,6 +385,20 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
             got = json.loads(got) if isinstance(got, str) else (got or {})
             parked = str(got.get("iri") or "")
         made.append((tool, args))
+        if tool == SemanticTools.vocab_amend:
+            # The CHEAP answer propagates too. Admitting a term as a concept linked the documents that
+            # prompted it; answering `existing:<id>` — the commonest answer, and the one the semantic
+            # tier now pre-fills — went through `vocab_amend` and linked nobody. The documents whose
+            # words proved the vocabulary was missing a synonym stayed unlinked to the concept that
+            # synonym names, and only a full re-read would ever have found them.
+            got = json.loads(got) if isinstance(got, str) else (got or {})
+            candidate = by_candidate.get(str(args.get("candidate") or args.get("subject") or "")) or {}
+            if not candidate:                       # the amend names a concept, not the candidate it came from
+                candidate = next((c for c in by_candidate.values()
+                                  if (c.get("label") or "") == str(args.get("alt") or "")), {})
+            for t, a in _propagate(candidate, str(got.get("concept") or ""), actor):
+                await go([(t, a)])
+                made.append((t, a))
         if tool == SemanticTools.promote:
             # The concept IRI is only known once the promotion has RUN, which is why this is here and not
             # in `plan`: a pure planner cannot name a thing the gate has not yet created.

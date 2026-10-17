@@ -528,3 +528,57 @@ def test_the_applier_raises_AnswerRejected_so_the_CARD_COMES_BACK():
         asyncio.run(V.apply(state, "steward@x", call=call))
     # ...and the readable verdicts were APPLIED before it asked again, so the person redoes one term
     assert SemanticTools.promote in done and SemanticTools.vocab_decline in done
+
+
+def test_the_card_OFFERS_the_concept_a_matcher_thinks_the_term_is_a_word_for():
+    """The cheap question, pre-filled. A term the semantic tier matched arrives with `alias_of`, and the
+    card should put that id in front of the steward rather than make them go and find it — `existing:<id>`
+    is already an answer the grammar accepts, so the work is to SHOW the id, not to add a verb.
+
+    Measured 17 Oct 2026: zero of thirty terms from real prose matched a concept LABEL, so without this
+    every term reaches a steward as "invent a concept", which is the expensive question and the reason 45
+    terms became 58 cards."""
+    items = V.batch_question([
+        {"iri": "urn:fabric:candidate:1", "label": "dispense confirmation", "scheme": "cafe",
+         "proposals": 3, "alias_of": "urn:lab:semantic:domain:cafe#Dispense"},
+        {"iri": "urn:fabric:candidate:2", "label": "something new entirely", "scheme": "cafe",
+         "proposals": 2},
+    ])
+    suggested, plain = items[0], items[1]
+    assert "Dispense" in " ".join(suggested["samples"]), suggested["samples"]
+    assert "existing:Dispense" in " ".join(suggested["samples"]), "the id must be offered ready to use"
+    # ...and a term nothing matched must NOT be given a target it does not have
+    assert "existing:" in " ".join(plain["samples"]), "the option still stands"
+    assert "existing:<id>" in " ".join(plain["samples"]), "but unfilled, because nothing was matched"
+
+
+def test_admitting_an_ALIAS_links_the_documents_that_asked_for_the_word():
+    """FR-1.1.5 for the cheap answer. Admitting a term as a CONCEPT links the documents that prompted it;
+    answering `existing:<id>` — which is the commonest answer and the one the semantic tier now pre-fills
+    — went through `vocab_amend` and linked nobody. So the documents whose words proved the vocabulary
+    was missing a synonym stayed unlinked to the concept that synonym names, and only a full re-read
+    would ever have found them.
+
+    Same propagation, same rung: the term genuinely was in those documents."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            out.append({"scheme": "cafe", "concept_id": "Dispense", "alt": "dispense confirmation",
+                        "concept": "urn:lab:semantic:domain:cafe#Dispense", "actor": "steward@x",
+                        "rung": "H", "assertion": "urn:fabric:assertion:2"}
+                       if name == SemanticTools.vocab_amend else {})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "dispense confirmation", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A", "urn:fabric:artifact:B"]}]}},
+        "answer": {"urn:fabric:candidate:0": {"value": "existing:Dispense"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A", "urn:fabric:artifact:B"}
+    assert all(l["object"] == "urn:lab:semantic:domain:cafe#Dispense" for l in links)
+    assert all(l["rung"] == "X" for l in links)

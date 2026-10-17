@@ -729,8 +729,11 @@ class FabricService:
             # way would be published as part of the delta by a write the store never took
             sc.concepts[cid] = before
             raise
-        return {"scheme": scheme, "concept_id": cid, "alt": alt, "actor": actor, "rung": to,
-                "assertion": written}
+        # `concept` mirrors what `_admit` answers with, and for the same reason: the caller cannot build
+        # the IRI itself (it would need the scheme's base), and the documents that asked for this word
+        # have to be linked to something.
+        return {"scheme": scheme, "concept_id": cid, "concept": str(sc.uri(cid)), "alt": alt,
+                "actor": actor, "rung": to, "assertion": written}
 
     def _record_curation(self, scheme: str, act: str, row: Mapping[str, Any], *, actor: str, method: str,
                          to: str) -> str:
