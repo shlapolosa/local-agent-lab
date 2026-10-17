@@ -176,3 +176,44 @@ def test_the_projection_page_is_an_assertable_facet_of_the_row():
     assert e.projection_url == "" and "projection_url" in e.to_dict()
     stored = MemoryCatalog().put(e.with_(projection_url="https://wiki/x.md"))
     assert stored.projection_url == "https://wiki/x.md"
+
+
+# ----------------------------------------------------------------- concept vectors (the semantic tier)
+def test_a_concept_vector_is_stored_and_ranked_WITHOUT_a_catalogue_row():
+    """Concepts are not artifacts. `fabric_embedding.iri` is a foreign key onto `fabric_artifact`, so a
+    concept definition cannot live there — and should not: a concept has no custody, no lifecycle and no
+    owner. It gets its own space, keyed by concept IRI and scheme."""
+    c = MemoryCatalog()
+    c.put_concept_embedding("urn:cafe#Dispense", [1.0, 0.0], "m", scheme="cafe")
+    c.put_concept_embedding("urn:cafe#Pharmacy", [0.0, 1.0], "m", scheme="cafe")
+    hits = c.concept_similar([0.9, 0.1], model="m")
+    assert [i for i, _ in hits] == ["urn:cafe#Dispense", "urn:cafe#Pharmacy"]
+
+
+def test_concept_vectors_of_ANOTHER_MODEL_are_never_ranked_against_these():
+    """The hazard an in-memory cache cannot see: two models' vectors are the same WIDTH, so comparing
+    across them raises nothing and returns confident nonsense. The model travels WITH the vector."""
+    c = MemoryCatalog()
+    c.put_concept_embedding("urn:cafe#A", [1.0, 0.0], "old", scheme="cafe")
+    c.put_concept_embedding("urn:cafe#B", [1.0, 0.0], "new", scheme="cafe")
+    assert [i for i, _ in c.concept_similar([1.0, 0.0], model="new")] == ["urn:cafe#B"]
+
+
+def test_re_embedding_a_concept_REPLACES_its_vector():
+    """A steward amends a definition and the old vector must not linger — it would keep matching terms
+    against a meaning nobody holds any more."""
+    c = MemoryCatalog()
+    c.put_concept_embedding("urn:cafe#A", [1.0, 0.0], "m", scheme="cafe")
+    c.put_concept_embedding("urn:cafe#A", [0.0, 1.0], "m", scheme="cafe")
+    assert c.indexed_concepts("cafe", "m") == {"urn:cafe#A"}
+    assert c.concept_similar([0.0, 1.0], model="m")[0][1] > 0.99     # the NEW vector, not the old
+
+
+def test_a_RETIRED_concepts_vector_can_be_dropped():
+    """`find()` stops offering a retired concept, and a vector that outlives it would keep matching
+    something a steward deliberately withdrew — "how a steward\'s retirement gets undone by the next
+    run"."""
+    c = MemoryCatalog()
+    c.put_concept_embedding("urn:cafe#Gone", [1.0, 0.0], "m", scheme="cafe")
+    c.drop_concept_embeddings("cafe")
+    assert c.indexed_concepts("cafe", "m") == set()

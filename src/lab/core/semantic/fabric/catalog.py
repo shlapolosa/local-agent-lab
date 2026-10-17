@@ -124,6 +124,31 @@ class Catalog(Protocol):
         """Rows with no vector in `model`'s space (none, or another model's) — never the withdrawn."""
         ...
 
+    def put_concept_embedding(self, concept: str, vector: list[float], model: str, *, scheme: str) -> None:
+        """Index ONE concept by its definition — the semantic tier of the inverted classifier.
+
+        A concept is not an artifact: no custody, no lifecycle, no owner, and `fabric_embedding.iri` is a
+        foreign key onto `fabric_artifact`, so these cannot share that space and should not. The `model`
+        travels with the vector because two models' vectors are the same WIDTH — comparing across them
+        raises nothing and returns confident nonsense, which an in-memory cache cannot protect against.
+        """
+        ...
+
+    def indexed_concepts(self, scheme: str, model: str) -> set[str]:
+        """Which concepts of one scheme are already indexed in this model's space — so a rebuild embeds
+        only what is missing, and a model change re-embeds everything without a second bookkeeping table."""
+        ...
+
+    def concept_similar(self, vector: list[float], *, model: str, limit: int = 5) -> list[tuple[str, float]]:
+        """Nearest concepts by cosine, within one embedding space. A few thousand vectors scanned
+        brute-force is microseconds — this wants durability and auditability, never an index."""
+        ...
+
+    def drop_concept_embeddings(self, scheme: str) -> int:
+        """Forget a scheme's vectors — after a retirement, an amended definition or a reseed. A vector
+        that outlives the concept keeps matching terms against a meaning nobody holds any more."""
+        ...
+
     def page(self, *, after: str = "", limit: int = 100, state: str = "") -> list[CatalogEntry]:
         """One page of the catalogue in `iri` order, for walking the whole of it.
 
@@ -165,6 +190,9 @@ class MemoryCatalog:
     def __init__(self) -> None:
         self._rows: dict[str, CatalogEntry] = {}
         self._vectors: dict[str, tuple[list[float], str]] = {}
+        #: concept IRI -> (vector, model, scheme). Separate from `_vectors` for the same reason the
+        #: table is separate: a concept has no catalogue row to hang off.
+        self._concepts: dict[str, tuple[list[float], str, str]] = {}
 
     def get(self, iri: str) -> CatalogEntry | None:
         return self._rows.get(iri)
@@ -191,6 +219,22 @@ class MemoryCatalog:
         scored = [(iri, cosine(vector, v)) for iri, (v, m) in self._vectors.items()
                   if iri != exclude and (not model or m == model)]
         return sorted(scored, key=lambda t: -t[1])[:max(int(limit), 0)]
+
+    def put_concept_embedding(self, concept: str, vector: list[float], model: str, *, scheme: str) -> None:
+        self._concepts[concept] = (list(vector), model, scheme)
+
+    def indexed_concepts(self, scheme: str, model: str) -> set[str]:
+        return {c for c, (_v, m, s) in self._concepts.items() if s == scheme and m == model}
+
+    def concept_similar(self, vector: list[float], *, model: str, limit: int = 5) -> list[tuple[str, float]]:
+        scored = [(c, cosine(vector, v)) for c, (v, m, _s) in self._concepts.items() if m == model]
+        return sorted(scored, key=lambda t: -t[1])[:max(int(limit), 0)]
+
+    def drop_concept_embeddings(self, scheme: str) -> int:
+        gone = [c for c, (_v, _m, s) in self._concepts.items() if s == scheme]
+        for c in gone:
+            self._concepts.pop(c, None)
+        return len(gone)
 
     def page(self, *, after: str = "", limit: int = 100, state: str = "") -> list[CatalogEntry]:
         if state and state not in STATES:

@@ -21,6 +21,42 @@ after it is deterministic.
 | candidate dedup, `proposedFor`, counts and the threshold shipped 12 Oct | the defences against a candidate flood are already in place |
 | argument-parity guards (AST + Router) shipped 12 Oct | a new tool argument cannot reach the cloud unnoticed |
 
+## Phase 0 RESULT — the gate passed (17 Oct 2026)
+
+Measured by `scripts/fabric_extraction_probe.py` on live records, then again on the eRx documents, which
+is the realistic corpus. **The two runs disagree in ways that matter**, and the second is the one to
+believe: the first sampled `.csv` fixtures and a README.
+
+| | all records | eRx documents |
+|---|---|---|
+| grounded verbatim | 97% | **66%** |
+| grounded once whitespace is tolerated | 99% | **100%** |
+| matched a concept label LEXICALLY | 2 of 78 | **0 of 30** |
+| top concept's share of terms | 13% | 20% (`Dispense`) |
+| median top1−top2 margin | 0.0356 | 0.0351 |
+
+**Four conclusions.**
+
+1. **Grounding must tolerate whitespace, and that is not a detail.** Real markdown prose wraps, so a
+   third of honest spans cross a line break. A strictly verbatim rule — which the 97% invited — would
+   have silently discarded a third of all terms on exactly the documents that matter.
+2. **The lexical tier is dead on prose.** Zero of thirty. The extractor says "dispense confirmation
+   callback"; the vocabulary says `Dispense`. It costs nothing to keep (it is `find()`, already there)
+   but it is not the path — which also means the homonym risk that shaped the design is *rare*, not
+   absent, and the definition check still belongs somewhere.
+3. **The semantic tier finds the right concepts** on real documents — `Dispense`, `Prescription item`,
+   `Pharmacy`, `Audit event` — and does NOT collapse onto a hub the way the old classifier did.
+4. **The margin is the whole decision.** At a 0.05 gate, 11 of 30 are accepted and every one is
+   defensible; the 19 rejected include `budget planning support → Service request` and `dead-letter
+   handling rota → Migration disposition`, which an absolute threshold would have written to the graph
+   as facts. The cost is recall: `pharmacy prescription retrieval → Pharmacy` is right and is rejected
+   because two concepts scored within 0.01. That is the correct trade — a wrong edge is worse than a
+   missing one, and a rejected term is not lost but escalated to a steward as a candidate.
+
+Also found, and fixed before any of this shipped: **admission has never linked the documents that asked
+for a term** (`_propagate` read a key `_admit` does not return, and the test's fake invented it), and the
+review card never said which subjects a run took away.
+
 ## Phases
 
 ### Phase 0 — prove it, change nothing  *(the gate)*

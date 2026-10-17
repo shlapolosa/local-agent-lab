@@ -37,9 +37,16 @@ def _index(dim: int) -> str:
 
 
 def tables(dim: int) -> tuple[str, ...]:
-    """The tables, with the embedding column DIMENSIONED so pgvector can index it (an undimensioned
-    `VECTOR` is a sequential scan forever) — the dimension is the embedder's (`REFERENCE_EMBED_DIM`)."""
-    return MIGRATIONS[:-1] + (MIGRATIONS[-1] % {"dim": int(dim)}, f"DROP INDEX IF EXISTS {LEGACY_INDEX}")
+    """The tables, with every embedding column DIMENSIONED so pgvector can index it (an undimensioned
+    `VECTOR` is a sequential scan forever) — the dimension is the embedder's (`REFERENCE_EMBED_DIM`).
+
+    Interpolates EVERY statement carrying the placeholder, not the last one. It used to do
+    `MIGRATIONS[-1] % ...`, which encoded "the table with a vector column is the one at the end" — true
+    until a second vector table was added, at which point the new one was dimensioned and
+    `fabric_embedding` silently kept `VECTOR(%(dim)d)` as literal text. A positional assumption about a
+    tuple nobody was going to stop appending to."""
+    return tuple(m % {"dim": int(dim)} if "%(dim)" in m else m
+                 for m in MIGRATIONS) + (f"DROP INDEX IF EXISTS {LEGACY_INDEX}",)
 
 
 def migrations(dim: int) -> tuple[str, ...]:
@@ -74,6 +81,19 @@ MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE fabric_artifact ADD COLUMN IF NOT EXISTS projection_url TEXT NOT NULL DEFAULT ''",
     """CREATE TABLE IF NOT EXISTS fabric_embedding (
          iri TEXT PRIMARY KEY REFERENCES fabric_artifact ON DELETE CASCADE,
+         model TEXT NOT NULL,
+         embedding VECTOR(%(dim)d) NOT NULL,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+    # Concept definitions, for the semantic tier of the classifier. A SIBLING table rather than a row in
+    # `fabric_embedding`, because that one's primary key is a foreign key onto `fabric_artifact` — and a
+    # concept is not an artifact: no custody, no lifecycle, no owner. `model` is stored beside the vector
+    # because two models' vectors are the same WIDTH, so comparing across them raises nothing and returns
+    # confident nonsense; `scheme` is stored so one vocabulary can be dropped and reseeded alone.
+    # No index, deliberately: a few thousand concepts scanned brute-force is microseconds, and this table
+    # is here for durability and auditability rather than speed.
+    """CREATE TABLE IF NOT EXISTS fabric_concept_embedding (
+         concept TEXT PRIMARY KEY,
+         scheme TEXT NOT NULL,
          model TEXT NOT NULL,
          embedding VECTOR(%(dim)d) NOT NULL,
          updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
@@ -140,6 +160,7 @@ class PostgresCatalog:
     def ensure_schema(self) -> None:
         self._write([(sql, ()) for sql in tables(self.dim)])
         self._migrate_width()                                  # BEFORE the index: its cast needs the new width
+        self._migrate_concept_width()
         self._write([(_index(self.dim), ())])
 
     def _migrate_width(self) -> None:
@@ -161,6 +182,27 @@ class PostgresCatalog:
                      (f"ALTER TABLE fabric_embedding ALTER COLUMN embedding TYPE VECTOR({self.dim})", ())])
         print(f"fabric catalog: the index was {declared} and the embedder is {self.dim} wide — dropped "
               f"{held[0][0] if held else '?'} vector(s) of the old space; call semantic_reindex to fill it",
+              file=sys.stderr, flush=True)
+
+    def _migrate_concept_width(self) -> None:
+        """The same blackout as `_migrate_width`, for the concept table — written separately rather than
+        parameterised because that one also drops and rebuilds the hnsw INDEX, which this table does not
+        have and does not want. Sharing the code would mean passing flags for the half that differs.
+
+        Concept vectors are cheaper to lose than artifact ones: they are derived from definitions the
+        master file still holds, so the next match rebuilds them. It still says so out loud, because a
+        silently empty concept index means tier 2 matches nothing and every term becomes a candidate —
+        which looks exactly like a vocabulary that does not cover the corpus."""
+        rows = self._rows("SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
+                          "WHERE attrelid = 'fabric_concept_embedding'::regclass AND attname = 'embedding'")
+        declared = str(rows[0][0]) if rows else ""
+        if not declared or declared == f"vector({self.dim})":
+            return
+        held = self._rows("SELECT COUNT(*) FROM fabric_concept_embedding")
+        self._write([("DELETE FROM fabric_concept_embedding", ()),
+                     (f"ALTER TABLE fabric_concept_embedding ALTER COLUMN embedding TYPE VECTOR({self.dim})", ())])
+        print(f"fabric catalog: the concept index was {declared} and the embedder is {self.dim} wide — "
+              f"dropped {held[0][0] if held else '?'} concept vector(s); the next match re-embeds them",
               file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------------- port
@@ -225,6 +267,37 @@ class PostgresCatalog:
              ORDER BY {by} <=> %s::halfvec({d}) LIMIT %s""",
                           (_literal(vector), exclude, model, model, _literal(vector), int(limit)))
         return [(r[0], float(r[1])) for r in rows]
+
+    def put_concept_embedding(self, concept: str, vector: list[float], model: str, *, scheme: str) -> None:
+        if len(vector) != self.dim:
+            raise ValueError(f"the index holds {self.dim}-dimensional vectors, not {len(vector)}")
+        self._write([("""
+            INSERT INTO fabric_concept_embedding (concept, scheme, model, embedding, updated_at)
+            VALUES (%s, %s, %s, %s::vector, now())
+            ON CONFLICT (concept) DO UPDATE SET scheme = EXCLUDED.scheme, model = EXCLUDED.model,
+                 embedding = EXCLUDED.embedding, updated_at = now()""",
+                      (concept, scheme, model, _literal(vector)))])
+
+    def indexed_concepts(self, scheme: str, model: str) -> set[str]:
+        """Which concepts are already indexed in this model's space — so a rebuild embeds only the rest,
+        and a model change re-embeds everything without a second bookkeeping table."""
+        return {r[0] for r in self._rows(
+            "SELECT concept FROM fabric_concept_embedding WHERE scheme = %s AND model = %s", (scheme, model))}
+
+    def concept_similar(self, vector: list[float], *, model: str, limit: int = 5) -> list[tuple[str, float]]:
+        if int(limit) <= 0:
+            return []
+        by, d = _ranked_by(self.dim), self.dim
+        rows = self._rows(f"""
+            SELECT concept, 1 - ({by} <=> %s::halfvec({d})) AS score FROM fabric_concept_embedding
+             WHERE model = %s ORDER BY {by} <=> %s::halfvec({d}) LIMIT %s""",
+                          (_literal(vector), model, _literal(vector), int(limit)))
+        return [(r[0], float(r[1])) for r in rows]
+
+    def drop_concept_embeddings(self, scheme: str) -> int:
+        n = len(self._rows("SELECT concept FROM fabric_concept_embedding WHERE scheme = %s", (scheme,)))
+        self._write([("DELETE FROM fabric_concept_embedding WHERE scheme = %s", (scheme,))])
+        return n
 
     def page(self, *, after: str = "", limit: int = 100, state: str = "") -> list[CatalogEntry]:
         """KEYSET pagination — `iri > %s ORDER BY iri`, never OFFSET. Rows are added while a long walk

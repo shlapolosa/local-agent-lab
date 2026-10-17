@@ -243,3 +243,20 @@ def test_the_projection_page_url_is_a_column_ADDED_in_place():
     c.put(CatalogEntry("urn:fabric:artifact:A", P, projection_url="https://wiki/notes.md"))
     sql, params = c.log[0]
     assert params[-1] == "https://wiki/notes.md" and "projection_url = EXCLUDED.projection_url" in sql
+
+
+def test_EVERY_vector_table_is_dimensioned_not_just_the_last_one():
+    """`tables()` used to interpolate `MIGRATIONS[-1]` alone, which encoded "the table with a vector
+    column is the one at the end". That held until a second vector table was added for concept
+    definitions: the newcomer was dimensioned and `fabric_embedding` silently kept `VECTOR(%(dim)d)` as
+    literal text, which pgvector cannot index and which `CREATE TABLE IF NOT EXISTS` would never notice
+    on an existing database.
+
+    Asserted as an invariant over ALL statements rather than a count, because the next vector table
+    should not have to remember this either."""
+    ddl = migrations(768)
+    assert not any("%(dim)" in sql for sql in ddl), [s for s in ddl if "%(dim)" in s]
+    dimensioned = [s for s in ddl if "VECTOR(768)" in s]
+    assert len(dimensioned) >= 2, f"both vector tables must be dimensioned, got {len(dimensioned)}"
+    assert any("fabric_concept_embedding" in s for s in dimensioned)
+    assert any("fabric_embedding (" in s or "fabric_embedding(" in s for s in dimensioned)
