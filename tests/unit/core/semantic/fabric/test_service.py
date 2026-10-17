@@ -584,3 +584,61 @@ def test_the_projection_pages_url_is_the_records_landing_page_and_rides_the_row(
     fab.catalog_assert(a, "projection_url", "https://wiki/moved.md", rung=CONSTRUCTED, method="fabric-projector")
     assert [str(o) for _, (_, _, o) in G.find(fab.ds, URIRef(a), DCAT.landingPage)] == ["https://wiki/moved.md"]
     assert fab.validate().conforms
+
+
+# ------------------------------------------------------- the semantic tier of the inverted classifier
+def test_indexing_concepts_embeds_the_DEFINITION_and_only_what_is_missing():
+    """A term is matched against what a concept MEANS, not what it is called — that is the whole reason
+    the semantic tier exists, since the extractor's words almost never equal a label (measured 17 Oct:
+    0 of 30 terms matched a label on real prose).
+
+    Only the missing ones are embedded, because this runs lazily on a match and must not re-embed a
+    whole vocabulary to answer one term."""
+    ds = Dataset(default_union=True)
+    sc = scheme()
+    f = FabricService(ds, MemoryCatalog(), DocumentTypes(), schemes=lambda: {sc.name: sc},
+                      embedder=HashEmbedder(dim=8))
+    first = f.index_concepts(sc.name)
+    assert first["indexed"] > 0 and first["model"] == "test-embed"
+    sent = f.embedder.calls[-1][0]
+    assert any(c["definition"] in " ".join(sent) for c in sc.concepts.values() if c.get("definition"))
+    assert f.embedder.calls[-1][1] == "document", "a definition is the passage, never the probe"
+
+    before = len(f.embedder.calls)
+    again = f.index_concepts(sc.name)
+    assert again["indexed"] == 0 and len(f.embedder.calls) == before, "nothing missing, nothing embedded"
+
+
+def test_a_term_is_embedded_as_a_QUERY_against_definitions_indexed_as_DOCUMENTS():
+    """The asymmetric sides of the embedder, the way `lab.platform.embed.PURPOSES` spells them: the term
+    is the probe and the definition is the passage. Getting this backwards is silent — both are vectors
+    of the same width and the scores merely get worse."""
+    ds = Dataset(default_union=True)
+    sc = scheme()
+    f = FabricService(ds, MemoryCatalog(), DocumentTypes(), schemes=lambda: {sc.name: sc},
+                      embedder=HashEmbedder(dim=8))
+    f.concept_match("some term", scheme=sc.name)
+    assert f.embedder.calls[-1][1] == "query"
+
+
+def test_a_narrow_margin_matches_NOTHING_so_the_term_becomes_a_candidate():
+    """The finding the whole tier rests on: 'proposed decision status' ranked top against *Prior
+    authorisation* with a margin of 0.0016 — unrelated concepts the embedding could not tell apart,
+    which an absolute threshold would have written to the graph as a fact at rung X."""
+    ds = Dataset(default_union=True)
+    sc = scheme()
+    f = FabricService(ds, MemoryCatalog(), DocumentTypes(), schemes=lambda: {sc.name: sc},
+                      embedder=HashEmbedder(dim=8))
+    out = f.concept_match("anything at all", scheme=sc.name, floor=0.0, margin=0.99)
+    assert out["concept"] == "" and out["term"] == "anything at all"
+
+
+def test_without_an_embedder_the_semantic_tier_says_so_and_does_not_pretend():
+    """An unavailable embedder means tier 2 is unavailable and the term becomes a candidate — the
+    degradation pattern used everywhere else here. It must never look like 'the vocabulary has no such
+    concept', which is a different and much more interesting claim."""
+    ds = Dataset(default_union=True)
+    sc = scheme()
+    f = FabricService(ds, MemoryCatalog(), DocumentTypes(), schemes=lambda: {sc.name: sc}, embedder=None)
+    out = f.concept_match("anything", scheme=sc.name)
+    assert out["concept"] == "" and out["unavailable"] is True

@@ -22,6 +22,7 @@ from rdflib.namespace import Namespace
 from lab.core import ids
 from lab.core.delivery import DeliveryContext
 from lab.core.viz import TopologyView
+from lab.core.semantic.fabric import concepts
 from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
@@ -898,6 +899,86 @@ class FabricService:
             raise RuntimeError("no embedder is configured for the fabric (REFERENCE_EMBED_MODEL) — "
                                "exact lookup and the graph still answer; similarity does not")
         return self.embedder
+
+    # ------------------------------------------ the semantic tier of the inverted classifier
+    #: Measured on live records, 17 Oct 2026. A term scoring below the FLOOR is a bad answer; a term whose
+    #: top two are within the MARGIN is an arbitrary one, which is the failure an absolute threshold
+    #: cannot see — 'proposed decision status' ranked top against *Prior authorisation* at a margin of
+    #: 0.0016. Accepted matches on the eRx set scored 0.36-0.52 with margins of 0.08-0.13.
+    MATCH_FLOOR, MATCH_MARGIN = 0.30, 0.05
+
+    def _live_concepts(self, sc) -> dict:
+        """A scheme's concepts a term may match — never a retired one. `find()` stops offering those, and
+        a vector that outlived the retirement would keep matching a meaning a steward withdrew."""
+        live = getattr(sc, "live", None)
+        return live() if callable(live) else dict(getattr(sc, "concepts", {}) or {})
+
+    def index_concepts(self, scheme: str = "") -> dict:
+        """Embed the DEFINITIONS of a scheme's live concepts that this model's space does not hold yet.
+
+        Lazily, never at boot: `boot()` is synchronous and runs before the server listens, so an embedder
+        that is slow or flapping would stop semantic-mcp starting at all — taking `catalog_get`, `impact`
+        and every view with it. Tier 2 being unavailable is a degradation; the fabric not starting is an
+        outage.
+
+        Only what is MISSING, because this runs on the path of a single term and must not re-embed a
+        whole vocabulary to answer it. A model change makes everything missing at once, which is the
+        correct amount of work and needs no second bookkeeping table."""
+        emb = self._need_embedder()
+        names = [scheme] if scheme else list(self._schemes() or {})
+        done = 0
+        for name in names:
+            sc = (self._schemes() or {}).get(name)
+            if sc is None:
+                continue
+            have = self.catalog.indexed_concepts(name, emb.model)
+            missing = [(cid, c) for cid, c in self._live_concepts(sc).items()
+                       if str(sc.uri(cid)) not in have]
+            if not missing:
+                continue
+            # label AND definition: the label alone is what tier 1 already matches on, so a vector of it
+            # would make tier 2 a fuzzy repeat of tier 1 rather than a different question.
+            texts = [f"{c.get('label') or cid}. {c.get('definition') or ''}".strip() for _cid, c in missing]
+            for (cid, _c), vec in zip(missing, emb.embed(texts, purpose="document")):
+                self.catalog.put_concept_embedding(str(sc.uri(cid)), vec, emb.model, scheme=name)
+                done += 1
+        return {"indexed": done, "model": emb.model, "schemes": names}
+
+    def concept_match(self, term: str, *, scheme: str = "", floor: float | None = None,
+                      margin: float | None = None, limit: int = 5) -> dict:
+        """The concept a term MEANS, or nothing — the tier that runs when no label matched it lexically.
+
+        Nothing is the ordinary answer, not a failure: the term becomes a candidate concept for a
+        steward, which is how the vocabulary learns what the corpus needed and it did not have. Measured
+        17 Oct 2026, 19 of 30 terms on real documents fell through this way, and the rejected ones include
+        `dead-letter handling rota -> Migration disposition`, which is nonsense nobody should have to
+        notice on a review card.
+
+        An absent embedder answers `unavailable`, never a bare miss. The two must stay distinguishable:
+        'the vocabulary has no such concept' is a claim about the corpus, and 'I could not ask' is a claim
+        about the deployment."""
+        if self.embedder is None:
+            return {"term": term, "concept": "", "label": "", "score": 0.0, "margin": 0.0,
+                    "scheme": scheme, "unavailable": True}
+        emb = self.embedder
+        self.index_concepts(scheme)
+        probe = concepts.normalise(term)
+        vector = emb.embed([probe], purpose="query")[0]
+        ranked = self.catalog.concept_similar(vector, model=emb.model, limit=max(2, int(limit)))
+        scores = [{"id": c, "score": s} for c, s in ranked]
+        hit = concepts.match(scores, floor=self.MATCH_FLOOR if floor is None else floor,
+                             margin=self.MATCH_MARGIN if margin is None else margin)
+        top = ranked[0][1] if ranked else 0.0
+        gap = (ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else top
+        label = ""
+        if hit:
+            for name, sc in (self._schemes() or {}).items():
+                for cid, c in self._live_concepts(sc).items():
+                    if str(sc.uri(cid)) == hit:
+                        label, scheme = (c.get("label") or cid), name
+                        break
+        return {"term": term, "concept": hit or "", "label": label, "score": round(top, 4),
+                "margin": round(gap, 4), "scheme": scheme, "unavailable": False}
 
     def embed(self, iri: str, text: str) -> dict:
         """Index an artifact by its DESCRIPTIVE text (title · type · subjects) — never its body."""
