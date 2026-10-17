@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1960 1090" width="1960" height="1090" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#666"/></marker></defs>
+<rect width="1960" height="1090" fill="#fff"/>
+<text x="60" y="42" font-size="25" font-weight="700" fill="#222">Classifying an artifact — as-is, and the proposed inversion</text>
+<text x="60" y="66" font-size="13.5" font-weight="400" fill="#555" font-style="italic">Today the classifier is given the taxonomy and asked what fits. Proposed: read the artifact first, say what it is about, match afterwards.</text>
+<text x="60" y="128" font-size="15" font-weight="700" fill="#8a8a8a">AS-IS</text>
+<text x="60" y="146" font-size="11" font-weight="400" fill="#999">one model call does the reading AND the mapping</text>
+<rect x="65.0" y="164.0" width="250" height="64" rx="7" fill="#f0f0f0" stroke="#8a8a8a" stroke-width="2"/>
+<text x="190" y="192" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Excerpt</text>
+<text x="190" y="209" text-anchor="middle" font-size="10.5" fill="#555">bounded text</text>
+<text x="190" y="222" text-anchor="middle" font-size="10.5" fill="#555">from the document only</text>
+<rect x="71.0" y="155" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="81.5" y="168.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="375.0" y="164.0" width="250" height="64" rx="7" fill="#f0f0f0" stroke="#8a8a8a" stroke-width="2"/>
+<text x="500" y="192" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">LLM classify</text>
+<text x="500" y="209" text-anchor="middle" font-size="10.5" fill="#555">~100 concepts IN the prompt</text>
+<text x="500" y="222" text-anchor="middle" font-size="10.5" fill="#555">→ type + subjects + confidence</text>
+<rect x="381.0" y="155" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="1.5"><title>an AGENT decides — schema-validated, gated after</title></rect>
+<text x="391.5" y="168.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">A</text>
+<rect x="685.0" y="164.0" width="250" height="64" rx="7" fill="#f0f0f0" stroke="#8a8a8a" stroke-width="2"/>
+<text x="810" y="192" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">vocab_link</text>
+<text x="810" y="209" text-anchor="middle" font-size="10.5" fill="#555">EXACT label match</text>
+<text x="810" y="222" text-anchor="middle" font-size="10.5" fill="#555">→ linked / missed / conflicts</text>
+<rect x="691.0" y="155" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="701.5" y="168.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="995.0" y="164.0" width="250" height="64" rx="7" fill="#f0f0f0" stroke="#8a8a8a" stroke-width="2"/>
+<text x="1120" y="192" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Candidate</text>
+<text x="1120" y="209" text-anchor="middle" font-size="10.5" fill="#555">the residue: what matched</text>
+<text x="1120" y="222" text-anchor="middle" font-size="10.5" fill="#555">nothing</text>
+<rect x="1001.0" y="155" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="1011.5" y="168.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="1305.0" y="164.0" width="250" height="64" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
+<text x="1430" y="192" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">STEWARD</text>
+<text x="1430" y="209" text-anchor="middle" font-size="10.5" fill="#555">one queue, one question:</text>
+<text x="1430" y="222" text-anchor="middle" font-size="10.5" fill="#555">admit this term?</text>
+<rect x="1311.0" y="155" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.2"><title>a PERSON decides — the only way a term enters the vocabulary</title></rect>
+<text x="1321.5" y="168.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">H</text>
+<path d="M315,196 L375,196" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M625,196 L685,196" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M935,196 L995,196" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1245,196 L1305,196" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1630" y="180" font-size="12" font-weight="700" fill="#8a8a8a">The closed set anchors</text>
+<text x="1630" y="198" font-size="11" font-weight="400" fill="#777">the answer: UseCase on 37</text>
+<text x="1630" y="212" font-size="11" font-weight="400" fill="#777">of 40, Clinical document on</text>
+<text x="1630" y="226" font-size="11" font-weight="400" fill="#777">39 of 93. And a taxonomy</text>
+<text x="1630" y="240" font-size="11" font-weight="400" fill="#777">only fits while it is small.</text>
+<text x="60" y="316" font-size="15" font-weight="700" fill="#1e8449">TO-BE</text>
+<text x="60" y="334" font-size="11" font-weight="400" fill="#6aa684">one model call READS; everything after it is deterministic</text>
+<rect x="65.0" y="378.0" width="250" height="64" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="190" y="406" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Render to text</text>
+<text x="190" y="423" text-anchor="middle" font-size="10.5" fill="#555">doc · audio · video · diagram</text>
+<text x="190" y="436" text-anchor="middle" font-size="10.5" fill="#555">stamps the FIDELITY</text>
+<rect x="71.0" y="369" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="81.5" y="382.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="375.0" y="378.0" width="250" height="64" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="500" y="406" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">LLM extract</text>
+<text x="500" y="423" text-anchor="middle" font-size="10.5" fill="#555">→ [{term, evidence span,</text>
+<text x="500" y="436" text-anchor="middle" font-size="10.5" fill="#555">salience}]  inference allowed</text>
+<rect x="381.0" y="369" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="1.5"><title>an AGENT decides — schema-validated, gated after</title></rect>
+<text x="391.5" y="382.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">A</text>
+<rect x="685.0" y="378.0" width="250" height="64" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="810" y="406" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Ground</text>
+<text x="810" y="423" text-anchor="middle" font-size="10.5" fill="#555">is the span present verbatim?</text>
+<text x="810" y="436" text-anchor="middle" font-size="10.5" fill="#555">if not, discard</text>
+<rect x="691.0" y="369" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="701.5" y="382.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="995.0" y="378.0" width="250" height="64" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="1120" y="406" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Normalise</text>
+<text x="1120" y="423" text-anchor="middle" font-size="10.5" fill="#555">lemmatise · strip determiners</text>
+<text x="1120" y="436" text-anchor="middle" font-size="10.5" fill="#555">(spaCy, or simpler)</text>
+<rect x="1001.0" y="369" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="1011.5" y="382.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="1305.0" y="378.0" width="250" height="64" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="1430" y="406" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Match</text>
+<text x="1430" y="423" text-anchor="middle" font-size="10.5" fill="#555">embed vs concept DEFINITIONS</text>
+<text x="1430" y="436" text-anchor="middle" font-size="10.5" fill="#555">hit if ≥ threshold</text>
+<rect x="1311.0" y="369" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="1321.5" y="382.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<path d="M315,410 L375,410" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M625,410 L685,410" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M935,410 L995,410" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1245,410 L1305,410" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1615.0" y="378.0" width="250" height="64" rx="7" fill="#fff8e1" stroke="#b9770e" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="1740" y="406" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Structured diagram</text>
+<text x="1740" y="423" text-anchor="middle" font-size="10.5" fill="#555">boxes are TERMS, arrows are</text>
+<text x="1740" y="436" text-anchor="middle" font-size="10.5" fill="#555">candidate RELATIONS</text>
+<rect x="1621.0" y="369" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="1631.5" y="382.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<path d="M190,378 L190,356 L1740,356 L1740,378" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1740.0" y="360.0" text-anchor="middle" font-size="10.5" fill="#666">when the artifact is a diagram</text>
+<rect x="685.0" y="549.0" width="250" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="810" y="574" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Link doc → concept</text>
+<text x="810" y="591" text-anchor="middle" font-size="10.5" fill="#555">rung X · strength ∝ specificity</text>
+<rect x="691.0" y="537" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="701.5" y="550.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="995.0" y="549.0" width="250" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="1120" y="574" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Alias candidate</text>
+<text x="1120" y="591" text-anchor="middle" font-size="10.5" fill="#555">term matched, but is not yet</text>
+<text x="1120" y="604" text-anchor="middle" font-size="10.5" fill="#555">one of that concept's labels</text>
+<rect x="1001.0" y="537" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="1011.5" y="550.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<rect x="1305.0" y="549.0" width="250" height="58" rx="7" fill="#e7f3ec" stroke="#1e8449" stroke-width="2"/>
+<text x="1430" y="574" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">Concept candidate</text>
+<text x="1430" y="591" text-anchor="middle" font-size="10.5" fill="#555">no match — prefLabel + a</text>
+<text x="1430" y="604" text-anchor="middle" font-size="10.5" fill="#555">definition drafted from evidence</text>
+<rect x="1311.0" y="537" width="21" height="19" rx="9.5" fill="#ffffff" stroke="#2b2b2b" stroke-width="1.5"><title>DETERMINISTIC — no model in the path</title></rect>
+<text x="1321.5" y="550.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2b2b2b">D</text>
+<path d="M1430,442 L1430,486" fill="none" stroke="#666" stroke-width="2"/>
+<path d="M810,486 L1430,486" fill="none" stroke="#666" stroke-width="2"/>
+<path d="M810,486 L810,549" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="810.0" y="510.5" text-anchor="middle" font-size="10.5" fill="#666">hit</text>
+<path d="M1120,486 L1120,549" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1120.0" y="510.5" text-anchor="middle" font-size="10.5" fill="#666">hit, new label</text>
+<path d="M1430,486 L1430,549" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1430.0" y="510.5" text-anchor="middle" font-size="10.5" fill="#666">miss</text>
+<rect x="995.0" y="703.0" width="250" height="58" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
+<text x="1120" y="728" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">STEWARD A1 — alias</text>
+<text x="1120" y="745" text-anchor="middle" font-size="10.5" fill="#555">is this another word for it?</text>
+<text x="1120" y="758" text-anchor="middle" font-size="10.5" fill="#555">high volume · batched · seconds</text>
+<rect x="1001.0" y="691" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.2"><title>a PERSON decides — the only way a term enters the vocabulary</title></rect>
+<text x="1011.5" y="704.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">H</text>
+<rect x="1305.0" y="703.0" width="250" height="58" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
+<text x="1430" y="728" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">STEWARD A2 — concept</text>
+<text x="1430" y="745" text-anchor="middle" font-size="10.5" fill="#555">is this a new concept?</text>
+<text x="1430" y="758" text-anchor="middle" font-size="10.5" fill="#555">needs a definition</text>
+<rect x="1311.0" y="691" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.2"><title>a PERSON decides — the only way a term enters the vocabulary</title></rect>
+<text x="1321.5" y="704.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">H</text>
+<rect x="1615.0" y="703.0" width="250" height="58" rx="7" fill="#fdf3e3" stroke="#b9770e" stroke-width="2"/>
+<text x="1740" y="728" text-anchor="middle" font-size="13.5" font-weight="700" fill="#222">STEWARD B — topology</text>
+<text x="1740" y="745" text-anchor="middle" font-size="10.5" fill="#555">where does it sit? broader /</text>
+<text x="1740" y="758" text-anchor="middle" font-size="10.5" fill="#555">related — CONCEPTS, never labels</text>
+<rect x="1621.0" y="691" width="21" height="19" rx="9.5" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.2"><title>a PERSON decides — the only way a term enters the vocabulary</title></rect>
+<text x="1631.5" y="704.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffffff">H</text>
+<path d="M1120,607 L1120,703" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1430,607 L1430,703" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1555,732 L1615,732" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1585.0" y="725.0" text-anchor="middle" font-size="10.5" fill="#666">once admitted</text>
+<path d="M1740,442 L1740,703" fill="none" stroke="#666" stroke-width="2" marker-end="url(#a)"/>
+<text x="1740.0" y="565.5" text-anchor="middle" font-size="10.5" fill="#666">the only feeder B has</text>
+<text x="995" y="780" font-size="11" font-weight="400" fill="#b9770e">↳ an admitted alias matches deterministically next time — the vocabulary improves itself, and the embedder is needed less often.</text>
+<text x="60" y="876" font-size="13" font-weight="700" fill="#333">The four signals, and where each is produced</text>
+<text x="60" y="898" font-size="11.5" font-weight="700" fill="#1e8449">salience     </text>
+<text x="160" y="898" font-size="11.5" font-weight="400" fill="#555">step 2 — is this what the artifact is about?</text>
+<text x="60" y="917" font-size="11.5" font-weight="700" fill="#1e8449">grounding    </text>
+<text x="160" y="917" font-size="11.5" font-weight="400" fill="#555">step 3 — is there textual evidence for it?</text>
+<text x="60" y="936" font-size="11.5" font-weight="700" fill="#1e8449">match        </text>
+<text x="160" y="936" font-size="11.5" font-weight="400" fill="#555">step 5 — how well does it map to an admitted concept?</text>
+<text x="60" y="955" font-size="11.5" font-weight="700" fill="#1e8449">specificity  </text>
+<text x="160" y="955" font-size="11.5" font-weight="400" fill="#555">link — is the concept rare enough to carry one?</text>
+<text x="60" y="1000" font-size="11.5" font-weight="400" fill="#777">× fidelity of the rendering — a concept grounded in one provider's transcript is weaker evidence than the same concept in the document itself.</text>
+<text x="60" y="1022" font-size="11.5" font-weight="400" fill="#999">Grey is today, green is proposed. Amber is a person. This diagram carries NO status axis: its grey is not the pitch picture's “built and deliberately off”.</text>
+<text x="60" y="1044" font-size="11.5" font-weight="400" fill="#999">Unchanged, and shown dashed for honesty about scope: document TYPE stays a closed-set choice, and CITATIONS stay their own path (doc →references→ doc).</text>
+</svg>
