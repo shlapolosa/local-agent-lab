@@ -21,6 +21,18 @@ the profile is sourced, with nothing installed.
 
 A secret is SEALED before it leaves this machine (libsodium sealed box, the API's requirement), so
 that one subcommand needs PyNaCl; everything else is stdlib.
+
+UPDATE 19 Oct 2026: that is no longer true of the token in `.env`. `whoami` now reports
+`read secrets NO (403)` and `rerun a run NO (403)`, so a secret cannot be sealed through it —
+sealing needs the repository public key, which is a secrets-scoped read.
+
+And `gh` does not fall back: it PREFERS `GITHUB_TOKEN`/`GH_TOKEN` from the environment over its
+own keyring, so sourcing `.env` makes every `gh` command use the narrow PAT even when a broader
+keyring login exists. `gh auth status` shows both and marks which is active. The way through is the
+pattern this lab already uses for ambient credentials:
+
+    env -u GITHUB_TOKEN -u GH_TOKEN gh secret set LAB_ENV < .env
+
 """
 from __future__ import annotations
 
