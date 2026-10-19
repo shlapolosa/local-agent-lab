@@ -192,8 +192,9 @@ def _subject_items(state: dict, cap: int) -> tuple[list[dict], list[str]]:
                                            str(l.get("label") or l.get("term") or "")))
     asked, held = ranked[:max(0, int(cap))], ranked[max(0, int(cap)):]
     items = [{"label": f"subject:{l['concept']}",
+              "choices": ["keep", "drop"],         # the ANSWERS; the sentence below only explains them
               "samples": [f"{l.get('label') or l.get('term')} — found in the content; "
-                          f"answer keep to confirm it, or drop if this document is not about it"]}
+                          f"keep confirms it, drop records that this document is not about it"]}
              for l in asked]
     return items, [str(l.get("label") or l.get("term") or "") for l in held]
 
@@ -691,19 +692,27 @@ def build_workflow(cfg):
                 type_samples.insert(1, f"this now reads as: {_type_label(cfg, state['suggested_type'])} "
                                        f"({state['confidence']:.2f}) — answer it if it is right; "
                                        f"{_type_label(cfg, state.get('document_type'))} stays the default")
-            items = [{"label": "document_type", "samples": type_samples}]
+            items = [{"label": "document_type", "samples": type_samples,
+                       # Every type the fabric knows, by the label `DOC_TYPES.resolve` accepts. The samples
+                       # beside them carry the suggestion and its score, which is not an answer.
+                       "choices": sorted(v.get("label", "") for v in cfg["doc_types"].values() if v.get("label"))}]
             asked_subjects, held_back = _subject_items(state, cfg.get("subject_ask_max") or SUBJECT_ASK_MAX)
             items += asked_subjects
             if not state.get("owner"):
                 items.append({"label": "owner", "samples": ["unresolved: no owner-map rule, no requester, no author — type the owner's email"]})
             if state.get("overlap"):
                 items.append({"label": "overlap",
+                              "choices": ["keep"] + [f"duplicate-of:{o['iri']}" for o in state["overlap"]],
                               "samples": [f"{o['title']} ({o['score']:.2f}) — answer duplicate-of:{o['iri']} to withdraw this record as its duplicate"
                                           for o in state["overlap"]] + ["or answer keep"]})
             kind = ApprovalKind.DRAFT_REVIEW
             if not state.get("context"):
                 kind = ApprovalKind.ASSOCIATION
                 items.append({"label": "context",
+                              # The context keys ALONE, with the score beside them rather than inside
+                              # them: "project:alpha (0.92)" was offered as a pick and accepted, and a
+                              # rung-H association was written under a context that does not exist.
+                              "choices": [str(c["context"]) for c in state.get("candidates") or []] + ["none"],
                               "samples": [f"{c['context']} ({c['score']:.2f})" for c in state.get("candidates") or []]
                               or ["no candidate: type the delivery context as <kind>:<id>, or 'none'"]})
             summary = {"impact": len(state.get("impact") or []), "overlap": len(state.get("overlap") or []),

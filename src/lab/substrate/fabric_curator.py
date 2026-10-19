@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from lab.core.semantic.fabric.ontology import (CONTEXT_IRI, DUPLICATE_OF, DELIVERED_UNDER, DOCUMENT_TYPE,
                                                SUBJECT, DocumentTypes, short)
+from lab.core.semantic.fabric.catalog import iri_safe
 from lab.core.semantic.fabric.service import PERSON
 from lab.platform.contracts import ApprovalKind, SemanticTools, answer_value, continuation_of
 from lab.substrate import answer_appliers, fabric_gateway
@@ -102,6 +103,8 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
             # Rung C, not H — see OWNER_METHOD. Writing it at H made the fabric refuse the very answer it
             # had asked for, on the first approval a person ever gave (measured 8 Oct 2026).
             person = value if value.startswith(PERSON) else PERSON + value.strip()
+            if iri_safe(person) != person:
+                raise ValueError(f"an owner is an email or a person IRI, not {value!r}")
             calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "owner", "value": person,
                                                          "rung": "C", "method": OWNER_METHOD, "actor": actor}))
         elif label == "context":
@@ -109,6 +112,14 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
                 calls.append((SemanticTools.catalog_state, {"iri": iri, "state": "pending", "unassociated": True}))
                 continue
             ctx = value if value.startswith(CONTEXT_IRI) else CONTEXT_IRI + value.strip()
+            # The object of a triple is the ONE end nothing downstream checks: `graph_assert` validates a
+            # subject and a predicate, never an object, and `term()` quietly stores a non-IRI as a Literal.
+            # So "project:alpha (0.92)" — which the review app offered as a pick, score and all — was
+            # written at rung H, marking a record associated under a context that does not exist, with a
+            # person's name on it. Refused here, where the answer is interpreted.
+            if iri_safe(ctx) != ctx:
+                raise ValueError(f"a context is a key like 'project:alpha', not {value!r} — "
+                                 "a score or a description is not one")
             if _link(row, short(DELIVERED_UNDER), ctx) in ("S", "X"):
                 calls.append((SemanticTools.promote, {"subject": iri, "predicate": DELIVERED_UNDER,
                                                       "object": ctx, "actor": actor, "method": METHOD}))

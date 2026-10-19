@@ -855,7 +855,11 @@ CLASS_REQ = {
         "question": {"prompt": "Confirm the criticality class derived for this use case.",
                      "fields": ["value"],
                      "items": [{"label": "criticality_class",
-                                "samples": ["routine", "business-critical", "safety-of-life"]},
+                                "samples": ["routine", "business-critical", "safety-of-life"],
+                                # The ANSWERS, declared as such. They used to live in `samples` alone,
+                                # which the app offered as picks — right for this question and wrong for
+                                # the intake's, whose samples are prose and scores.
+                                "choices": ["routine", "business-critical", "safety-of-life"]},
                                {"label": "justification", "samples": []}]},
         "answer_labels": ["criticality_class", "justification"], "answer_required": True,
         "continuation": {"process": "use_case_design", "answer_input": "criticality",
@@ -992,3 +996,22 @@ def test_a_deep_link_still_opens_ITS_request_whatever_the_order():
     st.query_params = {"approval": "apr-old"}
     APP._review_page("ann")
     assert st.said("write", "`apr-old`")
+
+
+def test_an_item_that_declares_NO_choices_is_free_text_and_its_samples_only_EXPLAIN():
+    """The rule that keeps the corruption from coming back. A producer whose samples are prose — the
+    artifact intake's "project:alpha (0.92)" — cannot make them selectable by accident, because only
+    `choices` is offered. The prose shows as a caption, which is what it was always for."""
+    legacy = json.loads(json.dumps(CLASS_REQ))
+    legacy["payload"]["question"]["items"] = [
+        {"label": "context", "samples": ["project:alpha (0.92) — the run that produced it"]}]
+    legacy["payload"]["answer_labels"] = ["context"]
+    ap = FakeApprovals(items=[legacy])
+    st = install(FakeSt(), approvals=ap, store=_store_for(legacy))
+    try:
+        APP._review_page("ann")
+    except Rerun:
+        pass
+    assert not st.said("selectbox", "context"), "nothing offered: a score is not an answer"
+    assert st.said("text_input", "context")
+    assert st.said("caption", "0.92"), "the prose explains, below the box"

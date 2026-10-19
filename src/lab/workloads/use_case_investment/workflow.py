@@ -119,7 +119,8 @@ def build_workflow(cfg):
                 "subject": f"Approve an investment — {routing.authority}",
                 "prompt": f"{PROMPT}\n\nRouted to: {routing.authority}. {routing.reason}.",
                 "items": [{"label": "decision",
-                           "samples": ["approve", "approve with conditions", "defer"]},
+                           "samples": ["approve", "approve with conditions", "defer"],
+                           "choices": ["approve", "approve with conditions", "defer"]},
                           {"label": "authority", "samples": [routing.authority]}],
                 "continuation": cont.to_dict(),
                 "fields": ["value"],                   # one thing to say per label, not a voice

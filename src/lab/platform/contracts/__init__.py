@@ -519,6 +519,14 @@ class SpeakerPrompt:
     # ({"identity"|"tag": ..., "display": ..., "score": ...}) so a surface can prefill it. Empty means
     # "not recognised", and the question is asked exactly as it was before voiceprints existed.
     suggestion: dict[str, Any] = dc_field(default_factory=dict)
+    #: The answers this item ACCEPTS, when they are a closed set — what a surface may offer as a pick.
+    #: SEPARATE from `samples`, because the two were one field meaning different things to different
+    #: producers: the use-case questions put the answers there (and the review app rightly offered them),
+    #: while the artifact intake put prose and scores there, so the offered pick for `context` submitted
+    #: "project:alpha (0.92)" and a rung-H association was written under a context that does not exist.
+    #: Empty means free text only. LAST in the field order on purpose: inserted anywhere else it shifts
+    #: every positional construction, which silently cost the meeting card its voiceprint prefill.
+    choices: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not (self.label or "").strip():
@@ -527,6 +535,8 @@ class SpeakerPrompt:
     def to_dict(self) -> dict[str, Any]:
         out = {"label": self.label, "samples": list(self.samples), "seconds": self.seconds,
                "turns": self.turns}
+        if self.choices:
+            out["choices"] = list(self.choices)
         if self.suggestion:
             out["suggestion"] = dict(self.suggestion)
         return out
@@ -534,6 +544,7 @@ class SpeakerPrompt:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SpeakerPrompt":
         return cls(label=str(d.get("label") or ""), samples=tuple(d.get("samples") or ()),
+                   choices=tuple(str(c) for c in (d.get("choices") or ())),
                    seconds=float(d.get("seconds") or 0.0), turns=int(d.get("turns") or 0),
                    suggestion=dict(d.get("suggestion") or {}))
 

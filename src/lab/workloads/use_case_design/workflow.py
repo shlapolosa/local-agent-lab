@@ -733,7 +733,8 @@ async def _finding(cfg, state: dict) -> dict:
     asked = await gateway.call(cfg, ApprovalTools.ask, {
         "subject": f'Feasibility finding: {state["verdict"]}',
         "prompt": finding_prompt(state.get("verdict", "")),
-        "items": [{"label": "decision", "samples": ["confirm", "overturn"]},
+        "items": [{"label": "decision", "samples": ["confirm", "overturn"],
+                   "choices": ["confirm", "overturn"]},
                   {"label": "reason", "samples": []}],
         "artifacts": {"submission": state["submission_ref"],
                       "screening": state["screening_ref"]},
@@ -762,7 +763,8 @@ async def _conformance(cfg, state: dict) -> dict:
     asked = await gateway.call(cfg, ApprovalTools.ask, {
         "subject": "Approve or return a composed design on conformance",
         "prompt": CONFORMANCE_PROMPT,
-        "items": [{"label": "decision", "samples": ["approve", "return"]},
+        "items": [{"label": "decision", "samples": ["approve", "return"],
+                   "choices": ["approve", "return"]},
                   {"label": "conditions", "samples": []}],
         "continuation": cont.to_dict(),
         "fields": ["value"],                   # one thing to say per label, not a voice

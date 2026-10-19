@@ -691,7 +691,8 @@ def build_workflow(cfg):
                 "subject": "Confirm the criticality class of a submitted use case",
                 "prompt": PROMPT,
                 "items": [{"label": "criticality_class",
-                           "samples": ["routine", "business-critical", "safety-of-life"]},
+                           "samples": ["routine", "business-critical", "safety-of-life"],
+                           "choices": ["routine", "business-critical", "safety-of-life"]},
                           {"label": "justification", "samples": []}],
                 "fields": ["value"],                   # one thing to say per label, not a voice
                 "summary": summary,                    # what this screening found, before the refs

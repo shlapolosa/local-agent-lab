@@ -1156,9 +1156,12 @@ def _answer_form(p, request_id):
 def _item_form(q, prompts, request_id):
     """One value per label, for a question whose items are not voices — the criticality class.
 
-    The items carry no seconds or turns because nobody spoke; their `samples` are the answers the
-    asker suggests (the classes of the taxonomy), offered as a pick BESIDE free text and never
-    instead of it. The answer travels as the same MAPPING every other surface builds —
+    The items carry no seconds or turns because nobody spoke. A pick comes from `choices` — the answers
+    the asker declares legal — offered BESIDE free text and never instead of it, while `samples` are
+    shown as the explanation under the control. The two used to be one field, and that was the defect:
+    the use-case questions put answers in `samples` and the intake put prose and scores there, so the
+    offered pick for `context` submitted "project:alpha (0.92)" and a rung-H assertion was written under
+    a context that does not exist. The answer travels as the same MAPPING every other surface builds —
     `{label: {"value": text}}` — so the completeness gate and the process contract stay generic.
     """
     st.divider()
@@ -1168,15 +1171,17 @@ def _item_form(q, prompts, request_id):
     PICK_NONE = "— choose —"
     for prompt in prompts:
         typed, picked = "", ""
-        if prompt.samples:
+        if prompt.choices:
             c1, c2 = st.columns(2)
-            chosen = c1.selectbox(prompt.label, [PICK_NONE] + list(prompt.samples),
+            chosen = c1.selectbox(prompt.label, [PICK_NONE] + list(prompt.choices),
                                   key=f"pick_{request_id}_{prompt.label}")
             picked = "" if chosen == PICK_NONE else chosen
             typed = c2.text_input(f"{prompt.label} — or type it",
                                   key=f"val_{request_id}_{prompt.label}")
         else:
             typed = st.text_input(prompt.label, key=f"val_{request_id}_{prompt.label}")
+        for sample in prompt.samples:              # what the asker is telling them, never selectable
+            st.caption(sample)
         value = typed.strip() or picked            # what someone typed wins over a pick
         if value:
             answer[prompt.label] = {"value": value}
