@@ -302,9 +302,13 @@ jobs:
   # and nothing else. Configuration — secrets, a new app, a grant — is `aca.py secrets sync` /
   # `substrate up` by a person holding `.env.azure` (docs/decisions/2026-09-24-azure-production.md).
   # The quiet gate's key is read from Key Vault by the deploy identity, which may read that ONE secret.
+  #
+  # PARKED since 13 Oct 2026: production was torn down on cost (≈$15/day for a lab with no real traffic).
+  # The IaC stays — deploy/bicep, deploy/apim.py, deploy/aca.py — and so does this job; it runs only when
+  # the repository variable AZURE_PROD_ENABLED is 'true', so un-parking is a variable, not a commit.
   deploy-prod:
     needs: deploy
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.AZURE_PROD_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: production
     permissions:
