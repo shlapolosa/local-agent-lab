@@ -1,5 +1,10 @@
 # Inverting the classifier — implementation plan
 
+> **The DECISION and its reasoning — why inverted, the alternatives weighed and rejected, and what it
+> costs — are an ADR:
+> [`docs/decisions/2026-10-17-classifier-inversion.md`](../decisions/2026-10-17-classifier-inversion.md).
+> This document is the implementation plan and the measurements.**
+
 **The change.** Today the classifier is handed ~100 concepts and asked which fit. Instead: read the
 artifact, say what it is about in its own words, and match afterwards. One model call reads; everything
 after it is deterministic.
