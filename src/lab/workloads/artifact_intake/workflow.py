@@ -49,8 +49,9 @@ REQUIRED_TOOLS = (SemanticTools.catalog_upsert, SemanticTools.catalog_get, Seman
 EXCERPT_CHARS = 2000
 
 USECASE_ID = re.compile(r"\bUC-\d{1,6}\b")
-PROMPT_REVIEW = ("Review this artifact's record before it is published: is the document type right, and "
-                 "does it belong to the delivery context shown? Confirm each item or type the correct value.")
+PROMPT_REVIEW = ("Review this artifact's record before it is published: is the document type right, does it "
+                 "belong to the delivery context shown, and is it about the subjects listed — answer keep or "
+                 "drop for each. Confirm each item or type the correct value.")
 
 
 #: Processes whose output is a machine's reading of the world rather than a document — one line each, so a
@@ -164,10 +165,43 @@ async def _excerpt(cfg, pointer: dict, *, produced_by: str = "") -> tuple[str, s
         return "", ""
 
 
+#: How many subjects one owner card may ask about. A subject is asserted at X by a label match on a
+#: grounded span, so the card is not re-checking the fabric's work — it is letting the person who knows the
+#: document promote the few that matter to H. Capped because a record with a dozen subjects would otherwise
+#: become a dozen questions, which is the forty-fields mistake the steward's batch card already paid for.
+SUBJECT_ASK_MAX = 3
+
+
+def _subject_items(state: dict, cap: int) -> tuple[list[dict], list[str]]:
+    """The subject items for the owner's card, and the labels held back.
+
+    Ranked by SALIENCE — how central the extractor found the term to THIS document — because a cap has to
+    choose and "what your document is most about" is the only ordering a person would recognise. Ties and
+    absent salience fall back to the label, so two runs of one record ask the same question.
+
+    The label is the CONCEPT IRI, not the term: `check_answer` keys the answer on the item label, and two
+    records' terms for one concept would collide. The human-readable name lives in the samples, which is the
+    `batch_question` rule.
+
+    Held-back subjects are NAMED rather than counted, and they stand at X untouched. Nothing is tracked and
+    nothing is lost — which is what makes a cap safe here and unsafe on the candidate register, where a term
+    nobody asks about is a term nobody ever asks about again."""
+    salience = state.get("salience") or {}
+    linked = [l for l in (state.get("linked") or []) if l.get("concept")]
+    ranked = sorted(linked, key=lambda l: (-float(salience.get(l.get("term") or "", 0.0)),
+                                           str(l.get("label") or l.get("term") or "")))
+    asked, held = ranked[:max(0, int(cap))], ranked[max(0, int(cap)):]
+    items = [{"label": f"subject:{l['concept']}",
+              "samples": [f"{l.get('label') or l.get('term')} — found in the content; "
+                          f"answer keep to confirm it, or drop if this document is not about it"]}
+             for l in asked]
+    return items, [str(l.get("label") or l.get("term") or "") for l in held]
+
+
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
              schemas: dict | None = None, doc_types: dict | None = None, threshold: float = 0.75,
              default_label: str = "", owners: OwnerMap | None = None, overlap_threshold: float = 0.85,
-             subject_floor: float = 0.0, extract_first: bool = False,
+             subject_floor: float = 0.0, extract_first: bool = False, subject_ask_max: int = SUBJECT_ASK_MAX,
              vocabulary: str = "", tracer=None, root_ctx=None, run_id: str = ""):
     """The ONE config contract for every host of this process. Nothing below reads the environment.
     `agents` and `schemas` are keyed by agent KIND (`agents.SKILL`); an absent agent makes its step a
@@ -180,7 +214,7 @@ def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", 
             "doc_types": dict(doc_types or {}), "threshold": float(threshold), "default_label": default_label,
             "extract_first": bool(extract_first),
             "owners": owners or OwnerMap.empty(), "overlap_threshold": float(overlap_threshold),
-            "subject_floor": float(subject_floor),
+            "subject_floor": float(subject_floor), "subject_ask_max": int(subject_ask_max),
             "vocabulary": vocabulary, "tracer": tracer, "root_ctx": root_ctx, "run_id": run_id}
 
 
@@ -260,18 +294,25 @@ def build_workflow(cfg):
             # Bound HERE, not in the branch below: a run with no classifier reads nothing, and a rendering
             # left unbound made the no-agent path raise rather than simply have nothing to record.
             suggestion, rendering = None, ""
+            # READ ONCE, for both readers. The excerpt used to be fetched inside the classifier's branch,
+            # which made the extractor depend on a classifier being configured for its own evidence.
+            excerpt, rendering = await _excerpt(cfg, state["pointer"],
+                                                produced_by=state.get("produced_by") or "")
+            # WHAT EACH READER IS SHOWN. The facts about the artifact are common; the VOCABULARY and the
+            # closed type set belong to the classifier alone. Handing them to the extractor would make the
+            # inversion a second taxonomy-first call — every test still passing, because the schema
+            # constrains only the OUTPUT. This split IS the inversion; it is not a tidying.
+            facts = {"title": state["title"], "name": _label_of(state["pointer"]),
+                     "path": (state.get("hints") or {}).get("path", ""),
+                     "produced_by": state.get("produced_by") or "",
+                     "hints": state.get("hints") or {}}
+            if excerpt:                          # absent, not empty: the prompt must not read "" as "blank document"
+                facts["excerpt"] = excerpt
             if cfg["agents"].get("classifier") and classify_gate is not None:
-                brief = {"title": state["title"], "name": _label_of(state["pointer"]),
-                         "path": (state.get("hints") or {}).get("path", ""),
-                         "produced_by": state.get("produced_by") or "",
+                brief = {**facts,
                          "document_types": [{"iri": k, **v} for k, v in cfg["doc_types"].items()],
-                         "concepts": await _vocabulary(cfg),
-                         "hints": state.get("hints") or {}}
-                excerpt, rendering = await _excerpt(cfg, state["pointer"],
-                                                    produced_by=state.get("produced_by") or "")
-                if excerpt:                      # absent, not empty: the prompt must not read "" as "blank document"
-                    brief["excerpt"] = excerpt
-                else:
+                         "concepts": await _vocabulary(cfg)}
+                if not excerpt:
                     # Four of the five causes announced themselves by RAISING; one returned "" quietly and
                     # cost a day. A degrade-by-design path must never be silent about degrading.
                     print(f"[intake] no excerpt for {state['pointer'].get('ref') or state['pointer'].get('handle')}: "
@@ -300,15 +341,22 @@ def build_workflow(cfg):
             # shown the options is appropriate — and the SUBJECTS come instead from a reader that was
             # shown no vocabulary at all. A term may be inferred; its evidence may not, so a span absent
             # from the excerpt takes its term with it.
-            ungrounded, grounded_any = 0, False
+            ungrounded, grounded_any, salience, extracted = 0, False, {}, False
             if cfg.get("extract_first") and cfg["agents"].get("extractor") and extract_gate is not None:
-                got = await run_gated(cfg["agents"]["extractor"], json.dumps(brief, ensure_ascii=False),
+                extracted = True
+                # `facts`, never `brief`: see the split above. The extractor is given the TEXT and what
+                # the artifact IS, and nothing it could pick an answer from.
+                got = await run_gated(cfg["agents"]["extractor"], json.dumps(facts, ensure_ascii=False),
                                       step="extraction", validator=extract_gate)
                 terms = list((got or {}).get("terms") or [])
                 kept = [x for x in terms if concepts.ground(str(x.get("evidence_span") or ""), excerpt)]
                 ungrounded = len(terms) - len(kept)
                 grounded_any = bool(kept)
                 subjects = [str(x.get("term") or "") for x in kept]
+                # How central the extractor found each term. Carried because the owner's card ranks by it:
+                # a cap has to choose, and "the ones this document is most about" is the only ordering a
+                # person would recognise. Absent is 0.0, which sorts last without being an error.
+                salience = {str(x.get("term") or ""): float(x.get("salience") or 0.0) for x in kept}
                 print(f"[intake] extracted {len(terms)} term(s), {len(kept)} grounded, "
                       f"{ungrounded} discarded", flush=True)
             # A subject the model is GUESSING at never becomes a link. The excerpt fixed what the
@@ -321,7 +369,15 @@ def build_workflow(cfg):
             # number, so its absence means the model declined to stand behind that subject. Optional, it
             # was simply never emitted — the floor was inert while every test passed (9 Oct 2026).
             floor, declared = cfg.get("subject_floor") or 0.0, (suggestion or {}).get("subject_confidence") or {}
-            unsure = [t for t in subjects if float(declared.get(t, 0.0)) < floor] if floor else []
+            # ONLY the classifier's own subjects. The floor reads `subject_confidence`, which the CLASSIFIER
+            # declares for the terms IT chose — an extracted term is not a key in it, so every one scored
+            # 0.0 and a shipped floor of 0.6 dropped the lot. `vocab_link` was then called with an empty
+            # list, which RETRACTS every rung-X subject on the record: the estate-wide erasure the blind
+            # guard exists to stop, arriving through a door the guard cannot see, because these terms
+            # grounded perfectly well before the floor ate them. Salience is the extract-first dial and it
+            # is a DIFFERENT QUANTITY — how central a term is to the document, not how sure a model is of a
+            # match — which is why it is not folded into this one.
+            unsure = [t for t in subjects if float(declared.get(t, 0.0)) < floor] if floor and not extracted else []
             if unsure:
                 subjects = [t for t in subjects if t not in unsure]
                 print(f"[intake] dropped {len(unsure)} subject(s) below the {floor} floor: {unsure}", flush=True)
@@ -367,25 +423,41 @@ def build_workflow(cfg):
             # happens — so a record could only ever GAIN subjects and "nothing applies" was unrepresentable
             # (measured 9 Oct 2026: the classifier returned none for a bake-off transcript and the record
             # kept four links from the run before). An empty answer from a classifier that RAN is an
-            # opinion; a run with no classifier has none, which is why the guard tests the suggestion and
-            # not the list.
+            # opinion; a run where NEITHER reader ran has none, which is why the guard tests whether a
+            # reader answered and not whether the list is empty.
             # "I could not ground anything" is NOT "I grounded nothing". `vocab_link` replaces the
             # extracted subject set wholesale, and `_excerpt` returns "" on ANY failure — a missing
             # grant, a provider outage, an empty artifact. Composed naively, one storage blip means zero
             # terms, an empty link call, and every rung-X subject on that record retracted; swept across
             # the estate that erases the subject graph. So a run that extracted terms and grounded NONE
             # of them leaves the prior set standing and says so.
-            blind = bool(cfg.get("extract_first")) and ungrounded > 0 and not grounded_any
+            # "I could not READ it" and "I read it and found nothing" are different answers, and only the
+            # second may replace a subject set. The condition used to test `ungrounded > 0`, which an
+            # extractor shown no text does not satisfy: it honestly answers `{"terms": []}` (schema-valid,
+            # no minItems), so nothing was ungrounded, nothing grounded, and the guard read it as an
+            # opinion — emptying the set and retracting every rung-X subject on the record. A run with no
+            # excerpt has no opinion, whatever the model said.
+            blind = bool(cfg.get("extract_first")) and not grounded_any and (ungrounded > 0 or not excerpt)
             if blind:
-                print(f"[intake] {ungrounded} term(s) and nothing grounded — leaving the subjects as they "
-                      f"are rather than retracting them", flush=True)
-            if suggestion is not None and not blind:
+                why = f"{ungrounded} term(s) and nothing grounded" if ungrounded else "nothing readable to extract from"
+                print(f"[intake] {why} — leaving the subjects as they are rather than retracting them", flush=True)
+            # EITHER reader having run is an opinion. The gate used to test the classifier alone, which was
+            # right while the classifier was the only source of subjects and became wrong the moment the
+            # extractor supplied them: an extractor-only run grounded its terms and linked none of them,
+            # silently. `extracted` is the extract-first half of the same question.
+            if (suggestion is not None or extracted) and not blind:
                 out = await gateway.call(cfg, SemanticTools.vocab_link, {"iri": state["iri"], "terms": subjects})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
                 # What a RE-READ took back: subjects an earlier pass extracted that this one no longer
                 # stands behind. Carried on the run because a re-classification whose removals are invisible
                 # is indistinguishable from one that did nothing.
                 retracted = out.get("retracted") or []
+                # Subjects a person already said this record is NOT about. Named on the run, because a
+                # term that matched and was suppressed is invisible otherwise — it looks like the
+                # classifier simply stopped finding it.
+                if out.get("excluded"):
+                    print(f"[intake] {len(out['excluded'])} subject(s) suppressed by an owner's answer: "
+                          f"{out['excluded']}", flush=True)
                 # A term the vocabulary gives TWO meanings is neither linked nor missed: it is a steward's
                 # decision. Carried on the run so a person reading it can see that two terms went to a
                 # steward — without this it is invisible everywhere except the curated graph.
@@ -464,7 +536,7 @@ def build_workflow(cfg):
                              # how many readings were dropped for want of evidence — a reviewer judging a
                              # thin set of subjects should know whether the reader said little or was
                              # disbelieved, and they are very different things
-                             "ungrounded": ungrounded,
+                             "ungrounded": ungrounded, "salience": salience,
                              "confidence": confidence, "rationale": (suggestion or {}).get("rationale", "")}
         await ctx.send_message(state)
 
@@ -620,6 +692,8 @@ def build_workflow(cfg):
                                        f"({state['confidence']:.2f}) — answer it if it is right; "
                                        f"{_type_label(cfg, state.get('document_type'))} stays the default")
             items = [{"label": "document_type", "samples": type_samples}]
+            asked_subjects, held_back = _subject_items(state, cfg.get("subject_ask_max") or SUBJECT_ASK_MAX)
+            items += asked_subjects
             if not state.get("owner"):
                 items.append({"label": "owner", "samples": ["unresolved: no owner-map rule, no requester, no author — type the owner's email"]})
             if state.get("overlap"):
@@ -656,7 +730,10 @@ def build_workflow(cfg):
             asked = await gateway.call(cfg, ApprovalTools.ask, {
                 "kind": kind.value,
                 "subject": f'{state["title"]} — {"where does this belong?" if kind is ApprovalKind.ASSOCIATION else "review the record"}',
-                "prompt": (f"NEW VERSION {state['pointer'].get('version', '')} of a record already reviewed "
+                # The subjects NOT asked about, by name. A cap that said "and 2 more" would leave a person
+                # unable to tell a subject that was held back from one the fabric never found.
+                "prompt": (f"Also about: {', '.join(held_back)} (unchanged). " if held_back else "")
+                          + (f"NEW VERSION {state['pointer'].get('version', '')} of a record already reviewed "
                            f"(previous version {state.get('previous_version') or '?'}) — review it again. "
                            if state.get("revised") else "") + PROMPT_REVIEW + f" Summary: {json.dumps(summary)}.",
                 "items": items, "fields": ["value"], "continuation": cont.to_dict(),

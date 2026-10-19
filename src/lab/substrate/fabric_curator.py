@@ -11,7 +11,8 @@ the answer CONFIRMS is promoted (S/X → H, the audit chain kept); what it CORRE
 previous value superseded; `none` for a context marks the record unassociated."""
 from __future__ import annotations
 
-from lab.core.semantic.fabric.ontology import CONTEXT_IRI, DUPLICATE_OF, DELIVERED_UNDER, DOCUMENT_TYPE, DocumentTypes, short
+from lab.core.semantic.fabric.ontology import (CONTEXT_IRI, DUPLICATE_OF, DELIVERED_UNDER, DOCUMENT_TYPE,
+                                               SUBJECT, DocumentTypes, short)
 from lab.core.semantic.fabric.service import PERSON
 from lab.platform.contracts import ApprovalKind, SemanticTools, answer_value, continuation_of
 from lab.substrate import answer_appliers, fabric_gateway
@@ -19,6 +20,8 @@ from lab.substrate import answer_appliers, fabric_gateway
 KINDS = (ApprovalKind.ASSOCIATION.value, ApprovalKind.DRAFT_REVIEW.value)
 DOC_TYPES = DocumentTypes()           # stateless; the scheme's parse is cached in core
 METHOD = "review"
+#: The owner card's per-subject items are labelled by CONCEPT IRI, so the prefix is what identifies them.
+SUBJECT_ITEM = "subject:"
 #: The method recorded when a PERSON supplies the owner the owner-map could not resolve. It is written at
 #: rung C, not H, because the rung states the KIND of knowledge and FRS FR-1.1 is explicit that "identity,
 #: owner and sensitivity enter at C only" — owner is a fact looked up or supplied, never a judgement
@@ -61,6 +64,31 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
             else:
                 calls.append((SemanticTools.catalog_assert, {"iri": iri, "field": "document_type", "value": value,
                                                              "rung": "H", "method": METHOD, "actor": actor}))
+        elif label.startswith(SUBJECT_ITEM):
+            # The owner confirming what their document is ABOUT. PROMOTE rather than assert, because that is
+            # the act the ladder exists to record: `G.promote` MOVES the triple to H and invalidates the old
+            # assertion, keeping the chain that says how the fabric first came to believe it. (It does NOT
+            # leave an X copy behind — a comment here and in `vocab_link` both used to claim it did.)
+            # What makes a confirmed subject survive the next sweep is that `vocab_link`'s `stale` scan
+            # looks only at rung X, and an H-only triple is not in it. One left at X does not survive, which
+            # is the whole point of asking.
+            concept = label[len(SUBJECT_ITEM):]
+            verdict = value.strip().lower()
+            if verdict == "keep":
+                if _link(row, short(SUBJECT), concept) in ("S", "X"):
+                    calls.append((SemanticTools.promote, {"subject": iri, "predicate": SUBJECT,
+                                                          "object": concept, "actor": actor, "method": METHOD}))
+                continue                            # already at H (or above): answered twice, applied once
+            if verdict != "drop":
+                raise ValueError(f"a subject answer is 'keep' or 'drop', not {value!r} "
+                                 f"(for {concept.rsplit('#', 1)[-1]})")
+            # Retracted, not left alone: the owner is the one person who knows the document is not about
+            # this, and a subject left standing keeps driving what else the corpus says relates to it.
+            # `not_about`, not a bare retraction: a retraction leaves no trace, so the next classification
+            # matched the same label and put the subject back — and asked this person again. It retracts
+            # AND records the NO, so `keep` and `drop` both last.
+            calls.append((SemanticTools.not_about, {"iri": iri, "concept": concept, "actor": actor,
+                                                    "reason": "the owner said this document is not about it"}))
         elif label == "overlap":
             if value.strip().lower() == "keep":
                 continue

@@ -161,7 +161,6 @@ def test_the_sweep_also_asks_the_steward_and_survives_a_question_that_fails(caps
     async def boom(**kw):
         raise ConnectionError("gateway down")
     monkeypatch.setattr(V, "ask_open", boom)
-    monkeypatch.setattr(R, "_ASKED", set())
     R.run_once(call=Gateway(), client=FakeRedis())
     assert "vocabulary questions failed" in capsys.readouterr().out
 

@@ -95,6 +95,11 @@ class SemanticTools(ToolCatalogue):
     view_corpus = "semantic_view_corpus"           # ...and the whole catalogue in one picture, narrowable
     validate_shapes = "semantic_validate_shapes"
     promote = "semantic_promote"                   # a PERSON moves an assertion up the ladder (S→H)
+    #: A person's NO about one RECORD's subject, recorded so a label match cannot put it back — the sibling
+    #: of `vocab_decline`, which is a person's NO about a TERM. In PROMOTE because it is a human judgement
+    #: that narrows what a classifier may assert, which is exactly what that grant is for.
+    not_about = "semantic_not_about"
+    about_after_all = "semantic_about_after_all"    # ...and clearing it, because a NO is durable not permanent
     #: Steward B's two acts — the vocabulary's own TOPOLOGY, as against steward A's membership. `broader` was
     #: settable only at proposal time and the batch card collects no parent, so a concept arrives unplaced and
     #: the hierarchy froze at admission. A relation is TYPED because `skos:related` cannot carry what the
@@ -134,7 +139,8 @@ class SemanticTools(ToolCatalogue):
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.
-    PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline, vocab_place, vocab_relate)
+    PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline, vocab_place, vocab_relate,
+               not_about, about_after_all)
     REINDEX = (reindex,)
     # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has

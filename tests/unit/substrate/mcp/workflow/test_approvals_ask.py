@@ -292,6 +292,7 @@ def test_the_fabrics_vocabulary_question_is_ACCEPTED_by_the_live_tool(tools):
     """
     import json
 
+    from lab.platform.contracts import SemanticTools
     from lab.substrate import fabric_vocabulary as V
 
     server, r = tools
@@ -303,6 +304,15 @@ def test_the_fabrics_vocabulary_question_is_ACCEPTED_by_the_live_tool(tools):
             async def over_the_gateway(calls):               # the transport the asker is given
                 out = []
                 for name, args in calls:
+                    # The asker also records "a steward has been asked" in the REGISTER, which is a
+                    # semantic-mcp verb — a different server, routed by name over the real gateway but not
+                    # reachable through this client. Stubbed, deliberately and narrowly: what this test
+                    # exists to pin is the asker's arguments against the REAL approvals tool, and the
+                    # marker has its own tests against the real service (`test_service_curation`,
+                    # `test_fabric_vocabulary`).
+                    if name == SemanticTools.vocab_asked:
+                        out.append({"iri": args.get("candidate"), "asked": True})
+                        continue
                     out.append((await c.call_tool(name, args)).data)   # raises if the tool refuses them
                 return out
             return await V._ask(over_the_gateway, facts, set(), {"iri": "urn:fabric:candidate:1"},

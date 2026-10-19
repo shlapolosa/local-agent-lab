@@ -52,7 +52,12 @@ fab:documentType    a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range
 fab:sensitivityLabel a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
 fab:rendering       a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string ;
     rdfs:comment "HOW the text this record's concepts were grounded in was read — one of the declared ladder (lab.core.semantic.fabric.renderings), ordered by distance from the artifact. A record carries its WEAKEST reading." .
-fab:askedIn         a owl:DatatypeProperty ; rdfs:comment "the approval a candidate was asked in" .
+fab:askedIn         a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:comment "the approval a candidate — or a conflict — was asked in; what stops a steward being asked twice." .
+fab:SubjectExclusion a owl:Class ;
+    rdfs:comment "a PERSON's record that one artifact is NOT about one concept. Its own node, because an artifact's shape is closed and a record's facts are not the place for a negative; enforced where dct:subject is written." .
+fab:excludedFrom    a owl:ObjectProperty ; rdfs:domain fab:SubjectExclusion ; rdfs:range fab:Artifact ;
+    rdfs:comment "the artifact a subject exclusion is about." .
 fab:lifecycleState  a owl:ObjectProperty ; rdfs:domain fab:Artifact ; rdfs:range fab:LifecycleState .
 fab:baselineVersion a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string .
 fab:producedBy      a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:range xsd:string ;

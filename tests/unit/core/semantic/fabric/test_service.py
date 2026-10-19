@@ -756,3 +756,107 @@ def test_an_undeclared_rendering_is_refused_like_any_other_facet_value(fab):
     iri = fab.catalog_upsert({"source": "lab", "ref": "art://run/x.json"})["iri"]
     with pytest.raises(ValueError, match="rendering"):
         fab.catalog_assert(iri, field="rendering", value="made-up", rung="X", method="read-as")
+
+
+def test_a_term_LINKS_through_the_same_normaliser_the_semantic_tier_probes_with(fab):
+    """`find` only strips and case-folds, but an extracted phrase arrives plural, with an article, or
+    wrapped across two lines. Each of those missed a concept the vocabulary HOLDS — and the miss then parked
+    a duplicate candidate for it, which is the defect `_held_by` exists to prevent, recreated one tier up.
+
+    Two attempts, as the diagram lane already does, so the lexical and semantic tiers agree what a term is."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://s/n"})["iri"]
+    for term in ("Care Delivery", "the Care Delivery", "Care Deliverys", " care  delivery "):
+        out = fab.vocab_link(iri, [term])
+        assert [l["label"] for l in out["linked"]] == ["Care Delivery"], f"{term!r} must reach the concept"
+        assert out["missed"] == []
+
+
+def test_RE_READING_a_confirmed_record_does_not_mint_a_duplicate_subject_beneath_it(fab):
+    """`G.promote` MOVES the triple to H — it does not leave an X copy, whatever two comments used to say.
+    So a re-read that re-asserted at X put the same subject on the record at TWO rungs: `catalog_get`
+    reported it twice, and the curator's `_link` read the first (X) and re-promoted on every review."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://s/c"})["iri"]
+    fab.vocab_link(iri, ["Care Delivery"])
+    concept = next(l["concept"] for l in fab.vocab_link(iri, ["Care Delivery"])["linked"])
+    fab.promote(iri, predicate=str(G.DCT.subject), obj=concept, actor="a@x", method="review")
+    rungs = {r for r, _ in G.find(fab.ds, URIRef(iri), G.DCT.subject)}
+    assert rungs == {CONFIRMED}, f"promotion moves it, leaving nothing at X: {rungs}"
+
+    fab.vocab_link(iri, ["Care Delivery"])                 # the next sweep reads the same term
+    rungs = {r for r, _ in G.find(fab.ds, URIRef(iri), G.DCT.subject)}
+    assert rungs == {CONFIRMED}, f"and the re-read must not put a second copy under it: {rungs}"
+    assert [l["predicate"] for l in fab.catalog_get(iri)["links"]].count("subject") == 1
+
+
+def test_a_subject_a_PERSON_said_this_is_NOT_ABOUT_stays_gone(fab):
+    """The asymmetry that made the owner's `drop` a lie. `keep` promotes to H and survives every sweep;
+    `drop` retracted the X triple and recorded NOTHING, so the next classification matched the same label
+    and put it straight back — and asked the owner again.
+
+    The term register already takes the opposite stance for its own negatives: `vocab_decline` is durable
+    because the answer was about the TERM. A document's "not about this" deserves the same, so it is
+    recorded as a fact about the record and subtracted from what a label match may assert."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://s/na"})["iri"]
+    concept = fab.vocab_link(iri, ["Care Delivery"])["linked"][0]["concept"]
+
+    fab.graph_not_about(iri, concept, actor="owner@x", reason="the document only mentions it in passing")
+    assert [l for l in fab.catalog_get(iri)["links"] if l["predicate"] == "subject"] == []
+
+    fab.vocab_link(iri, ["Care Delivery"])               # the next sweep reads the same term
+    assert [l for l in fab.catalog_get(iri)["links"] if l["predicate"] == "subject"] == [], \
+        "a person's NO is not undone by the next classification"
+    assert fab.vocab_link(iri, ["Care Delivery"])["excluded"] == [concept], "...and the run SAYS it skipped it"
+
+
+def test_a_person_can_change_their_mind_and_the_subject_returns(fab):
+    """A NO is durable, not permanent. Confirming the subject afterwards clears the exclusion — otherwise
+    one wrong tap would make a record permanently un-linkable to a concept, and nothing on screen would
+    explain why the classifier kept ignoring it."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://s/mind"})["iri"]
+    concept = fab.vocab_link(iri, ["Care Delivery"])["linked"][0]["concept"]
+    fab.graph_not_about(iri, concept, actor="owner@x", reason="mistake")
+    assert fab.vocab_link(iri, ["Care Delivery"])["linked"] == []
+
+    fab.graph_about_after_all(iri, concept, actor="owner@x")
+    assert [l["concept"] for l in fab.vocab_link(iri, ["Care Delivery"])["linked"]] == [concept]
+
+
+def test_TWO_TERMS_for_ONE_concept_link_it_ONCE(fab):
+    """A run-killer, and the normaliser made it likely rather than rare. "Care Delivery", "Care Deliverys"
+    and "the care delivery" are three terms and one concept — which is exactly what the second match
+    attempt is FOR — but `linked` had one row per TERM, so the owner's card built three items keyed on the
+    same concept IRI and `approvals_ask` refused the whole card for duplicate labels. The run died at the
+    gate, on the first document whose extractor emitted a singular and a plural of the same noun.
+
+    One row per CONCEPT: that is what a subject IS, it is what the card keys on, and it is what the run
+    should count. It also stops a second provenance assertion being written for a triple already there."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://s/dup"})["iri"]
+    out = fab.vocab_link(iri, ["Care Delivery", "Care Deliverys", "the care delivery"])
+    assert len({l["concept"] for l in out["linked"]}) == 1
+    assert len(out["linked"]) == 1, f"one row per concept, got {out['linked']}"
+    assert out["linked"][0]["term"] == "Care Delivery", "the first spelling that matched is the one reported"
+    assert out["missed"] == []
+    links = [l for l in fab.catalog_get(iri)["links"] if l["predicate"] == "subject"]
+    assert len(links) == 1
+
+
+def test_a_persons_NO_is_enforced_where_the_WRITE_happens_not_in_one_reader(fab):
+    """`vocab_link` subtracting the exclusion was only the classifier's path. A steward's admission
+    propagates `dct:subject` onto every record that proposed the term through `edge_assert` — a different
+    door — so the owner's NO lasted until the next admission rather than for ever: a smaller version of
+    exactly the asymmetry it was written to remove.
+
+    So the rule lives where the triple is WRITTEN. One place enforces "a person said this record is not
+    about this", and `vocab_link`'s subtraction becomes a consequence rather than the rule."""
+    iri = fab.catalog_upsert({"source": "lab", "ref": "art://s/enforce"})["iri"]
+    concept = fab.vocab_link(iri, ["Care Delivery"])["linked"][0]["concept"]
+    fab.graph_not_about(iri, concept, actor="owner@x", reason="only mentioned in passing")
+
+    with pytest.raises(ValueError, match="not about"):
+        fab.graph_assert(iri, str(G.DCT.subject), concept, rung=EXTRACTED, method="vocabulary-admission")
+    assert [l for l in fab.catalog_get(iri)["links"] if l["predicate"] == "subject"] == []
+
+    # ...and it constrains THIS predicate only: the record may still be related, owned, typed, anything else.
+    fab.graph_assert(iri, str(G.FAB.relatedTo), "urn:fabric:artifact:other", rung=EXTRACTED, method="x")
+    fab.graph_about_after_all(iri, concept, actor="owner@x")
+    assert fab.graph_assert(iri, str(G.DCT.subject), concept, rung=EXTRACTED, method="m")["assertion"]

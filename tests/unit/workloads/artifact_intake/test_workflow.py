@@ -167,7 +167,13 @@ def test_a_minutes_run_output_is_a_fact_gets_drafts_and_ends_on_a_draft_review()
     # the question: draft-review, with the drafts attached and the publish continuation
     ask = calls(h, ApprovalTools.ask)[0]
     assert ask["kind"] == ApprovalKind.DRAFT_REVIEW.value and ask["process"] == "artifact_intake"
-    assert [i["label"] for i in ask["items"]] == ["document_type"] and ask["fields"] == ["value"]
+    # The INVARIANT, not the exact list: `document_type` is the one item every owner card carries, and the
+    # conditional ones (owner, overlap, context, and one per subject) come and go with the record. Pinning
+    # the whole list made every added item look like a regression — it broke on the subject items and
+    # caught nothing, which is what an exact-set assertion does on an additive change.
+    labels = [i["label"] for i in ask["items"]]
+    assert labels[0] == "document_type" and ask["fields"] == ["value"]
+    assert not {"owner", "overlap", "context"} & set(labels), "this record needs none of the conditional ones"
     assert ask["continuation"]["process"] == ARTIFACT_PUBLISH.name
     assert ask["continuation"]["inputs"] == {"artifact_iri": out["artifact_iri"]}
     assert list(ask["artifacts"].values()) == out["draft_refs"] and ask["requester"] == "a@x.org"
@@ -1065,3 +1071,154 @@ def test_a_RECLASSIFIED_record_keeps_its_WEAKEST_reading(monkeypatch):
     assert W._weakest("", "document") == "document", "nothing recorded yet is not evidence of strength"
     assert W._weakest("transcript", "") == "transcript"
     assert W._weakest("", "") == ""
+
+
+def _subject_items(ask):
+    return [i for i in ask["items"] if i["label"].startswith("subject:")]
+
+
+#: four grounded terms of descending centrality, each matching a DISTINCT concept — the fake's default
+#: `vocab_link` answers one concept IRI for every term, which would collapse four items onto one label.
+FOUR = {"terms": [{"term": t, "evidence_span": "We agreed.", "salience": sal}
+                  for t, sal in (("Prescription", 0.9), ("Dispense", 0.7),
+                                 ("Pharmacy", 0.6), ("Identifier", 0.2))]}
+LINK_EACH = {"semantic_vocab_link": lambda a: {
+    "linked": [{"term": t, "scheme": "syn", "concept": f"urn:c#{t}", "label": t} for t in a["terms"]],
+    "missed": []}}
+
+
+def _ask_with(extraction, **over):
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), extractor=FakeAgent(extraction),
+                extract_first=True, tools={**LINK_EACH, **over})
+    try:
+        run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:AAMk1",
+                         "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+        return calls(h, ApprovalTools.ask)[0]
+    finally:
+        h.close()
+
+
+def test_the_OWNER_is_asked_about_the_subjects_MOST_CENTRAL_to_their_document():
+    """A subject is asserted at X by a label match on a grounded span — already high confidence — so the
+    card's job is not to re-check all of them. It is to let the person who knows the document promote the
+    ones that matter to H, where a later re-read cannot quietly take them away.
+
+    Ranked by SALIENCE, how central the extractor found a term to THIS document, and CAPPED: asking about
+    every subject of every record is the forty-fields mistake the steward's batch card already paid for.
+    The rest stand at X, unasked and unharmed — nothing is tracked and nothing is lost, which is what makes
+    a cap safe here and unsafe on the candidate register, where an unasked term is forgotten."""
+    ask = _ask_with(FOUR)
+    items = _subject_items(ask)
+    assert [i["label"] for i in items] == [f"urn:c#{t}" and f"subject:urn:c#{t}"
+                                           for t in ("Prescription", "Dispense", "Pharmacy")]
+    assert "keep" in items[0]["samples"][0] and "drop" in items[0]["samples"][0]
+    assert "Prescription" in items[0]["samples"][0], "the label a person reads, not only the id"
+    assert "Identifier" in ask["prompt"], "the ones not asked about are NAMED, never silently dropped"
+
+
+def _ask_classifier_only(subjects):
+    """The flag-OFF path: the CLASSIFIER supplies the subjects, so no salience exists for any of them —
+    the extraction schema requires one, so this case cannot arise through the extractor."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent({**CLASSIFICATION, "subjects": subjects,
+                                           "subject_confidence": {t: 0.9 for t in subjects}}),
+                tools=LINK_EACH)
+    try:
+        run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:AAMk1",
+                         "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+        return calls(h, ApprovalTools.ask)[0]
+    finally:
+        h.close()
+
+
+def test_no_salience_still_caps_and_orders_stably():
+    """With the flag off the classifier supplies the subjects and nothing declares salience. The cap still
+    holds, and the order falls back to the label — so two runs of one record ask the same question, which a
+    ranking keyed on dict order would not."""
+    order = ["Pharmacy", "Dispense", "Prescription", "Identifier"]
+    first = [i["label"] for i in _subject_items(_ask_classifier_only(order))]
+    assert first == [f"subject:urn:c#{t}" for t in ("Dispense", "Identifier", "Pharmacy")]
+    assert [i["label"] for i in _subject_items(_ask_classifier_only(list(reversed(order))))] == first
+
+
+def test_a_record_with_no_subjects_is_asked_about_none():
+    ask = _ask_with({"terms": []})
+    assert _subject_items(ask) == []
+
+
+def test_the_EXTRACTOR_IS_SHOWN_NO_VOCABULARY_which_is_its_whole_point():
+    """The inversion's defining property, and the one failure its ADR says nothing will catch.
+
+    A closed set ANCHORS the answer — `UseCase` on 37 of the 40 records carrying any subject — so the
+    extractor says what a document is about IN ITS OWN WORDS and the vocabulary is matched afterwards,
+    deterministically. Hand it the concept list "for context" and the design is taxonomy-first again with
+    an extra model call, every test still passing.
+
+    This is that test. It reads the PROMPT, because that is the only place the property is real."""
+    fab = Fabric()
+    extractor = FakeAgent(EXTRACTION)
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), extractor=extractor,
+                synthesis=FakeAgent(RECORDS), extract_first=True, vocabulary="cafe")
+    try:
+        run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:AAMk1",
+                         "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+    finally:
+        h.close()
+    assert extractor.prompts, "the extractor ran"
+    brief = json.loads(extractor.prompts[0])
+    assert "concepts" not in brief, "the vocabulary must never reach the extractor"
+    assert "document_types" not in brief, "nor the closed type set — that is the classifier's question"
+    assert brief.get("excerpt"), "it is shown the TEXT, which is all it needs"
+    # ...and the classifier still gets both, because being shown the options is right for a closed set.
+    classifier_brief = json.loads(calls_prompt(h, "classifier"))
+    assert classifier_brief.get("concepts") is not None and classifier_brief.get("document_types")
+
+
+def calls_prompt(h, kind):
+    return h.cfg["agents"][kind].prompts[0]
+
+
+def test_the_classifier_s_CONFIDENCE_FLOOR_never_silently_empties_an_EXTRACTED_subject_set():
+    """The floor gates a CLASSIFIER's confidence in a subject it chose from a list. An extracted term is
+    not in that map at all, so every one scores 0.0 and a shipped floor of 0.6 drops the lot — leaving
+    `vocab_link` called with an empty list, which RETRACTS every rung-X subject on the record.
+
+    That is the estate-wide erasure the blind guard was written to stop, arriving through a different
+    door: the guard asks whether anything GROUNDED, and these terms grounded fine before the floor ate
+    them. Salience is the extract-first dial and it is a different quantity — the ADR refuses to reuse
+    this one for it."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), extractor=FakeAgent(EXTRACTION),
+                synthesis=FakeAgent(RECORDS), extract_first=True, subject_floor=0.6)
+    try:
+        out = run_spine(W, h, {"pointer": MINUTES, "event_id": "01J", "context": "meeting:AAMk1",
+                               "produced_by": "transcript_to_minutes", "requester": "a@x.org"})
+    finally:
+        h.close()
+    linked = calls(h, SemanticTools.vocab_link)
+    assert linked, "the link call must still happen"
+    assert linked[0]["terms"] == ["legacy portal retirement"], \
+        f"the grounded extracted term survives the classifier's floor, got {linked[0]['terms']}"
+    assert out["summary"]["subjects"] >= 1
+
+
+def test_a_run_that_READ_NOTHING_has_no_opinion_about_subjects():
+    """The blind guard's own motivating case, through the one route it did not cover. `_excerpt` returns ""
+    on ANY failure — a missing grant, a provider outage, an empty artifact — and an extractor shown no text
+    may honestly answer `{"terms": []}`, which is schema-valid. Then `ungrounded == 0` and `grounded_any`
+    is False, so the old condition (`ungrounded > 0 and not grounded_any`) read it as "it ran and found
+    nothing" and called `vocab_link` with an empty list — retracting every rung-X subject on the record.
+
+    A run that read nothing has no opinion, whatever the model answered."""
+    fab = Fabric()
+    # An EMPTY structure: `_excerpt` reads it, finds "{}", and reports nothing readable — the same ("", "")
+    # a missing grant or a provider outage produces, without hiding a tool preflight requires.
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), extractor=FakeAgent({"terms": []}),
+                extract_first=True, tools={"storage_read_artifact": {}})
+    try:
+        run_spine(W, h, {"pointer": MINUTES, "event_id": "01J"})
+    finally:
+        h.close()
+    assert calls(h, SemanticTools.vocab_link) == [], \
+        "no excerpt means no opinion — the prior subjects must stand"

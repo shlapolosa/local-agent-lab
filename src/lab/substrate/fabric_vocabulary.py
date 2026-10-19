@@ -236,7 +236,9 @@ def batch_question(candidates: list[dict]) -> list[dict]:
 
 
 def _unanswered(candidate: dict) -> bool:
-    """Not yet put to a steward. `asked` is the register's own `fab:InReview`, so it survives a restart."""
+    """Not yet put to a steward. `asked` is the register's own marker — `fab:InReview` on a candidate,
+    `fab:askedIn` on a conflict — so it survives a restart. BOTH halves of the gate are filtered by it;
+    the conflict half had no memory at all and was re-asked on every tick."""
     return not candidate.get("asked")
 
 
@@ -272,7 +274,7 @@ async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,
                                                         (SemanticTools.vocab_candidates, {})])]
     # filter THEN slice: slicing first means that once the first `limit` conflicts have been asked about,
     # the next one is never reached again for the life of the process
-    fresh = _fresh(conflicts, seen, limit)
+    fresh = _fresh([c for c in conflicts if _unanswered(c)], seen, limit)
     raised = []
     # The threshold governs INTERRUPTION, not visibility: `vocab_candidates` still returns everything and a
     # steward may read the parked set whenever they choose. Bounding what is VISIBLE rather than what is
@@ -331,8 +333,21 @@ async def _ask(go, payload: dict, seen: set[str], row: dict, subject: str) -> di
         "items": question(payload), "fields": ["value"], "context": payload,
         "process": "documentation-fabric"})]))[0]
     got = json.loads(got) if isinstance(got, str) else (got or {})
+    # The REGISTER remembers, not this process — the same rule the batch path follows. `seen` is one tick's
+    # narrowing and dies with the process, so a conflict filtered only by it was re-asked on EVERY sweep
+    # tick: ~96 cards a day for one unsettled word. The test that claimed otherwise passed `seen` itself.
+    request_id = str(got.get("request_id") or "")
+    try:
+        await go([(SemanticTools.vocab_asked, {"candidate": str(row.get("iri") or ""),
+                                               "request_id": request_id})])
+    except Exception as e:                      # noqa: BLE001 — the card EXISTS; failing to mark it is a
+        # degradation, not a failure. Raising here would abandon the whole sweep AFTER a steward had been
+        # asked, and the next tick would ask again — the flood this marker exists to stop, now behind one
+        # unmarkable row instead of behind every row.
+        print(f"[fabric] asked {row.get('iri')} in {request_id} but could not mark it: "
+              f"{type(e).__name__}: {e}", flush=True)
     seen.add(str(row.get("iri") or ""))
-    return {**payload, "request_id": str(got.get("request_id") or "")}
+    return {**payload, "request_id": request_id}
 
 
 #: Why a propagated link is EXTRACTED and not constructed: the term genuinely was in those documents'

@@ -360,3 +360,26 @@ def test_a_diagram_BOX_resolves_through_the_same_normaliser_the_classifier_uses(
     assert out["gaps"] == [], f"every box names a concept the vocabulary holds: {out['gaps']}"
     assert {c["subject"] for c in out["candidates"]} == {"AIAgent"}
     assert len(out["candidates"]) == 3
+
+
+def test_a_CONFLICT_remembers_that_a_steward_was_asked_exactly_as_a_candidate_does(fab):
+    """The other half of the gate, and the half that had no memory. A candidate records `fab:InReview` so
+    nobody asks twice (71 cards became 101 in one afternoon without it); a conflict recorded nothing, so
+    the reconciler re-raised the same ambiguity on EVERY sweep tick — about 96 cards a day, each one a
+    question somebody had already been asked.
+
+    Openness stays DERIVED (a settled ambiguity disappears because the term stops matching twice).
+    ASKEDNESS is the thing that must be durable, which is the same split the candidate register makes."""
+    doc = _doc(fab)
+    fab.scheme.amend("UseCase", alt="Agent")             # now "Agent" has two live meanings
+    fab.vocab_link(doc, ["Agent"])                       # ...which is a steward's decision, not a guess
+    opened = fab.vocab_conflicts()
+    assert len(opened) == 1 and opened[0]["asked"] == ""
+
+    marked = fab.vocab_asked(opened[0]["iri"], request_id="apr-7")
+    assert marked["asked"] is True
+    assert fab.vocab_conflicts()[0]["asked"] == "apr-7"
+    assert fab.vocab_asked(opened[0]["iri"], request_id="apr-8")["already"] is True, "asked once"
+
+    # ...and it is still OPEN: being asked is not being answered.
+    assert len(fab.vocab_conflicts()) == 1

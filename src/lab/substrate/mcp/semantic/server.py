@@ -490,6 +490,25 @@ def semantic_vocab_relation_candidates(arrows: list[dict], scheme: str) -> dict:
 
 
 @server.tool()
+def semantic_not_about(iri: str, concept: str, actor: str, reason: str = "") -> dict:
+    """Record that a PERSON says this record is NOT about this concept, and retract the subject.
+
+    Durable, which is the point: retracting alone left no trace, so the next classification matched the same
+    label and put the subject straight back — a `keep` lasted for ever and a `drop` lasted until the next
+    sweep. The sibling of `semantic_vocab_decline`, one level down: that one is a person's NO about a TERM,
+    this is a person's NO about one RECORD. `semantic_about_after_all` clears it."""
+    return fabric().graph_not_about(iri, concept, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_about_after_all(iri: str, concept: str, actor: str) -> dict:
+    """Clear a record's subject exclusion, so a label match may link the concept again. A NO is durable, not
+    permanent — without this one wrong tap would make a record permanently un-linkable to a concept, with
+    nothing on screen to say why the classifier kept ignoring it."""
+    return fabric().graph_about_after_all(iri, concept, actor=actor)
+
+
+@server.tool()
 def semantic_vocab_place(concept_id: str, scheme: str, parent: str, actor: str, reason: str = "") -> dict:
     """Put an admitted concept UNDER a broader one — or, with an empty parent, back at the root.
 
@@ -618,8 +637,17 @@ def semantic_related(iri: str, limit: int = 20, state: str = "") -> list:
     so answers "what reads like this". This reads asserted subjects on the trusted rungs only, so a model's
     suggestion never ranks as a relation. Rarest, not most: two records sharing five concepts that everything
     shares have said nothing, and a count would rank them above one exact match — and a concept the WHOLE corpus
-    carries relates nobody, so it is left out rather than padding the answer. A withdrawn record is hidden
-    unless `state` asks for it, as in `semantic_search`. Facets and scores, never content."""
+    carries relates nobody, so it is left out rather than padding the answer.
+
+    TWO KINDS of neighbour, `via_kind` on every row. `shared` — about a concept in common, the stronger
+    evidence. `derived` — about NO concept in common, but about concepts the vocabulary states are related
+    ("a document about Prescription and a spreadsheet about Prescription item"), read from rung D and
+    reported with the predicate that joins them (`via_predicate`, `via_object`). Shared ranks above derived
+    always; within a kind, the rarer concept wins. A derived neighbour exists only once the derivation has
+    run, which happens on a publish — a record that has never been published has none.
+
+    A withdrawn record is hidden unless `state` asks for it, as in `semantic_search`. Facets and scores,
+    never content."""
     return fabric().related(iri, limit=limit, state=state)
 
 

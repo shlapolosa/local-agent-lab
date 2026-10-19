@@ -39,6 +39,9 @@ DCAT = Namespace("http://www.w3.org/ns/dcat#")
 CANDIDATE = "urn:fabric:candidate:"
 CURATION = "urn:fabric:curation:"      # one recorded decision about the vocabulary
 CONFLICT = "urn:fabric:conflict:"      # one word with several meanings, awaiting a steward
+#: one record's "this is NOT what I am about", so a label match cannot put it back. Its OWN node, as a
+#: conflict has: the artifact's shape is closed, and a record's facts are not the place for a negative.
+EXCLUSION = "urn:fabric:not-about:"
 DOC_TYPE_SCHEME = "urn:fabric:scheme:doc-types#"
 PERSON = "urn:fabric:person:"
 #: What an IRI looks like HERE: a URN, or a scheme with an authority (`art://`, `collab://`, `https://`). A
@@ -101,6 +104,14 @@ _MIRRORED = (RDF.type, DCT.title, DCAT.accessURL, FAB.lifecycleState, FAB.produc
 _LINKS = (FAB.deliveredUnder, FAB.references, FAB.duplicateOf, FAB.relatedTo, FAB.synthesisedFrom, DCT.subject, FAB.documentType,
           FAB.ownedBy, FAB.sensitivityLabel, DCAT.landingPage, FAB.rendering)
 #: persisted name -> named graph: the five rungs, the PROV records, the candidates
+def _iri_or_raise(what: str, value: str) -> str:
+    """A gateway tool takes a free string, and a non-IRI stored here breaks the curated graph's own
+    serialisation later — far from the call that caused it. The same check `graph_assert` makes."""
+    if not isinstance(value, str) or iri_safe(value) != value:
+        raise ValueError(f"{what} is not a serialisable IRI: {value!r}")
+    return value
+
+
 def concept_id_for(label: str) -> str:
     """The id a NEW concept takes when the steward names none: the label as one word, in the shape the seeded
     vocabularies already use ("Model card" -> "ModelCard"). ONE home — the substrate's gate shows this as the
@@ -344,6 +355,14 @@ class FabricService:
             if not isinstance(value, str) or iri_safe(value) != value:
                 raise ValueError(f"{what} is not a serialisable IRI: {value!r}")
         s, p, o = URIRef(subject), URIRef(predicate), term(obj)
+        # A PERSON'S NO about this record, enforced where the triple is WRITTEN rather than in one reader.
+        # `vocab_link` subtracted it, but admission propagation (FR-1.1.5) asserts `dct:subject` through
+        # this door instead — so the owner's answer lasted until the next admission and no further. One
+        # place, and every path obeys it. Only `dct:subject` is constrained: a record a person says is not
+        # ABOUT a concept may still be related to, owned by, or typed as anything at all.
+        if p == DCT.subject and str(o) in self._not_about(subject):
+            raise ValueError(f"{subject} is recorded as not about {o} — a person's answer. "
+                             f"Clear it with about_after_all before asserting it again.")
         prior = G.find(self.ds, s, p) if supersede else []
         for r, (_, _, old) in prior:
             if old == o and r == rung:
@@ -432,7 +451,13 @@ class FabricService:
         linked, missed, conflicts = [], [], []
         resolved: list[tuple[Any, dict]] = []
         for t in terms:
-            hits = [(n, sc, c) for n, sc in chosen.items() for c in sc.find(t)]
+            # TWO ATTEMPTS, as the diagram lane does. `find` only strips and case-folds, while an extracted
+            # phrase arrives plural, with an article, or wrapped — so "the Care Deliverys" missed a concept
+            # the vocabulary holds, and `vocab_propose` then parked a DUPLICATE candidate for it, which is
+            # the defect `_held_by` exists to prevent, recreated one tier up. `concepts.normalise` is the
+            # same normaliser the semantic tier probes with, so the two tiers agree what a term is.
+            hits = ([(n, sc, c) for n, sc in chosen.items() for c in sc.find(t)]
+                    or [(n, sc, c) for n, sc in chosen.items() for c in sc.find(concepts.normalise(t))])
             if not hits:
                 missed.append(t)
                 continue
@@ -451,11 +476,28 @@ class FabricService:
                 resolved.append((concept, {"term": t, "scheme": n, "concept": str(concept), "label": c["label"]}))
         # Everything is resolved BEFORE anything is written, so the set this run produces is known and the
         # stale extracted subjects can go in one commit rather than one per concept.
+        # ONE ROW PER CONCEPT. Several terms legitimately resolve to one — which is what the second match
+        # attempt is for — and a row per TERM meant the owner's card built two items keyed on the same
+        # concept IRI, which `approvals_ask` refuses outright ("duplicate labels"), killing the run. It also
+        # wrote a second provenance assertion for a triple already asserted. The first spelling that matched
+        # is the one reported; the others are not lost, they are the same subject said twice.
+        seen_concepts: set[str] = set()
+        resolved = [(c, row) for c, row in resolved
+                    if not (str(c) in seen_concepts or seen_concepts.add(str(c)))]
+        # A person's NO, subtracted before anything is written. Without this the owner's `drop` lasted
+        # exactly until the next sweep, while their `keep` lasted for ever.
+        refused = self._not_about(iri)
+        excluded = sorted({str(c) for c, _ in resolved} & refused)
+        resolved = [(c, row) for c, row in resolved if str(c) not in refused]
         kept = {str(concept) for concept, _ in resolved}
         # `G.retract` is rung-agnostic — it removes the triple from EVERY rung graph that holds it. So a
-        # subject a person promoted to H, which keeps its X copy, would be retracted along with it: the one
-        # act the ladder exists to record, undone by a sweep. A subject held at any rung above EXTRACTED is
-        # therefore left exactly as it is, X copy and all.
+        # subject a person promoted to H would be retracted by a sweep: the one act the ladder exists to
+        # record, undone. A subject held at any rung above EXTRACTED is therefore left exactly as it is.
+        # (This comment used to say promotion "keeps its X copy". It does not — `G.promote` MOVES the
+        # triple and invalidates the old assertion. The X copies this set finds are ones a LATER
+        # classification re-added, which is why the re-assert below skips a concept already held higher:
+        # without that, every re-read of a confirmed record minted a duplicate X beneath the H, `catalog_get`
+        # reported the subject twice at two rungs, and the curator re-promoted it on every review.)
         held_elsewhere = {str(o) for r, (_, _, o) in G.find(self.ds, URIRef(iri), DCT.subject) if r != EXTRACTED}
         stale = [(r, o) for r, (_, _, o) in G.find(self.ds, URIRef(iri), DCT.subject, rungs=(EXTRACTED,))
                  if str(o) not in kept and str(o) not in held_elsewhere]
@@ -471,10 +513,11 @@ class FabricService:
 
             self._commit(("graph",), undo, subjects=(a,))
         for concept, row in resolved:
-            self.graph_assert(iri, str(DCT.subject), concept, rung=EXTRACTED, method="label-match")
+            if str(concept) not in held_elsewhere:      # already C/H/D: a second copy at X says nothing new
+                self.graph_assert(iri, str(DCT.subject), concept, rung=EXTRACTED, method="label-match")
             linked.append(row)
         return {"linked": linked, "missed": missed, "conflicts": conflicts,
-                "retracted": [str(o) for _r, o in stale]}
+                "retracted": [str(o) for _r, o in stale], "excluded": excluded}
 
     def _held_by(self, label: str) -> str:
         """The vocabulary that ALREADY holds this term, by preferred or alternative label — or "".
@@ -595,6 +638,19 @@ class FabricService:
         c = URIRef(candidate)
         g = self.ds.graph(CANDIDATES_GRAPH)
         if (c, RDF.type, SKOS.Concept) not in g:
+            # A CONFLICT is the other half of this gate and had no memory at all, so the reconciler
+            # re-raised the same ambiguity on every sweep tick — ~96 cards a day for one unsettled word,
+            # the very flood `fab:InReview` was added to stop for candidates. Same verb, same marker, the
+            # other graph: a steward is asked once about either kind of question.
+            curated = self.ds.graph(CURATED_GRAPH)
+            if (c, RDF.type, FAB.Conflict) in curated:
+                if curated.value(c, FAB.askedIn) is not None:
+                    return {"iri": candidate, "asked": False, "already": True}
+                triples = [(c, FAB.askedIn, Literal(request_id or "asked"))]
+                for t in triples:
+                    curated.add(t)
+                self._persist(("curated",), lambda: [curated.remove(t) for t in triples])
+                return {"iri": candidate, "asked": True}
             raise LookupError(f"no candidate {candidate}")
         if g.value(c, FAB.lifecycleState) is not None:
             return {"iri": candidate, "asked": False, "already": True}   # answered, or already asked
@@ -783,6 +839,62 @@ class FabricService:
         found, gaps = relations.candidates(arrows, resolve=resolve, states=states)
         return {"scheme": scheme, "candidates": found, "gaps": gaps}
 
+    def graph_not_about(self, iri: str, concept: str, *, actor: str, reason: str = "") -> dict:
+        """A PERSON says this record is not about this concept — recorded so it STICKS.
+
+        Retracting the subject was not enough: `G.retract` leaves no trace, so the next classification
+        matched the same label, asserted it again at X, and asked the owner the same question. `keep`
+        survived every sweep (promotion to H) and `drop` survived until the next read — an asymmetry a
+        person cannot see and would not expect.
+
+        The term register already takes the opposite stance for its own negatives — `vocab_decline`, "a
+        PERSON'S NO about a term, recorded so it sticks". This is the same answer one level down, about a
+        RECORD rather than about the vocabulary, and `vocab_link` subtracts it from what a label match may
+        assert. Durable, not permanent: `graph_about_after_all` clears it."""
+        if not actor:
+            raise ValueError("saying what a document is not about is a person's decision: actor is required")
+        self._require(iri)
+        _iri_or_raise("concept", concept)
+        g = self.ds.graph(CURATED_GRAPH)
+        node = URIRef(EXCLUSION + iri_safe(f"{iri}|{concept}"))
+        triples = [(node, RDF.type, FAB.SubjectExclusion), (node, FAB.excludedFrom, URIRef(iri)),
+                   (node, DCT.subject, URIRef(concept)), (node, G.PROV.wasAttributedTo, Literal(actor)),
+                   (node, G.PROV.generatedAtTime, G.now())]
+        if reason:
+            triples.append((node, FAB.reason, Literal(reason)))
+        # RETRACT FIRST. `graph_retract` runs the shape gate and can raise; recording the NO before it
+        # would leave a record marked "not about X" while still asserting X, with no undo to compensate.
+        # The other order self-heals: a retraction with no NO yet is the behaviour that existed before.
+        retracted = self.graph_retract(iri, str(DCT.subject), URIRef(concept), actor=actor,
+                                       reason=reason or "the owner said this document is not about it")
+        if (node, RDF.type, FAB.SubjectExclusion) not in g:        # idempotent on (record, concept)
+            for t in triples:
+                g.add(t)
+            self._persist(("curated",), lambda: [g.remove(t) for t in triples])
+        return {"iri": iri, "concept": concept, "actor": actor, "retracted": bool(retracted)}
+
+    def graph_about_after_all(self, iri: str, concept: str, *, actor: str) -> dict:
+        """Clear a record's NO, so a label match may link the concept again.
+
+        A NO is durable, not permanent. Without this one wrong tap would make a record permanently
+        un-linkable to a concept, with nothing on screen to explain why the classifier kept ignoring it."""
+        if not actor:
+            raise ValueError("changing a record's subject exclusion is a person's decision: actor is required")
+        _iri_or_raise("concept", concept)
+        g = self.ds.graph(CURATED_GRAPH)
+        node = URIRef(EXCLUSION + iri_safe(f"{iri}|{concept}"))
+        triples = list(g.triples((node, None, None)))
+        for t in triples:
+            g.remove(t)
+        if triples:
+            self._persist(("curated",), lambda: [g.add(t) for t in triples])
+        return {"iri": iri, "concept": concept, "cleared": bool(triples), "actor": actor}
+
+    def _not_about(self, iri: str) -> set[str]:
+        """The concepts a person has said this record is NOT about."""
+        g = self.ds.graph(CURATED_GRAPH)
+        return {str(o) for n in g.subjects(FAB.excludedFrom, URIRef(iri)) for o in g.objects(n, DCT.subject)}
+
     def vocab_place(self, cid: str, *, scheme: str, parent: str, actor: str, reason: str = "",
                     to: str = CONFIRMED) -> dict:
         """Put an admitted concept under a broader one — steward B's first act.
@@ -932,6 +1044,9 @@ class FabricService:
             if sc is not None and len({c["id"] for c in sc.find(term)}) < 2:
                 continue                                   # the ambiguity is gone; nobody needs asking
             out.append({"iri": str(node), "term": term, "scheme": name,
+                        # The request a steward was already asked in, "" when nobody has been. Openness is
+                        # still DERIVED (above); askedness is recorded, because it cannot be re-derived.
+                        "asked": str(g.value(node, FAB.askedIn) or ""),
                         "concepts": sorted(str(o) for o in g.objects(node, FAB.candidateId))})
         return sorted(out, key=lambda c: c["term"])
 
@@ -1266,10 +1381,14 @@ class FabricService:
             via, score = concepts.rarest(shared, frequency, total=len(by_record))
             if score <= 0.0:                      # a concept everything carries is not a relation
                 continue
-            ranked.append({"iri": other, "score": score, "via": via, "shared": shared})
-        # Score, then IRI: a stable order, because a ranking that reshuffles between calls is one nobody
-        # trusts twice. Sorted BEFORE the catalogue is touched — see the docstring on cost.
-        ranked.sort(key=lambda r: (-r["score"], r["iri"]))
+            ranked.append({"iri": other, "score": score, "via": via, "shared": shared,
+                           "via_kind": "shared"})
+        ranked += self._derived_neighbours(iri, mine, by_record, frequency, seen={r["iri"] for r in ranked})
+        # KIND, then score, then IRI. A record about the same concept is about the same THING; a derived
+        # neighbour is about something the vocabulary says is CONNECTED to it — both are evidence and one is
+        # stronger, so they are ordered by kind rather than by a discount factor nobody could justify. Within
+        # a kind, specificity. Sorted BEFORE the catalogue is touched — see the docstring on cost.
+        ranked.sort(key=lambda r: (0 if r["via_kind"] == "shared" else 1, -r["score"], r["iri"]))
         out = []
         for row in ranked:
             if len(out) >= limit:
@@ -1281,10 +1400,72 @@ class FabricService:
                 continue
             out.append({**row, "state": entry.state, "title": entry.title or "",
                         "via_label": self._concept_label(row["via"]),
+                        **({"via_object_label": self._concept_label(row["via_object"])}
+                           if row.get("via_object") else {}),
                         # Every shared concept by its label, not just the winner: a reader checking WHY two
                         # records are related should not be handed one readable concept and N hashed ids.
                         "shared": [{"concept": c, "label": self._concept_label(c)} for c in row["shared"]]})
         return out
+
+    def _derived_neighbours(self, iri: str, mine: set[str], by_record: dict[str, set[str]],
+                            frequency: dict[str, int], *, seen: set[str]) -> list[dict]:
+        """Records the ONTOLOGY connects to this one — about no concept in common, but about concepts the
+        vocabulary states are related.
+
+        The case the whole thing exists for: a document about `Prescription`, a spreadsheet about
+        `Prescription item`, and `Prescription contains Prescription item` in the vocabulary. A ranking by
+        shared concepts returns nothing; the two are plainly about connected things.
+
+        The edge is READ from rung D, not re-derived here — `derive.RULES` keeps one home for the rule, and
+        its `?p a rdf:Property` filter is what stops `skos:broader` from making every branch of the taxonomy
+        a false neighbourhood. But D's provenance records only the NEAR concept (`wasDerivedFrom`); the far
+        concept and the predicate that joined them are selected and discarded, so they are recovered here by
+        intersecting the vocabulary's own `relations_of` with the other record's subjects. Without that a
+        reader is told two records are related and never which statement says so.
+
+        Read through `G.traverse` rather than `self.graph_traverse`, deliberately: the latter hydrates every
+        hop from the catalogue, which would read the store for candidates this method may never return.
+
+        Costs nothing when the derivation has not run — and it only runs on a publish, so a record that has
+        never been published has no derived neighbours. Quieter, never wrong."""
+        if not self._relational_schemes():
+            return []                                  # no vocabulary states relations; D holds no concept paths
+        hops = {str(node) for node, _, _ in G.traverse(self.ds, URIRef(iri), (FAB.relatedTo,),
+                                                       rungs=(DERIVED,), depth=1)}
+        out = []
+        for other in sorted(hops - seen - {iri}):
+            theirs = by_record.get(other) or set()
+            path = self._concept_path(mine, theirs)
+            if path is None:
+                # A relatedTo at D that no concept path explains: the OTHER derivation rules
+                # (`references-context`, `synthesised-context`) write the same predicate, and those are
+                # causal links `impact` already reports. Not this answer's business.
+                continue
+            near, predicate, far = path
+            # The rarer END of the path. A path through two concepts the whole corpus carries says as little
+            # as a shared concept the whole corpus carries, and is dropped by the same rule.
+            _, score = concepts.rarest([near, far], frequency, total=len(by_record))
+            if score <= 0.0:
+                continue
+            out.append({"iri": other, "score": score, "via": near, "via_predicate": predicate,
+                        "via_object": far, "shared": [], "via_kind": "derived"})
+        return out
+
+    def _concept_path(self, mine: set[str], theirs: set[str]) -> tuple[str, str, str] | None:
+        """The vocabulary statement joining one of MY concepts to one of THEIRS — (near, predicate, far).
+
+        `relations_of` is the authoritative answer to "which concepts are related, and how" and is what both
+        drawing paths already use, so the explanation a reader gets here is the one the picture draws.
+        Ordered by concept id so two calls agree."""
+        for sc in self._relational_schemes():
+            for near in sorted(mine):
+                head = str(near).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+                if head not in getattr(sc, "concepts", {}):
+                    continue
+                for predicate, other, _direction in sc.relations_of(head):
+                    if str(sc.uri(other)) in theirs:
+                        return str(near), str(predicate), str(sc.uri(other))
+        return None
 
     def _concept_label(self, concept: str) -> str:
         """A concept reads by its label — a reference concept's id is a hash of its label path. One home for

@@ -117,3 +117,46 @@ def test_a_document_type_may_be_answered_by_its_label_and_an_unknown_one_is_refu
     assert typed("adr").endswith("#decision-record") and typed("meeting minutes").endswith("#minutes")
     with pytest.raises(ValueError, match="Decision record"):
         C.plan(ROW, {"document_type": {"value": "shopping list"}}, "maria@x")
+
+
+SUBJECT_P = "http://purl.org/dc/terms/subject"
+
+
+def test_a_KEPT_subject_is_PROMOTED_so_a_later_re_read_cannot_take_it_away():
+    """What confirming a subject is FOR. `vocab_link` replaces the extracted set wholesale on every
+    re-read, and spares only what is held above X (`held_elsewhere`) — so a subject the owner confirmed
+    survives the next sweep precisely because it was promoted to H, and one left at X does not.
+
+    Promote rather than assert: the X copy stays, which is what keeps the audit chain honest about how the
+    fabric first came to believe it."""
+    row = {**ROW, "links": [{"predicate": "subject", "rung": "X", "object": "urn:c#Prescription"}]}
+    out = C.plan(row, {"subject:urn:c#Prescription": {"value": "keep"}}, "steward@x")
+    assert out == [(SemanticTools.promote, {"subject": IRI, "predicate": SUBJECT_P,
+                                            "object": "urn:c#Prescription", "actor": "steward@x",
+                                            "method": C.METHOD})]
+
+
+def test_a_DROPPED_subject_is_recorded_as_a_NO_not_merely_retracted():
+    """The owner is the one person who knows the document is not about this — and their answer has to LAST.
+
+    A bare `edge_retract` left no trace, so the next classification matched the same label, asserted the
+    subject again at X, and asked them the same question: `keep` survived for ever and `drop` survived
+    until the next sweep. `not_about` retracts AND records the NO, which is what `vocab_decline` already
+    does one level up for a term."""
+    row = {**ROW, "links": [{"predicate": "subject", "rung": "X", "object": "urn:c#Pharmacy"}]}
+    out = C.plan(row, {"subject:urn:c#Pharmacy": {"value": "drop"}}, "steward@x")
+    assert out == [(SemanticTools.not_about, {"iri": IRI, "concept": "urn:c#Pharmacy", "actor": "steward@x",
+                                              "reason": "the owner said this document is not about it"})]
+
+
+def test_an_unreadable_subject_answer_is_REFUSED_by_name():
+    """`apply` turns this into AnswerRejected and the runner re-opens the card, so a person who typed
+    something unexpected is asked again rather than having it silently discarded."""
+    with pytest.raises(ValueError, match="keep"):
+        C.plan(ROW, {"subject:urn:c#X": {"value": "maybe"}}, "steward@x")
+
+
+def test_a_subject_already_CONFIRMED_is_not_promoted_twice():
+    """Idempotent, like the type branch: a card answered twice must not append a second assertion."""
+    row = {**ROW, "links": [{"predicate": "subject", "rung": "H", "object": "urn:c#Prescription"}]}
+    assert C.plan(row, {"subject:urn:c#Prescription": {"value": "keep"}}, "steward@x") == []

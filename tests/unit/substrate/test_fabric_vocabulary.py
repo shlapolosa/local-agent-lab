@@ -106,6 +106,10 @@ def test_the_steward_is_asked_about_open_conflicts_and_parked_candidates_once_ea
                          "concepts": ["AIAgent", "SoftwareAgent"]}]
     parked = [{"iri": CANDIDATE, "label": "Model card", "scheme": "cafe", "proposed_by": "classifier-agent"}]
 
+    # The double MODELS THE REGISTER: `vocab_asked` marks the row, and the listings report the mark — as
+    # the real service does for a candidate (`fab:InReview`) and now for a conflict (`fab:askedIn`). A fake
+    # that forgot the mark is a fake more forgiving than production, which is how a conflict came to be
+    # re-asked on every tick while this test was green.
     async def call(calls):
         out = []
         for tool, args in calls:
@@ -113,6 +117,11 @@ def test_the_steward_is_asked_about_open_conflicts_and_parked_candidates_once_ea
                 out.append(open_)
             elif tool == SemanticTools.vocab_candidates:
                 out.append(parked)
+            elif tool == SemanticTools.vocab_asked:
+                for row in (*open_, *parked):
+                    if row["iri"] == args.get("candidate"):
+                        row["asked"] = args.get("request_id") or "asked"
+                out.append({"asked": True})
             elif tool == "approvals_ask":
                 asked.append(args)
                 out.append({"request_id": f"apr-{len(asked)}"})
@@ -130,8 +139,11 @@ def test_the_steward_is_asked_about_open_conflicts_and_parked_candidates_once_ea
     assert candidate["context"]["label"] == "Model card" and "no concept" in candidate["subject"]
     assert [i["label"] for i in conflict["items"]] == ["decision", "keep"]
     assert conflict["context"]["concepts"] == ["AIAgent", "SoftwareAgent"] and "Agent" in conflict["subject"]
-    seen = {"urn:fabric:conflict:1", CANDIDATE}
-    assert asyncio.run(V.ask_open(call=call, seen=seen)) == []       # asked once, not every tick
+    # NO `seen`, which is what the reconciler passes (`fabric_reconciler.run_once`). Supplying it here was
+    # the defect: the test handed production's memory to itself and passed, while a conflict — which had no
+    # register-side marker at all — was re-raised on EVERY tick, ~96 cards a day for one unsettled word.
+    # The REGISTER must be what remembers, for both halves of the gate.
+    assert asyncio.run(V.ask_open(call=call, batch=False)) == [], "asked once, not every tick"
 
 
 def test_the_eleventh_thing_to_settle_is_not_lost_behind_the_first_ten():

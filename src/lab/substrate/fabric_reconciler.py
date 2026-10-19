@@ -161,10 +161,6 @@ async def sweep(*, call=None, allowlist: tuple[str, ...] | None = None, depth: i
     return published
 
 
-#: conflicts this PROCESS has already asked about. In memory on purpose: a restart re-asks at most once, and
-#: `approvals.channel_events` drops what a person has already decided — the cost of forgetting is one duplicate
-#: card, while the cost of a durable "asked" that outlives a withdrawn approval is a question nobody ever sees.
-_ASKED: set[str] = set()
 
 
 def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
