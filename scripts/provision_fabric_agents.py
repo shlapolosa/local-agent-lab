@@ -40,7 +40,9 @@ INTAKE_TOOLS = {
     # `read_artifact` for the minutes a synthesis reads; `read_document` for the excerpt the
     # classifier judges by — two readers that refuse each other's files, and documents are most
     # of what a documentation fabric catalogues.
-    StorageTools.SERVER: [StorageTools.read_artifact, StorageTools.read_document],
+    StorageTools.SERVER: [StorageTools.read_artifact, StorageTools.read_document,
+                         # a diagram's ARROWS: the ontology queue's sharp producer
+                         StorageTools.read_vsdx],
     # `item` is a title and a version stamp. `fetch` streams ONE document's bytes into the upload store so
     # the classifier can read a bounded excerpt of what it is classifying — a deliberate widening, decided
     # 6 Oct 2026 after measuring what metadata-only classification produces: `Clinical document` on 39 of 93

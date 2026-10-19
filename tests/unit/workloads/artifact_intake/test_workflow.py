@@ -14,7 +14,7 @@ import pytest
 from fixtures.workflow import Router, run_spine, spine
 from lab.core.semantic.fabric import renderings
 from lab.core.semantic.fabric.owners import OwnerMap
-from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalKind, ApprovalTools, SemanticTools
+from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalKind, ApprovalTools, SemanticTools, StorageTools
 from lab.workloads.artifact_intake import agents as A
 from lab.workloads.artifact_intake import workflow as W
 from lab.workloads.gates import GateFailed
@@ -1222,3 +1222,54 @@ def test_a_run_that_READ_NOTHING_has_no_opinion_about_subjects():
         h.close()
     assert calls(h, SemanticTools.vocab_link) == [], \
         "no excerpt means no opinion — the prior subjects must stand"
+
+
+def test_a_DIAGRAMS_ARROWS_become_relation_questions_for_a_steward():
+    """The ontology queue's other producer, and the sharper of the two. A diagram's boxes are terms and
+    its arrows are relations, so it is the one artifact that says how the things a corpus is about are
+    CONNECTED rather than just which they are.
+
+    It proposes a QUESTION, never a relation: the arrow says two concepts connect and not how, and a
+    predicate the fabric invented would be an edge no author drew — which the derived rung would then
+    reason over as if somebody had."""
+    fab = Fabric()
+    arrows = {"connectors": [{"from": "Prescription", "to": "Prescription item", "label": "contains"},
+                             {"from": "Prescription", "to": "Nowhere", "label": "feeds"}]}
+    cands = {"candidates": [{"subject": "Prescription", "predicate": "contains",
+                             "object": "PrescriptionItem", "arrows": 1, "unnamed": False}],
+             "gaps": ["Nowhere"]}
+    # A REAL handle: `collab://item/<driveId>/<itemId>`, whose last segment is a Graph id with no
+    # extension. The kind comes from the TITLE, which is what `collab_item` actually reports — keying it
+    # off the handle made every collab-sourced artifact look like "not a diagram".
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION),
+                tools={"storage_read_vsdx": arrows,
+                       "collab_item": {"name": "eRx context map.vsdx", "path": "/EA",
+                                       "modified": "2026-10-19T00:00:00Z"},
+                       "collab_fetch": {"ref": "art://up/eRx context map.vsdx"},
+                       "semantic_vocab_relation_candidates": cands,
+                       "semantic_vocab_relation_propose": {"iri": "urn:fabric:relation-q:1"}},
+                vocabulary="cafe")
+    try:
+        run_spine(W, h, {"pointer": {"source": "collab", "handle": "collab://item/b!drive/01ITEMID"},
+                         "event_id": "01J"})
+    finally:
+        h.close()
+    proposed = calls(h, SemanticTools.relation_propose)
+    assert proposed, "the arrow reached the ontology queue"
+    assert (proposed[0]["subject"], proposed[0]["predicate"], proposed[0]["object"]) == (
+        "Prescription", "contains", "PrescriptionItem")
+    assert "eRx context map.vsdx" in proposed[0]["evidence"], "a steward is told which diagram drew it"
+    # ...and storage was handed the RESOLVED ref, never the handle, which it cannot read
+    assert calls(h, StorageTools.read_vsdx)[0]["ref"].startswith("art://")
+
+
+def test_a_document_that_is_NOT_a_diagram_proposes_no_relations():
+    """The read costs a grant and a round trip, so it is attempted only for a diagram."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION), vocabulary="cafe")
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    assert calls(h, SemanticTools.relation_propose) == []
+    assert calls(h, StorageTools.read_vsdx) == []

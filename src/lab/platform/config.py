@@ -86,6 +86,9 @@ TEAMS_WEBHOOK_URL  = _e("TEAMS_WEBHOOK_URL")                              # Team
 # says so by name — and, since the owner channels filter unconditionally, its approvals are then
 # announced on no channel at all; `deploy/topology.unserved_audiences` is what reports that.
 TEAMS_STEWARD_WEBHOOK_URL = _e("TEAMS_STEWARD_WEBHOOK_URL")
+#: The ONTOLOGY queue's own Teams channel (`Fabric/pilot-ontology`). Deliberately not the taxonomy
+#: one: two queues sharing a destination is the buried backlog the audience split exists to undo.
+TEAMS_ONTOLOGY_WEBHOOK_URL = _e("TEAMS_ONTOLOGY_WEBHOOK_URL")
 # Where the meeting notifier POSTs. A Power Automate "when a webhook request is received" flow
 # that posts into the meeting's own chat — Graph refuses to let an application post one, so
 # something holding a person's connection must. Unset = the notifier logs what it would say,
@@ -511,8 +514,13 @@ FABRIC_CORPUS_RENDERER = _e("FABRIC_CORPUS_RENDERER", "d3")
 #: lab's own test output, so the counts are not yet representative of real demand. It bounds what is PUSHED
 #: only — the register returns every candidate however often it was asked for.
 FABRIC_CANDIDATE_THRESHOLD = int(_e("FABRIC_CANDIDATE_THRESHOLD", "2"))
+#: How many records must be about BOTH concepts before the corpus is taken to be saying they relate.
+#: The same job the candidate threshold does for terms: it governs INTERRUPTION, not visibility — a
+#: steward can read `semantic_concept_pairs` at any threshold they like.
+FABRIC_RELATION_MIN_RECORDS = int(_e("FABRIC_RELATION_MIN_RECORDS", "3"))
 #: Whether the steward channel's webhook is a flow that WAITS for a response, so its card can carry inputs
 #: and a Submit. False by default and deliberately a SETTING rather than a guess: Teams renders a submit
 #: button on any card and has nowhere to post it unless something is waiting, and a button that silently
 #: does nothing is worse than no button. Turn it on WITH the waiting flow, never before.
 TEAMS_STEWARD_ANSWERS_ON_CARD = _bool(_e("TEAMS_STEWARD_ANSWERS_ON_CARD"))
+TEAMS_ONTOLOGY_ANSWERS_ON_CARD = _bool(_e("TEAMS_ONTOLOGY_ANSWERS_ON_CARD"))

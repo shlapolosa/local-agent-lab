@@ -348,19 +348,29 @@ class ApprovalKind(StrEnum):
     # or narrowing what every future document is classified against is not a model's decision — but it is the
     # same gate, the same audit log and the same channels, and nothing dispatches on this value either.
     CONCEPT_ADMISSION = "concept-admission"
+    # ...and the OTHER half of a steward's job: not what the vocabulary contains but how its concepts
+    # RELATE. A diagram's arrows and the corpus's co-occurrences both propose relations; neither may
+    # settle one, because a relation is what the derived rung reasons over — "A is about X, X relates
+    # to Y, B is about Y" is only answerable if some person stood behind the middle step.
+    CONCEPT_RELATION = "concept-relation"
     # A NOTICE through the same gate (FR-5.3.2): a change reached published records that reference it, and their
     # owners are told — on every channel, with no new outbound path. Acknowledging is `approve`; nothing is released.
     IMPACT_NOTICE = "impact-notice"
 
 
 class ApprovalAudience(StrEnum):
-    """WHO an approval is for. Two audiences with different tempos, and until now one queue.
+    """WHO an approval is for. Three audiences with different tempos, and once one queue.
 
-    An OWNER is asked about THEIR artifact — urgent and personal, "your document, now". A STEWARD is
-    asked about the VOCABULARY — deliberate and periodic, "twenty terms when you have twenty
-    minutes". Measured on this lab's own stream 10 Oct 2026: 101 open `concept-admission` cards
-    against ~37 of everything else, so the vocabulary work buried the artifact work on every channel
-    and an owner had to scroll past it to find their own card.
+    An OWNER is asked about THEIR artifact — urgent and personal, "your document, now". Measured on
+    this lab's own stream 10 Oct 2026: 101 open `concept-admission` cards against ~37 of everything
+    else, so the vocabulary work buried the artifact work on every channel and an owner had to scroll
+    past it to find their own card.
+
+    A STEWARD has TWO jobs, and the same argument splits them again. TAXONOMY is what the vocabulary
+    CONTAINS — "twenty terms when you have twenty minutes", one card many terms. ONTOLOGY is how its
+    concepts RELATE — a different question, answered against a diagram or a corpus rather than a word
+    list, and on a different rhythm. "Steward" stopped distinguishing anything the moment the second
+    queue existed, so each audience is named for the job rather than the person.
 
     This is TRIAGE, which is the one thing `kind` is documented to be for ("channels triage by it;
     nothing dispatches on it"): a channel decides which feed is its own. Nothing else reads it — no
@@ -369,7 +379,8 @@ class ApprovalAudience(StrEnum):
     """
 
     OWNER = "owner"
-    STEWARD = "steward"
+    TAXONOMY = "taxonomy"          # what the vocabulary CONTAINS
+    ONTOLOGY = "ontology"          # ...and how its concepts RELATE
 
 
 # The kind -> audience split, declared ONCE so the steward channel and the owner channels cannot
@@ -383,7 +394,8 @@ class ApprovalAudience(StrEnum):
 # the partition in `tests/unit/platform/test_contracts_approval_audience.py` is a real ratchet — it
 # fails on a member in neither set, which is the only reason to assert an invariant instead of a
 # list. These two names ARE the declaration; the test is their only other reader by design.
-STEWARD_KINDS = frozenset({ApprovalKind.CONCEPT_ADMISSION})
+TAXONOMY_KINDS = frozenset({ApprovalKind.CONCEPT_ADMISSION})
+ONTOLOGY_KINDS = frozenset({ApprovalKind.CONCEPT_RELATION})
 OWNER_KINDS = frozenset({ApprovalKind.EA_IMPORT, ApprovalKind.SPEAKER_MAPPING,
                          ApprovalKind.ASSOCIATION, ApprovalKind.DRAFT_REVIEW,
                          ApprovalKind.IMPACT_NOTICE})
@@ -396,10 +408,14 @@ def approval_audience(kind: str | None) -> ApprovalAudience:
     a future producer invents — resolves to OWNER, never to nothing: those are the channels that
     always existed, so an unclassified question is announced exactly where it would have been
     announced before. The same rule the rename itself relied on; a question reaching nobody is the
-    one outcome this gate must not have. It is `STEWARD_KINDS` that is consulted, not `OWNER_KINDS`,
+    one outcome this gate must not have. It is the STEWARD sets that are consulted, not `OWNER_KINDS`,
     precisely so an unknown WIRE string falls to OWNER while an unclassified ENUM MEMBER is still
     caught by the partition test rather than quietly defaulting."""
-    return ApprovalAudience.STEWARD if kind in STEWARD_KINDS else ApprovalAudience.OWNER
+    if kind in TAXONOMY_KINDS:
+        return ApprovalAudience.TAXONOMY
+    if kind in ONTOLOGY_KINDS:
+        return ApprovalAudience.ONTOLOGY
+    return ApprovalAudience.OWNER
 
 
 @dataclass(frozen=True)
@@ -1552,7 +1568,7 @@ __all__ = ["gateway_name", "ToolCatalogue", "StorageTools", "SemanticTools", "EA
            "VectorStores", "SERVERS", "ALL_TOOLS",
            "split_fragment", "ArtifactRef", "ApprovalKind", "ImportArtifact", "import_artifacts",
            "Decision", "ApprovalStatus", "APPROVAL_FINAL",
-           "ApprovalAudience", "STEWARD_KINDS", "OWNER_KINDS", "approval_audience",
+           "ApprovalAudience", "TAXONOMY_KINDS", "ONTOLOGY_KINDS", "OWNER_KINDS", "approval_audience",
            "ARTIFACT_INTAKE", "ARTIFACT_PUBLISH",
            "ArtifactChanged", "check_pointer", "check_event_id", "check_approval_id", "check_context", "check_title", "fit_title",
            "check_artifact_iri", "POINTER_SOURCES",

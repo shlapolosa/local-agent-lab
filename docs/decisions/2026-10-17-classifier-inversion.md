@@ -107,6 +107,39 @@ waves through. Accepted matches scored 0.36–0.52 with margins of 0.08–0.13.
 | **A number for salience reusing `subject_floor`** | That dial gates a model's confidence in the MATCH; salience is how central a term is to the DOCUMENT. Different quantity, same dial. |
 | **One agent with an extended schema** | User decision: two agents, so the extractor can be shown no vocabulary at all. Its defining property is what it is NOT shown. |
 
+## Addendum, 19 Oct 2026 — the ontology queue, and what testing it found
+
+**Steward B got a queue.** The acts existed (`vocab_place`, `vocab_relate`) and nothing announced that a
+decision was waiting, so the only way in was a curator identity calling tools by hand. Now:
+`ApprovalKind.CONCEPT_RELATION`, a register, an applier (`lab.substrate.fabric_ontology`), and a third
+Teams channel.
+
+- **A THIRD AUDIENCE, not a second kind on the steward's queue.** `ApprovalAudience` was OWNER/STEWARD
+  and is now OWNER/TAXONOMY/ONTOLOGY. "Steward" stopped distinguishing anything the moment there were two
+  steward queues; the audiences are named for the JOB. The partition test is three-way and exhaustive,
+  because a kind in no set is announced to nobody, silently.
+- **The register is `_conflict`-shaped, not `_candidate_for`-shaped**, and that is what keeps it small. A
+  term candidate must be durable because it arrives one document at a time over weeks. A relation
+  candidate is RECOMPUTABLE — both producers regenerate theirs every run — so only ASKEDNESS and REFUSAL
+  are durable and openness is DERIVED. A relation the vocabulary now states leaves the queue by itself,
+  however it came to be stated, so no path has to remember to clean up after itself.
+- **Two producers, one kind**: a diagram's arrows (sharp, but only where diagrams are ingested) and
+  co-occurrence over the corpus (works on the corpus a tenant already has). Neither may settle a
+  relation — an arrow says two concepts connect and not how, co-occurrence says they turn up together
+  and not why, and a predicate the fabric invented would be an edge no author drew that the derived rung
+  then reasons over as if somebody had.
+- **Four answers**, because three would be wrong: `relate`, `relate:<predicate>` for an arrow drawn
+  without one, `broader` (an arrow is sometimes a hierarchy, and only a person reading the diagram can
+  tell), and `decline`.
+
+**And `samples` was split from `choices`.** The review app offered an item's samples as its pick list —
+right for the use-case questions, whose samples ARE the answers, and wrong for the intake's, whose samples
+are prose and scores. Choosing the offered `context` wrote `urn:fabric:context:project:alpha (0.92)` as a
+rung-H assertion: a record marked associated, at the fabric's highest rung, under a context that does not
+exist. Nothing downstream refuses it, because the OBJECT of a triple is the one end never validated. Now
+`choices` are answers, `samples` explain, and an item declaring no choices is free text — so a producer
+cannot make a sentence selectable by accident.
+
 ## Consequences
 
 - **An extractor's prompt must stay free of the vocabulary.** If a future change passes concepts into

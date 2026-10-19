@@ -4,6 +4,7 @@ than being guessed at."""
 import pytest
 from rdflib import Dataset, URIRef
 
+from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric.catalog import MemoryCatalog
 from lab.core.semantic.fabric.ontology import DocumentTypes
 from lab.core.semantic.fabric.rungs import CONFIRMED, CURATED_GRAPH
@@ -383,3 +384,136 @@ def test_a_CONFLICT_remembers_that_a_steward_was_asked_exactly_as_a_candidate_do
 
     # ...and it is still OPEN: being asked is not being answered.
     assert len(fab.vocab_conflicts()) == 1
+
+
+# ---------------------------------------------------------------- the ontology register (steward B)
+
+def test_a_RELATION_QUESTION_is_parked_once_however_many_producers_propose_it(fab):
+    """Two producers feed this queue — a diagram's arrows and the corpus's co-occurrences — and both
+    recompute their candidates every time they run. So the CANDIDATE is not what must be durable; what
+    must be durable is that somebody was ASKED, and that somebody said no.
+
+    That is `_conflict`'s shape, not `_candidate_for`'s: a keyed idempotent node whose openness is
+    DERIVED. A relation the vocabulary now states disappears from the queue without anybody marking it,
+    which is the only way a queue cannot drift from the thing it is a queue for."""
+    one = fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="realisedBy",
+                                     object="UseCase", evidence="3 documents are about both")
+    again = fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="RealisedBy",
+                                       object="UseCase", evidence="a diagram says so")
+    assert again["iri"] == one["iri"], "the predicate's case is not a second question"
+    assert len(fab.vocab_relation_open()) == 1
+
+    row = fab.vocab_relation_open()[0]
+    assert (row["subject"], row["predicate"], row["object"]) == ("AIAgent", "realisedBy", "UseCase")
+    assert row["asked"] == "" and row["evidence"]
+
+
+def test_a_relation_the_VOCABULARY_NOW_STATES_drops_out_of_the_queue_by_itself(fab):
+    """Derived openness. A steward who answers through some other surface — or a seed that is
+    republished with the relation already in it — must not leave a question behind, and no marker
+    written by one path can be relied on by all of them."""
+    fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="documents", object="UseCase")
+    assert len(fab.vocab_relation_open()) == 1
+    fab.vocab_relate(scheme="cafe", subject="AIAgent", predicate="documents", object="UseCase", actor="s@x")
+    assert fab.vocab_relation_open() == []
+
+
+def test_a_DECLINED_relation_is_never_asked_about_again(fab):
+    """Without a durable NO a restart re-asks everything — 71 cards became 101 in one afternoon. A
+    person's answer about a relation deserves what a person's answer about a term already has."""
+    parked = fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="owns", object="UseCase")
+    fab.vocab_relation_decline(parked["iri"], actor="s@x", reason="they are not connected that way")
+    assert fab.vocab_relation_open() == []
+    # ...and re-proposing it does not reopen the question a person has already settled
+    fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="owns", object="UseCase")
+    assert fab.vocab_relation_open() == []
+
+
+def test_a_relation_question_remembers_it_was_ASKED(fab):
+    parked = fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="serves", object="UseCase")
+    assert fab.vocab_asked(parked["iri"], request_id="apr-9")["asked"] is True
+    assert fab.vocab_relation_open()[0]["asked"] == "apr-9", "still open — being asked is not being answered"
+
+
+def test_CONCEPT_PAIRS_finds_what_the_corpus_connects_and_the_vocabulary_does_not(fab):
+    """The second producer. A diagram is the sharpest evidence about how concepts relate, but it only
+    helps where diagrams are ingested — and the corpus itself is saying something all the time: two
+    concepts that keep turning up on the same documents are probably related, and the vocabulary that
+    says nothing about them has a gap a steward can close.
+
+    It is computed HERE, in process, over the graph: a caller doing this per record over the gateway
+    pays a round trip each and trips its own rate limit at about sixty, which is the measurement
+    `corpus_view` already records."""
+    # AIAgent + LegacyAgent: the corpus puts them together and the vocabulary says nothing about them.
+    # (AIAgent + UseCase is already stated by the seed — see the second half.)
+    a, b, c = (fab.scheme.uri(x) for x in ("AIAgent", "LegacyAgent", "UseCase"))
+    for n in range(3):
+        doc = _doc(fab, f"both-{n}")
+        for concept in (a, b):
+            fab.graph_assert(doc, str(G.DCT.subject), str(concept), rung="X", method="label-match")
+    once = _doc(fab, "once")
+    for concept in (b, c):
+        fab.graph_assert(once, str(G.DCT.subject), str(concept), rung="X", method="label-match")
+
+    pairs = fab.concept_pairs(min_records=2)
+    assert [(p["subject"], p["object"], p["records"]) for p in pairs] == [("AIAgent", "LegacyAgent", 3)]
+    assert pairs[0]["evidence"] == "3 records are about both" and pairs[0]["scheme"] == "cafe"
+
+    # ...and a pair the vocabulary ALREADY connects is not a gap, however often it co-occurs: the seed
+    # states AIAgent realises UseCase, so no number of documents about both makes it a question.
+    for n in range(3):
+        doc = _doc(fab, f"stated-{n}")
+        for concept in (a, c):
+            fab.graph_assert(doc, str(G.DCT.subject), str(concept), rung="X", method="label-match")
+    assert all((p["subject"], p["object"]) != ("AIAgent", "UseCase") for p in fab.concept_pairs(min_records=2))
+
+    fab.vocab_relate(scheme="cafe", subject="AIAgent", predicate="supersedes", object="LegacyAgent",
+                     actor="s@x")
+    assert fab.concept_pairs(min_records=2) == [], "answering it removes it from the queue's source too"
+
+
+def test_a_PROSE_arrow_label_becomes_a_question_a_person_CAN_answer(fab):
+    """A diagram's arrow says "is realised by", and `relations.candidates` carries the caption verbatim.
+    Parked as the predicate, the card then offers plain `relate` — and `vocab_relate` REFUSES it, because
+    a predicate is an IRI local name. A steward handed a card they cannot answer correctly is worse than
+    no card, so the wording becomes EVIDENCE and the question asks them to name it."""
+    # LegacyAgent/UseCase: a pair the seed does NOT relate, so the question stays open to be inspected.
+    out = fab.vocab_relation_propose(scheme="cafe", subject="LegacyAgent", predicate="is realised by",
+                                     object="UseCase", evidence="drawn on the context diagram")
+    row = next(r for r in fab.vocab_relation_open() if r["iri"] == out["iri"])
+    assert row["predicate"] == "", "prose is not a predicate"
+    assert "is realised by" in row["evidence"], "...but the author's wording is not lost"
+
+
+def test_propose_REFUSES_a_question_nobody_could_answer(fab):
+    """The queue that feeds `vocab_relate` must validate what `vocab_relate` validates. A blank scheme
+    reaches here from a misconfigured workload (`cfg.get("vocabulary", "")`), and a concept the scheme
+    does not hold parks a question whose only possible answer raises."""
+    with pytest.raises(LookupError, match="vocabulary"):
+        fab.vocab_relation_propose(scheme="", subject="AIAgent", predicate="x", object="UseCase")
+    with pytest.raises(ValueError, match="Nope"):
+        fab.vocab_relation_propose(scheme="cafe", subject="Nope", predicate="x", object="UseCase")
+
+
+def test_an_UNNAMED_question_is_settled_by_a_relation_in_EITHER_direction(fab):
+    """The two readers must agree. `concept_pairs` treats a pair as unordered — it cannot know which way
+    round a relation runs — so a question it proposed must leave the queue when the vocabulary states one
+    either way. A NAMED question stays directional, because `A contains B` and `B contains A` are
+    different claims and only one of them was asked."""
+    fab.vocab_relation_propose(scheme="cafe", subject="LegacyAgent", predicate="", object="AIAgent")
+    fab.vocab_relate(scheme="cafe", subject="AIAgent", predicate="supersedes", object="LegacyAgent",
+                     actor="s@x")
+    assert fab.vocab_relation_open() == [], "the vocabulary has answered it, whichever way round"
+
+
+def test_CONCEPT_PAIRS_works_on_a_vocabulary_that_states_NOTHING_yet(fab):
+    """The bootstrap case, and the one this producer exists for: a vocabulary whose relation half is
+    empty is exactly where a steward needs the corpus's help. Filtering the schemes by whether they
+    ALREADY state a relation excluded the only vocabulary that needed asking about."""
+    bare = build(name="bare", title="Bare", concepts=[{"id": "X", "name": "Ex"}, {"id": "Y", "name": "Why"}])
+    fab._schemes = lambda: {"bare": bare}
+    for n in range(3):
+        doc = _doc(fab, f"pair-{n}")
+        for cid in ("X", "Y"):
+            fab.graph_assert(doc, str(G.DCT.subject), str(bare.uri(cid)), rung="X", method="m")
+    assert [(p["subject"], p["object"]) for p in fab.concept_pairs(min_records=2)] == [("X", "Y")]

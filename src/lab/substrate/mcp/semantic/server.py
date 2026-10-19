@@ -509,6 +509,50 @@ def semantic_about_after_all(iri: str, concept: str, actor: str) -> dict:
 
 
 @server.tool()
+def semantic_concept_pairs(min_records: int = 3, limit: int = 20) -> list:
+    """Concepts the CORPUS keeps connecting that the vocabulary says nothing about.
+
+    Two concepts turning up on the same documents again and again is the corpus saying they are related;
+    a vocabulary silent about them has a gap a steward can close. Evidence, never a conclusion —
+    co-occurrence is not a relation and cannot name one, so this proposes the QUESTION and a person
+    answers it. Read at the trusted rungs, so a model's suggestion never proposes a relation. Counts and
+    concept ids, never content."""
+    return fabric().concept_pairs(min_records=min_records, limit=limit)
+
+
+@server.tool()
+def semantic_vocab_relation_propose(scheme: str, subject: str, predicate: str, object: str,
+                                    evidence: str = "") -> dict:
+    """Park a question about how two concepts RELATE, for a steward to answer.
+
+    Idempotent on (scheme, subject, predicate case-folded, object), so two producers proposing the same
+    relation — a diagram's arrows and the corpus's co-occurrences — raise ONE question. `evidence` is what
+    a steward triages on ("3 documents are about both", "drawn on the eRx context diagram"). It parks a
+    QUESTION, never a relation: `semantic_vocab_relate` is the write, and it takes a person's name."""
+    return fabric().vocab_relation_propose(scheme=scheme, subject=subject, predicate=predicate,
+                                           object=object, evidence=evidence)
+
+
+@server.tool()
+def semantic_vocab_relation_open() -> list:
+    """Relation questions still waiting on a steward — what the ontology queue asks about.
+
+    Openness is DERIVED: a question disappears exactly when the vocabulary STATES the relation, however
+    it came to, and a declined one stays gone. So the queue cannot drift from the vocabulary it is a
+    queue for, and no path has to remember to clean up after itself."""
+    return fabric().vocab_relation_open()
+
+
+@server.tool()
+def semantic_vocab_relation_decline(question: str, actor: str, reason: str = "") -> dict:
+    """A PERSON says these two concepts are not related that way — recorded so it sticks.
+
+    The sibling of `semantic_vocab_decline`. Both producers recompute their candidates on every run, so
+    without a durable NO the same question comes back for ever."""
+    return fabric().vocab_relation_decline(question, actor=actor, reason=reason)
+
+
+@server.tool()
 def semantic_vocab_place(concept_id: str, scheme: str, parent: str, actor: str, reason: str = "") -> dict:
     """Put an admitted concept UNDER a broader one — or, with an empty parent, back at the root.
 

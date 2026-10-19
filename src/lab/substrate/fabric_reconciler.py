@@ -23,7 +23,7 @@ from lab.core import ids
 from lab.core.collab.model import ContentHandle
 from lab.platform import config, fabric_events, filetypes, streams
 from lab.platform.contracts import ArtifactChanged, CollabTools, SemanticTools
-from lab.substrate import fabric_gateway, fabric_metrics, fabric_vocabulary
+from lab.substrate import fabric_gateway, fabric_metrics, fabric_ontology, fabric_vocabulary
 
 SERVICE = "fabric-reconciler"
 
@@ -185,6 +185,14 @@ def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
                   f"{[r['term'] for r in raised]}", flush=True)
     except Exception as e:                          # noqa: BLE001 — a question that fails is asked next tick
         print(f"[reconciler] vocabulary questions failed: {type(e).__name__}: {e}", flush=True)
+    try:    # ...and the steward's OTHER question, on the same cadence and for the same reason: the
+            # corpus connects concepts the vocabulary does not, and nothing else notices
+        related = asyncio.run(fabric_ontology.ask_open(call=call))
+        if related:
+            print(f"[reconciler] asked a steward about {len(related)} unstated relation(s): "
+                  f"{[(r['subject'], r['object']) for r in related]}", flush=True)
+    except Exception as e:                          # noqa: BLE001 — a question that fails is asked next tick
+        print(f"[reconciler] relation questions failed: {type(e).__name__}: {e}", flush=True)
     try:                                            # the measurements ride the same cadence (BR-8)
         m = asyncio.run(fabric_metrics.tick(folder=config.FABRIC_WIKI_FOLDER, client=r, call=call))
         print(f"[reconciler] measured: {m['records']['total']} record(s)", flush=True)

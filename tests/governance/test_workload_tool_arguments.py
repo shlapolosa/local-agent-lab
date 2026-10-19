@@ -35,6 +35,7 @@ from lab.platform import config, contracts
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKLOADS = ROOT / "src/lab/workloads"
+SUBSTRATE = ROOT / "src/lab/substrate"
 
 #: alias -> server module, the same table the parity test keeps (one place would be better; this test
 #: exists to be additive, so it reads the parity test's table rather than growing a third).
@@ -95,6 +96,26 @@ def _literal_keys(node: ast.AST) -> set[str] | None:
     return keys
 
 
+def _tuple_sites() -> list[tuple[str, int, str, set[str]]]:
+    """The SUBSTRATE's call shape: `call([(Tool.x, {...}), …])` — a list of (tool, args) tuples.
+
+    The workloads pass three positional arguments; the fabric's appliers and sweeps pass tuple lists
+    through `fabric_gateway.call`, so the collector above never looked at them. That is how
+    `vocab_place` came to be called with `cid` when its parameter is `concept_id` — an argument fastmcp
+    refuses outright, i.e. a write path that cannot work, with 2411 tests green and a design review
+    needed to find it. The two shapes are two collectors; the assertion over them is one."""
+    sites = []
+    for path in sorted(SUBSTRATE.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
+                continue
+            tool, keys = _tool_of(node.elts[0]), _literal_keys(node.elts[1])
+            if tool and keys is not None:
+                sites.append((str(path.relative_to(ROOT)), node.lineno, tool, keys))
+    return sites
+
+
 def _call_sites() -> list[tuple[str, int, str, set[str]]]:
     """(file, line, tool, literal arg keys) for every statically readable gateway call in a workload."""
     sites = []
@@ -112,6 +133,23 @@ def _call_sites() -> list[tuple[str, int, str, set[str]]]:
             if tool and keys is not None:
                 sites.append((str(path.relative_to(ROOT)), node.lineno, tool, keys))
     return sites
+
+
+def test_every_literal_argument_the_SUBSTRATE_passes_is_one_its_tool_accepts(accepted):
+    """The same invariant over the substrate's `(tool, args)` tuples — the fabric's appliers and sweeps."""
+    sites = _tuple_sites()
+    assert len(sites) >= 15, f"only {len(sites)} substrate call sites parsed — the AST shapes have moved"
+    wrong = []
+    for file, line, tool, keys in sites:
+        if tool not in accepted:
+            continue                         # a tool on no server in the table; the parity test owns that
+        params, _required = accepted[tool]
+        unknown = keys - params
+        if unknown:
+            wrong.append(f"{file}:{line} calls {tool} with {sorted(unknown)}; it accepts {sorted(params)}")
+    assert not wrong, ("the substrate passes an argument its tool would refuse — fastmcp raises "
+                       "'Unexpected keyword argument' and the answer is never applied:\n  "
+                       + "\n  ".join(wrong))
 
 
 def test_every_literal_argument_a_workload_passes_is_one_its_tool_accepts(accepted):

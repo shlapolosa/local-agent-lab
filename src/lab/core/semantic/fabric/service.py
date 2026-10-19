@@ -14,6 +14,7 @@ Pure: rdflib + pyshacl + the catalog port; no HTTP, no Redis, no store — the s
 from __future__ import annotations
 
 import re
+from itertools import combinations
 from typing import Any, Callable, Iterable, Mapping
 
 from rdflib import RDF, Dataset, Literal, URIRef
@@ -27,6 +28,7 @@ from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
 from lab.core.semantic.fabric import corpus, topology
+from lab.core.semantic.fabric.vocabulary import _LOCAL_NAME
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
                                               iri_safe, pointer_key, subject_labels)
 from lab.core.semantic.fabric.ontology import DocumentTypes, short as _short
@@ -42,6 +44,9 @@ CONFLICT = "urn:fabric:conflict:"      # one word with several meanings, awaitin
 #: one record's "this is NOT what I am about", so a label match cannot put it back. Its OWN node, as a
 #: conflict has: the artifact's shape is closed, and a record's facts are not the place for a negative.
 EXCLUSION = "urn:fabric:not-about:"
+#: one proposed RELATION between two concepts, awaiting a steward. Keyed like a conflict and for the
+#: same reason: both producers recompute their candidates, so only askedness and refusal are durable.
+RELATION_Q = "urn:fabric:relation-q:"
 DOC_TYPE_SCHEME = "urn:fabric:scheme:doc-types#"
 PERSON = "urn:fabric:person:"
 #: What an IRI looks like HERE: a URN, or a scheme with an authority (`art://`, `collab://`, `https://`). A
@@ -643,7 +648,10 @@ class FabricService:
             # the very flood `fab:InReview` was added to stop for candidates. Same verb, same marker, the
             # other graph: a steward is asked once about either kind of question.
             curated = self.ds.graph(CURATED_GRAPH)
-            if (c, RDF.type, FAB.Conflict) in curated:
+            # THREE things a steward is asked about, ONE verb that remembers it: a candidate term, an
+            # ambiguous word, and a proposed relation. One grant, one idea — and the register is what
+            # remembers for all of them, because a set in a process forgets on restart.
+            if (c, RDF.type, FAB.Conflict) in curated or (c, RDF.type, FAB.RelationQuestion) in curated:
                 if curated.value(c, FAB.askedIn) is not None:
                     return {"iri": candidate, "asked": False, "already": True}
                 triples = [(c, FAB.askedIn, Literal(request_id or "asked"))]
@@ -894,6 +902,160 @@ class FabricService:
         """The concepts a person has said this record is NOT about."""
         g = self.ds.graph(CURATED_GRAPH)
         return {str(o) for n in g.subjects(FAB.excludedFrom, URIRef(iri)) for o in g.objects(n, DCT.subject)}
+
+    def concept_pairs(self, *, min_records: int = 3, limit: int = 20) -> list[dict]:
+        """Concepts the CORPUS keeps connecting that the vocabulary says nothing about.
+
+        The second producer for the ontology queue, and the one that works where no diagrams are
+        ingested: two concepts turning up on the same documents again and again is the corpus saying they
+        are related, and a vocabulary silent about them has a gap a steward can close.
+
+        Evidence, never a conclusion — co-occurrence is not a relation and cannot name one. It proposes
+        the QUESTION; a person answers it, because a relation is what the derived rung reasons over.
+
+        Computed in process, over the graph, for the reason `corpus_view` records: a caller doing this
+        per record over the gateway pays a round trip each and trips its own rate limit at about sixty.
+        Read at `IMPACT_READS`, so a model's suggestion at rung S never proposes a relation.
+
+        Ordered by how often, then by the pair, so two runs agree and a steward sees the strongest first."""
+        by_record: dict[str, set[str]] = {}
+        for _, (subject, _, obj) in G.find(self.ds, None, DCT.subject, None, rungs=tuple(IMPACT_READS)):
+            by_record.setdefault(str(subject), set()).add(str(obj))
+        together: dict[tuple[str, str], int] = {}
+        for subs in by_record.values():
+            for one, two in combinations(sorted(subs), 2):
+                together[(one, two)] = together.get((one, two), 0) + 1
+        # The vocabulary's own statements, so a pair it already connects is not a gap however often the
+        # corpus puts them together. Direction is immaterial here: a relation either way answers it.
+        # Every scheme the fabric OWNS, not only those that already state a relation: filtering on a
+        # non-empty `relationships` excluded the bootstrap case this producer exists for — a vocabulary
+        # whose relation half is empty is precisely where a steward needs the corpus's help.
+        stated, by_concept = set(), {}
+        for sc in (self._schemes() or {}).values():
+            if not hasattr(sc, "relationships"):
+                continue                                  # a reference taxonomy the fabric does not curate
+            for cid in getattr(sc, "concepts", {}):
+                by_concept[str(sc.uri(cid))] = (sc, cid)
+            for e in getattr(sc, "relationships", ()) or ():
+                stated.add(frozenset((str(sc.uri(e["subject"])), str(sc.uri(e["object"])))))
+        out = []
+        for (one, two), count in together.items():
+            if count < max(1, int(min_records)) or frozenset((one, two)) in stated:
+                continue
+            if one not in by_concept or two not in by_concept:
+                continue                              # a reference concept the fabric does not curate
+            sc, left = by_concept[one]
+            other_sc, right = by_concept[two]
+            if sc is not other_sc:
+                continue                              # two vocabularies state nothing about each other
+            out.append({"scheme": sc.name, "subject": left, "object": right, "records": count,
+                        "evidence": f"{count} records are about both"})
+        out.sort(key=lambda r: (-r["records"], r["subject"], r["object"]))
+        return out[:max(1, int(limit))]
+
+    def vocab_relation_propose(self, *, scheme: str, subject: str, predicate: str, object: str,
+                               evidence: str = "") -> dict:
+        """Park a question about how two concepts RELATE, for a steward.
+
+        Modelled on `_conflict`, NOT on `_candidate_for`. A term candidate is parked because it arrives
+        one document at a time over weeks and would otherwise be forgotten. A relation candidate is
+        RECOMPUTABLE — from a diagram's arrows or from the corpus's co-occurrences — so the candidate
+        itself needs no durability. What must survive a restart is that somebody was ASKED and that
+        somebody said NO; everything else is derived, which is what keeps the queue from drifting away
+        from the vocabulary it is a queue for.
+
+        Idempotent on (scheme, subject, predicate case-folded, object): two producers proposing the same
+        relation, or one producer on its second tick, is ONE question. The predicate folds because the
+        matcher and the diagram lane both fold it, and "Realises" is not a second question."""
+        # The queue that feeds `vocab_relate` must refuse what `vocab_relate` refuses, or it parks a
+        # question whose only possible answer raises — and a steward handed a card they cannot answer
+        # correctly is worse than no card.
+        sc = self._scheme(scheme)
+        for end in (subject, object):
+            if not str(end or "").strip():
+                raise ValueError("a relation question names both concepts")
+            if str(end) not in getattr(sc, "concepts", {}):
+                raise ValueError(f"{scheme} does not hold a concept {end!r}")
+        pred = str(predicate or "").strip()
+        if pred and not _LOCAL_NAME.match(pred):
+            # A diagram's arrow caption is PROSE ("is realised by"), and `vocab_relate` takes an IRI
+            # local name. Parked as the predicate it produced a card whose plain `relate` could only
+            # fail; parked as EVIDENCE it produces the right question — "they connect, name how" — with
+            # the author's own wording in front of the person answering.
+            evidence = f"{evidence + ' · ' if evidence else ''}drawn as {pred!r}"
+            pred = ""
+        g = self.ds.graph(CURATED_GRAPH)
+        key = "|".join([scheme, str(subject), pred.casefold(), str(object)])
+        node = URIRef(RELATION_Q + iri_safe(key))
+        out = {"iri": str(node), "scheme": scheme, "subject": str(subject), "predicate": pred,
+               "object": str(object)}
+        if (node, RDF.type, FAB.RelationQuestion) in g:
+            return {**out, "already": True}
+        triples = [(node, RDF.type, FAB.RelationQuestion), (node, FAB.curationScheme, Literal(scheme)),
+                   (node, FAB.relationSubject, Literal(str(subject))),
+                   (node, FAB.relationPredicate, Literal(pred)),
+                   (node, FAB.relationObject, Literal(str(object))),
+                   (node, G.PROV.generatedAtTime, G.now())]
+        if evidence:
+            triples.append((node, FAB.evidence, Literal(evidence)))
+        for t in triples:
+            g.add(t)
+        self._persist(("curated",), lambda: [g.remove(t) for t in triples])
+        return out
+
+    def vocab_relation_open(self) -> list[dict]:
+        """The relation questions still waiting on a steward.
+
+        Openness is DERIVED, as a conflict's is: a question disappears exactly when the vocabulary STATES
+        the relation — however it came to, through this gate or a republished seed — and a declined one
+        stays gone. A marker for "settled" would have to be written by every path that can settle one,
+        and the path that forgot would ask a steward the same question for ever."""
+        g = self.ds.graph(CURATED_GRAPH)
+        out = []
+        for node in g.subjects(RDF.type, FAB.RelationQuestion):
+            if g.value(node, FAB.lifecycleState) == FAB.Withdrawn:
+                continue                                   # a person's NO, recorded so it sticks
+            name = str(g.value(node, FAB.curationScheme) or "")
+            sub = str(g.value(node, FAB.relationSubject) or "")
+            pred = str(g.value(node, FAB.relationPredicate) or "")
+            obj = str(g.value(node, FAB.relationObject) or "")
+            sc = (self._schemes() or {}).get(name)
+            # A NAMED question is DIRECTIONAL — "A contains B" and "B contains A" are different claims and
+            # only one was asked. An UNNAMED one is not: `concept_pairs` orders a pair alphabetically and
+            # cannot know which way a relation runs, so a relation EITHER way answers it. Without that the
+            # queue kept an entry the vocabulary had already settled, which is the one property the
+            # derived design was chosen for.
+            def settled(e):
+                if pred:
+                    return (e["subject"] == sub and e["object"] == obj
+                            and str(e["predicate"]).casefold() == pred.casefold())
+                return {e["subject"], e["object"]} == {sub, obj}
+
+            if sc is not None and any(settled(e) for e in getattr(sc, "relationships", ()) or ()):
+                continue                                   # the vocabulary says it now; nobody needs asking
+            out.append({"iri": str(node), "scheme": name, "subject": sub, "predicate": pred, "object": obj,
+                        "evidence": str(g.value(node, FAB.evidence) or ""),
+                        "asked": str(g.value(node, FAB.askedIn) or "")})
+        return sorted(out, key=lambda r: (r["subject"], r["predicate"], r["object"]))
+
+    def vocab_relation_decline(self, question: str, *, actor: str, reason: str = "") -> dict:
+        """A PERSON says these two concepts are not related that way — recorded so it sticks.
+
+        The sibling of `vocab_decline`. Without it a restart re-asks everything, and both producers
+        recompute their candidates on every run, so "not that one" would be answered for ever."""
+        if not actor:
+            raise ValueError("declining a relation is a person's decision: actor is required")
+        g = self.ds.graph(CURATED_GRAPH)
+        node = URIRef(question)
+        if (node, RDF.type, FAB.RelationQuestion) not in g:
+            raise LookupError(f"no relation question {question}")
+        triples = [(node, FAB.lifecycleState, FAB.Withdrawn), (node, G.PROV.wasAttributedTo, Literal(actor))]
+        if reason:
+            triples.append((node, FAB.declineReason, Literal(reason)))
+        for t in triples:
+            g.add(t)
+        self._persist(("curated",), lambda: [g.remove(t) for t in triples])
+        return {"iri": question, "declined": True, "actor": actor}
 
     def vocab_place(self, cid: str, *, scheme: str, parent: str, actor: str, reason: str = "",
                     to: str = CONFIRMED) -> dict:

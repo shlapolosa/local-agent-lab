@@ -35,7 +35,8 @@ from lab.platform import config, runlog, streams, workflows
 from lab.platform.contracts import PROCESSES, Decision, continuation_of
 from lab.substrate import answer_appliers, approvals
 from lab.substrate import fabric_curator  # noqa: F401 — registers the fabric's appliers on import
-from lab.substrate import fabric_vocabulary  # noqa: F401 — and the steward's, for the vocabulary itself
+from lab.substrate import fabric_vocabulary  # noqa: F401 — and the steward's, for what it CONTAINS
+from lab.substrate import fabric_ontology  # noqa: F401 — ...and for how its concepts RELATE
 
 SERVICE = "continuations"
 GROUP = approvals.DEC_GROUPS[0]

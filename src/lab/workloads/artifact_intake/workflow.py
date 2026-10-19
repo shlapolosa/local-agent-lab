@@ -89,7 +89,7 @@ def _rendering_for(produced_by: str, read_as: str) -> str:
     return RENDERING_BY_PROCESS.get(str(produced_by or "").strip(), read_as)
 
 
-async def _excerpt(cfg, pointer: dict, *, produced_by: str = "") -> tuple[str, str]:
+async def _excerpt(cfg, pointer: dict, *, produced_by: str = "", out: dict | None = None) -> tuple[str, str]:
     """The first `EXCERPT_CHARS` of what is being classified, and the RENDERING it came through — ("", "")
     when it cannot be read.
 
@@ -123,6 +123,14 @@ async def _excerpt(cfg, pointer: dict, *, produced_by: str = "") -> tuple[str, s
             # RAISED, and this function's degrade-rather-than-fail `except` swallowed it — so every
             # collab document was classified from its file name while the run reported success.
             ref = gateway.ref_from(got, "ref")
+            # KEPT for the caller. A `collab://` handle is not readable by storage, and resolving it
+            # costs a round trip and a grant — so the one other reader of these bytes (the diagram
+            # producer) takes this ref rather than fetching the same file again or, worse, handing a
+            # handle to a tool that wants a ref.
+            if out is not None:
+                out["content_ref"] = ref
+        if out is not None and ref:
+            out.setdefault("content_ref", ref)
         if not ref:
             return "", ""
         # TWO readers, and they refuse each other's files. `read_artifact` serves .json/.xml/.svg/
@@ -197,6 +205,50 @@ def _subject_items(state: dict, cap: int) -> tuple[list[dict], list[str]]:
                           f"keep confirms it, drop records that this document is not about it"]}
              for l in asked]
     return items, [str(l.get("label") or l.get("term") or "") for l in held]
+
+
+async def _propose_relations(cfg, state: dict) -> None:
+    """A diagram's arrows, resolved against the vocabulary and parked as questions for a steward.
+
+    Best effort, and deliberately: a run must not fail because a diagram could not be read or the queue
+    could not be reached. The arrows are `storage_read_vsdx`'s own `connectors`, and the resolution —
+    which box names a concept, which is ambiguous, which is a gap — belongs to `semantic_vocab_relation_
+    candidates`, where it is pure and tested. Attempted only for a diagram, because the read costs a
+    grant and a round trip."""
+    # The NAME comes from the title, not from the pointer: a `collab://` handle ends in a Graph item id
+    # with no extension (`collab://item/<driveId>/<itemId>`), so every collab-sourced artifact — which
+    # is the whole pilot library — looked like "not a diagram" and this returned before it began.
+    name = str(state.get("title") or "")
+    if filetypes.kind_for(name) != "vsdx":        # the one input whose arrows are machine-readable
+        return
+    # ...and the REF is the one `_excerpt` already resolved. Storage cannot read a handle; passing one
+    # raises, and this function's degrade-rather-than-fail `except` would swallow it — the same trap
+    # `_excerpt`'s own docstring records paying for once.
+    ref = str(state.get("content_ref") or state.get("pointer", {}).get("ref") or "")
+    if not ref:
+        print(f"[intake] {name}: no readable ref, so no relations proposed", flush=True)
+        return
+    try:
+        parsed = await gateway.call(cfg, StorageTools.read_vsdx, {"ref": ref})
+        arrows = (parsed or {}).get("connectors") or []
+        if not arrows:
+            return
+        found = await gateway.call(cfg, SemanticTools.relation_candidates,
+                                   {"arrows": arrows, "scheme": cfg.get("vocabulary", "")})
+        for c in (found or {}).get("candidates") or []:
+            await gateway.call(cfg, SemanticTools.relation_propose,
+                               {"scheme": cfg.get("vocabulary", ""), "subject": c.get("subject", ""),
+                                "predicate": c.get("predicate", ""), "object": c.get("object", ""),
+                                "evidence": f"drawn on {name}"})
+        gaps = (found or {}).get("gaps") or []
+        print(f"[intake] {name}: {len((found or {}).get('candidates') or [])} relation(s) proposed, "
+              f"{len(gaps)} box(es) the vocabulary cannot name{': ' + ', '.join(gaps[:5]) if gaps else ''}",
+              flush=True)
+    except Exception as e:                          # noqa: BLE001 — a diagram is evidence, not a gate
+        # NAMED, because "the grant is missing" and "the diagram had no arrows" look identical in a log
+        # that only says nothing happened — which is how a producer contributes nothing for weeks.
+        why = "not granted" if "not exposed" in str(e) or "permission" in str(e).lower() else type(e).__name__
+        print(f"[intake] no relations from {name} ({why}): {e}", flush=True)
 
 
 def make_cfg(*, credential: str = "", mcp_url: str = "", traceparent: str = "", agents: dict | None = None,
@@ -297,8 +349,10 @@ def build_workflow(cfg):
             suggestion, rendering = None, ""
             # READ ONCE, for both readers. The excerpt used to be fetched inside the classifier's branch,
             # which made the extractor depend on a classifier being configured for its own evidence.
+            read: dict = {}
             excerpt, rendering = await _excerpt(cfg, state["pointer"],
-                                                produced_by=state.get("produced_by") or "")
+                                                produced_by=state.get("produced_by") or "", out=read)
+            state = state | {"content_ref": read.get("content_ref", "")}
             # WHAT EACH READER IS SHOWN. The facts about the artifact are common; the VOCABULARY and the
             # closed type set belong to the classifier alone. Handing them to the extractor would make the
             # inversion a second taxonomy-first call — every test still passing, because the schema
@@ -495,6 +549,13 @@ def build_workflow(cfg):
                                        {"label": term, "actor": "classifier-agent", "scheme": cfg.get("vocabulary", ""),
                                         "proposed_for": state["iri"], "alias_of": alias_of,
                                         "definition": f"proposed while classifying {state['title']}"})
+            # WHAT THIS DIAGRAM SAYS CONNECTS. Its boxes are terms and its arrows are relations, so a
+            # diagram is the one artifact that carries how the things a corpus is about are CONNECTED
+            # rather than just which they are — and the vocabulary's ontology half has no other sharp
+            # feeder. It proposes a QUESTION and never a relation: the arrow says two concepts connect
+            # and not how, and a predicate the fabric invented would be an edge no author drew, which
+            # the derived rung would then reason over as if somebody had.
+            await _propose_relations(cfg, state)
             # WHAT THIS DOCUMENT CITES. Impact walks INBOUND over `references`, and the only producer of
             # that edge was a synthesised draft pointing back at its source — so an authored document that
             # cited another in prose produced nothing, and impact over it returned nothing and always

@@ -10,7 +10,7 @@ Measured on this lab's own stream 10 Oct 2026: **101 open concept-admission card
 everything else**, all of it on every channel. A steward opening Teams saw a wall of term questions;
 an owner looking for their own card had to scroll past them. Neither audience was served.
 
-The split is by approval KIND, declared once in `lab.platform.contracts` (`STEWARD_KINDS` /
+The split is by approval KIND, declared once in `lab.platform.contracts` (`TAXONOMY_KINDS` /
 `OWNER_KINDS`, a partition asserted by test, so a kind cannot be claimed by both queues or by
 neither) and applied once in `approvals.channel_events(audience=...)`. That is TRIAGE, which is the
 one thing `kind` is documented for — "channels triage by it; nothing dispatches on it". Nothing else
@@ -33,10 +33,13 @@ from lab.substrate.channels.teams import TeamsChannel
 
 
 class StewardChannel(TeamsChannel):
-    name = "steward"                                  # its own consumer group on approvals:requests
+    #: Its consumer group, and it keeps the old name on purpose: a group is where a reader's position
+    #: lives, so renaming it would start a NEW one at the beginning of the stream and re-announce every
+    #: open card — ~100 of them. The TEAMS channel it posts to is `pilot-taxonomy`; this is the group.
+    name = "steward"
     setting = "TEAMS_STEWARD_WEBHOOK_URL"             # a DIFFERENT Teams channel's Workflows webhook
     answers_on_card = config.TEAMS_STEWARD_ANSWERS_ON_CARD
-    audience = ApprovalAudience.STEWARD               # ... carrying only the vocabulary questions
+    audience = ApprovalAudience.TAXONOMY              # ...carrying what the vocabulary CONTAINS
     #: The named stewards. A role somebody HOLDS, which is what the BRS means by "curated by a named
     #: steward per scheme" — not "whoever is in the channel". Unset = the queue goes to the room.
     recipients = config.FABRIC_STEWARDS

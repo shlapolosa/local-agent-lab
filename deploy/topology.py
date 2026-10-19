@@ -227,12 +227,18 @@ CHANNELS = {
     "teams":    {"cmd": "python -m lab.substrate.channels.teams", "port": None, "restart": "ALWAYS",
                  "requires": ("TEAMS_WEBHOOK_URL",), "audience": "owner"},
     # The STEWARD's queue: the same adapter and card, a DIFFERENT Teams Workflows webhook, and a feed
-    # carrying only `contracts.STEWARD_KINDS`. Its own service because its own consumer group means the
+    # carrying only `contracts.TAXONOMY_KINDS`. Its own service because its own consumer group means the
     # two feeds are independently acked and independently behind — a steward who has not looked for a
     # week must not hold up an owner's card. Measured 10 Oct 2026 on the one shared queue: 101 open
     # concept-admission cards against ~37 of everything else.
     "steward":  {"cmd": "python -m lab.substrate.channels.steward", "port": None, "restart": "ALWAYS",
-                 "requires": ("TEAMS_STEWARD_WEBHOOK_URL",), "audience": "steward"},
+                 "requires": ("TEAMS_STEWARD_WEBHOOK_URL",), "audience": "taxonomy"},
+    # The steward's OTHER job. A vocabulary is a taxonomy plus the statements about how its concepts
+    # relate, and a relation answered wrongly becomes an edge the DERIVED rung reasons over as if
+    # somebody had drawn it. Its own service for the reason the taxonomy queue has one: its own
+    # consumer group, so the two feeds are independently acked and independently behind.
+    "ontology": {"cmd": "python -m lab.substrate.channels.ontology", "port": None, "restart": "ALWAYS",
+                 "requires": ("TEAMS_ONTOLOGY_WEBHOOK_URL",), "audience": "ontology"},
     # The opt-in Teams meeting app (lab.substrate.meetingapp): an approval channel that is ALSO a bot,
     # so it is the one channel with a public port — Teams posts activities to it and Graph posts the
     # recording notifications. MEETING_APP_PUBLIC_URL is not a gate: it is that domain, known only
@@ -658,6 +664,24 @@ ROLE_ENV = {
                                                    # Deliberately NOT TEAMS_WEBHOOK_URL: two channels
                                                    # sharing one destination is the buried queue this split undoes
         "REDIS_URL",                               # approvals:requests consumer group "steward" + decisions
+        "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
+        _OTLP,
+    ],
+    "ontology": [                                  # src/lab/substrate/channels/ontology.py (the THIRD queue)
+        # Whether that webhook is a flow that WAITS, so the card may carry inputs and a Submit. It has to
+        # travel WITH the webhook: the flag without the flow puts a dead button on the card, and the flow
+        # without the flag leaves a steward following a deep link per term. Missing from this allowlist is
+        # how the card stayed un-answerable after the flag was set and the code deployed (10 Oct 2026) —
+        # least privilege working exactly as designed, and silently, because an absent variable is a
+        # default and a default is not an error.
+        "TEAMS_ONTOLOGY_ANSWERS_ON_CARD",
+        # Who the asks are FOR. Without it the channel posts to the room, which is visible and
+        # interrupts nobody — correct as a fallback, wrong as the only behaviour once asks are DMs.
+        "FABRIC_STEWARDS",
+        "TEAMS_ONTOLOGY_WEBHOOK_URL",               # its OWN Adaptive Card webhook (unset = not deployed).
+                                                   # Deliberately NOT TEAMS_WEBHOOK_URL: two channels
+                                                   # sharing one destination is the buried queue this split undoes
+        "REDIS_URL",                               # approvals:requests consumer group "ontology" + decisions
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # the card's two Action.OpenUrl buttons
         _OTLP,
     ],                                             # NOTHING else — a channel decides and posts

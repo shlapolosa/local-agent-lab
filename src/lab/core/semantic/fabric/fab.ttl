@@ -54,6 +54,14 @@ fab:rendering       a owl:DatatypeProperty ; rdfs:domain fab:Artifact ; rdfs:ran
     rdfs:comment "HOW the text this record's concepts were grounded in was read — one of the declared ladder (lab.core.semantic.fabric.renderings), ordered by distance from the artifact. A record carries its WEAKEST reading." .
 fab:askedIn         a owl:DatatypeProperty ; rdfs:range xsd:string ;
     rdfs:comment "the approval a candidate — or a conflict — was asked in; what stops a steward being asked twice." .
+fab:RelationQuestion a owl:Class ;
+    rdfs:comment "a proposed RELATION between two concepts, awaiting a steward. Keyed and idempotent like a conflict: both producers — a diagram's arrows and the corpus's co-occurrences — recompute their candidates, so only askedness and refusal are durable and openness is derived." .
+fab:relationSubject a owl:DatatypeProperty ; rdfs:domain fab:RelationQuestion ; rdfs:range xsd:string .
+fab:relationPredicate a owl:DatatypeProperty ; rdfs:domain fab:RelationQuestion ; rdfs:range xsd:string ;
+    rdfs:comment "the relation proposed, EMPTY when a diagram drew the arrow without naming it — the person answering supplies it." .
+fab:relationObject a owl:DatatypeProperty ; rdfs:domain fab:RelationQuestion ; rdfs:range xsd:string .
+fab:evidence       a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:comment "what a steward triages on: how many records are about both concepts, or which diagram drew the arrow." .
 fab:SubjectExclusion a owl:Class ;
     rdfs:comment "a PERSON's record that one artifact is NOT about one concept. Its own node, because an artifact's shape is closed and a record's facts are not the place for a negative; enforced where dct:subject is written." .
 fab:excludedFrom    a owl:ObjectProperty ; rdfs:domain fab:SubjectExclusion ; rdfs:range fab:Artifact ;

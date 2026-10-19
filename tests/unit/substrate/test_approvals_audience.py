@@ -25,7 +25,7 @@ def test_each_audience_is_told_only_about_its_own_kinds():
     r = FakeRedis()
     term = _ask(r, ApprovalKind.CONCEPT_ADMISSION.value, "'Agent' means two things")
     doc = _ask(r, ApprovalKind.DRAFT_REVIEW.value, "BRS.md")
-    assert _ids("steward", ApprovalAudience.STEWARD, r) == [term]
+    assert _ids("steward", ApprovalAudience.TAXONOMY, r) == [term]
     assert _ids("teams", ApprovalAudience.OWNER, r) == [doc]
 
 
@@ -54,7 +54,7 @@ def test_the_audience_filter_does_not_replace_the_open_filter():
     term = _ask(r, ApprovalKind.CONCEPT_ADMISSION.value)
     open_ = _ask(r, ApprovalKind.CONCEPT_ADMISSION.value)
     approvals.human_decision(term, Decision.DECLINE, "steward@doh", "cli", client=r)
-    assert _ids("steward", ApprovalAudience.STEWARD, r) == [open_]
+    assert _ids("steward", ApprovalAudience.TAXONOMY, r) == [open_]
 
 
 def test_a_legacy_kind_still_reaches_the_owner_channels():
@@ -62,7 +62,7 @@ def test_a_legacy_kind_still_reaches_the_owner_channels():
     announced where it always was, and must NOT appear on the steward's queue."""
     r = FakeRedis()
     rid = _ask(r, "adoit-import", "lab model")
-    assert _ids("steward", ApprovalAudience.STEWARD, r) == []
+    assert _ids("steward", ApprovalAudience.TAXONOMY, r) == []
     assert _ids("teams", ApprovalAudience.OWNER, r) == [rid]
 
 
@@ -75,7 +75,7 @@ def test_an_audit_consumer_asking_for_one_audience_gets_one():
     doc = _ask(r, ApprovalKind.DRAFT_REVIEW.value)
     approvals.human_decision(term, Decision.DECLINE, "steward@doh", "cli", client=r)
     got = approvals.channel_events("steward", only_open=False,
-                                   audience=ApprovalAudience.STEWARD, client=r)
+                                   audience=ApprovalAudience.TAXONOMY, client=r)
     assert [f["request_id"] for _, f in got] == [term]        # decided, but still the steward's
     assert doc not in [f["request_id"] for _, f in got]
 

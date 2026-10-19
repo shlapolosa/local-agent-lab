@@ -223,6 +223,10 @@ services:
     <<: *sub
     profiles: ["channels"]
     command: ["python", "-m", "lab.substrate.channels.steward"]
+  ontology:                   # ...and how those concepts RELATE: a steward's other job, its own queue
+    <<: *sub
+    profiles: ["channels"]
+    command: ["python", "-m", "lab.substrate.channels.ontology"]
   meeting-app:                # the opt-in Teams meeting app: a channel that is also a bot, so it listens
     <<: *sub
     profiles: ["channels"]

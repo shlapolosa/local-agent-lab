@@ -3,7 +3,7 @@
 The steward's queue, separated from the owners' by APPROVAL KIND (see
 tests/unit/platform/test_contracts_approval_audience.py for the partition that decides which is
 which). It is the Teams adapter aimed at a second Workflows webhook: the same Adaptive Card
-envelope, a different consumer group, and a feed carrying only `STEWARD_KINDS`. So it is a
+envelope, a different consumer group, and a feed carrying only `TAXONOMY_KINDS`. So it is a
 SUBCLASS, not a second adapter — three class attributes (`name`, `setting`, `audience`) are the
 whole difference, and anything learned about the card or the loop is learned once.
 
@@ -47,7 +47,7 @@ def test_it_is_the_teams_adapter_with_its_own_queue_and_its_own_webhook():
     three things that make it a SEPARATE queue."""
     assert issubclass(S.StewardChannel, T.TeamsChannel)
     assert S.StewardChannel.name == "steward" != T.TeamsChannel.name
-    assert S.StewardChannel.audience is ApprovalAudience.STEWARD
+    assert S.StewardChannel.audience is ApprovalAudience.TAXONOMY
     assert T.TeamsChannel.audience is ApprovalAudience.OWNER
     assert S.StewardChannel.setting == "TEAMS_STEWARD_WEBHOOK_URL"
 
@@ -96,7 +96,7 @@ def test_the_loop_reads_only_the_stewards_audience_and_acks_under_its_own_name(m
     ch = _enabled()
     ch.run()
     assert seen and seen[0][0] == "steward"
-    assert seen[0][1]["audience"] is ApprovalAudience.STEWARD
+    assert seen[0][1]["audience"] is ApprovalAudience.TAXONOMY
     assert acked == [("steward", "e1")] and len(ch.sent) == 1
 
 

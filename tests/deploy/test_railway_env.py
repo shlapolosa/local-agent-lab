@@ -369,10 +369,11 @@ def test_every_channel_classs_setting_and_audience_match_its_deploy_row():
     line never prints. And an `audience` literal that drifted from the class's would make
     `unserved_audiences` reassure a deploy about a queue nobody reads."""
     from lab.platform import config
+    from lab.substrate.channels.ontology import OntologyChannel
     from lab.substrate.channels.steward import StewardChannel
     from lab.substrate.channels.teams import TeamsChannel
     from lab.substrate.channels.telegram import TelegramChannel
-    for cls in (TelegramChannel, TeamsChannel, StewardChannel):
+    for cls in (TelegramChannel, TeamsChannel, StewardChannel, OntologyChannel):
         row = railway.CHANNELS[cls.name]
         assert row["audience"] == cls.audience.value, cls.name
         if getattr(cls, "setting", None):                    # telegram needs two, so it declares none
@@ -386,10 +387,12 @@ def test_an_audience_with_no_configured_channel_is_reported():
     """The owner channels ask for their audience UNCONDITIONALLY, so an audience with no configured
     channel is not merely quieter — its approvals are announced nowhere. The deploy profile is the
     only place the whole set is visible, so it is the only place that can say so."""
-    assert railway.unserved_audiences({}) == ["owner", "steward"]          # nothing configured
-    assert railway.unserved_audiences(FAKE) == ["steward"]                 # teams + telegram, no steward
+    # THREE audiences now: an owner's artifact, what the vocabulary CONTAINS, and how its concepts RELATE.
+    assert railway.unserved_audiences({}) == ["ontology", "owner", "taxonomy"]   # nothing configured
+    assert railway.unserved_audiences(FAKE) == ["ontology", "taxonomy"]          # teams + telegram only
     both = FAKE | {"TEAMS_STEWARD_WEBHOOK_URL": "https://hook/s"}
-    assert railway.unserved_audiences(both) == []
+    assert railway.unserved_audiences(both) == ["ontology"], "the relation queue is its own audience"
+    assert railway.unserved_audiences(both | {"TEAMS_ONTOLOGY_WEBHOOK_URL": "https://hook/o"}) == []
     # reported, never refused: `up` prints and proceeds (a gate that blocks the repair of what it
     # reports is worse than none), so the deploy table itself is unchanged by a quiet audience
     assert set(railway.substrate_services(FAKE)) >= {"teams", "telegram"}

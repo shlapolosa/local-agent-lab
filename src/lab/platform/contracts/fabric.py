@@ -111,6 +111,15 @@ class SemanticTools(ToolCatalogue):
     #: it is the one artifact carrying how the things a corpus is about are connected. Read-only — it resolves
     #: and proposes, a steward decides with `vocab_relate`.
     relation_candidates = "semantic_vocab_relation_candidates"
+    #: The ontology QUEUE: a question parked for a steward, the open ones, and a person's NO. `propose`
+    #: is PIPELINE — both producers are machines noticing something worth asking — while `decline` is a
+    #: person's decision and belongs with the other PROMOTE verbs. `vocab_relation_open` is a READ.
+    relation_propose = "semantic_vocab_relation_propose"
+    relation_open = "semantic_vocab_relation_open"
+    relation_decline = "semantic_vocab_relation_decline"
+    #: What the CORPUS says two concepts have to do with each other, where the vocabulary says nothing —
+    #: the producer that works without diagrams. A READ: it proposes a question and settles none.
+    concept_pairs = "semantic_concept_pairs"
     vocab_decline = "semantic_vocab_decline"       # ...and a PERSON'S NO about a term, recorded so it sticks
     vocab_asked = "semantic_vocab_asked"           # a term a steward HAS been asked about — so nobody asks twice
     # The CAFÉ views, one per step the CAFÉ bundle places one at — each read under the caller's pin
@@ -133,14 +142,14 @@ class SemanticTools(ToolCatalogue):
             export_archimate, store_spec, store_page, questions, ask,
             catalog_get, catalog_by_url, trace, impact, similar, search, recommend, metrics, validate_shapes,
             topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master,
-            related, relation_candidates) + VIEWS
+            related, relation_candidates, relation_open, concept_pairs) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
-                vocab_propose, vocab_asked, embed, derive, concept_match)
+                vocab_propose, vocab_asked, embed, derive, concept_match, relation_propose)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.
     PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline, vocab_place, vocab_relate,
-               not_about, about_after_all)
+               not_about, about_after_all, relation_decline)
     REINDEX = (reindex,)
     # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has

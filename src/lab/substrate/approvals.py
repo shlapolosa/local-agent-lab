@@ -43,11 +43,14 @@ from lab.platform.contracts import (APPROVAL_FINAL, ApprovalStatus, Decision, ap
 
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
-CHANNELS = ("review-app", "telegram", "teams", "teams-app", "steward")
+CHANNELS = ("review-app", "telegram", "teams", "teams-app", "steward", "ontology")
 # "steward" is the vocabulary queue: the same contract as any other channel, reading only
-# `STEWARD_KINDS` (see `channel_events`'s `audience`). A separate GROUP rather than a filter in front
+# `TAXONOMY_KINDS` (see `channel_events`'s `audience`). A separate GROUP rather than a filter in front
 # of the Teams one, so the two feeds are independently acked and independently behind —
-# lab.substrate.channels.steward holds the measurement and the reasoning.
+# lab.substrate.channels.steward holds the measurement and the reasoning. "ontology" is the steward's
+# OTHER queue — how the vocabulary's concepts RELATE, as against what it contains — and is declared here
+# for the same reason: this tuple IS the set of consumer groups, so one missing from it is a group
+# `ensure_groups` never pre-creates and a queue `channel_lag` reports nothing about.
 # Consumer groups on the DECISIONS stream. The request stream feeds humans; this one is where
 # something ACTS on what a human said, and until now nothing consumed it at all. It is the only
 # place where "a person answered, from whichever channel they happened to use" is a single fact,
