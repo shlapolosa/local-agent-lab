@@ -517,3 +517,22 @@ def test_CONCEPT_PAIRS_works_on_a_vocabulary_that_states_NOTHING_yet(fab):
         for cid in ("X", "Y"):
             fab.graph_assert(doc, str(G.DCT.subject), str(bare.uri(cid)), rung="X", method="m")
     assert [(p["subject"], p["object"]) for p in fab.concept_pairs(min_records=2)] == [("X", "Y")]
+
+
+def test_the_SEMANTIC_TIER_works_against_the_vocabulary_the_fabric_actually_OWNS(fab):
+    """Found by UAT, 20 Oct 2026: `semantic_concept_match` raised `'list' object has no attribute
+    'items'` on EVERY live call, so tier 2 was dead in production and the intake swallowed it by design
+    ("a suggestion, never a gate"). Eighteen candidates came off three documents with not one alias
+    proposed, because the only tier that could have proposed one was erroring.
+
+    The cause is the fourth instance of one shape: a `DomainScheme` — the vocabulary the fabric OWNS and
+    the only kind it curates — answers `live()` with a LIST, while the reference schemes used by the
+    tests have no `live()` at all and fall to the dict branch. The tests exercised the branch production
+    never takes."""
+    assert isinstance(fab.scheme.live(), list), "the owned vocabulary answers a list — that is the point"
+    held = fab._live_concepts(fab.scheme)
+    assert isinstance(held, dict) and "AIAgent" in held
+    assert held["AIAgent"]["label"] == "AI agent"
+    # ...and a retired concept is still never offered
+    fab.vocab_retire("LegacyAgent", scheme="cafe", resolves_to="AIAgent", actor="s@x")
+    assert "LegacyAgent" not in fab._live_concepts(fab.scheme)

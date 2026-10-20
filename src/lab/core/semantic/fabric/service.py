@@ -1321,10 +1321,19 @@ class FabricService:
     MATCH_FLOOR, MATCH_MARGIN = 0.30, 0.05
 
     def _live_concepts(self, sc) -> dict:
-        """A scheme's concepts a term may match — never a retired one. `find()` stops offering those, and
-        a vector that outlived the retirement would keep matching a meaning a steward withdrew."""
+        """A scheme's concepts a term may match, BY ID — never a retired one. `find()` stops offering
+        those, and a vector that outlived the retirement would keep matching a meaning a steward withdrew.
+
+        Both shapes are normalised here because the two kinds of scheme answer differently: a
+        `DomainScheme` — the vocabulary the fabric OWNS — has `live()` and returns a LIST, while a
+        reference scheme has no `live()` and keeps a dict. Returning whichever came back made every caller
+        a coin toss: `.items()` on the list raised, so `semantic_concept_match` and `index_concepts` both
+        failed on EVERY call against the only vocabulary the fabric curates — and the intake swallows that
+        error by design, so tier 2 was silently dead while eighteen candidates came off three documents
+        with not one alias proposed (measured in UAT, 20 Oct 2026)."""
         live = getattr(sc, "live", None)
-        return live() if callable(live) else dict(getattr(sc, "concepts", {}) or {})
+        rows = live() if callable(live) else list((getattr(sc, "concepts", {}) or {}).values())
+        return {str(c.get("id")): c for c in rows if c.get("id")}
 
     def index_concepts(self, scheme: str = "") -> dict:
         """Embed the DEFINITIONS of a scheme's live concepts that this model's space does not hold yet.
