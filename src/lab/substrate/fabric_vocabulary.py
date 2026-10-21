@@ -375,6 +375,56 @@ def _propagate(candidate: dict, concept: str, actor: str) -> list[tuple[str, dic
             for iri in (candidate.get("proposed_for") or [])]
 
 
+def _candidate_of(by_candidate: dict, key: str) -> dict:
+    """The candidate an applied call belongs to, so `_propagate` knows whose proposers to link.
+
+    A BATCH keys by the candidate IRI the verdict named. The SINGLE-TERM card cannot: its `promote` carries
+    the candidate this answer just PARKED from the steward's own wording, never the one the asker left lying
+    there — so the promoted IRI is a fresh row absent from the card. The card holds exactly one candidate,
+    and it is the one whose documents asked, so a sole entry answers regardless of the key."""
+    return by_candidate.get(key) or (next(iter(by_candidate.values())) if len(by_candidate) == 1 else {})
+
+
+async def _live(go, by_candidate: dict) -> list[dict]:
+    """The candidate register as it stands NOW. Empty list when there is nothing to refresh, so an
+    approval carrying no candidates costs no call.
+
+    FAIL-SOFT, the same trade `_ask` already makes 30 lines up: the steward's ANSWER exists, and failing
+    to widen the propagation list is a degradation, not a failure. An empty list degrades to the card's
+    own snapshot, which is exactly the pre-20-Oct behaviour. Raising would send a gateway blip through
+    `continuations._continue` to `_record_failure`, recording a decision a person made as a WRITE failure
+    and releasing nothing — discarding an irreversible human act because a read timed out."""
+    if not by_candidate:
+        return []
+    try:
+        return _read((await go([(SemanticTools.vocab_candidates, {})]))[0])
+    except Exception as e:                        # noqa: BLE001 — see the docstring: a read is not the answer
+        print(f"[fabric] proposers not refreshed, applying the card's own list: "
+              f"{type(e).__name__}: {e}", flush=True)
+        return []
+
+
+def _refresh_proposers(by_candidate: dict, live: list[dict]) -> dict:
+    """Replace each candidate's `proposed_for` with the register's, so the propagation reaches every
+    document that asked — including those that asked while the card sat in the queue.
+
+    The card carries a SNAPSHOT taken when the question was written (see `approvals_ask`), and a steward
+    queue is answered in days, not seconds. The fabric keeps accumulating `proposedFor` throughout that
+    gap, so the snapshot is a floor and never a total: admitting from it linked the documents that had
+    asked by ask-time and silently left the rest unlinked, while still reporting success. Measured 20 Oct
+    2026 on three UAT documents using the identical phrase — one was linked.
+
+    A candidate the register no longer lists (settled by another path) — or lists with no proposers at
+    all — KEEPS the card's own list: the snapshot is incomplete, never wrong, and falling back to nobody
+    would lose the one proposer we do hold. Truthiness rather than membership, deliberately: the two
+    cases differ in meaning but not in what is safe to do about them.
+    This is a register read, not a model call, which is what makes it cheap enough to be unconditional —
+    the reason the snapshot existed was to avoid re-reading the CATALOGUE, a different thing entirely."""
+    fresh = {str(c.get("iri") or ""): list(c.get("proposed_for") or []) for c in live}
+    return {iri: ({**c, "proposed_for": fresh[iri]} if fresh.get(iri) else c)
+            for iri, c in by_candidate.items()}
+
+
 async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]:
     """Apply one decided approval's answer. `call(calls)` is the gateway transport (injected by a test);
     returns the calls made. Raises on a refused write, so the runner records the failure on the approval."""
@@ -386,8 +436,15 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
     # reconciler logged one line and raised NO steward question for three weeks, while the candidates
     # kept accumulating. A tool that refuses an argument is not a tool that asked for a different one.
     payload = state.get("payload") or {}
-    by_candidate = {str(c.get("iri") or ""): c
-                    for c in ((payload.get("context") or {}).get("candidates") or [])}
+    # BOTH card shapes, so admission propagates on either. The single-term form (`_ask`) carries its one
+    # candidate as `candidate`/`label`/`scheme` and no `candidates` list, so `by_candidate` was empty and
+    # `_propagate` reached NOBODY on that path — it never did. Cards raised before batching landed
+    # (10 Oct 2026) are all of this shape and some are still open.
+    ctx = payload.get("context") or {}
+    rows = ctx.get("candidates") or ([{"iri": ctx.get("candidate"), "label": ctx.get("label"),
+                                       "scheme": ctx.get("scheme")}] if ctx.get("candidate") else [])
+    by_candidate = {str(c.get("iri") or ""): c for c in rows}
+    by_candidate = _refresh_proposers(by_candidate, await _live(go, by_candidate))
     for tool, args in plan(payload, state.get("answer") or {}, actor):
         if tool == SemanticTools.promote and "subject" not in args:
             # the candidate THIS answer just parked, never the one the asker left lying there: promoting the
@@ -410,7 +467,8 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
             candidate = by_candidate.get(str(args.get("candidate") or args.get("subject") or "")) or {}
             if not candidate:                       # the amend names a concept, not the candidate it came from
                 candidate = next((c for c in by_candidate.values()
-                                  if (c.get("label") or "") == str(args.get("alt") or "")), {})
+                                  if (c.get("label") or "") == str(args.get("alt") or "")),
+                                 _candidate_of(by_candidate, ""))
             for t, a in _propagate(candidate, str(got.get("concept") or ""), actor):
                 await go([(t, a)])
                 made.append((t, a))
@@ -425,7 +483,7 @@ async def apply(state: dict, actor: str, *, call=None) -> list[tuple[str, dict]]
             # service does not have, so a double more generous than production hid a defect for as long
             # as the feature has existed.
             got = json.loads(got) if isinstance(got, str) else (got or {})
-            candidate = by_candidate.get(str(args.get("subject") or "")) or {}
+            candidate = _candidate_of(by_candidate, str(args.get("subject") or ""))
             for t, a in _propagate(candidate, str(got.get("concept") or ""), actor):
                 await go([(t, a)])
                 made.append((t, a))

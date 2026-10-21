@@ -34,9 +34,6 @@ class SkosScheme:
         """concepts: [{id, label, definition, kind, parent (id|None), level, tier, related:[ids]}]"""
         self.name, self.base, self.title, self.source = name, base, title, source
         self.concepts = {c["id"]: c for c in concepts}
-        self.children = {}
-        for c in concepts:
-            self.children.setdefault(c.get("parent"), []).append(c["id"])
 
     @property
     def ns(self):
@@ -46,6 +43,21 @@ class SkosScheme:
         return self.ns[cid]
 
     # ---- data queries ----
+    @property
+    def children(self):
+        """parent id (None for a root) -> child ids, DERIVED from `concepts` on every read.
+
+        Stored and built once in `__init__` until 20 Oct 2026, which made it stale the moment a steward
+        curated anything: `admit`/`retire`/`amend` write `concepts` only, so an admitted concept was
+        reachable by `find`/`resolve`/`live` and missing from `roots`/`subtree` — and `subtree` is what
+        `semantic_concepts` enumerates for the classifier. Deriving it is O(n) per read against a
+        123-concept ontology and cannot go out of date; a cache invalidated by four separate mutators is
+        the thing that just failed."""
+        out: dict = {}
+        for c in self.concepts.values():
+            out.setdefault(c.get("parent"), []).append(c["id"])
+        return out
+
     def roots(self, kind=None):
         return [c for c in self.children.get(None, []) if kind is None or self.concepts[c]["kind"] == kind]
 
@@ -57,12 +69,15 @@ class SkosScheme:
         """DFS list of concepts under root (or all roots of `kind`), limited to `depth` levels
         below the root (None = all)."""
         out = []
+        kids = self.children                      # derived: taken ONCE, not per node and not again below
         def walk(cid, d):
             out.append(self.concepts[cid])
             if depth is None or d < depth:
-                for k in self.children.get(cid, []):
+                for k in kids.get(cid, []):
                     walk(k, d + 1)
-        starts = [root] if root else self.roots(kind)
+        # not `self.roots(kind)`: that reads `self.children` and would build the index a second time
+        starts = [root] if root else [c for c in kids.get(None, [])
+                                      if kind is None or self.concepts[c]["kind"] == kind]
         for s in starts:
             walk(s, 0)
         return out
@@ -125,8 +140,9 @@ class SkosScheme:
             vws.append({"id": f'{_slug(self.name)}-overview', "title": f"{self.title} — Capability Map (L1)",
                         "rows": rows})
         if "branches" in want:
+            by_parent = self.children             # derived: hoisted, as in `subtree`
             for t in tops:
-                kids = [k for k in self.children.get(t["id"], []) if k in ids]
+                kids = [k for k in by_parent.get(t["id"], []) if k in ids]
                 if kids:
                     vws.append({"id": f'{_slug(self.name)}-{_slug(t["label"])[:40]}',
                                 "title": f'{t["label"]} — L2 capabilities',

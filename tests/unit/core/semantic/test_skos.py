@@ -153,3 +153,29 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
             fn(); print("ok", name)
+
+
+def test_an_ADMITTED_concept_is_ENUMERATED_not_only_looked_up():
+    """`subtree` must see what `admit` put in, or a steward's concept never reaches the classifier.
+
+    The hierarchy index was built once in `__init__` and every curation verb wrote only `concepts`, so an
+    admitted concept was reachable by `find`/`resolve`/`live` and absent from `roots`/`subtree`. That split
+    is invisible from inside the vocabulary — `concept_match` resolved the concept at 0.73 while
+    `semantic_concepts`, which is what the classifier is SHOWN, omitted it. So every concept a steward
+    admitted was never used to classify anything again, and the taxonomy queue produced vocabulary the
+    pipeline could not see.
+
+    Measured live 20 Oct 2026: `Formulary exception` admitted, three documents using the exact phrase,
+    only the one the admission linked directly carried it; a full reclassify of the other two still
+    chose from 123 concepts that did not include it."""
+    from lab.core.semantic.fabric.vocabulary import DomainScheme
+
+    sc = DomainScheme("t", "urn:t#", "T", [
+        {"id": "Prescription", "label": "Prescription", "kind": "concept", "parent": None, "level": 1}])
+
+    sc.admit(id="FormularyException", label="Formulary exception")
+    assert "FormularyException" in {c["id"] for c in sc.subtree(kind=None)}
+
+    sc.admit(id="Override", label="Override", parent="Prescription")
+    assert "Override" in {c["id"] for c in sc.subtree(kind=None)}
+    assert "Override" in {c["id"] for c in sc.subtree("Prescription", kind=None)}

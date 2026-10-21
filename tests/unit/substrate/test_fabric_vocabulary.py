@@ -594,3 +594,185 @@ def test_admitting_an_ALIAS_links_the_documents_that_asked_for_the_word():
     assert {l["subject"] for l in links} == {"urn:fabric:artifact:A", "urn:fabric:artifact:B"}
     assert all(l["object"] == "urn:lab:semantic:domain:cafe#Dispense" for l in links)
     assert all(l["rung"] == "X" for l in links)
+
+
+def test_admission_propagates_to_documents_that_asked_AFTER_the_card_was_raised():
+    """The propagation list is read LIVE, not from the card.
+
+    A steward queue has a days-long gap between the ask and the answer, and the fabric keeps
+    accumulating `proposedFor` on the candidate throughout it. Reading the snapshot the card carries
+    links only the documents that had asked when the question was WRITTEN, so every document that
+    proved the same point while the card sat in the queue stays unlinked — and the admission still
+    reports success, so nothing says the concept reached one record out of ten.
+
+    Measured 20 Oct 2026: three UAT documents using the identical phrase, one linked."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            if name == SemanticTools.vocab_candidates:
+                # the REGISTER, as it stands now — two more documents asked since the card was raised
+                out.append([{"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer",
+                             "scheme": "cafe",
+                             "proposed_for": ["urn:fabric:artifact:A", "urn:fabric:artifact:B",
+                                              "urn:fabric:artifact:C"]}])
+            elif name == SemanticTools.promote:
+                out.append({"from": "candidates", "scheme": "cafe", "concept_id": "ClinicalReviewer",
+                            "concept": "urn:lab:semantic:domain:cafe#ClinicalReviewer",
+                            "label": "Clinical Reviewer", "actor": "steward@x", "rung": "H",
+                            "assertion": "urn:fabric:assertion:1"})
+            else:
+                out.append({})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A"]}]}},      # the card knew of ONE
+        "answer": {"urn:fabric:candidate:0": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A", "urn:fabric:artifact:B",
+                                             "urn:fabric:artifact:C"}
+
+
+def test_a_candidate_the_register_no_longer_lists_keeps_the_cards_own_list():
+    """Settled by another path between the ask and the answer. The snapshot is incomplete, never wrong,
+    so it is the right fallback — dropping to nobody would lose the one document we do know asked."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            if name == SemanticTools.vocab_candidates:
+                out.append([])                               # gone from the register
+            elif name == SemanticTools.promote:
+                out.append({"concept": "urn:lab:semantic:domain:cafe#ClinicalReviewer"})
+            else:
+                out.append({})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A"]}]}},
+        "answer": {"urn:fabric:candidate:0": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A"}
+
+
+def test_a_FAILED_proposer_refresh_still_applies_the_stewards_answer():
+    """A read is not the answer. The decision exists; a gateway blip must not discard it.
+
+    Raising out of `apply` reaches `continuations._continue` and records the approval as a WRITE failure,
+    so an irreversible human act would be thrown away because an auxiliary read timed out. Degrading to
+    the card's own snapshot is the pre-20-Oct behaviour, which the docstring calls a floor."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            if name == SemanticTools.vocab_candidates:
+                raise RuntimeError("gateway said 502")
+            out.append({"concept": "urn:lab:semantic:domain:cafe#ClinicalReviewer"}
+                       if name == SemanticTools.promote else {})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A"]}]}},
+        "answer": {"urn:fabric:candidate:0": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    assert SemanticTools.promote in {n for n, _ in seen}          # the answer was applied
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A"}
+
+
+def test_an_approval_carrying_no_candidate_costs_no_register_read():
+    """What the `_live` guard promises. A `settle` card names a conflict, not a candidate, so there is
+    nothing to refresh and nothing to pay for."""
+    seen = []
+
+    async def call(calls):
+        for name, args in calls:
+            seen.append(name)
+        return [{} for _ in calls]
+
+    state = {"payload": {"kind": "concept-admission", "scheme": "cafe", "term": "Review",
+                         "conflict": "urn:fabric:conflict:0",
+                         "context": {"term": "Review", "conflict": "urn:fabric:conflict:0"}},
+             "answer": {"Review": {"value": "keep:ClinicalReview"}}}
+    try:
+        asyncio.run(V.apply(state, "steward@x", call=call))
+    except Exception:                               # the verdict grammar is not what this test pins
+        pass
+    assert SemanticTools.vocab_candidates not in seen
+
+
+def test_a_register_row_with_no_proposers_keeps_the_cards_own_list():
+    """Listed but empty. Different in MEANING from absent — the register knows the candidate and knows of
+    no proposer — and identical in what is safe: keep the one proposer the card does hold."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            if name == SemanticTools.vocab_candidates:
+                out.append([{"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer",
+                             "scheme": "cafe", "proposed_for": []}])
+            elif name == SemanticTools.promote:
+                out.append({"concept": "urn:lab:semantic:domain:cafe#ClinicalReviewer"})
+            else:
+                out.append({})
+        return out
+
+    state = {"payload": {"context": {"candidates": [
+        {"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer", "scheme": "cafe",
+         "proposed_for": ["urn:fabric:artifact:A"]}]}},
+        "answer": {"urn:fabric:candidate:0": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A"}
+
+
+def test_a_SINGLE_TERM_admission_card_propagates_too():
+    """The one-term card (`_ask`) carries `candidate`, not a `candidates` list, so `by_candidate` was
+    empty and `_propagate` reached NOBODY on that path — it never did, for as long as the single-term
+    form has existed. Every card raised before batching landed (10 Oct 2026) is this shape."""
+    seen = []
+
+    async def call(calls):
+        out = []
+        for name, args in calls:
+            seen.append((name, args))
+            if name == SemanticTools.vocab_candidates:
+                out.append([{"iri": "urn:fabric:candidate:0", "label": "Clinical Reviewer",
+                             "scheme": "cafe",
+                             "proposed_for": ["urn:fabric:artifact:A", "urn:fabric:artifact:B"]}])
+            elif name == SemanticTools.vocab_propose:
+                # the single-term plan parks the STEWARD's wording and promotes THAT — so the promoted
+                # iri is a fresh row the card never named
+                out.append({"iri": "urn:fabric:candidate:fresh"})
+            elif name == SemanticTools.promote:
+                out.append({"concept": "urn:lab:semantic:domain:cafe#ClinicalReviewer"})
+            else:
+                out.append({})
+        return out
+
+    payload = {"kind": "concept-admission", "scheme": "cafe", "label": "Clinical Reviewer",
+               "candidate": "urn:fabric:candidate:0", "proposed_by": "wfr-1"}
+    # the one-term card asks `decision`, not a label per term — `question()` / `_one`
+    state = {"payload": {**payload, "context": payload},
+             "answer": {"decision": {"value": "admit"}}}
+    asyncio.run(V.apply(state, "steward@x", call=call))
+
+    links = [a for n, a in seen if n == SemanticTools.edge_assert]
+    assert {l["subject"] for l in links} == {"urn:fabric:artifact:A", "urn:fabric:artifact:B"}
