@@ -1,5 +1,6 @@
 """The modelling agent's output contract (ADR D4): built on the visio BA's element shape, with CITED
-provenance in place of `{source, representation}`.
+provenance in place of `{source, representation}`. It asks only for what the mapping reads: an
+element's layer and aspect follow from its type, so asking for them would only add a way to fail.
 
 Generated rather than written as a file, so the type enums are the engine's own (`_TYPES`,
 `_REL_TYPES`, `ACCESS_TYPES`) and cannot drift from what the renderer accepts. The agent cites
@@ -12,7 +13,7 @@ from pathlib import Path
 from lab.core.archimate.engine import _REL_TYPES, _TYPES, ACCESS_TYPES
 from lab.core.modelling.provenance import LOCATION_KEYS
 
-__all__ = ["LAYERS", "REPRESENTATIONS", "prompt", "schema"]
+__all__ = ["prompt", "schema"]
 
 _PROMPT = Path(__file__).with_name("prompts") / "model.md"
 
@@ -22,16 +23,10 @@ def prompt() -> str:
     return _PROMPT.read_text(encoding="utf-8")
 
 
-LAYERS = ("Motivation", "Strategy", "Business", "Application", "Technology", "Implementation", "Physical")
-ASPECTS = ("active", "behaviour", "passive", "motivation")
-#: How the cited words were read: a diagram's deterministic parse, vision over an image, or text.
-REPRESENTATIONS = ("structure", "vision", "document")
-
-
 def schema() -> dict:
     cite = {
         "type": "object", "additionalProperties": False,
-        "required": ["source", "location", "quote", "representation"],
+        "required": ["source", "location", "quote"],
         "properties": {
             "source": {"type": "string", "pattern": "^S[0-9]+$",
                        "description": "The key of the input this came from, as shown (S1, S2, ...)."},
@@ -42,34 +37,31 @@ def schema() -> dict:
             "quote": {"type": "string", "minLength": 1,
                       "description": "The input's OWN words that justify this item, copied exactly. "
                                      "For a figure or diagram, the label or caption as read."},
-            "representation": {"enum": list(REPRESENTATIONS)},
         },
     }
     cites = {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/citation"}}
     element = {
         "type": "object", "additionalProperties": False,
-        "required": ["name", "role", "layer", "aspect", "type", "provenance"],
+        "required": ["name", "role", "type", "provenance"],
         "properties": {
             "name": {"type": "string", "minLength": 1,
-                     "description": "The element's name, as the input names it. Unique per type."},
+                     "description": "The element's name, as the input names it. Unique across the "
+                                    "model."},
             "role": {"type": "string", "minLength": 1,
                      "description": "What it is and does in this system, in plain language."},
-            "layer": {"enum": list(LAYERS)},
-            "aspect": {"enum": list(ASPECTS)},
-            "type": {"enum": sorted(_TYPES), "description": "The exact ArchiMate 3.1 type."},
+            "type": {"enum": sorted(_TYPES), "description": "The exact ArchiMate 3.1 type. Its layer "
+                                                            "and aspect follow from it."},
             "provenance": cites,
         },
     }
     relationship = {
         "type": "object", "additionalProperties": False,
-        "required": ["source", "target", "type", "intent", "provenance"],
+        "required": ["source", "target", "type", "provenance"],
         "properties": {
             "source": {"type": "string", "minLength": 1, "description": "An element's `name`."},
             "target": {"type": "string", "minLength": 1, "description": "An element's `name`."},
             "type": {"enum": sorted(_REL_TYPES)},
             "accessType": {"enum": list(ACCESS_TYPES), "description": "Only for an Access relation."},
-            "intent": {"type": "string", "minLength": 1,
-                       "description": "Why the two are related, in plain language."},
             "provenance": cites,
         },
     }

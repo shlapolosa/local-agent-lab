@@ -2,7 +2,7 @@
 
 from lab.core.archimate import relrepair
 from lab.core.usecase import mappers
-from lab.core.usecase.run_model import Model
+from lab.core.modelling.model import Model
 from lab.core.usecase.steps import STEPS
 
 # One run's outputs, in the order the steps produce them — each the SHAPE its schema accepts.

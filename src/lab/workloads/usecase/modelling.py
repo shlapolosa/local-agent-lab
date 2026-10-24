@@ -13,7 +13,7 @@ from typing import Mapping
 
 from lab.core.usecase import mappers
 from lab.workloads.usecase.derivation import Derivation
-from lab.core.usecase.run_model import Model
+from lab.core.modelling.model import Model
 
 __all__ = ["MODEL", "SUMMARY", "apply_mapper", "current", "ensure"]
 
@@ -23,7 +23,7 @@ SUMMARY = "model_summary"
 
 def current(d: Derivation, name: str = "") -> Model:
     spec = d.derived.get(MODEL) or d.available.get(MODEL)
-    return Model.from_spec(spec) if isinstance(spec, Mapping) else Model(name=name or "use case")
+    return Model.from_spec(spec) if isinstance(spec, Mapping) else Model(name=name or "use case", id="usecase-model")
 
 
 def apply_mapper(d: Derivation, step_key: str, *, name: str = "") -> None:

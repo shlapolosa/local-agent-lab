@@ -1,237 +1,550 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:lab:contracts:modelling:1.1.0",
-  "version": "1.1.0",
-  "title": "Architecture modelling envelope",
-  "description": "What modelling emits: the FR-11 engine spec UNCHANGED under `spec`, with provenance, sources, references, change status, renames, reviews, open questions and refused relations beside it (ADR docs/decisions/2026-10-24-architecture-modelling.md). IDS: every element and relation id is an IRI local name ([A-Za-z0-9_-]+). An element id is a kind prefix (x-id-prefixes) plus a slug of the element's name, so a re-run that keeps the name keeps the id. A rename is a new id, and modelling declares it in `renamed_from` when it can show it is the same thing. A relation id is 'r-' + md5(src|type|tgt)[:10].",
-  "x-stability": {
-    "envelope": "draft",
-    "provenance": "draft",
-    "references": "draft",
-    "changes": "draft",
-    "reviews": "draft",
-    "open_question": "draft"
-  },
-  "x-id-prefixes": {
-    "usecase": "Grouping, the model root",
-    "drv-": "Driver",
-    "goal-": "Goal",
-    "out-": "Outcome",
-    "req-": "Requirement",
-    "con-": "Constraint",
-    "stk-": "Stakeholder",
-    "cap-": "Capability (business capability map; the map's own id rides in references.capabilities)",
-    "ba-": "BusinessActor",
-    "bf-": "BusinessFunction",
-    "bp-": "BusinessProcess (bp-<workflow node id>)",
-    "bo-": "BusinessObject",
-    "svc-": "ApplicationService (technology capability, e.g. svc-knw-11)",
-    "ac-": "ApplicationComponent (existing or catalogue-selected)",
-    "af-": "ApplicationFunction",
-    "bb-": "ApplicationComponent (building block)",
-    "node-": "Node",
-    "fam-": "Grouping (CAFÉ family)",
-    "zone-": "Grouping (CAFÉ zone)",
-    "dlv-": "Deliverable",
-    "wp-": "WorkPackage"
-  },
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["contract_version", "spec", "sources", "provenance", "references", "changes",
-               "renamed_from", "reviews", "open_questions", "dropped", "gaps"],
-  "properties": {
-    "contract_version": {"const": "1.1.0"},
-    "spec": {"$ref": "urn:lab:contracts:archimate-spec:1.0.0"},
-    "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}},
-    "provenance": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["elements", "relations"],
-      "properties": {
-        "elements": {"$ref": "#/$defs/provenance_by_id"},
-        "relations": {"$ref": "#/$defs/provenance_by_id"}
-      }
-    },
-    "references": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["capabilities", "realisations", "repository", "concepts"],
-      "description": "What each model element is in other registers: the capability and realisation maps (heatmaps, impact on capabilities), the EA repository (create vs update, impact), the fabric vocabulary (the model and the taxonomy agree).",
-      "properties": {
-        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability_ref"}},
-        "realisations": {"type": "array", "items": {"$ref": "#/$defs/realisation_ref"}},
-        "repository": {"type": "array", "items": {"$ref": "#/$defs/repository_ref"}},
-        "concepts": {"type": "array", "items": {"$ref": "#/$defs/concept_ref"}}
-      }
-    },
-    "changes": {
-      "type": "object",
-      "description": "Per element, its change relative to the EA repository, for impact views (as-is = consumed, updated, removed; to-be = consumed, updated, new). The lab's visualisation does not read it yet; it draws the standard views only. Equal to the element's references.repository match when there is one.",
-      "propertyNames": {"pattern": "^[A-Za-z0-9_-]+$"},
-      "additionalProperties": {"$ref": "#/$defs/change"}
-    },
-    "renamed_from": {
-      "type": "object",
-      "description": "Element id -> the ids it had in earlier runs. Declared only when modelling can show it is the same thing (same provenance location or the same repository id), never guessed from names. Consumers carry state (reviews, concept links) across it.",
-      "propertyNames": {"pattern": "^[A-Za-z0-9_-]+$"},
-      "additionalProperties": {"type": "array", "items": {"type": "string"}}
-    },
-    "reviews": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/review_decision"},
-      "description": "Architect decisions at the modelling gate, carried across re-runs. A decision on an id that still exists is kept; one on a renamed id follows the rename; one on an id that disappeared becomes a `review-orphaned` open question."
-    },
-    "open_questions": {"type": "array", "items": {"$ref": "#/$defs/open_question"}},
-    "dropped": {"type": "array", "items": {"type": "object"},
-                "description": "Relations proposed but refused by the ArchiMate relationship matrix, or whose endpoint was never declared."},
-    "gaps": {"type": "array", "items": {"type": "object"},
-             "description": "Joins a mapper could not make (e.g. a named capability nothing matched)."}
-  },
   "$defs": {
     "change": {
-      "enum": ["new", "updated", "consumed", "removed"],
-      "description": "ONE change vocabulary for every impact colour, in the CAFÉ heatmaps' words. new = to be built; updated = existing, changed by this solution; consumed = existing, used as is; removed = existing, retired by an input (never inferred from absence)."
-    },
-    "status": {
-      "enum": ["new", "updated", "consumed", "removed", "missing"],
-      "description": "A capability or realisation status: the change vocabulary plus missing = needed, and nothing realises it."
-    },
-    "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["ref", "name", "media_type", "aliases"],
-      "properties": {
-        "ref": {"type": "string", "minLength": 1,
-                "description": "Opaque key that provenance.source_ref points at. The lab uses the art:// ref it read; a channel may use its own (e.g. urn:fabric:artifact:<id>)."},
-        "name": {"type": "string"},
-        "media_type": {"type": "string"},
-        "aliases": {"type": "array", "items": {"type": "string"},
-                    "description": "Other names for the same artifact: a fabric catalogue IRI, a collab:// handle, a drive-item pointer."}
-      }
+      "description": "new = to be built; updated = existing, changed by this solution; consumed = existing, used as is; removed = existing, retired by an input (never inferred from absence).",
+      "enum": [
+        "new",
+        "updated",
+        "consumed",
+        "removed"
+      ]
     },
     "location": {
-      "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
-        "page": {"type": ["integer", "string"]},
-        "paragraph": {"type": ["integer", "string"]},
-        "figure": {"type": ["integer", "string"]},
-        "shape": {"type": ["integer", "string"]}
-      }
-    },
-    "provenance": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["source_ref", "location", "quote"],
-      "properties": {
-        "source_ref": {"type": "string", "minLength": 1},
-        "location": {"$ref": "#/$defs/location"},
-        "quote": {"type": "string", "minLength": 1,
-                  "description": "Verbatim words from the source (whitespace-insensitive). A quote not found is an open question, not a refusal. Anything read by vision (an image source, a figure or shape location) is always an `unverifiable` question for the architect."}
-      }
-    },
-    "provenance_by_id": {
-      "type": "object",
-      "additionalProperties": {"type": "array", "items": {"$ref": "#/$defs/provenance"}}
-    },
-    "capability_ref": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["element_id", "map", "capability_id", "status"],
-      "properties": {
-        "element_id": {"type": "string", "description": "The model element this is about. Empty only when status=missing."},
-        "map": {"type": "string", "description": "The capability map's artifact id in the reference corpus."},
-        "map_version": {"type": "string", "description": "The pinned version the match was made against."},
-        "capability_id": {"type": "string", "minLength": 1, "description": "The map's own id, e.g. KNW.11 (technology) or B1.1.2 (business)."},
-        "label": {"type": "string"},
-        "level": {"type": ["integer", "string"]},
-        "status": {"$ref": "#/$defs/status"},
-        "confidence": {"type": "string"}
-      }
-    },
-    "realisation_ref": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["element_id", "capability_id", "realised_by", "status"],
-      "properties": {
-        "element_id": {"type": "string"},
-        "capability_id": {"type": "string", "minLength": 1},
-        "realised_by": {"type": "string", "description": "What realises the capability: a product, platform or existing system."},
-        "catalogue_id": {"type": "string", "description": "The reference-architecture catalogue id (cmp-...) when the realiser is a catalogue component."},
-        "status": {"$ref": "#/$defs/status"},
-        "confidence": {"type": "string"}
-      }
-    },
-    "repository_ref": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["element_id", "match"],
-      "description": "The element resolved against the EA repository (through the EA port's ea_search). Drives create-vs-update at import and the impact view.",
-      "properties": {
-        "element_id": {"type": "string", "minLength": 1},
-        "repository_id": {"type": "string", "description": "Absent when match=new."},
-        "repository_class": {"type": "string", "description": "The repository's own class name for the object."},
-        "match": {"$ref": "#/$defs/change"},
-        "confidence": {"type": "string"},
-        "candidates": {"type": "array", "items": {"type": "object"},
-                       "description": "The other repository objects considered, for the architect to pick from."}
-      }
-    },
-    "concept_ref": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["element_id", "label", "status"],
-      "description": "The element linked to a fabric vocabulary concept.",
-      "properties": {
-        "element_id": {"type": "string", "minLength": 1},
-        "concept_iri": {"type": "string", "description": "Absent for a candidate the vocabulary does not hold yet."},
-        "label": {"type": "string", "minLength": 1},
-        "scheme": {"type": "string"},
-        "status": {"enum": ["linked", "candidate"]},
-        "confidence": {"type": "string"}
-      }
+        "figure": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "page": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "paragraph": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "shape": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      },
+      "type": "object"
     },
     "open_question": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "text", "refs"],
       "properties": {
-        "id": {"type": "string", "pattern": "^oq-[0-9a-f]{10}$",
-               "description": "Stable across rebuilds of the same content."},
-        "kind": {"enum": ["raised", "no-provenance", "malformed-provenance", "orphan-provenance",
-                          "unknown-source", "quote-not-found", "unverifiable",
-                          "orphan-reference", "malformed-reference",
-                          "review-orphaned", "malformed-review", "invalid-id"]},
-        "text": {"type": "string"},
-        "refs": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["elements", "relations"],
-          "properties": {
-            "elements": {"type": "array", "items": {"type": "string"}},
-            "relations": {"type": "array", "items": {"type": "string"}}
-          }
+        "id": {
+          "description": "Stable across rebuilds of the same content.",
+          "pattern": "^oq-[0-9a-f]{10}$",
+          "type": "string"
         },
-        "provenance": {"type": "object",
-                       "description": "The provenance or reference entry the question is about, when there is one."}
-      }
+        "kind": {
+          "enum": [
+            "raised",
+            "no-provenance",
+            "malformed-provenance",
+            "orphan-provenance",
+            "unknown-source",
+            "quote-not-found",
+            "location-mismatch",
+            "unverifiable",
+            "orphan-reference",
+            "malformed-reference",
+            "review-orphaned",
+            "malformed-review",
+            "invalid-id",
+            "name-collision"
+          ]
+        },
+        "provenance": {
+          "description": "The entry the question is about, when there is one.",
+          "type": "object"
+        },
+        "refs": {
+          "additionalProperties": false,
+          "properties": {
+            "elements": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "relations": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "elements",
+            "relations"
+          ],
+          "type": "object"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "refs"
+      ],
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "quote": {
+          "description": "Verbatim words from the source, checked against the cited paragraph.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ref",
+        "location",
+        "quote"
+      ],
+      "type": "object"
+    },
+    "provenance_by_id": {
+      "additionalProperties": {
+        "items": {
+          "$ref": "#/$defs/provenance"
+        },
+        "type": "array"
+      },
+      "type": "object"
+    },
+    "ref_capabilities": {
+      "additionalProperties": false,
+      "description": "Capability-map matches: which capability each element touches.",
+      "properties": {
+        "capability_id": {
+          "description": "The map's own id, e.g. KNW.11 (technology) or B1.1.2 (business).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "confidence": {
+          "description": "How sure the match is, in the matcher's own words.",
+          "type": "string"
+        },
+        "element_id": {
+          "description": "The model element this is about. Empty only when status=missing.",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "level": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "map": {
+          "description": "The capability map's artifact id in the reference corpus.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "map_version": {
+          "description": "The pinned version the match was made against.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        }
+      },
+      "required": [
+        "element_id",
+        "map",
+        "capability_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ref_concepts": {
+      "additionalProperties": false,
+      "description": "The element linked to a fabric vocabulary concept.",
+      "properties": {
+        "concept_iri": {
+          "description": "Absent for a candidate the vocabulary does not hold yet.",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "How sure the match is, in the matcher's own words.",
+          "type": "string"
+        },
+        "element_id": {
+          "description": "The model element this reference is about.",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "scheme": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "linked",
+            "candidate"
+          ]
+        }
+      },
+      "required": [
+        "element_id",
+        "label",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ref_realisations": {
+      "additionalProperties": false,
+      "description": "Realisation-map entries: what realises each matched capability.",
+      "properties": {
+        "capability_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "catalogue_id": {
+          "description": "The reference-architecture catalogue id (cmp-...) when the realiser is a catalogue component.",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "How sure the match is, in the matcher's own words.",
+          "type": "string"
+        },
+        "element_id": {
+          "description": "The model element this reference is about.",
+          "type": "string"
+        },
+        "realised_by": {
+          "description": "What realises the capability: a product, platform or existing system.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        }
+      },
+      "required": [
+        "element_id",
+        "capability_id",
+        "realised_by",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ref_repository": {
+      "additionalProperties": false,
+      "description": "The element resolved against the EA repository (through the EA port's ea_search). Drives create-vs-update at import and the impact view.",
+      "properties": {
+        "candidates": {
+          "description": "The other repository objects considered, for the architect to pick from.",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "description": "How sure the match is, in the matcher's own words.",
+          "type": "string"
+        },
+        "element_id": {
+          "description": "The model element this reference is about.",
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/change"
+        },
+        "repository_class": {
+          "description": "The repository's own class name for the object.",
+          "type": "string"
+        },
+        "repository_id": {
+          "description": "Absent when match=new.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "element_id",
+        "match"
+      ],
+      "type": "object"
     },
     "review_decision": {
-      "description": "One architect decision at the modelling gate (D8), per element or relation.",
-      "type": "object",
       "additionalProperties": false,
-      "required": ["item_kind", "item_id", "state", "actor"],
+      "description": "One architect decision at the modelling gate (D8), per element or relation.",
       "properties": {
-        "item_kind": {"enum": ["element", "relation"]},
-        "item_id": {"type": "string", "minLength": 1},
-        "state": {"enum": ["accepted", "corrected", "rejected"]},
-        "actor": {"type": "string", "minLength": 1, "pattern": "\\S",
-                  "description": "The signed-in human. Blank is refused, as at every approval."},
-        "note": {"type": "string"},
-        "correction": {"type": "object",
-                       "description": "With state=corrected: the fields that change (e.g. {type, name}), in the FR-11 element/relation vocabulary."}
-      }
+        "actor": {
+          "description": "The signed-in human. Blank is refused.",
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "correction": {
+          "description": "With state=corrected: the fields that change.",
+          "type": "object"
+        },
+        "item_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "item_kind": {
+          "enum": [
+            "element",
+            "relation"
+          ]
+        },
+        "note": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "corrected",
+            "rejected"
+          ]
+        }
+      },
+      "required": [
+        "item_kind",
+        "item_id",
+        "state",
+        "actor"
+      ],
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "description": "Other names for the same artifact.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ref": {
+          "description": "Opaque key provenance.source_ref points at.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "media_type",
+        "aliases"
+      ],
+      "type": "object"
+    },
+    "status": {
+      "description": "The change vocabulary plus missing = needed, and nothing realises it.",
+      "enum": [
+        "new",
+        "updated",
+        "consumed",
+        "removed",
+        "missing"
+      ]
     }
+  },
+  "$id": "urn:lab:contracts:modelling:1.2.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What modelling emits: the FR-11 engine spec UNCHANGED under `spec`, with provenance, sources, references, change status, renames, reviews, open questions and refused relations beside it (ADR docs/decisions/2026-10-24-architecture-modelling.md). Generated from lab.core.modelling; never edit by hand.",
+  "properties": {
+    "changes": {
+      "additionalProperties": {
+        "$ref": "#/$defs/change"
+      },
+      "description": "Per element, its change relative to the EA repository, for impact views (as-is = consumed, updated, removed; to-be = consumed, updated, new). The lab's visualisation does not read it yet.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "type": "object"
+    },
+    "contract_version": {
+      "const": "1.2.0"
+    },
+    "dropped": {
+      "description": "Relations proposed but refused (illegal by the matrix, an undeclared or ambiguous endpoint), each with its reason.",
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "gaps": {
+      "description": "Joins a mapper could not make.",
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "$ref": "#/$defs/open_question"
+      },
+      "type": "array"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "elements": {
+          "$ref": "#/$defs/provenance_by_id"
+        },
+        "relations": {
+          "$ref": "#/$defs/provenance_by_id"
+        }
+      },
+      "required": [
+        "elements",
+        "relations"
+      ],
+      "type": "object"
+    },
+    "references": {
+      "additionalProperties": false,
+      "description": "What each model element is in other registers.",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/ref_capabilities"
+          },
+          "type": "array"
+        },
+        "concepts": {
+          "items": {
+            "$ref": "#/$defs/ref_concepts"
+          },
+          "type": "array"
+        },
+        "realisations": {
+          "items": {
+            "$ref": "#/$defs/ref_realisations"
+          },
+          "type": "array"
+        },
+        "repository": {
+          "items": {
+            "$ref": "#/$defs/ref_repository"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "capabilities",
+        "realisations",
+        "repository",
+        "concepts"
+      ],
+      "type": "object"
+    },
+    "renamed_from": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Element id -> the ids it had in earlier runs, declared only on evidence (same provenance location or the same repository id).",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "type": "object"
+    },
+    "reviews": {
+      "description": "Architect decisions at the modelling gate, carried across re-runs: kept on an id that still exists, moved across a rename (an element's, or a relation endpoint's), and raised as `review-orphaned` when the id is gone.",
+      "items": {
+        "$ref": "#/$defs/review_decision"
+      },
+      "type": "array"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/source"
+      },
+      "type": "array"
+    },
+    "spec": {
+      "$ref": "urn:lab:contracts:archimate-spec:1.0.0"
+    }
+  },
+  "required": [
+    "contract_version",
+    "spec",
+    "sources",
+    "provenance",
+    "references",
+    "changes",
+    "renamed_from",
+    "reviews",
+    "open_questions",
+    "dropped",
+    "gaps"
+  ],
+  "title": "Architecture modelling envelope",
+  "type": "object",
+  "version": "1.2.0",
+  "x-id-prefixes": {
+    "ac-": "ApplicationComponent",
+    "af-": "ApplicationFunction",
+    "ba-": "BusinessActor",
+    "bb-": "ApplicationComponent (a building block)",
+    "bf-": "BusinessFunction",
+    "bo-": "BusinessObject",
+    "bp-": "BusinessProcess",
+    "cap-": "Capability",
+    "con-": "Constraint",
+    "dlv-": "Deliverable",
+    "drv-": "Driver",
+    "fam-": "Grouping (a CAFÉ family)",
+    "goal-": "Goal",
+    "node-": "Node",
+    "out-": "Outcome",
+    "req-": "Requirement",
+    "stk-": "Stakeholder",
+    "svc-": "ApplicationService",
+    "usecase": "Grouping, the use-case model root",
+    "wp-": "WorkPackage",
+    "zone-": "Grouping (a CAFÉ zone)"
+  },
+  "x-id-rule": "Every element and relation id matches [A-Za-z0-9_-]+ (an IRI local name). An element id is a prefix for its type plus a slug of its name, so a re-run that keeps the name keeps the id. The prefix is x-id-prefixes' for the type, otherwise the type's own name in kebab case (SystemSoftware -> 'system-software-'). A name with nothing to slug (e.g. wholly Arabic) gets 'h' plus a hash of the name. A rename is a new id, declared in `renamed_from` when modelling can show it is the same thing. A relation id is 'r-' + md5(src|type|tgt)[:10].",
+  "x-stability": {
+    "changes": "draft",
+    "envelope": "draft",
+    "open_question": "draft",
+    "provenance": "draft",
+    "references": "draft",
+    "reviews": "draft"
   }
 }

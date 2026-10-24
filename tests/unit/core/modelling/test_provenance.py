@@ -5,7 +5,7 @@ from lab.core.modelling.provenance import LOCATION_KEYS, Provenance, Source, che
 
 
 def _p(**kw):
-    base = {"source_ref": "art://a/brief.docx", "location": {"paragraph": 3},
+    base = {"source_ref": "art://a/brief.docx", "location": {"paragraph": 1},
             "quote": "the clinician assesses the referral"}
     return Provenance.from_dict(base | kw)
 

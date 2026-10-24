@@ -12,7 +12,7 @@ import re
 
 from lab.core.canon import file_slug
 
-__all__ = ["PREFIXES", "element_id", "prefix_for", "rid", "slug"]
+__all__ = ["PREFIXES", "ROLE_PREFIXES", "ROOT_ID", "element_id", "prefix_for", "rid", "slug"]
 
 #: Element-id prefixes the use-case mappers have always minted, kept so a model built by modelling and
 #: one built by screening give the same element the same id. Every other type is prefixed by its
@@ -27,6 +27,17 @@ PREFIXES = {
 }
 
 
+#: Prefixes for an element's ROLE rather than its type: the use-case model mints Groupings and
+#: ApplicationComponents that mean different things and must not share an id space.
+ROLE_PREFIXES = {
+    "fam-": "Grouping (a CAFÉ family)",
+    "zone-": "Grouping (a CAFÉ zone)",
+    "bb-": "ApplicationComponent (a building block)",
+}
+#: The use-case model's root Grouping.
+ROOT_ID = "usecase"
+
+
 def prefix_for(atype: str) -> str:
     """The id prefix for an ArchiMate type: the table above, else the type's own name in kebab case."""
     return PREFIXES.get(atype) or "-".join(w.lower() for w in re.findall(r"[A-Z][a-z]*", atype)) + "-"
@@ -34,9 +45,14 @@ def prefix_for(atype: str) -> str:
 
 def element_id(atype: str, name: str) -> str:
     """A stable element id: the type's prefix plus a slug of the name. A pure function of both, so a
-    re-run that keeps the name keeps the id. "" when the name has nothing to slug."""
-    s = slug(name)
-    return f"{prefix_for(atype)}{s}" if s else ""
+    re-run that keeps the name keeps the id.
+
+    TOTAL: a name with nothing to slug — wholly Arabic, say, in a bilingual tenant — gets 'h' plus a
+    hash of the name, rather than vanishing. "" only for a blank name."""
+    if not str(name or "").strip():
+        return ""
+    s = slug(name) or "h" + hashlib.md5(" ".join(str(name).split()).encode()).hexdigest()[:10]
+    return f"{prefix_for(atype)}{s}"
 
 
 def rid(src: str, rtype: str, tgt: str) -> str:

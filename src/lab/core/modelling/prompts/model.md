@@ -52,15 +52,15 @@ Every element and every relationship cites at least one source:
 - `quote`: the input's OWN words, copied exactly, short enough to be the evidence and nothing more.
   Never quote the `[¶n]` marker. Never paraphrase: a paraphrase is not evidence, and it is checked.
   For a figure or a diagram, quote the label or caption as you read it.
-- `representation`: `document` for text, `vision` for anything read from an image, `structure` for a
-  diagram's parsed shapes.
 
 If you cannot cite an element, it does not belong in the model. Raise it in `openQuestions`.
 
 ## Naming
 
 Use the inputs' own name for each element. One element per thing: if two names describe the same
-thing, choose one and cite both passages. A name is unique within its type.
+thing, choose one and cite both passages. A name is unique across the whole model: if the inputs use
+one word for two things (a "Referral" object and a "Referral" process), name them apart ("Referral",
+"Handle referral"), because relationships name their ends by name.
 
 ## How to answer
 

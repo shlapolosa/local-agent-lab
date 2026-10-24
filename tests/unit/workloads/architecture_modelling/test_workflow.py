@@ -16,13 +16,12 @@ TEXT = "The triage nurse assesses each referral.\n\nReferrals are held in the Ce
 OUTPUT = {
     "systemName": "Referral triage", "summary": "Nurses triage referrals.",
     "elements": [
-        {"name": "Triage nurse", "role": "triages", "layer": "Business", "aspect": "active",
+        {"name": "Triage nurse", "role": "triages",
          "type": "BusinessRole", "provenance": [{"source": "S1", "location": {"paragraph": 1},
-                                                 "quote": "The triage nurse", "representation": "document"}]},
-        {"name": "Cerner EHR", "role": "holds referrals", "layer": "Application", "aspect": "active",
+                                                 "quote": "The triage nurse"}]},
+        {"name": "Cerner EHR", "role": "holds referrals",
          "type": "ApplicationComponent", "provenance": [{"source": "S1", "location": {"paragraph": 2},
-                                                         "quote": "the Cerner EHR",
-                                                         "representation": "document"}]}],
+                                                         "quote": "the Cerner EHR"}]}],
     "relationships": [], "openQuestions": []}
 
 

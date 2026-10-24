@@ -1,21 +1,15 @@
-"""The ONE architecture model a use-case run grows, step by step.
+"""The architecture model a run grows: a legal ArchiMate accumulator in the engine's spec shape.
 
-Every agent step's output is mapped onto it by a deterministic mapper (`mappers.MAPPERS`), so by
-the time the solution architect selects components the business, data and application layers are
-already there as DATA the step can read.
+Modelling's own (ADR 2026-10-24, D7), and used by the use-case pipeline, whose deterministic mappers
+(`lab.core.usecase.mappers.MAPPERS`) write every step's output onto one. The shape is the engine's
+spec (`lab.core.archimate.engine`): `{name, id, elements[], relations[]}`. Two things beyond it are
+carried: element `props` (facets the spec cannot hold, such as the CAFÉ zone and family tags) and
+`dropped`, the proposals the published relationship matrix refused. A caller runs inside a long
+workflow, so an illegal relation is COUNTED and left out, never raised: the model stays legal, and
+the count says how much could not be expressed. The modelling envelope
+(`lab.core.modelling.envelope`) is what strips `props` before the spec leaves.
 
-The shape is the engine's spec (`lab.core.archimate.engine`): `{name, id, elements[],
-relations[]}`. Nothing draws it any more — the use case is drawn as the CAFÉ views
-(`lab.workloads.usecase.views`, 29 Sep 2026) — but it rides the record and step 21 reads its
-summary. Two things beyond the engine's shape are carried: `props`
-(the CAFÉ zone, family and archetype tags, and the step facets — a
-tier, an exposure, a band — that the record keeps but the XML export does not yet) and `dropped`, the proposals the
-published relationship matrix refused. A mapper is deterministic and runs inside a 600-1000 s
-workflow, so an illegal relation is COUNTED and left out, never raised — the model stays legal,
-and the count says how much of a step's output could not be expressed.
-
-Pure: no I/O, no gateway. In the domain core because it is a rule-bound accumulator, not a run step; the
-legality decision it defers to lives in `lab.core.archimate.relrepair`.
+Pure: no I/O, no gateway. The legality decision it defers to lives in `lab.core.archimate.relrepair`.
 """
 from __future__ import annotations
 
@@ -36,10 +30,11 @@ LAYER_OF: Mapping[str, str] = _TYPES
 
 @dataclass
 class Model:
-    name: str = "use case"
-    #: Not the root ELEMENT's id (`mappers.ROOT`, "usecase"): the engine mints `id-<x>` for the model
-    #: and for every element alike, and the XSD refuses two xs:IDs the same.
-    id: str = "usecase-model"
+    name: str = "model"
+    #: Never the same as an element's id: the engine mints `id-<x>` for the model and for every
+    #: element alike, and the XSD refuses two xs:IDs the same. (The use case passes "usecase-model",
+    #: because its root ELEMENT is "usecase".)
+    id: str = "model"
     elements: dict[str, dict] = field(default_factory=dict)              # id -> element
     relations: dict[tuple[str, str, str], dict] = field(default_factory=dict)   # (src,tgt,type) -> relation
     dropped: list[dict] = field(default_factory=list)
@@ -73,30 +68,31 @@ class Model:
         self.elements[eid] = cur
         return eid
 
-    def rel(self, rtype: str, src: str, tgt: str, *, accessType: str | None = None) -> bool:
-        """Propose a relation. Both endpoints must already be in the model and the type must be
-        permitted between their types by the published matrix — otherwise it is recorded under
-        `dropped` with what WOULD have been allowed, and the model is left legal."""
+    def rel(self, rtype: str, src: str, tgt: str, *, accessType: str | None = None) -> str:
+        """Propose a relation; returns its id, or "" when it was dropped. Both endpoints must already
+        be in the model and the type must be permitted between their types by the published matrix:
+        otherwise it is recorded under `dropped` with what WOULD have been allowed, and the model is
+        left legal. Returning the id means a caller never recomputes it."""
         if rtype not in _REL_TYPES:
             raise ValueError(f"unknown ArchiMate relation type: {rtype}")
         if src not in self.elements or tgt not in self.elements:
             self.dropped.append({"type": rtype, "src": src, "tgt": tgt,
                                  "reason": "endpoint not declared"})
-            return False
+            return ""
         key = (src, tgt, rtype)
         if key in self.relations:
-            return True
+            return self.relations[key]["id"]
         ok, allowed = relrepair.check(self.elements[src]["type"], rtype, self.elements[tgt]["type"])
         if not ok:
             self.dropped.append({"type": rtype, "src": src, "tgt": tgt,
                                  "types": f'{self.elements[src]["type"]} -> {self.elements[tgt]["type"]}',
                                  "allowed": list(allowed)})
-            return False
+            return ""
         rel = {"id": ids.rid(src, rtype, tgt), "type": rtype, "src": src, "tgt": tgt}
         if accessType:
             rel["accessType"] = accessType
         self.relations[key] = rel
-        return True
+        return rel["id"]
 
     # ------------------------------------------------------------------ reading it
     def has(self, eid: str) -> bool:
@@ -127,7 +123,7 @@ class Model:
     def from_spec(cls, spec: Mapping[str, Any]) -> "Model":
         """The inverse of `to_spec`, tolerant of a spec the engine or a person wrote: relations
         without an id get the stable one, unknown endpoints are dropped and counted."""
-        m = cls(name=str(spec.get("name") or "use case"), id=str(spec.get("id") or "usecase-model"))
+        m = cls(name=str(spec.get("name") or cls.name), id=str(spec.get("id") or cls.id))
         for e in spec.get("elements") or []:
             m.el(e["id"], e["type"], e.get("name", ""), doc=e.get("doc"), folder=e.get("folder"),
                  props=e.get("props"))

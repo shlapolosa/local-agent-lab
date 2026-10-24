@@ -7,12 +7,15 @@ never a failure: the architect at the modelling gate decides.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from lab.core.semantic.fabric.concepts import ground
 
-__all__ = ["LOCATION_KEYS", "Provenance", "Source", "check"]
+__all__ = ["LOCATION_KEYS", "Provenance", "Source", "VISUAL_LOCATIONS", "check", "paragraphs"]
+
+_BLANK = re.compile(r"\n\s*\n")
 
 #: Where in a source: a page (PDF), a paragraph (prose), a figure (embedded image), a shape (diagram).
 LOCATION_KEYS = ("page", "paragraph", "figure", "shape")
@@ -56,6 +59,8 @@ class Provenance:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Provenance":
+        if not isinstance(d, Mapping):
+            raise ValueError(f"a provenance entry must be an object; got {type(d).__name__}")
         return cls(source_ref=str(d.get("source_ref") or ""), location=d.get("location") or {},
                    quote=str(d.get("quote") or ""))
 
@@ -63,16 +68,38 @@ class Provenance:
         return {"source_ref": self.source_ref, "location": dict(self.location), "quote": self.quote}
 
 
-def check(p: Provenance, sources: Mapping[str, Source]) -> str | None:
-    """None when the quote holds in its source; otherwise the open-question KIND to raise.
+def paragraphs(text: str | None) -> list[str]:
+    """The source's paragraphs (blank-line separated, blank ones dropped): what `[¶n]` numbers from 1.
+    ONE splitter, so the number the agent was shown is the paragraph its quote is checked against."""
+    return [p.strip() for p in _BLANK.split(text or "") if p.strip()]
 
-    The kinds are "unknown-source" (the ref is not among the run's inputs), "quote-not-found" (the
-    words are not in the source's text) and "unverifiable" (the source has no text to check against,
-    such as an image, OR the location is a figure/shape whose words are not in the prose). An image-read
-    item is never treated as confirmed: the architect verifies it at the modelling gate (user, 24 Oct)."""
+
+def _in_paragraph(p: Provenance, text: str) -> bool:
+    try:
+        n = int(p.location["paragraph"])
+    except (TypeError, ValueError):
+        return False
+    paras = paragraphs(text)
+    return 1 <= n <= len(paras) and ground(p.quote, paras[n - 1])
+
+
+def check(p: Provenance, sources: Mapping[str, Source]) -> str | None:
+    """None when the quote holds where it says; otherwise the open-question KIND to raise.
+
+    - "unknown-source": the ref is not among the run's inputs.
+    - "unverifiable": the source has no text (an image), or the location is a figure/shape whose
+      words are not in the prose. An image-read item is never treated as confirmed: the architect
+      verifies it at the modelling gate (user, 24 Oct).
+    - "quote-not-found": the words are not in the source at all.
+    - "location-mismatch": the words are in the source, but not in the paragraph cited. The architect
+      will trust the location, so a wrong one is worth a question."""
     source = sources.get(p.source_ref)
     if source is None:
         return "unknown-source"
     if source.text is None or set(p.location) & set(VISUAL_LOCATIONS):
         return "unverifiable"
-    return None if ground(p.quote, source.text) else "quote-not-found"
+    if not ground(p.quote, source.text):
+        return "quote-not-found"
+    if "paragraph" in p.location and not _in_paragraph(p, source.text):
+        return "location-mismatch"
+    return None

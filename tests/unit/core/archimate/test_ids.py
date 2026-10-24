@@ -54,8 +54,12 @@ def test_every_other_type_is_prefixed_by_its_full_name_so_no_two_types_collide()
     assert all(re.fullmatch(r"[a-z0-9-]+-", p) for p in prefixes)
 
 
-def test_element_id_is_empty_when_the_name_has_nothing_to_slug():
+def test_element_id_is_total_a_wholly_arabic_name_still_gets_a_stable_valid_id():
+    """Review finding 2: a bilingual tenant names things in Arabic, and those used to vanish."""
     from lab.core.archimate.ids import element_id
+    a = element_id("BusinessObject", "الإحالة")
+    assert re.fullmatch(r"bo-h[0-9a-f]{10}", a) and a == element_id("BusinessObject", " الإحالة ")
+    assert a != element_id("BusinessObject", "الموعد")
     assert element_id("BusinessActor", "  ") == ""
 
 

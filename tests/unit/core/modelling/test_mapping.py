@@ -10,14 +10,12 @@ TEXT = ("The triage nurse assesses each referral.\n\n"
 SRC = {"S1": Source(ref="art://1/brief.docx", name="brief.docx", media_type="x", text=TEXT)}
 
 
-def _cite(quote, para=1, source="S1", representation="document"):
-    return {"source": source, "location": {"paragraph": para}, "quote": quote,
-            "representation": representation}
+def _cite(quote, para=1, source="S1"):
+    return {"source": source, "location": {"paragraph": para}, "quote": quote}
 
 
 def _el(name, atype, layer, aspect, quote, para=1):
-    return {"name": name, "role": f"the {name}", "layer": layer, "aspect": aspect, "type": atype,
-            "provenance": [_cite(quote, para)]}
+    return {"name": name, "role": f"the {name}", "type": atype, "provenance": [_cite(quote, para)]}
 
 
 OUTPUT = {
@@ -32,12 +30,9 @@ OUTPUT = {
             "the hospital's PostgreSQL cluster", 2),
     ],
     "relationships": [
-        {"source": "Triage nurse", "target": "Assess referral", "type": "Assignment",
-         "intent": "the nurse performs it", "provenance": [_cite("The triage nurse assesses")]},
-        {"source": "Assess referral", "target": "Referral", "type": "Access", "accessType": "Read",
-         "intent": "reads it", "provenance": [_cite("assesses each referral")]},
-        {"source": "PostgreSQL cluster", "target": "Cerner EHR", "type": "Serving",
-         "intent": "hosts it", "provenance": [_cite("runs on the hospital's PostgreSQL cluster", 2)]},
+        {"source": "Triage nurse", "target": "Assess referral", "type": "Assignment", "provenance": [_cite("The triage nurse assesses")]},
+        {"source": "Assess referral", "target": "Referral", "type": "Access", "accessType": "Read", "provenance": [_cite("assesses each referral")]},
+        {"source": "PostgreSQL cluster", "target": "Cerner EHR", "type": "Serving", "provenance": [_cite("runs on the hospital's PostgreSQL cluster", 2)]},
     ],
     "openQuestions": [{"text": "Is the EHR in scope?", "elements": ["Cerner EHR"]}],
 }
@@ -96,7 +91,7 @@ def test_a_fully_grounded_output_raises_only_the_agent_s_own_questions():
 
 def test_an_illegal_relation_is_dropped_not_raised():
     out = {**OUTPUT, "relationships": [{"source": "Referral", "target": "Triage nurse",
-                                        "type": "Assignment", "intent": "x",
+                                        "type": "Assignment",
                                         "provenance": [_cite("each referral")]}]}
     env = mapping.to_envelope(out, SRC)
     assert env["spec"]["relations"] == [] and env["dropped"][0]["src"] == "bo-referral"
@@ -107,12 +102,49 @@ def test_a_relation_naming_an_unknown_or_ambiguous_element_is_dropped_with_the_r
            "elements": OUTPUT["elements"] + [_el("Referral", "DataObject", "Application", "passive",
                                                  "each referral")],
            "relationships": [
-               {"source": "Ghost", "target": "Referral", "type": "Association", "intent": "x",
+               {"source": "Ghost", "target": "Referral", "type": "Association",
                 "provenance": [_cite("x")]},
-               {"source": "Triage nurse", "target": "Referral", "type": "Association", "intent": "x",
+               {"source": "Triage nurse", "target": "Referral", "type": "Association",
                 "provenance": [_cite("x")]}]}
     reasons = sorted(d["reason"] for d in mapping.to_envelope(out, SRC)["dropped"])
     assert reasons == ["ambiguous endpoint: Referral", "endpoint not declared: Ghost"]
+
+
+def test_a_name_shared_by_two_types_resolves_to_the_one_reading_that_is_legal():
+    """Review finding 5: `Referral` as an object and as a process. Assignment from a role is legal
+    only to the process, so that is the edge, not a drop."""
+    out = {**OUTPUT,
+           "elements": OUTPUT["elements"] + [_el("Referral", "BusinessProcess", "Business", "behaviour",
+                                                 "each referral")],
+           "relationships": [{"source": "Triage nurse", "target": "Referral", "type": "Assignment",
+                              "provenance": [_cite("The triage nurse")]}]}
+    env = mapping.to_envelope(out, SRC)
+    assert [(r["src"], r["tgt"]) for r in env["spec"]["relations"]] == \
+        [("business-role-triage-nurse", "bp-referral")]
+
+
+def test_two_different_names_that_slug_alike_are_a_question_not_a_silent_merge():
+    out = {**OUTPUT, "elements": [_el("C++ Service", "ApplicationService", "Application", "behaviour",
+                                      "Referrals", 2),
+                                  _el("C Service", "ApplicationService", "Application", "behaviour",
+                                      "Referrals", 2)],
+           "relationships": [], "openQuestions": []}
+    env = mapping.to_envelope(out, SRC)
+    assert [q["kind"] for q in env["open_questions"]] == ["name-collision"]
+
+
+def test_a_dropped_relation_keeps_the_citations_that_proposed_it():
+    out = {**OUTPUT, "relationships": [{"source": "Referral", "target": "Triage nurse",
+                                        "type": "Assignment", "provenance": [_cite("each referral")]}]}
+    (d,) = mapping.to_envelope(out, SRC)["dropped"]
+    assert d["provenance"][0]["quote"] == "each referral"
+
+
+def test_the_agent_is_not_asked_for_fields_nothing_reads():
+    el = agent_schema.schema()["$defs"]["element"]["properties"]
+    rel = agent_schema.schema()["$defs"]["relationship"]["properties"]
+    assert not {"layer", "aspect"} & set(el) and "intent" not in rel
+    assert "representation" not in agent_schema.schema()["$defs"]["citation"]["properties"]
 
 
 def test_a_citation_to_a_key_the_run_did_not_show_is_flagged():

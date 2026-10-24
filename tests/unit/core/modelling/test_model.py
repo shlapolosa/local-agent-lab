@@ -3,7 +3,7 @@ import pytest
 
 from lab.core.archimate.engine import from_spec
 from lab.core.archimate import ids
-from lab.core.usecase.run_model import LAYER_OF, Model
+from lab.core.modelling.model import LAYER_OF, Model
 
 
 def _build(spec):
@@ -38,16 +38,16 @@ def test_a_relation_is_deduplicated_on_endpoints_and_type_with_the_stable_id():
 def test_an_illegal_relation_is_dropped_and_counted_never_raised():
     m = Model()
     m.el("node", "Node", "n"); m.el("ac", "ApplicationComponent", "c")
-    assert m.rel("Assignment", "node", "ac") is False        # not in the matrix
+    assert m.rel("Assignment", "node", "ac") == ""          # not in the matrix
     assert m.relations == {}
     assert m.dropped[0]["type"] == "Assignment" and "Realization" in m.dropped[0]["allowed"]
-    assert m.rel("Realization", "node", "ac") is True
+    assert m.rel("Realization", "node", "ac") == ids.rid("node", "Realization", "ac")
 
 
 def test_a_relation_to_an_undeclared_endpoint_is_dropped_with_its_reason():
     m = Model()
     m.el("bf", "BusinessFunction", "f")
-    assert m.rel("Realization", "bf", "missing") is False
+    assert m.rel("Realization", "bf", "missing") == ""
     assert m.dropped[0]["reason"] == "endpoint not declared"
 
 

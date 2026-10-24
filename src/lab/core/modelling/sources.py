@@ -6,20 +6,16 @@ is not part of the source text, so a quote that includes it will not ground, whi
 """
 from __future__ import annotations
 
-import re
 from typing import Mapping, Sequence
 
-from lab.core.modelling.provenance import Source
+from lab.core.modelling.provenance import Source, paragraphs
 
 __all__ = ["keyed", "message", "numbered"]
 
-_BLANK = re.compile(r"\n\s*\n")
-
 
 def numbered(text: str | None) -> str:
-    """Prefix every paragraph (blank-line separated) with `[¶n] `, numbered from 1."""
-    paras = [p.strip() for p in _BLANK.split(text or "") if p.strip()]
-    return "\n\n".join(f"[¶{i}] {p}" for i, p in enumerate(paras, 1))
+    """Prefix every paragraph with `[¶n] `, numbered from 1, split exactly as a citation is checked."""
+    return "\n\n".join(f"[¶{i}] {p}" for i, p in enumerate(paragraphs(text), 1))
 
 
 def keyed(sources: Sequence[Source]) -> dict[str, Source]:

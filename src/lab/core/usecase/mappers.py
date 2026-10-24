@@ -28,7 +28,7 @@ from typing import Any, Callable, Mapping
 
 from lab.core.usecase import capabilities
 from lab.core.archimate import ids
-from lab.core.usecase.run_model import Model
+from lab.core.modelling.model import Model
 
 __all__ = ["MAPPERS", "ROOT", "UNMAPPED", "apply", "as_list", "summary"]
 
