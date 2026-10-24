@@ -11,7 +11,7 @@ import hashlib
 import json
 
 from lab.core.archimate import ids
-from lab.core.modelling import agent_schema
+from lab.core.modelling import agent_schema, paragraphs
 from lab.core.modelling import envelope as E
 from lab.core.modelling.provenance import LOCATION_KEYS
 
@@ -85,6 +85,20 @@ def schema() -> dict:
             "md5(src|type|tgt)[:10]."),
         "x-id-prefixes": _prefixes(),
         "x-agent": _agent(),
+        "x-paragraph-rule": {
+            "description": "What a paragraph is, per format: the number the agent is shown ([¶n], or "
+                           "[page n] for a PDF) and the passage its quote is checked against come from "
+                           "ONE split. 'line' = each non-blank line of the extracted text; 'page' = "
+                           "each pdf_page_separator-delimited page, empty pages included; "
+                           "'blank-line-block' = each block between one or more blank lines.",
+            "by_media_type": dict(paragraphs.PARAGRAPH_RULES),
+            "default": paragraphs.DEFAULT_RULE,
+            "docx_extraction": paragraphs.DOCX_EXTRACTION,
+            "pdf_page_separator": paragraphs.PDF_PAGE_SEPARATOR,
+            "not_accepted": ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+            "goldens": "contracts/goldens/paragraphs/<name>/: source.*, extracted.txt (exact bytes), "
+                       "paragraphs.json (the split, 1-based by position)",
+        },
         "type": "object", "additionalProperties": False,
         "required": ["contract_version", "spec", "sources", "provenance", "references", "changes",
                      "renamed_from", "reviews", "open_questions", "dropped", "gaps"],

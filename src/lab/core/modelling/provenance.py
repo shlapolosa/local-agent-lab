@@ -7,15 +7,13 @@ never a failure: the architect at the modelling gate decides.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from lab.core.modelling import paragraphs as P
 from lab.core.semantic.fabric.concepts import ground
 
-__all__ = ["LOCATION_KEYS", "Provenance", "Source", "VISUAL_LOCATIONS", "check", "paragraphs"]
-
-_BLANK = re.compile(r"\n\s*\n")
+__all__ = ["LOCATION_KEYS", "Provenance", "Source", "VISUAL_LOCATIONS", "check"]
 
 #: Where in a source: a page (PDF), a paragraph (prose), a figure (embedded image), a shape (diagram).
 LOCATION_KEYS = ("page", "paragraph", "figure", "shape")
@@ -68,18 +66,14 @@ class Provenance:
         return {"source_ref": self.source_ref, "location": dict(self.location), "quote": self.quote}
 
 
-def paragraphs(text: str | None) -> list[str]:
-    """The source's paragraphs (blank-line separated, blank ones dropped): what `[¶n]` numbers from 1.
-    ONE splitter, so the number the agent was shown is the paragraph its quote is checked against."""
-    return [p.strip() for p in _BLANK.split(text or "") if p.strip()]
-
-
-def _in_paragraph(p: Provenance, text: str) -> bool:
+def _in_cited(p: Provenance, source: Source, key: str) -> bool:
+    """Is the quote in the paragraph (or PDF page) it cites? The split is the one the agent's markers
+    were numbered with (`paragraphs.split`, by the source's media type)."""
     try:
-        n = int(p.location["paragraph"])
+        n = int(p.location[key])
     except (TypeError, ValueError):
         return False
-    paras = paragraphs(text)
+    paras = P.split(source.text, source.media_type)
     return 1 <= n <= len(paras) and ground(p.quote, paras[n - 1])
 
 
@@ -91,8 +85,9 @@ def check(p: Provenance, sources: Mapping[str, Source]) -> str | None:
       words are not in the prose. An image-read item is never treated as confirmed: the architect
       verifies it at the modelling gate (user, 24 Oct).
     - "quote-not-found": the words are not in the source at all.
-    - "location-mismatch": the words are in the source, but not in the paragraph cited. The architect
-      will trust the location, so a wrong one is worth a question."""
+    - "location-mismatch": the words are in the source, but not in the paragraph (or, for a PDF, the
+      page) cited. The architect will trust the location, so a wrong one is worth a question.
+    A location the format cannot check (a page of a Word document) is not checked."""
     source = sources.get(p.source_ref)
     if source is None:
         return "unknown-source"
@@ -100,6 +95,7 @@ def check(p: Provenance, sources: Mapping[str, Source]) -> str | None:
         return "unverifiable"
     if not ground(p.quote, source.text):
         return "quote-not-found"
-    if "paragraph" in p.location and not _in_paragraph(p, source.text):
+    key = P.location_key(source.media_type)
+    if key in p.location and not _in_cited(p, source, key):
         return "location-mismatch"
     return None

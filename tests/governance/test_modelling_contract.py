@@ -109,6 +109,33 @@ def test_the_contract_carries_the_agent_s_schema_and_prompt_so_a_vendor_sees_eve
         assert hashlib.sha256(f.read()).hexdigest() == agent["prompt_sha256"]
 
 
+def test_the_paragraph_goldens_are_what_the_code_extracts_and_splits():
+    """1.4.0, agreed with SAF: a channel reading Word through another library proves its split matches
+    ours against these files, so they must be exactly what the lab produces."""
+    import glob
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "render_modelling_contract", os.path.join(ROOT, "scripts", "render_modelling_contract.py"))
+    render = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(render)
+    sources = sorted(glob.glob(os.path.join(ROOT, "contracts", "goldens", "paragraphs", "*", "source.*")))
+    assert {os.path.basename(os.path.dirname(s)) for s in sources} >= {"design-docx", "synthetic", "markdown"}
+    for source in sources:
+        text, split = render.golden(source)
+        folder = os.path.dirname(source)
+        with open(os.path.join(folder, "extracted.txt"), encoding="utf-8", newline="") as f:
+            assert f.read() == text, f"{folder}: re-render the goldens"
+        with open(os.path.join(folder, "paragraphs.json"), encoding="utf-8", newline="") as f:
+            assert f.read() == split, f"{folder}: re-render the goldens"
+
+
+def test_the_published_paragraph_rule_is_the_code_s():
+    from lab.core.modelling import paragraphs
+    rule = MODELLING["x-paragraph-rule"]
+    assert rule["by_media_type"] == paragraphs.PARAGRAPH_RULES and rule["default"] == paragraphs.DEFAULT_RULE
+    assert rule["pdf_page_separator"] == paragraphs.PDF_PAGE_SEPARATOR == "\f"
+
+
 def test_a_review_decision_shape_is_published_for_the_d8_gate():
     _validator("review_decision").validate(
         {"item_kind": "element", "item_id": "ba-x", "state": "corrected", "actor": "ea@tenant",

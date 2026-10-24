@@ -1,15 +1,6 @@
 """What the modelling agent is shown: each input under a short key, prose numbered by paragraph."""
 from lab.core.modelling.provenance import Source
-from lab.core.modelling.sources import keyed, numbered
-
-
-def test_paragraphs_are_numbered_from_one_on_blank_lines():
-    text = "First para\nstill first.\n\n\nSecond.\n\n  \nThird."
-    assert numbered(text) == "[¶1] First para\nstill first.\n\n[¶2] Second.\n\n[¶3] Third."
-
-
-def test_numbering_nothing_is_nothing():
-    assert numbered("") == "" and numbered(None) == ""
+from lab.core.modelling.sources import keyed
 
 
 def test_the_message_shows_each_source_under_its_key_with_numbered_text():

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import tempfile
 from pathlib import Path
 
+from lab.core.modelling.paragraphs import PDF_PAGE_SEPARATOR
 from lab.platform import filetypes
 from lab.platform.contracts import split_fragment  # noqa: F401  (re-exported: the ONE `#page` parser)
 
@@ -60,19 +62,98 @@ def ext_of(name: str) -> str:
     return Path(_base(name)).suffix.lower()
 
 
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MC_ALTERNATE = "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent"
+#: Containers whose text is not part of the body flow, or not part of the document as accepted.
+_SKIP = {_W + "del", _W + "moveFrom", _W + "txbxContent", _MC_ALTERNATE}
+_WS = re.compile(r"\s+")
+
+
+def _skipped(node, stop) -> bool:
+    """Is `node` inside a deletion, a move-away, a text box or an alternate-content shape (up to `stop`)?"""
+    node = node.getparent()
+    while node is not None and node is not stop:
+        if node.tag in _SKIP:
+            return True
+        node = node.getparent()
+    return False
+
+
+def _para_text(p) -> str:
+    """A w:p's text per DOCX_EXTRACTION: w:t in order (inline controls, hyperlinks and field results
+    included; w:instrText is a different element, so a field code never is); a run's tab/br/cr is one
+    space; whitespace collapsed, trimmed."""
+    out = []
+    for node in p.iter(_W + "t", _W + "tab", _W + "br", _W + "cr"):
+        if node.tag != _W + "t" and node.getparent().tag != _W + "r":
+            continue                                  # a tab STOP definition in pPr is not text
+        if _skipped(node, p):
+            continue
+        out.append(node.text or "" if node.tag == _W + "t" else " ")
+    return _WS.sub(" ", "".join(out)).strip()
+
+
+def _unwrap(children):
+    """Children with every w:sdt replaced by its w:sdtContent's children, in place."""
+    for ch in children:
+        if ch.tag == _W + "sdt":
+            content = ch.find(_W + "sdtContent")
+            if content is not None:
+                yield from _unwrap(content)
+        else:
+            yield ch
+
+
+def _cell_text(tc) -> str | None:
+    """A cell's text, "" for a vertical-merge continuation, None for a legacy hMerge continuation
+    (which is dropped: the merged cell appears once)."""
+    props = tc.find(_W + "tcPr")
+    if props is not None:
+        hmerge, vmerge = props.find(_W + "hMerge"), props.find(_W + "vMerge")
+        if hmerge is not None and hmerge.get(_W + "val") != "restart":
+            return None
+        if vmerge is not None and vmerge.get(_W + "val") != "restart":
+            return ""
+    texts = [_para_text(p) for p in _unwrap(tc) if p.tag == _W + "p"]      # a nested w:tbl is skipped
+    return _WS.sub(" ", " ".join(t for t in texts if t)).strip()
+
+
+def _row_line(tr) -> str | None:
+    cells = [_cell_text(tc) for tc in _unwrap(tr) if tc.tag == _W + "tc"]
+    cells = [c for c in cells if c is not None]
+    return " | ".join(cells) if any(cells) else None
+
+
+def docx_lines(data: bytes) -> list[str]:
+    """A Word document's body as LINES, exactly as contract 1.4.0's DOCX_EXTRACTION states
+    (`lab.core.modelling.paragraphs`): one per non-empty w:p, one per non-empty table row, in document
+    order. Held byte for byte to contracts/goldens/paragraphs/."""
+    import docx
+    body = docx.Document(io.BytesIO(data)).element.body
+    lines = []
+    for el in _unwrap(body):
+        if el.tag == _W + "p":
+            line = _para_text(el)
+            if line:
+                lines.append(line)
+        elif el.tag == _W + "tbl":
+            for tr in el.findall(_W + "tr"):
+                line = _row_line(tr)
+                if line is not None:
+                    lines.append(line)
+    return lines
+
+
 def document_text(data: bytes, ext: str, max_chars: int = MAX_DOC_CHARS) -> str:
-    """Requirements document -> plain text (.docx paragraphs + tables, .pdf page text, else UTF-8)."""
+    """Requirements document -> plain text. A .docx is its lines (`docx_lines`); a .pdf is its pages'
+    text separated by a FORM FEED, because a page's own text can hold blank lines; anything else is
+    UTF-8. The split into paragraphs is `lab.core.modelling.paragraphs`."""
     if ext == ".docx":
-        import docx
-        d = docx.Document(io.BytesIO(data))
-        parts = [p.text for p in d.paragraphs if p.text.strip()]
-        for t in d.tables:
-            for row in t.rows:
-                parts.append(" | ".join(c.text.strip() for c in row.cells))
-        text = "\n".join(parts)
+        text = "\n".join(docx_lines(data))
     elif ext == ".pdf":
         from pypdf import PdfReader
-        text = "\n\n".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(data)).pages)
+        text = PDF_PAGE_SEPARATOR.join((pg.extract_text() or "")
+                                       for pg in PdfReader(io.BytesIO(data)).pages)
     else:
         # `utf-8-sig`, not `utf-8`: a UTF-8 BOM is an ENCODING mark, not content, and the meeting pipeline
         # writes one at the start of every delivered `.txt` so Arabic renders in SharePoint rather than as

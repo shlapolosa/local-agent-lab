@@ -1,0 +1,6 @@
+[
+  "# Referral triage",
+  "Referrals arrive from GPs by fax and email.\nA triage nurse reads each one within a day.",
+  "The nurse records a band in the EHR,\nwhich notifies the clinician.",
+  "- Urgent referrals are seen within 24 hours.\n- Routine referrals are booked within 14 days."
+]

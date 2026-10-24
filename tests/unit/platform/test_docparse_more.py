@@ -65,7 +65,9 @@ def test_document_text_docx_pdf_and_plain():
     text = docparse.document_text(data, ".docx")
     assert text.splitlines() == ["Scope", "The system SHALL log in users.", "Actor | Role", "Clerk | Submits"]
     pdf = docparse.document_text(_text_pdf("Hello requirements"), ".pdf")
-    assert pdf.startswith("Hello requirements") and pdf.endswith("\n\n"), repr(pdf)
+    # 1.4.0: pages are separated by a form feed (a page's own text can hold blank lines); the fixture's
+    # second page is empty, and still takes its place so page numbers stay the PDF's own.
+    assert pdf.startswith("Hello requirements") and pdf.endswith("\f"), repr(pdf)
     assert docparse.document_text("# Title\nbody".encode(), ".md") == "# Title\nbody"
     assert docparse.document_text(b"caf\xc3\xa9 \xff", ".txt") == "café �", "bad bytes never raise"
 

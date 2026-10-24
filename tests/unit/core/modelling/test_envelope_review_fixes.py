@@ -128,6 +128,23 @@ def test_a_quote_nowhere_in_the_source_is_still_not_found():
     assert check(Provenance.from_dict(_p("absent words", 1)), _src()) == "quote-not-found"
 
 
+def test_in_a_word_document_each_line_is_a_paragraph():
+    """1.4.0: a .docx's extracted text has one Word paragraph or table row per line."""
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    src = {REF: Source(ref=REF, name="b.docx", media_type=docx,
+                       text="The clerk files the referral.\nThe referral is stored in the EHR.")}
+    assert check(Provenance.from_dict(_p("stored in the EHR", 2)), src) is None
+    assert check(Provenance.from_dict(_p("stored in the EHR", 1)), src) == "location-mismatch"
+
+
+def test_in_a_pdf_the_cited_page_is_checked():
+    src = {REF: Source(ref=REF, name="b.pdf", media_type="application/pdf",
+                       text="Cover\fThe referral is stored in the EHR.")}
+    cite = {"source_ref": REF, "quote": "stored in the EHR"}
+    assert check(Provenance.from_dict(cite | {"location": {"page": 2}}), src) is None
+    assert check(Provenance.from_dict(cite | {"location": {"page": 1}}), src) == "location-mismatch"
+
+
 # ---------------------------------------------------------------- 11: never raises on junk
 def test_a_non_mapping_provenance_or_review_is_reported_not_raised():
     env = _build(provenance={"elements": {"ba-clerk": ["junk"], "bo-referral": [_p()]}, "relations": {}},
