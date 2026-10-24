@@ -52,6 +52,28 @@ What intake did at commit 9120174:
 | D19 (R-5, M-10) | ONE change vocabulary: `new \| updated \| consumed \| removed` for elements (`changes {element_id: status}` and the repository `match`). Capabilities add `missing`. `removed` comes only from an input that retires something. The vocabulary's one home is `lab.core.modelling.envelope.CHANGES`. Visualisation was scoped back the same day to the standard views visio_to_archimate produces today, so it ignores `changes` for now; SAF's impact path reads it. |
 | D20 | Every id is an IRI local name `[A-Za-z0-9_-]+`, and the prefix table is published (`x-id-prefixes`). A business capability becomes `cap-<slug>` (today it is the raw map id `B1.1.2`, which breaks the rule). That mapper change lands in the wiring slice, and until then the builder flags such ids as `invalid-id`. |
 
+## Build state (24 Oct, branch feat/usecase-intake-domain, not pushed)
+
+- `architecture_modelling` exists as its own process (D7): read documents → one gated agent →
+  envelope → a `draft-review` approval (D8). The agent models every layer and emits typed relations
+  from the prose (M-2 and M-3 for documents), each cited.
+- `contracts/modelling.json` 1.2.0 is GENERATED (`lab.core.modelling.contract`,
+  `scripts/render_modelling_contract.py`). SAF vendored it at 0e30ddb.
+- `Model` lives in `lab.core.modelling.model`. One id rule, `ids.element_id`, serves both pipelines.
+- The code-reviewer's 14 findings are implemented.
+
+**Owed before it runs in the cloud:**
+- the user runs `scripts/provision_modelling_agents.py` (Entra app, team, key);
+- `LAB_ENV` gains the `MODELLING_*` keys;
+- the gateway is restarted;
+- the branch is pushed.
+
+**Next:**
+- M-1: figures, images and .vsdx.
+- The review loop: decisions recorded into `reviews[]` and fed to a re-run.
+- Screening calls modelling in place of steps 3/4/10.
+- Carrying references/changes from the use-case pipeline into the envelope.
+
 ## Slice 1 (24 Oct): new files only
 
 These were added as new files only, because arch/to-be-seam moves `lab/workloads/usecase/*` into
