@@ -134,6 +134,20 @@ def test_a_business_capability_id_is_an_iri_local_name_and_keeps_the_map_id():
     assert m.props_of("cap-b1-1-2")["capability_id"] == "B1.1.2"
 
 
+def test_screening_and_modelling_give_the_same_named_element_the_same_id():
+    """Review finding 7: one id rule (`ids.element_id`), so the two pipelines agree — including on a
+    wholly Arabic name, which the mappers used to drop without a word."""
+    from lab.core.archimate.ids import element_id
+    m = Model()
+    mappers.apply("elements", {"active": [{"name": "الممرضة", "kind": "role"}],
+                               "behavioural": [{"name": "assess referral", "verb": "assess",
+                                                "object": "referral"}],
+                               "passive": [{"name": "referral"}]}, m, {})
+    assert element_id("BusinessActor", "الممرضة") in m.elements
+    assert element_id("BusinessFunction", "assess referral") in m.elements
+    assert element_id("BusinessObject", "referral") in m.elements
+
+
 def test_the_business_layer_joins_on_the_function_name():
     m = run_all()
     assert ("bf-assess-referral", "cap-1", "Realization") in m.relations

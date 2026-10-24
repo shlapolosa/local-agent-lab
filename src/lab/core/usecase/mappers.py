@@ -32,7 +32,7 @@ from lab.core.modelling.model import Model
 
 __all__ = ["MAPPERS", "ROOT", "UNMAPPED", "apply", "as_list", "summary"]
 
-ROOT = "usecase"
+ROOT = ids.ROOT_ID
 Mapper = Callable[[Mapping[str, Any], Model, Mapping[str, Any]], None]
 
 
@@ -64,17 +64,35 @@ def _catalogue(pool: Mapping[str, Any]) -> dict[str, dict]:
 def _bf(model: Model, function: str) -> str | None:
     """The BusinessFunction a step cites by NAME (step 4 declared it) — created if the citing step
     is the first to name it, because a dropped citation is a silent hole in the model."""
-    slug = ids.slug(function)
-    if not slug:
-        return None
-    return model.el(f"bf-{slug}", "BusinessFunction", function)
+    eid = ids.element_id("BusinessFunction", function)
+    return model.el(eid, "BusinessFunction", function) if eid else None
+
+
+def _named(atype: str, name: str) -> str:
+    """The id of the element of `atype` that `name` names: ONE rule (`ids.element_id`), shared with
+    modelling, so the two give the same thing the same id."""
+    return ids.element_id(atype, name)
+
+
+def _keyed(atype: str, key: str) -> str:
+    """The id of an element identified by a KEY rather than a name (a workflow node, a catalogue id,
+    a guardrail): the type's prefix from the one table, plus a slug of the key."""
+    return f"{ids.prefix_for(atype)}{ids.slug(key)}"
+
+
+def _role(prefix: str, key: str) -> str:
+    """The id of an element named for its ROLE (a CAFÉ family or zone, a building block), whose
+    prefix is one of `ids.ROLE_PREFIXES`: the one table, never a literal here."""
+    if prefix not in ids.ROLE_PREFIXES:
+        raise ValueError(f"not a role prefix: {prefix}")
+    return f"{prefix}{ids.slug(key)}"
 
 
 def _bp(model: Model, node_id: str, name: str = "") -> str | None:
     """The BusinessProcess for a workflow-graph node id, shared by steps 10, 15, 17, 18 and 19."""
     if not _s(node_id):
         return None
-    return model.el(f"bp-{ids.slug(node_id)}", "BusinessProcess", name)
+    return model.el(_keyed("BusinessProcess", node_id), "BusinessProcess", name)
 
 
 # ------------------------------------------------------------------ screening (steps 3-11)
@@ -83,42 +101,43 @@ def _frame(out, model, pool):
     root = _root(model, problem[:80])
     model.el(root, "Grouping", props={"problem": problem, "for_whom": _s(out.get("for_whom")),
                                       "source_channel": _s(out.get("source_channel"))})
-    who = ids.slug(_s(out.get("for_whom")))
-    drv = model.el("drv-problem", "Driver", problem[:120] or "the problem")
-    goal = model.el("goal-expected-change", "Goal", _s(out.get("expected_change"))[:120] or "the expected change")
+    who = _named("Stakeholder", _s(out.get("for_whom")))
+    drv = model.el(_keyed("Driver", "problem"), "Driver", problem[:120] or "the problem")
+    goal = model.el(_keyed("Goal", "expected change"), "Goal",
+                    _s(out.get("expected_change"))[:120] or "the expected change")
     model.rel("Association", drv, goal)
     if who:
-        model.rel("Association", model.el(f"stk-{who}", "Stakeholder", _s(out.get("for_whom"))), drv)
-    owner = ids.slug(_s(out.get("accountable_owner")))
+        model.rel("Association", model.el(who, "Stakeholder", _s(out.get("for_whom"))), drv)
+    owner = _named("BusinessActor", _s(out.get("accountable_owner")))
     if owner:
-        model.rel("Association", model.el(f"ba-{owner}", "BusinessActor", _s(out.get("accountable_owner")),
+        model.rel("Association", model.el(owner, "BusinessActor", _s(out.get("accountable_owner")),
                                           props={"role": "accountable owner"}), goal)
 
 
 def _elements(out, model, pool):
     root = _root(model)
     for a in out.get("active") or []:
-        slug = ids.slug(_s(a.get("name")))
-        if slug:
-            model.rel("Aggregation", root, model.el(f"ba-{slug}", "BusinessActor", _s(a.get("name")),
+        eid = _named("BusinessActor", _s(a.get("name")))
+        if eid:
+            model.rel("Aggregation", root, model.el(eid, "BusinessActor", _s(a.get("name")),
                                                     props={"kind": _s(a.get("kind")),
                                                            "provenance": _s(a.get("provenance"))}))
     for p in out.get("passive") or []:
-        slug = ids.slug(_s(p.get("name")))
-        if slug:
-            model.rel("Aggregation", root, model.el(f"bo-{slug}", "BusinessObject", _s(p.get("name")),
+        eid = _named("BusinessObject", _s(p.get("name")))
+        if eid:
+            model.rel("Aggregation", root, model.el(eid, "BusinessObject", _s(p.get("name")),
                                                     props={"provenance": _s(p.get("provenance"))}))
     for b in out.get("behavioural") or []:
-        slug = ids.slug(_s(b.get("name")))
-        if not slug:
+        eid = _named("BusinessFunction", _s(b.get("name")))
+        if not eid:
             continue
-        bf = model.el(f"bf-{slug}", "BusinessFunction", _s(b.get("name")),
+        bf = model.el(eid, "BusinessFunction", _s(b.get("name")),
                       props={"verb": _s(b.get("verb")), "object": _s(b.get("object")),
                              "provenance": _s(b.get("provenance"))})
         model.rel("Aggregation", root, bf)
-        obj = ids.slug(_s(b.get("object")))
-        if obj and model.has(f"bo-{obj}"):
-            model.rel("Access", bf, f"bo-{obj}")
+        obj = _named("BusinessObject", _s(b.get("object")))
+        if obj and model.has(obj):
+            model.rel("Access", bf, obj)
 
 
 def _service_for(model, capability: str) -> str:
@@ -156,7 +175,7 @@ def _service_id(ident: str) -> str:
     and its failure mode is silent — the component quietly becomes an ApplicationFunction instead
     and the package holds two disconnected clouds of boxes.
     """
-    return f"svc-{ids.slug(ident)}"
+    return _keyed("ApplicationService", ident)
 
 
 def _capability_id(ident: str) -> str:
@@ -164,8 +183,9 @@ def _capability_id(ident: str) -> str:
     (`B1.1.2`) carries dots, which an element id may not (it must be an IRI local name, ADR D20), so
     it rides in props as `capability_id` and the element is `cap-<slug>`. A published map's synthetic
     id is already `cap-<hash>`, and is kept as it is."""
+    prefix = ids.prefix_for("Capability")
     slug = ids.slug(ident)
-    return slug if slug.startswith("cap-") else f"cap-{slug}"
+    return slug if slug.startswith(prefix) else f"{prefix}{slug}"
 
 
 def _coverage_map(out, model, pool):
@@ -212,16 +232,20 @@ def _realisation_match(out, model, pool):
     root = _root(model)
     for m in out.get("matched") or []:
         by = _s(m.get("realised_by"))
-        if not ids.slug(by):
+        eid = _named("ApplicationComponent", by)
+        if not eid:
             continue
-        ac = model.el(f"ac-{ids.slug(by)}", "ApplicationComponent", by,
+        ac = model.el(eid, "ApplicationComponent", by,
                       props={"existing": True, "confidence": _s(m.get("confidence"))})
         model.rel("Aggregation", root, ac)
-        slug = ids.slug(_s(m.get("element")))
-        if model.has(f"bf-{slug}"):
-            model.rel("Serving", ac, f"bf-{slug}")
-        elif model.has(f"ba-{slug}") or model.has(f"bo-{slug}"):
-            model.rel("Association", ac, f"ba-{slug}" if model.has(f"ba-{slug}") else f"bo-{slug}")
+        element = _s(m.get("element"))
+        bf, ba, bo = (_named(t, element) for t in ("BusinessFunction", "BusinessActor", "BusinessObject"))
+        if bf and model.has(bf):
+            model.rel("Serving", ac, bf)
+        elif ba and model.has(ba):
+            model.rel("Association", ac, ba)
+        elif bo and model.has(bo):
+            model.rel("Association", ac, bo)
 
 
 def _criticality_band(out, model, pool):
@@ -239,7 +263,8 @@ def _quality_attributes(out, model, pool):
         n = seen[bf] = seen.get(bf, 0) + 1
         title = f'{_s(sc.get("stimulus"))} → {_s(sc.get("response"))}'.strip(" →") or \
             f'{_s(sc.get("function"))}: {sc.get("response_measure")} {_s(sc.get("unit"))}'
-        req = model.el(f"req-{bf[3:]}-{n}", "Requirement", title[:120],
+        req = model.el(_keyed("Requirement", f'{bf.removeprefix(ids.prefix_for("BusinessFunction"))}-{n}'),
+                       "Requirement", title[:120],
                        props={"response_measure": sc.get("response_measure"), "unit": _s(sc.get("unit")),
                               "percentile": sc.get("percentile"), "taken_from": _s(sc.get("taken_from"))})
         model.rel("Realization", bf, req)
@@ -247,9 +272,9 @@ def _quality_attributes(out, model, pool):
 
 def _ontology_delta(out, model, pool):
     for c in out.get("concepts") or []:
-        slug = ids.slug(_s(c.get("object")))
-        if slug:
-            model.el(f"bo-{slug}", "BusinessObject", _s(c.get("object")),
+        eid = _named("BusinessObject", _s(c.get("object")))
+        if eid:
+            model.el(eid, "BusinessObject", _s(c.get("object")),
                      props={"ontology.status": _s(c.get("status")), "ontology.id": _s(c.get("id")),
                             "ontology.note": _s(c.get("note"))})
 
@@ -263,16 +288,16 @@ def _workflow_graph(out, model, pool):
         bf = _bf(model, _s(n.get("function")))
         if bf:
             model.rel("Aggregation", bf, bp)
-        actor = ids.slug(_s(n.get("performed_by")))
+        actor = _named("BusinessActor", _s(n.get("performed_by")))
         if actor:
-            model.rel("Assignment", model.el(f"ba-{actor}", "BusinessActor", _s(n.get("performed_by"))), bp)
+            model.rel("Assignment", model.el(actor, "BusinessActor", _s(n.get("performed_by"))), bp)
     for e in out.get("edges") or []:
         src, tgt = _bp(model, _s(e.get("from"))), _bp(model, _s(e.get("to")))
         if src and tgt:
             model.rel("Triggering", src, tgt)
-        data = ids.slug(_s(e.get("data_class")))
+        data = _named("BusinessObject", _s(e.get("data_class")))
         if data:
-            bo = model.el(f"bo-{data}", "BusinessObject", _s(e.get("data_class")))
+            bo = model.el(data, "BusinessObject", _s(e.get("data_class")))
             if src:
                 model.rel("Access", src, bo, accessType="Write")
             if tgt:
@@ -281,9 +306,9 @@ def _workflow_graph(out, model, pool):
 
 def _source_contracts(out, model, pool):
     for s in out.get("sources") or []:
-        slug = ids.slug(_s(s.get("source")))
-        if slug:
-            model.el(f"bo-{slug}", "BusinessObject", _s(s.get("source")),
+        eid = _named("BusinessObject", _s(s.get("source")))
+        if eid:
+            model.el(eid, "BusinessObject", _s(s.get("source")),
                      props={k: _s(s.get(k)) for k in ("sensitivity", "freshness", "permission_scope",
                                                       "citation_policy", "propagation")})
 
@@ -298,7 +323,7 @@ def _assertions(out, model, pool):
         statement = _s(a.get("statement"))
         if not statement:
             continue
-        outcome = model.el(f"out-{n}", "Outcome", statement[:120],
+        outcome = model.el(_keyed("Outcome", str(n)), "Outcome", statement[:120],
                            props={"evaluated_against": _s(a.get("evaluated_against")),
                                   "reads_workflow_output": a.get("reads_workflow_output")})
         model.rel("Aggregation", root, outcome)
@@ -313,7 +338,7 @@ def _step_props(out, model, pool, fields: tuple[str, ...], name_field: str = "")
     """Facets onto the node's BusinessProcess. `name_field` names a node the graph never declared
     (a facet id with no node still lands); it never renames one the graph did."""
     for st in out.get("steps") or []:
-        known = model.has(f"bp-{ids.slug(_s(st.get('id')))}")
+        known = model.has(_keyed("BusinessProcess", _s(st.get('id'))))
         bp = _bp(model, _s(st.get("id")), "" if known or not name_field else _s(st.get(name_field)))
         if bp:
             model.el(bp, "BusinessProcess", props={k: st.get(k) for k in fields if st.get(k) not in (None, "")})
@@ -340,14 +365,14 @@ def _risk(out, model, pool):
 def _obligations(out, model, pool):
     for g in out.get("guardrails") or []:
         if _s(g):
-            model.el(f"con-{ids.slug(_s(g))}", "Constraint", _s(g), props={"guardrail": _s(g)})
+            model.el(_keyed("Constraint", _s(g)), "Constraint", _s(g), props={"guardrail": _s(g)})
     for node_id, items in (out.get("by_step") or {}).items():
         bp = _bp(model, _s(node_id))
         for o in items or []:
             g = _s(o.get("guardrail"))
             if not g:
                 continue
-            con = model.el(f"con-{ids.slug(g)}", "Constraint", (_s(o.get("text")) or g)[:120],
+            con = model.el(_keyed("Constraint", g), "Constraint", (_s(o.get("text")) or g)[:120],
                            props={"guardrail": g, "source": _s(o.get("source"))})
             if bp:
                 model.rel("Association", con, bp)
@@ -361,7 +386,7 @@ def _build_surface(out, model, pool):
                                           "; ".join(as_list(out.get("incumbent_failed_obligations")))})
     surface = _s(out.get("surface"))
     if ids.slug(surface):
-        model.rel("Aggregation", root, model.el(f"node-{ids.slug(surface)}", "Node", surface,
+        model.rel("Aggregation", root, model.el(_keyed("Node", surface), "Node", surface,
                                                 props={"surface": True}))
 
 
@@ -381,9 +406,9 @@ def _composition(out, model, pool):
                                               "unbound": "; ".join(as_list(out.get("unbound")))})
     enforcement = out.get("enforcement") or {}
     for fam in as_list(out.get("families")):
-        grp = model.el(f"fam-{ids.slug(fam)}", "Grouping", fam, props={"family": fam})
+        grp = model.el(_role("fam-", fam), "Grouping", fam, props={"family": fam})
         for g in as_list(enforcement.get(fam)):
-            model.rel("Aggregation", grp, model.el(f"con-{ids.slug(g)}", "Constraint", g, props={"guardrail": g}))
+            model.rel("Aggregation", grp, model.el(_keyed("Constraint", g), "Constraint", g, props={"guardrail": g}))
 
 
 def _component_selection(out, model, pool):
@@ -396,11 +421,11 @@ def _component_selection(out, model, pool):
             continue
         row = catalogue.get(cid, {})
         zone, families = _s(row.get("zone")), as_list(row.get("families"))
-        ac = model.el(f"ac-{ids.slug(cid)}", "ApplicationComponent", _s(c.get("component")) or _s(row.get("name")) or cid,
+        ac = model.el(_keyed("ApplicationComponent", cid), "ApplicationComponent", _s(c.get("component")) or _s(row.get("name")) or cid,
                       props={"cafe.component_id": cid, "cafe.zone": zone, "cafe.families": "; ".join(families),
                              "rejected_alternatives": "; ".join(as_list(c.get("rejected_alternatives")))})
         if zone:
-            model.rel("Aggregation", model.el(f"zone-{ids.slug(zone)}", "Grouping", zone, props={"cafe.zone": zone}), ac)
+            model.rel("Aggregation", model.el(_role("zone-", zone), "Grouping", zone, props={"cafe.zone": zone}), ac)
         else:
             model.rel("Aggregation", root, ac)
         # The join between the two halves of the design. Step 5 names the technology capability the
@@ -422,7 +447,7 @@ def _component_selection(out, model, pool):
             # live run drew thirteen such functions and recorded nothing, so a package that had lost
             # its entire architecture looked complete. The old check only fired when the value WAS a
             # key, which is precisely the case that did not occur.
-            model.rel("Assignment", ac, model.el(f"af-{ids.slug(capability)}", "ApplicationFunction", capability))
+            model.rel("Assignment", ac, model.el(_keyed("ApplicationFunction", capability), "ApplicationFunction", capability))
             # Recorded UNCONDITIONALLY, not "when services exist": that condition made the record
             # depend on mapper order, so the same design said different things depending on when the
             # mappers happened to run — and a gap that is sometimes reported is not an instrument.
@@ -432,13 +457,13 @@ def _component_selection(out, model, pool):
             if gap not in model.gaps:               # a mapper may be applied more than once per run
                 model.gaps.append(gap)
         for fam in families:
-            model.rel("Aggregation", model.el(f"fam-{ids.slug(fam)}", "Grouping", fam, props={"family": fam}), ac)
+            model.rel("Aggregation", model.el(_role("fam-", fam), "Grouping", fam, props={"family": fam}), ac)
             for g in as_list(enforcement.get(fam)):
-                model.rel("Realization", ac, model.el(f"con-{ids.slug(g)}", "Constraint", g, props={"guardrail": g}))
+                model.rel("Realization", ac, model.el(_keyed("Constraint", g), "Constraint", g, props={"guardrail": g}))
     for b in out.get("building_blocks") or []:
         what = _s(b.get("what"))
         if ids.slug(what):
-            model.rel("Aggregation", root, model.el(f"bb-{ids.slug(what)}", "ApplicationComponent", what,
+            model.rel("Aggregation", root, model.el(_role("bb-", what), "ApplicationComponent", what,
                                                     props={"owner": _s(b.get("owner")), "kind": "building-block"}))
 
 
@@ -469,27 +494,27 @@ def _delivery_artifacts(out, model, pool):
         name = _s(sc.get("name"))
         if not ids.slug(name):
             continue
-        svc = model.el(f"svc-{ids.slug(name)}", "ApplicationService", name,
+        svc = model.el(_keyed("ApplicationService", name), "ApplicationService", name,
                        props={"service_level": _s(sc.get("service_level")),
                               "service_level_source": _s(sc.get("service_level_source")),
                               "owned_entities": "; ".join(as_list(sc.get("owned_entities")))})
         model.rel("Aggregation", root, svc)
         for consumer in as_list(sc.get("consumers")):
-            if model.has(f"bf-{ids.slug(consumer)}"):
-                model.rel("Serving", svc, f"bf-{ids.slug(consumer)}")
+            if model.has(_named("BusinessFunction", consumer)):
+                model.rel("Serving", svc, _named("BusinessFunction", consumer))
     entry = out.get("catalog_entry") or {}
     dlv = None
     if ids.slug(_s(entry.get("name"))):
-        dlv = model.el(f"dlv-{ids.slug(_s(entry.get('name')))}", "Deliverable", _s(entry.get("name")),
+        dlv = model.el(_keyed("Deliverable", _s(entry.get('name'))), "Deliverable", _s(entry.get("name")),
                        props={"owner": _s(entry.get("owner")), "capability": _s(entry.get("capability"))})
     items = [w for w in out.get("work_items") or [] if ids.slug(_s(w.get("key")))]
     for w in items:
-        model.el(f"wp-{ids.slug(_s(w.get('key')))}", "WorkPackage", _s(w.get("title")) or _s(w.get("key")),
+        model.el(_keyed("WorkPackage", _s(w.get('key'))), "WorkPackage", _s(w.get("title")) or _s(w.get("key")),
                  props={"owner": _s(w.get("owner")), "obligations": "; ".join(as_list(w.get("obligations")))})
     for w in items:
-        wp, parent = f"wp-{ids.slug(_s(w.get('key')))}", ids.slug(_s(w.get("parent")))
-        if parent and model.has(f"wp-{parent}"):
-            model.rel("Aggregation", f"wp-{parent}", wp)
+        wp, parent = _keyed("WorkPackage", _s(w.get('key'))), ids.slug(_s(w.get("parent")))
+        if parent and model.has(_keyed("WorkPackage", parent)):
+            model.rel("Aggregation", _keyed("WorkPackage", parent), wp)
         elif dlv:
             model.rel("Realization", wp, dlv)
 
