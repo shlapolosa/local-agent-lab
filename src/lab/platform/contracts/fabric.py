@@ -163,6 +163,21 @@ class SemanticTools(ToolCatalogue):
     WRITE = PIPELINE + PROMOTE + REINDEX
     GRANTS = (READ, PIPELINE, PROMOTE, REINDEX, WALK, RECLASSIFY)
 
+    # STABILITY — what an EXTERNAL consumer (the SAF pack, user decision 24 Oct 2026) may bind to. Published
+    # in contracts/semantic-tools.json. STABLE: live, used by workloads, changed only with a contract version
+    # bump. IN_FLUX: real and callable, but its shape is still settling — bind at your own risk. Everything
+    # else is INTERNAL: the lab's own plumbing, not a surface for anyone outside it.
+    STABLE = (vocab_link, vocab_propose, vocab_master, vocab_amend, concept_match, concepts, schemes,
+              catalog_get, catalog_by_url, catalog_list, edge_assert, edge_retract)
+    IN_FLUX = (vocab_resolve, vocab_place, vocab_relate, vocab_retire, vocab_candidates,
+               relation_candidates)
+
+    @classmethod
+    def stability(cls) -> dict[str, str]:
+        """Every catalogued tool -> "stable" | "in-flux" | "internal"."""
+        return {name: "stable" if name in cls.STABLE else "in-flux" if name in cls.IN_FLUX else "internal"
+                for name in cls.names()}
+
 
 ARTIFACT_INTAKE = ProcessSpec(
     name="artifact_intake",
@@ -307,3 +322,26 @@ CATALOGUES: tuple[type[ToolCatalogue], ...] = (SemanticTools,)
 
 __all__ = ["SemanticTools", "ARTIFACT_INTAKE", "ARTIFACT_PUBLISH", "ArtifactChanged", "PROCESSES", "AGENTS",
            "CATALOGUES"]
+
+
+#: The REST bodies of the fabric's STABLE vocabulary verbs (`/api/vocabulary/*`, FR-6): ONE statement,
+#: read by semantic-mcp's routes and by the generated OpenAPI, so a connector cannot be told a field the
+#: route refuses. `required` first. Mirrors `semantic_vocab_propose` / `semantic_vocab_amend`.
+VOCAB_PROPOSE_FIELDS: tuple[tuple[str, bool, str], ...] = (
+    ("label", True, "The term, as a person wrote it"),
+    ("actor", True, "Who proposes it — a person or the system acting for one; a person's own token must name themselves"),
+    ("definition", False, "What it means, in a sentence"),
+    ("broader", False, "The concept it sits under, if known"),
+    ("scheme", False, "The vocabulary it would join"),
+    ("concept_id", False, "The id it would take"),
+    ("module", False, "The module it belongs to"),
+    ("proposed_for", False, "The fabric CATALOGUE IRI of the artifact whose words proposed it (or empty)"),
+    ("alias_of", False, "A concept this may be another word for"),
+)
+VOCAB_ALIAS_FIELDS: tuple[tuple[str, bool, str], ...] = (
+    ("concept_id", True, "The concept that already holds the meaning"),
+    ("scheme", True, "Its vocabulary"),
+    ("alt", True, "The other name to teach it"),
+    ("actor", True, "The steward — a person's own token must name themselves"),
+    ("reason", False, "Why"),
+)

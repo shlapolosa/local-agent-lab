@@ -478,6 +478,7 @@ ROLE_ENV = {
         "REDIS_URL",                               # workflows.request/status + approvals streams — the ONLY backend it holds
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # approval_tools.py: the two LINKS a reviewer follows
         "PUBLIC_GATEWAY_URL",                      # the host /api/openapi.json names — an address
+        "SEMANTIC_MCP_URL",                        # rest.py forwards /api/vocabulary/* there — an ADDRESS
         "STORAGE_MCP_URL",                         # rest.py forwards /api/artifacts + /api/uploads there — an
                                                    # ADDRESS: storage-mcp holds the store credentials, not this door
         "SPEECH_LANES",                            # which lanes a submission fans out into. The fan-out
@@ -613,14 +614,13 @@ ROLE_ENV = {
         "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the PERSON's fallback sign-in
         "LIVE_APP_URL",                            # where to send a reader who wants to WATCH a run
                                                    # rather than review one; absent = no link offered
-        "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # the app's own Entra registration:
-                                                   # signs a PERSON in (the approval ledger names a human
-                                                   # the tenant vouches for) AND, by client credentials,
-                                                   # authenticates the APP at the gateway — it holds
-                                                   # Workflow.Submit + Approvals.Read + Approvals.Decide
-                                                   # (scripts/provision_review_app_identity.py). REQUIRED:
-                                                   # /api refuses a virtual key. (A PERSON may still sign in
-                                                   # via the password gate when SSO is unconfigured.)
+        "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # OPTIONAL human SSO: signs a PERSON in
+                                                   # (the ledger names a human the tenant vouches for).
+                                                   # Unset -> the password gate stands
+        "REVIEW_API_CLIENT_ID", "REVIEW_API_CLIENT_SECRET",       # REQUIRED: the APP's gateway identity
+                                                   # (client credentials) holding Workflow.Submit +
+                                                   # Approvals.Read + Approvals.Decide — /api refuses a
+                                                   # virtual key (scripts/provision_review_app_identity.py)
         "ENTRA_TENANT_ID", "REVIEW_APP_URL",       # the authority, and the registered redirect
         "ENTRA_GATEWAY_AUDIENCE",                  # the scope its client-credentials token is for
         "GATEWAY_URL", "GATEWAY_MCP_SERVERS",      # /api (the gate, runs, uploads, artifacts) and gateway

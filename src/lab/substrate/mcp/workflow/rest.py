@@ -321,15 +321,27 @@ def _decide_route(server):
 
 # ============================================================== bytes: forwarded to storage-mcp
 def storage_forwarder(server):
-    """A call to storage-mcp's byte routes, substrate to substrate on the private network, with the
-    shared secret — the same trust every substrate server already extends to the gateway. The front
-    door holds no store credential; storage-mcp does. The container's configuration is read per CALL, so
-    an override is honoured. Unreachable is a 503 with a sentence, never a bare 500."""
+    return forwarder(server, "storage_mcp_url", "STORAGE_MCP_URL")
+
+
+def semantic_forwarder(server):
+    return forwarder(server, "semantic_mcp_url", "SEMANTIC_MCP_URL")
+
+
+def forwarder(server, url_key: str, setting: str):
+    """A call to a substrate server's REST routes (storage-mcp's bytes, semantic-mcp's vocabulary),
+    substrate to substrate on the private network, with the shared secret — the same trust every
+    substrate server already extends to the gateway. The front door holds Redis only; the server it
+    forwards to holds the store. `url_key` names the container setting, read per CALL so an override is
+    honoured. Unreachable or unconfigured is a 503 with a sentence, never a bare 500."""
+    name = setting.removesuffix("_URL").lower().replace("_", "-")
+
     async def forward(method, path, *, params=None, body=b"", content_type=""):
         cfg = server.container.config
-        url = str(cfg.storage_mcp_url() or "").rstrip("/")
+        url = str(getattr(cfg, url_key)() or "").rstrip("/")
         if not url:
-            return 503, {"content-type": "application/json"}, b'{"error": "storage-mcp is not configured (STORAGE_MCP_URL)"}'
+            msg = json.dumps({"error": f"{name} is not configured ({setting})"})
+            return 503, {"content-type": "application/json"}, msg.encode()
         origin = url[: -len("/mcp")] if url.endswith("/mcp") else url
         secret = cfg.mcp_shared_secret()
         headers = {"Authorization": f"Bearer {secret}"} if secret else {}
@@ -340,7 +352,7 @@ def storage_forwarder(server):
                 got = await client.request(method, origin + path, params=params, content=body,
                                            headers=headers)
         except httpx.HTTPError as e:
-            msg = json.dumps({"error": f"storage-mcp unreachable: {type(e).__name__}: {e}"})
+            msg = json.dumps({"error": f"{name} unreachable: {type(e).__name__}: {e}"})
             return 503, {"content-type": "application/json"}, msg.encode()
         return got.status_code, dict(got.headers), got.content
     return forward
@@ -360,6 +372,15 @@ def _artifact_route(storage):
         behind the gateway's READ role; storage-mcp decides whether it exists."""
         return _relay(*await storage("GET", "/artifacts", params=dict(request.query_params)))
     return artifact
+
+
+def _forwarded_route(forward, path):
+    async def relay(request: Request) -> Response:
+        """Forwarded as it came — query, body and content type — to the server that owns the operation."""
+        return _relay(*await forward(request.method, path, params=dict(request.query_params),
+                                     body=await request.body(),
+                                     content_type=request.headers.get("content-type", "")))
+    return relay
 
 
 def _upload_route(storage):
@@ -412,7 +433,7 @@ def _request_route(server):
     return one
 
 
-def routes(server, *, storage=None) -> list[Route]:
+def routes(server, *, storage=None, semantic=None) -> list[Route]:
     """One submit and one run-status route per registered process, plus a listing.
 
     Generated from `PROCESSES`, so adding a process adds both surfaces at once — the same reason the
@@ -420,7 +441,12 @@ def routes(server, *, storage=None) -> list[Route]:
     (injected by a test; storage-mcp over the private network otherwise).
     """
     storage = storage or storage_forwarder(server)
+    semantic = semantic or semantic_forwarder(server)
     out: list[Route] = [
+        # The fabric's STABLE vocabulary verbs (FR-6), forwarded to semantic-mcp, which owns the store.
+        *[Route(f"{API_PREFIX}{path}", _forwarded_route(semantic, path), methods=[method])
+          for method, path in (("GET", "/vocabulary/match"), ("GET", "/vocabulary/master"),
+                               ("POST", "/vocabulary/proposals"), ("POST", "/vocabulary/aliases"))],
         # What a PRESENTATION surface needs so it holds no store or Redis credential (TO-BE seam).
         Route(f"{API_PREFIX}/artifacts", _artifact_route(storage), methods=["GET"]),
         Route(f"{API_PREFIX}/uploads", _upload_route(storage), methods=["POST"]),

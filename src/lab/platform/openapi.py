@@ -29,6 +29,7 @@ from typing import Iterable, Protocol
 from urllib.parse import urlparse
 
 from lab.platform.contracts import PROCESSES, ProcessSpec, WorkflowTools
+from lab.platform.contracts.fabric import VOCAB_ALIAS_FIELDS, VOCAB_PROPOSE_FIELDS
 
 __all__ = ["openapi", "path_template"]
 
@@ -68,6 +69,12 @@ QUERY: dict[str, tuple[tuple[str, str, str], ...]] = {
     "board.list": (("limit", "integer", "How many finished runs to return"),),
     "requests.list": (("limit", "integer", "How many submissions to return"),),
     "artifacts.get": (("ref", "string", "The art:// reference to fetch"),),
+    "vocabulary.match": (("term", "string", "The word whose meaning is wanted"),
+                         ("scheme", "string", "The vocabulary to look in (empty: every one)"),
+                         ("limit", "integer", "How many candidates to consider")),
+    "vocabulary.master": (("scheme", "string", "The vocabulary to stage"),
+                          ("owner", "string", "The owner named in the master"),
+                          ("version", "string", "The version to stamp")),
 }
 
 #: Operations whose body is FILES, not JSON — the multipart field the store reads (storage-mcp's
@@ -89,7 +96,14 @@ DECIDE_BODY = {
         "card": {"type": "object", "description": "A card's flat response; the lab shapes it into `answer`"},
     },
 }
-BODIES = {"approvals.decide": DECIDE_BODY}
+def _fields_body(fields) -> dict:
+    return {"type": "object", "required": [n for n, req, _ in fields if req],
+            "properties": {n: {"type": "string", "description": d} for n, _, d in fields}}
+
+
+BODIES = {"approvals.decide": DECIDE_BODY,
+          "vocabulary.propose": _fields_body(VOCAB_PROPOSE_FIELDS),
+          "vocabulary.alias": _fields_body(VOCAB_ALIAS_FIELDS)}
 
 SECURITY = {"entra": {
     "type": "oauth2", "flow": "accessCode",

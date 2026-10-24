@@ -215,8 +215,14 @@ class ApiRoles:
     SUBMIT = "Workflow.Submit"
     READ = "Approvals.Read"
     DECIDE = "Approvals.Decide"
+    # The fabric's STABLE vocabulary verbs over REST, for a channel that cannot speak MCP (SAF's flows and
+    # Dataverse custom APIs through a custom connector; user decision 24 Oct 2026). Three powers, split
+    # like the gate's: asking what a word means, proposing one, and the steward's act of naming an alias.
+    VOCAB_READ = "Vocabulary.Read"
+    VOCAB_PROPOSE = "Vocabulary.Propose"
+    VOCAB_STEWARD = "Vocabulary.Steward"
 
-    ALL: tuple[str, ...] = (SUBMIT, READ, DECIDE)
+    ALL: tuple[str, ...] = (SUBMIT, READ, DECIDE, VOCAB_READ, VOCAB_PROPOSE, VOCAB_STEWARD)
 
 
 class CollabTools(ToolCatalogue):

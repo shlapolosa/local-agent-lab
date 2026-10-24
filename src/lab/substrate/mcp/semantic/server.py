@@ -42,7 +42,7 @@ from lab.core.canon import file_slug
 from lab.platform.fabric_events import METRICS_KEY
 from lab.platform.filetypes import content_type_for
 from lab.substrate import fabric_custody, fabric_publication
-from lab.substrate.mcp.semantic import views, vocab_seed
+from lab.substrate.mcp.semantic import rest, views, vocab_seed
 from lab.substrate.mcp.semantic.rung_store import RungStore
 from lab.substrate.mcpserver import LabServer, span
 
@@ -601,8 +601,12 @@ def semantic_vocab_master(scheme: str, owner: str = "ea@doh", version: str = "")
     signing seed is off every service by design and the corpus reader holds SELECT only. The `command` is the
     exact line to run. The master is the SOURCE — the publisher hashes this text and derives its records from
     parsing it, so `derived_from = master_sha256` is mechanical rather than a promise."""
-    sc = S.scheme(scheme)
-    return asyncio.run(fabric_publication.stage(sc, call=_local_store, owner=owner, version=version))
+    return asyncio.run(stage_master(scheme, owner, version))
+
+
+async def stage_master(scheme: str, owner: str = "ea@doh", version: str = "") -> dict:
+    """The master staged by reference — ONE implementation for the tool and `GET /api/vocabulary/master`."""
+    return await fabric_publication.stage(S.scheme(scheme), call=_local_store, owner=owner, version=version)
 
 
 async def _local_store(calls):
@@ -830,4 +834,5 @@ def semantic_promote(subject: str, actor: str, method: str, predicate: str = "",
 
 if __name__ == "__main__":
     boot()
-    server.serve()
+    # /vocabulary/*: the front door forwards /api/vocabulary/* here (FR-6) — the same domain calls as the tools
+    server.serve(routes=rest.routes(fabric=fabric, master=stage_master))

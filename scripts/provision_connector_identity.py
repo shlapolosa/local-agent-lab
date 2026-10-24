@@ -138,9 +138,13 @@ def main() -> int:
         app = call("POST", "/applications", {"displayName": CONNECTOR, "signInAudience": "AzureADMyOrg"})
         print(f"created {CONNECTOR}")
     else:
-        print(f"{CONNECTOR} exists (a NEW secret will be added)")
-    sec = call("POST", f"/applications/{app['id']}/addPassword",
-               {"passwordCredential": {"displayName": "lab", "endDateTime": SECRET_EXPIRY}})
+        print(f"{CONNECTOR} exists")
+    # A secret only when this app has none on record: re-running to widen roles must not mint (and print)
+    # a fresh credential every time.
+    sec = None
+    if os.environ.get("CONNECTOR_CLIENT_ID") != app["appId"]:
+        sec = call("POST", f"/applications/{app['id']}/addPassword",
+                   {"passwordCredential": {"displayName": "lab", "endDateTime": SECRET_EXPIRY}})
     sp = ensure_sp(app["appId"])
 
     granted = {a["appRoleId"] for a in call("GET", f"/servicePrincipals/{sp['id']}/appRoleAssignments")["value"]}
@@ -152,6 +156,9 @@ def main() -> int:
             print(f"granted {value}")
 
     audience = (gw.get("identifierUris") or [f"api://{gw['appId']}"])[0]
+    if sec is None:
+        print(f"{CONNECTOR} already provisioned (CONNECTOR_CLIENT_ID matches) — roles reconciled, no new secret")
+        return 0
     print("\nAdd to .env:")
     print(f"CONNECTOR_CLIENT_ID={app['appId']}")
     print(f"CONNECTOR_CLIENT_SECRET={sec['secretText']}")

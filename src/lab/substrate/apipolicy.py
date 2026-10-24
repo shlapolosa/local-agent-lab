@@ -119,6 +119,16 @@ OPERATIONS: tuple[Operation, ...] = (
         "the latest submissions across processes"),
     _op("requests.get", "GET", rf"/requests/{_SEG}", ApiRoles.SUBMIT,
         "one submission by id, whatever its process"),
+    # The fabric's STABLE vocabulary verbs (FR-6), forwarded to semantic-mcp. The in-flux verbs
+    # (resolve, place, relate) are deliberately absent until they settle.
+    _op("vocabulary.match", "GET", r"/vocabulary/match", ApiRoles.VOCAB_READ,
+        "which concept a term means, matched against concept definitions"),
+    _op("vocabulary.master", "GET", r"/vocabulary/master", ApiRoles.VOCAB_READ,
+        "the vocabulary as its two-table master, staged by reference"),
+    _op("vocabulary.propose", "POST", r"/vocabulary/proposals", ApiRoles.VOCAB_PROPOSE,
+        "park a candidate concept for a steward, with the artifact that proposed it"),
+    _op("vocabulary.alias", "POST", r"/vocabulary/aliases", ApiRoles.VOCAB_STEWARD,
+        "teach an existing concept another name (a steward's act)"),
     _op("approvals.decide", "POST", rf"/approvals/{_SEG}/decide", ApiRoles.DECIDE,
         "record a human's decision, relayed by a client that authenticated them"),
 )

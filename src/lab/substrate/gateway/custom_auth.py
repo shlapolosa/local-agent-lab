@@ -138,7 +138,8 @@ def _person(claims: dict) -> str:
 #: Where a delegated caller names a person in the body, and the operation that carries it. The caller's
 #: identity does not survive the hop to the front door, so the gateway holds the body to the token here:
 #: nobody records a decision, or starts a run, in somebody else's name.
-_SELF_FIELDS = {"approvals.decide": "actor", "processes.submit": "requester"}
+_SELF_FIELDS = {"approvals.decide": "actor", "processes.submit": "requester",
+                "vocabulary.propose": "actor", "vocabulary.alias": "actor"}
 #: The audit channel a person's own call may name. A relay (the review app) names itself; a person must
 #: not borrow that label, or the log would credit a decision to a surface that never saw it.
 _PERSON_CHANNELS = {"", "connector"}

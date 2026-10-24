@@ -603,6 +603,21 @@ def test_a_person_cannot_label_their_decision_as_another_channel_s():
         p.undo()
 
 
+def test_a_person_proposes_a_term_only_as_themselves():
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        proposer = _person([ApiRoles.VOCAB_PROPOSE])
+        path = "/api/vocabulary/proposals"
+        assert auth_req(proposer, Req(path, body={"label": "x", "actor": USER_UPN})) == "sk-dev-maria"
+        assert "actor" in _denied(proposer, Req(path, body={"label": "x", "actor": "saf-assistant"}))
+        # and naming an alias is the STEWARD's power, not the proposer's
+        assert ApiRoles.VOCAB_STEWARD in _denied(proposer, Req("/api/vocabulary/aliases",
+                                                               body={"actor": USER_UPN}))
+    finally:
+        p.undo()
+
+
 def test_a_person_submits_as_themselves():
     p, _ = _fresh()
     try:

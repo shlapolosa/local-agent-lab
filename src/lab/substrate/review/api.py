@@ -8,7 +8,7 @@ operation in `lab.substrate.apipolicy`, so a Power Apps page or a Teams tab can 
 app does, holding exactly the same roles.
 
 IDENTITY — the app relays its person. It authenticates as ITSELF (client credentials on its own Entra
-registration, `REVIEW_ENTRA_CLIENT_ID`, holding Workflow.Submit + Approvals.Read + Approvals.Decide)
+registration, `REVIEW_API_CLIENT_ID`, holding Workflow.Submit + Approvals.Read + Approvals.Decide)
 and passes the signed-in reviewer as `actor` / `requester` — the RELAY pattern (user decision 24 Oct
 2026). That app credential is REQUIRED: `/api` refuses a virtual key, so there is no key fallback. The
 PERSON may still sign in through the password gate when SSO is not configured; only the app's own
@@ -32,8 +32,10 @@ __all__ = ["LabApi", "CHANNEL", "PREFIX", "from_config"]
 #: How the gate records a decision taken here: `api:review-app` — the door stamps the `api:` prefix.
 CHANNEL = "review-app"
 
-#: The env prefix of the app's own Entra registration: REVIEW_ENTRA_CLIENT_ID / _SECRET.
-PREFIX = "REVIEW_ENTRA"
+#: The env prefix of the app's GATEWAY identity: REVIEW_API_CLIENT_ID / _SECRET. Deliberately NOT the
+#: human sign-in registration (REVIEW_ENTRA_*): setting that one switches the password gate to SSO, which
+#: needs redirect URIs and page roles — two concerns, two registrations, neither can lock the other out.
+PREFIX = "REVIEW_API"
 
 McpCall = Callable[[list], Coroutine[Any, Any, list]]
 

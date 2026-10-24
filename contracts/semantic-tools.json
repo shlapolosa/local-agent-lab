@@ -1,0 +1,2357 @@
+{
+  "contract_version": "1.0.0",
+  "grants": {
+    "PIPELINE": [
+      "semantic_catalog_assert",
+      "semantic_catalog_state",
+      "semantic_catalog_upsert",
+      "semantic_concept_match",
+      "semantic_derive",
+      "semantic_edge_assert",
+      "semantic_edge_retract",
+      "semantic_embed",
+      "semantic_vocab_asked",
+      "semantic_vocab_link",
+      "semantic_vocab_propose",
+      "semantic_vocab_relation_propose",
+      "semantic_vocab_resolve"
+    ],
+    "PROMOTE": [
+      "semantic_about_after_all",
+      "semantic_not_about",
+      "semantic_promote",
+      "semantic_vocab_amend",
+      "semantic_vocab_decline",
+      "semantic_vocab_place",
+      "semantic_vocab_relate",
+      "semantic_vocab_relation_decline",
+      "semantic_vocab_retire"
+    ],
+    "READ": [
+      "semantic_ask",
+      "semantic_catalog_by_url",
+      "semantic_catalog_get",
+      "semantic_check",
+      "semantic_classify",
+      "semantic_concept_pairs",
+      "semantic_concepts",
+      "semantic_describe",
+      "semantic_export_archimate",
+      "semantic_impact",
+      "semantic_load_model",
+      "semantic_metrics",
+      "semantic_ontologies",
+      "semantic_query",
+      "semantic_questions",
+      "semantic_recommend",
+      "semantic_related",
+      "semantic_schemes",
+      "semantic_search",
+      "semantic_similar",
+      "semantic_store_page",
+      "semantic_store_spec",
+      "semantic_topology",
+      "semantic_trace",
+      "semantic_validate_model",
+      "semantic_validate_shapes",
+      "semantic_view_architecture",
+      "semantic_view_capabilities",
+      "semantic_view_corpus",
+      "semantic_view_ontology",
+      "semantic_view_realisations",
+      "semantic_view_workflow",
+      "semantic_vocab_candidates",
+      "semantic_vocab_conflicts",
+      "semantic_vocab_master",
+      "semantic_vocab_relation_candidates",
+      "semantic_vocab_relation_open"
+    ],
+    "RECLASSIFY": [
+      "semantic_catalog_reclassify"
+    ],
+    "REINDEX": [
+      "semantic_reindex"
+    ],
+    "VIEWS": [
+      "semantic_view_architecture",
+      "semantic_view_capabilities",
+      "semantic_view_ontology",
+      "semantic_view_realisations",
+      "semantic_view_workflow"
+    ],
+    "WALK": [
+      "semantic_catalog_list"
+    ],
+    "WRITE": [
+      "semantic_about_after_all",
+      "semantic_catalog_assert",
+      "semantic_catalog_state",
+      "semantic_catalog_upsert",
+      "semantic_concept_match",
+      "semantic_derive",
+      "semantic_edge_assert",
+      "semantic_edge_retract",
+      "semantic_embed",
+      "semantic_not_about",
+      "semantic_promote",
+      "semantic_reindex",
+      "semantic_vocab_amend",
+      "semantic_vocab_asked",
+      "semantic_vocab_decline",
+      "semantic_vocab_link",
+      "semantic_vocab_place",
+      "semantic_vocab_propose",
+      "semantic_vocab_relate",
+      "semantic_vocab_relation_decline",
+      "semantic_vocab_relation_propose",
+      "semantic_vocab_resolve",
+      "semantic_vocab_retire"
+    ]
+  },
+  "server": "semantic_mcp",
+  "stability": {
+    "semantic_about_after_all": "internal",
+    "semantic_ask": "internal",
+    "semantic_catalog_assert": "internal",
+    "semantic_catalog_by_url": "stable",
+    "semantic_catalog_get": "stable",
+    "semantic_catalog_list": "stable",
+    "semantic_catalog_reclassify": "internal",
+    "semantic_catalog_state": "internal",
+    "semantic_catalog_upsert": "internal",
+    "semantic_check": "internal",
+    "semantic_classify": "internal",
+    "semantic_concept_match": "stable",
+    "semantic_concept_pairs": "internal",
+    "semantic_concepts": "stable",
+    "semantic_derive": "internal",
+    "semantic_describe": "internal",
+    "semantic_edge_assert": "stable",
+    "semantic_edge_retract": "stable",
+    "semantic_embed": "internal",
+    "semantic_export_archimate": "internal",
+    "semantic_impact": "internal",
+    "semantic_load_model": "internal",
+    "semantic_metrics": "internal",
+    "semantic_not_about": "internal",
+    "semantic_ontologies": "internal",
+    "semantic_promote": "internal",
+    "semantic_query": "internal",
+    "semantic_questions": "internal",
+    "semantic_recommend": "internal",
+    "semantic_reindex": "internal",
+    "semantic_related": "internal",
+    "semantic_schemes": "stable",
+    "semantic_search": "internal",
+    "semantic_similar": "internal",
+    "semantic_store_page": "internal",
+    "semantic_store_spec": "internal",
+    "semantic_topology": "internal",
+    "semantic_trace": "internal",
+    "semantic_validate_model": "internal",
+    "semantic_validate_shapes": "internal",
+    "semantic_view_architecture": "internal",
+    "semantic_view_capabilities": "internal",
+    "semantic_view_corpus": "internal",
+    "semantic_view_ontology": "internal",
+    "semantic_view_realisations": "internal",
+    "semantic_view_workflow": "internal",
+    "semantic_vocab_amend": "stable",
+    "semantic_vocab_asked": "internal",
+    "semantic_vocab_candidates": "in-flux",
+    "semantic_vocab_conflicts": "internal",
+    "semantic_vocab_decline": "internal",
+    "semantic_vocab_link": "stable",
+    "semantic_vocab_master": "stable",
+    "semantic_vocab_place": "in-flux",
+    "semantic_vocab_propose": "stable",
+    "semantic_vocab_relate": "in-flux",
+    "semantic_vocab_relation_candidates": "in-flux",
+    "semantic_vocab_relation_decline": "internal",
+    "semantic_vocab_relation_open": "internal",
+    "semantic_vocab_relation_propose": "internal",
+    "semantic_vocab_resolve": "in-flux",
+    "semantic_vocab_retire": "in-flux"
+  },
+  "tools": [
+    {
+      "description": "Clear a record's subject exclusion, so a label match may link the concept again. A NO is durable, not\npermanent — without this one wrong tap would make a record permanently un-linkable to a concept, with\nnothing on screen to say why the classifier kept ignoring it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "concept": {
+            "type": "string"
+          },
+          "iri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri",
+          "concept",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_about_after_all",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Ask a named question, e.g. semantic_ask('goals_realized_by_components_on_node',\n{'node': 'M1'}) -> which goals are transitively realized by components on that node.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_ask",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Assert a classified facet (document_type | owner | sensitivity_label | projection_url | rendering) at a provenance\nrung: the row's column AND the graph triple with its PROV record. Owner and label are refused anywhere\nbut C (NFR-3).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "default": "",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "field": {
+            "type": "string"
+          },
+          "iri": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "rung": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri",
+          "field",
+          "value",
+          "rung",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_catalog_assert",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "The Catalog row for the document ONE WEB URL names — the `https://...` address a person copies\nout of a browser, or that a search result or a citation gives — or null when no record is held\nfor it. Same shape as `semantic_catalog_get`: identity and custody, never content.\n\nThis is how a question about a document somebody is LOOKING at (\"who owns this, is it approved,\nwhat does it affect\") reaches the governed record. null means exactly that no catalogued artifact\nhas that url's custody — it is never the record with the nearest title, because two records\nsharing a title is precisely the case a title match gets wrong and nobody can see it has.\n\nThe url is resolved by the PROVIDER through the governed collaboration port, not from an index of\nthe fabric's own: a web url is path-based, so renaming or moving a file changes it while the item\nit names does not (`lab.substrate.fabric_custody` records the full reasoning).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_catalog_by_url",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "The Catalog row for an artifact — by IRI, or by POINTER ({source, handle|ref|…}) — plus its graph\nlinks by rung (delivery, references, subjects, facets), or null. Identity and custody only — never content.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "default": "",
+            "type": "string"
+          },
+          "pointer": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_catalog_get",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "One page of the catalogue in IRI order — {items:[{iri,title,document_type,state,pointer,…}], cursor,\nmore}. Pass `cursor` straight back as `after` to continue; never compose one yourself.\n\nKEYSET, not offset: rows are added while a long walk runs, so an offset would silently skip or repeat\nrecords. `state` narrows to one lifecycle state and refuses one that does not exist, because a typo\nreturning an empty page is the one answer an operator would act on wrongly. Metadata only, as ever.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "default": "",
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "type": "integer"
+          },
+          "state": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_catalog_list",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Re-read ONE catalogued artifact with today's classifier — {request_id, duplicate, pointer}.\n\nYou name a record; you supply NOTHING else. The pointer, the producing process and the delivery\ncontext all come from the row the fabric itself recorded, so this cannot introduce an input the lab\nhas not already validated. That is what makes it legitimate for a process whose `submit` deliberately\ndoes not exist (`ARTIFACT_INTAKE.external = False` — the ArtifactChanged event IS the provenance of\neverything a normal run records), and it is the same argument `workflow_replay` makes: a caller may\nask that inputs already accepted be used again, never supply new ones.\n\nThe run carries `reason=reclassify`, so it re-links the subjects and asks NOBODY unless the record\ngains a document type — re-reading a back catalogue must not raise a second card for every record\nwhose first one is still open.\n\nAn artifact whose pointer names nothing is refused rather than submitted: intake reads the artifact\nTHROUGH its pointer, so a row without one is not a thing that can be re-read, and spending a run to\ndiscover that would read as a classifier fault rather than a catalogue one.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_catalog_reclassify",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Move an artifact's lifecycle (pending | in-review | published | withdrawn), optionally recording the\nbaseline version and whether it is unassociated with any delivery context.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "iri": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "unassociated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "iri",
+          "state"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_catalog_state",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Identify an artifact: mint its IRI (or find it by pointer) and mirror the row into rung C. A lab\nprocess's output (`produced_by`) gets its document type as a FACT and its delivery edge from the run's\n`context` (`<kind>:<id>`). Idempotent on the pointer.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "default": "",
+            "type": "string"
+          },
+          "iri": {
+            "default": "",
+            "type": "string"
+          },
+          "pointer": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "produced_by": {
+            "default": "",
+            "type": "string"
+          },
+          "source_kind": {
+            "default": "",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pointer"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_catalog_upsert",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Is `relation` permitted from element type `source` to `target`? Exact answer from the\nArchiMate relationship matrix, plus the full list of what is allowed for that pair.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "relation": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "vocab": {
+            "default": "archimate-3.1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "relation",
+          "target"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_check",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Candidate element types for a concept described in words (e.g. 'REST API exposed by\nthe backend'). Deterministic keyword scoring — the agent makes the final call using the\ndefinitions returned.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 5,
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "vocab": {
+            "default": "archimate-3.1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_classify",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Which concept a TERM means — matched against concept DEFINITIONS, for a term whose words matched\nno label. The semantic tier of the inverted classifier: `{term, concept, label, score, margin,\nscheme, unavailable}`, where an empty `concept` is the ORDINARY answer.\n\nNothing is not a failure. Measured 17 Oct 2026 on real documents, 19 of 30 extracted terms matched\nno concept confidently, and the ones refused include `dead-letter handling rota -> Migration\ndisposition` — nonsense an absolute score threshold would have accepted. A term that falls through\nbecomes a candidate for a steward, which is how the vocabulary learns what the corpus needed and it\ndid not have.\n\n`unavailable` is NOT a miss: it means no embedder is configured, so the question could not be asked\nat all. \"The vocabulary has no such concept\" is a claim about the corpus; \"I could not ask\" is a\nclaim about the deployment, and reading one as the other would make an outage look like a\nvocabulary gap.\n\nIt INDEXES lazily — definitions not yet in the embedder's space are embedded on the way past, which\nis why it is a pipeline verb and not a read.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 5,
+            "type": "integer"
+          },
+          "scheme": {
+            "default": "",
+            "type": "string"
+          },
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "term"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_concept_match",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Concepts the CORPUS keeps connecting that the vocabulary says nothing about.\n\nTwo concepts turning up on the same documents again and again is the corpus saying they are related;\na vocabulary silent about them has a gap a steward can close. Evidence, never a conclusion —\nco-occurrence is not a relation and cannot name one, so this proposes the QUESTION and a person\nanswers it. Read at the trusted rungs, so a model's suggestion never proposes a relation. Counts and\nconcept ids, never content.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "type": "integer"
+          },
+          "min_records": {
+            "default": 3,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_concept_pairs",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Concepts of a scheme: the whole vocabulary, or the subtree under `root_label` (e.g. 'Patient Management')\nto `depth` levels. Kinds in a capability map: capability, value-stream, org-unit, stakeholder, information.\nPass an EMPTY kind for every kind at once, which is what a domain ontology needs — its concepts are entities,\nreferences and events, and asking for one of them would silently return part of the vocabulary.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "depth": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "kind": {
+            "default": "capability",
+            "type": "string"
+          },
+          "root_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scheme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_concepts",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Rebuild the DERIVED rung (D) from the trusted rungs: an artifact is related to the context of what it\nreferences; a record synthesised from minutes inherits their context. Counts only; impact reads D.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_derive",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Classification card for an element type: layer, aspect (active/behaviour/passive),\ndefinition, examples, and what it is commonly confused with.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "vocab": {
+            "default": "archimate-3.1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_describe",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Enter one edge at a rung (S needs a confidence; D is computed, never asserted). SHACL-checked: a\ncontent property never enters. `supersede` retracts the subject's previous value of that predicate.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "default": "",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "method": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "rung": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "supersede": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "subject",
+          "predicate",
+          "object",
+          "rung",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_edge_assert",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Supersede an edge (PROV invalidation — never deleted). `actor` names the person or the rule.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "predicate",
+          "object",
+          "actor",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_edge_retract",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Index an artifact by its DESCRIPTIVE text (title · type · subjects) through the gateway embedder.\nNever a body: the index proposes neighbours, it stores no content.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_embed",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Project a reference scheme (or subtree) to an ArchiMate model spec — Capability /\nValueStream elements with Composition, plus an L1 overview view and one nested view per\ntop concept. Feed the result to the EA-repository server's archimate_render + ea_stage_import:\nthat is the governed way to write reference capabilities into the EA repository.\nBy default the spec is stored as an artifact and only counts + spec_ref (art://…) are\nreturned — the gateway meters tool payloads as tokens and ea-mcp accepts spec_ref from\nany host. by_ref=False returns the payload inline (small subtrees); out_path also writes a\nlocal copy (dev).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "by_ref": {
+            "default": true,
+            "type": "boolean"
+          },
+          "depth": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "kind": {
+            "default": "capability",
+            "type": "string"
+          },
+          "out_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "root_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "views": {
+            "default": "overview,branches",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_export_archimate",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "What a change to this artifact may have invalidated: everything reaching it over the delivery and\nreference axes on TRUSTED rungs (C·X·H·D — never S, NFR-7), joined with the catalog.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "depth": {
+            "default": 3,
+            "type": "integer"
+          },
+          "iri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_impact",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Load a model into the semantic store as RDF (with derived relationships) so it can be queried\nwith semantic_query / semantic_ask.\n\nPass the spec by value (`spec`) or by artifact reference (`spec_ref`, art://…), exactly as\nsemantic_validate_model does. The reference is what a WORKLOAD must use: it holds no store\ncredentials, so a spec it produced is already an art:// ref and cannot be passed any other way.\n\nNOTE the store is IN-MEMORY and per process: what is loaded here is queryable for the life of\nthis server and does not survive a restart or reach a second replica. Keep the durable copy as\nan artifact (semantic_store_spec) and reload it when it is needed.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "model_id": {
+            "default": "",
+            "type": "string"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "vocab": {
+            "default": "archimate-3.1",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_load_model",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "The fabric's published measurements (BR-8), as last computed by the reconciler's tick: auto-association\nratio, drafts approved without rewrite, impact notices acknowledged, duplicate rate, labelled and owned\nshare — each with its numerator and denominator. Numbers, never content.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_metrics",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Record that a PERSON says this record is NOT about this concept, and retract the subject.\n\nDurable, which is the point: retracting alone left no trace, so the next classification matched the same\nlabel and put the subject straight back — a `keep` lasted for ever and a `drop` lasted until the next\nsweep. The sibling of `semantic_vocab_decline`, one level down: that one is a person's NO about a TERM,\nthis is a person's NO about one RECORD. `semantic_about_after_all` clears it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "concept": {
+            "type": "string"
+          },
+          "iri": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri",
+          "concept",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_not_about",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Vocabularies available in the semantic layer and their sizes.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_ontologies",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "A PERSON moves an assertion up the ladder (default to H): with a predicate and object, that edge;\nwith the subject alone, a candidate concept is accepted. `actor` is the signed-in human — blank is refused.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "object": {
+            "default": "",
+            "type": "string"
+          },
+          "predicate": {
+            "default": "",
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "to": {
+            "default": "H",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "actor",
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_promote",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Run SPARQL across the vocabularies and every loaded model. Prefixes:\nam: <urn:lab:semantic:archimate#>  meta: <urn:lab:semantic:meta#>. Derived relations\nare am:derivedRealization / am:derivedServing / am:derivedAssignment / ...",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          },
+          "sparql": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sparql"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_query",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Named traceability questions available to semantic_ask, with their parameters.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_questions",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Before you create a document: the PUBLISHED records already on this topic, each with its owner and source\npointer — reuse or ask instead of writing a twin. Never content.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 5,
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_recommend",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Embed every catalog row the current embedder's space lacks, from its facets (title · type · subjects).\nWhat a switched embedder costs: one call. Counts only.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_reindex",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "What else the corpus is ABOUT this record — ranked by the RAREST concept the two share, each row naming\nthat concept so a reader can check the rank.\n\nThe complement of `semantic_similar`, which proposes neighbours from an embedding of a record's facets and\nso answers \"what reads like this\". This reads asserted subjects on the trusted rungs only, so a model's\nsuggestion never ranks as a relation. Rarest, not most: two records sharing five concepts that everything\nshares have said nothing, and a count would rank them above one exact match — and a concept the WHOLE corpus\ncarries relates nobody, so it is left out rather than padding the answer.\n\nTWO KINDS of neighbour, `via_kind` on every row. `shared` — about a concept in common, the stronger\nevidence. `derived` — about NO concept in common, but about concepts the vocabulary states are related\n(\"a document about Prescription and a spreadsheet about Prescription item\"), read from rung D and\nreported with the predicate that joins them (`via_predicate`, `via_object`). Shared ranks above derived\nalways; within a kind, the rarer concept wins. A derived neighbour exists only once the derivation has\nrun, which happens on a publish — a record that has never been published has none.\n\nA withdrawn record is hidden unless `state` asks for it, as in `semantic_search`. Facets and scores,\nnever content.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer"
+          },
+          "state": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_related",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Reference models loaded as SKOS concept schemes (capability maps, value streams,\norganisation / stakeholder / information maps) with per-kind, per-level counts.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_schemes",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "The facade: similarity over the index filtered by catalog facets (document type, lifecycle state).\nWithdrawn records are hidden unless `state=\"withdrawn\"` is asked for.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "document_type": {
+            "default": "",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "type": "integer"
+          },
+          "state": {
+            "default": "",
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_search",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Nearest indexed artifacts to an indexed artifact (`iri`) or to a text, joined with the catalog and\nscored — a PROPOSAL for overlap/association, never a decision. The RAW index, withdrawn records included;\n`semantic_search` is the filtered facade.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "default": "",
+            "type": "string"
+          },
+          "limit": {
+            "default": 5,
+            "type": "integer"
+          },
+          "text": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_similar",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Store a text document (Markdown, HTML) in the artifact store AS ITSELF and return its art:// ref.\n\nThe sibling of `semantic_store_spec`, and not the same tool: a spec is JSON and is stored as JSON, while a\npage must arrive at its reader byte for byte — `{\"text\": \"# Title\"}` written into a wiki is a file nobody\ncan read. The content type comes from the NAME, so a caller cannot mislabel its own file.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_store_page",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Store a model spec (the archimate_render / semantic_validate_model JSON) in the artifact\nstore and return its art:// reference plus counts. Lets a workload keep its intermediate\nspec BY REFERENCE without holding store credentials itself — the deterministic workflow\nnode calls this through the gateway. Writes only to the artifact store (never to the EA\nrepository), so it needs no human approval.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "default": "model.spec.json",
+            "type": "string"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_store_spec",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Draw what this record is about and what that connects it to, AS THE GRAPH STANDS NOW, and store the\ndrawing — returns {ref, name, media_type, suffix, nodes, edges, concepts, statuses, title}.\n\nThe drawing is named in the RENDERER's own terms (`suffix`, `media_type`) and never as HTML: which adapter\ndraws is configuration (`FABRIC_RENDERER`), so a caller that assumed a page would break the day a raster or\nan interactive one is configured — the one change the renderer registry exists to make free.\n\nEvery call rebuilds the view from the catalogue and the vocabulary, so a picture is never older than the\nknowledge; there is no stored layout to go stale. The colour of each box is the RUNG the link was made at,\nso the drawing answers how the fabric knows what it claims and not merely what it claims. `proposed` are\nterms the record used that the vocabulary has no concept for — drawn as gaps, because a gap a person can\nsee is one a steward can close. Reading only: it writes an artifact, never the graph.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "type": "string"
+          },
+          "ontology_ring": {
+            "default": true,
+            "type": "boolean"
+          },
+          "proposed": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "iri"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_topology",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Breadth-first over the chosen rung graphs from `start`, joined with the catalog. The rungs you choose\nARE the trust policy of the answer; each hit carries the weakest rung on its path.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "depth": {
+            "default": 3,
+            "type": "integer"
+          },
+          "inbound": {
+            "default": true,
+            "type": "boolean"
+          },
+          "predicates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rungs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "predicates",
+          "rungs"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_trace",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Validate a model spec (same JSON as archimate_render): every illegal relationship with\nthe allowed alternatives, plus semantic warnings such as services consumed without an\ninterface assigned to them. Pass the spec by value (`spec`) or by artifact reference\n(`spec_ref`, art://…) — the reference keeps the tool argument small for agent callers.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "vocab": {
+            "default": "archimate-3.1",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_validate_model",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Run the fabric's SHACL shapes over its graphs now (metadata-only, owner provenance, assertion\ncompleteness) — the fitness function, on demand.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_validate_shapes",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Step 22's views: the logical reference architecture and the physical reference\nimplementation, each showing ONLY the solution's scope (layers with nothing in scope\ncollapse to a strip). Returns `{logical_ref, physical_ref, summary, rules_source}`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "default": "architecture",
+            "description": "The stored file's name, without extension.",
+            "type": "string"
+          },
+          "components": {
+            "description": "The SELECTED components: catalogue ids (cmp-…) or codes (GW-02). Logical building blocks are derived from them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "field": {
+            "default": "architecture_view",
+            "description": "The derived field the read is attributed to (e.g. `capability_view`).",
+            "type": "string"
+          },
+          "pattern": {
+            "default": "",
+            "description": "P1–P5, when the solution follows one.",
+            "type": "string"
+          },
+          "pin_id": {
+            "description": "The run's pin (reference_pin). A view reads the governed corpus under it and refuses without one.",
+            "type": "string"
+          },
+          "process": {
+            "description": "The registered process the run belongs to.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The run the view is drawn for — recorded against the read.",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "The page title — the use case's problem, in a few words.",
+            "type": "string"
+          },
+          "use_case": {
+            "default": "",
+            "description": "The use case's id, printed under the title.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "components",
+          "pin_id",
+          "run_id",
+          "process"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_view_architecture",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Step 5's view: the whole technology capability map with every impacted L3 filled —\nred missing, green new, amber consumed (C) or updated (U) — and the rest faded. Stores\none HTML page; returns `{html_ref, summary, rules_source}`. Unknown ids are listed on the\npage and under `summary.unresolved`, never dropped.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "default": "capabilities",
+            "description": "The stored file's name, without extension.",
+            "type": "string"
+          },
+          "capabilities": {
+            "description": "Impacted technology L3s: {id, status: missing|new|consumed|updated, note?}; a capability NOT on the map is {name, parent_l2, status} and is drawn as a proposed block (a capability-map delta).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "field": {
+            "default": "capability_view",
+            "description": "The derived field the read is attributed to (e.g. `capability_view`).",
+            "type": "string"
+          },
+          "pin_id": {
+            "description": "The run's pin (reference_pin). A view reads the governed corpus under it and refuses without one.",
+            "type": "string"
+          },
+          "process": {
+            "description": "The registered process the run belongs to.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The run the view is drawn for — recorded against the read.",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "The page title — the use case's problem, in a few words.",
+            "type": "string"
+          },
+          "use_case": {
+            "default": "",
+            "description": "The use case's id, printed under the title.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capabilities",
+          "pin_id",
+          "run_id",
+          "process"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_view_capabilities",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Draw the WHOLE catalogue — every record that is about something, the concepts they share, and the\nvocabulary's own edges between those — and store the drawing. Returns the same shape as\n`semantic_topology` plus `records`/`silent`.\n\nThe question it answers is the one no per-record picture can: what is our knowledge ABOUT, and what is\nit silent on. Resolved in process, deliberately — a caller walking the catalogue over the gateway pays\na round trip per record and trips its own rate limit at about sixty.\n\n`state` narrows to one lifecycle state (an unknown one is refused, so a typo never reads as \"nothing\nmatched\"); `limit` caps records READ. What is DRAWN is the view's decision: a record about nothing has\nno edge, so it is counted in the subtitle rather than left on the rim saying nothing. Reading only.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 2000,
+            "type": "integer"
+          },
+          "state": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_view_corpus",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Step 9's view: the ontology match as an interactive force-directed page (offline — the\nscript is inlined). Green matched, amber partial or enhancement, red gap (the ontology\ndelta), grey context. Returns `{html_ref, summary, rules_source}`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "default": "ontology",
+            "description": "The stored file's name, without extension.",
+            "type": "string"
+          },
+          "concepts": {
+            "description": "Concepts the use case needs: {id (as in the ontology), status: matched|partial|enhancement|gap, note?}; a gap also gives {name, module, kind, definition}.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "field": {
+            "default": "ontology_view",
+            "description": "The derived field the read is attributed to (e.g. `capability_view`).",
+            "type": "string"
+          },
+          "pin_id": {
+            "description": "The run's pin (reference_pin). A view reads the governed corpus under it and refuses without one.",
+            "type": "string"
+          },
+          "process": {
+            "description": "The registered process the run belongs to.",
+            "type": "string"
+          },
+          "relationships": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Relationships the use case adds or changes: {subject, predicate, object, status?}. Existing ones between matched concepts are added automatically."
+          },
+          "run_id": {
+            "description": "The run the view is drawn for — recorded against the read.",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "The page title — the use case's problem, in a few words.",
+            "type": "string"
+          },
+          "use_case": {
+            "default": "",
+            "description": "The use case's id, printed under the title.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "concepts",
+          "pin_id",
+          "run_id",
+          "process"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_view_ontology",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Step 6's view: the realisation view with the shortlisted L3s filled by status and the\nchosen route marked ✔. UAE North availability shows as grey glyphs so the fill is the only\ncolour. Returns `{html_ref, summary, rules_source}`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "default": "realisations",
+            "description": "The stored file's name, without extension.",
+            "type": "string"
+          },
+          "field": {
+            "default": "realisation_view",
+            "description": "The derived field the read is attributed to (e.g. `capability_view`).",
+            "type": "string"
+          },
+          "pin_id": {
+            "description": "The run's pin (reference_pin). A view reads the governed corpus under it and refuses without one.",
+            "type": "string"
+          },
+          "process": {
+            "description": "The registered process the run belongs to.",
+            "type": "string"
+          },
+          "realisations": {
+            "description": "Shortlisted realisations: {id (L3), status: missing|new|consumed|updated, route?: microsoft|sovereign|alternative, product?, note?}.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "run_id": {
+            "description": "The run the view is drawn for — recorded against the read.",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "The page title — the use case's problem, in a few words.",
+            "type": "string"
+          },
+          "use_case": {
+            "default": "",
+            "description": "The use case's id, printed under the title.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realisations",
+          "pin_id",
+          "run_id",
+          "process"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_view_realisations",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Step 10's view: the workflow as BPMN swimlanes whose tasks are L3 capabilities. Unknown\nlanes or node ids are refused by name. Returns `{html_ref, summary, rules_source}`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "default": "workflow",
+            "description": "The stored file's name, without extension.",
+            "type": "string"
+          },
+          "field": {
+            "default": "workflow_view",
+            "description": "The derived field the read is attributed to (e.g. `capability_view`).",
+            "type": "string"
+          },
+          "pin_id": {
+            "description": "The run's pin (reference_pin). A view reads the governed corpus under it and refuses without one.",
+            "type": "string"
+          },
+          "process": {
+            "description": "The registered process the run belongs to.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The run the view is drawn for — recorded against the read.",
+            "type": "string"
+          },
+          "spec": {
+            "additionalProperties": true,
+            "description": "The flow: {title, lanes: [{id, label}], nodes: [{id, type: task|gateway|start|end|annotation, lane, cap?, name?, note?}], edges: [{from, to, type?, label?}]}. A task naming only `cap` (an L3 id) is labelled from the pinned map.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "spec",
+          "pin_id",
+          "run_id",
+          "process"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_view_workflow",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Teach a concept the vocabulary ALREADY holds another name, so the next document using that term is\nlinked instead of proposing the same candidate again. The steward's answer to \"this term has no concept\"\nwhen it does, under a different name — admitting a second would be the duplicate this prevents.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string"
+          },
+          "concept_id": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "concept_id",
+          "scheme",
+          "alt",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_amend",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Record that a steward has ALREADY BEEN ASKED about this term, so the next tick does not ask again.\n\n`fab:InReview`, the word the lifecycle already had. Kept in the REGISTER rather than in the memory of\nwhichever process asked: that memory was a set, it emptied on every restart, and the open cards went\nfrom 71 to 101 in one afternoon while nobody decided anything. Idempotent — a candidate already asked\nabout, admitted or declined is left exactly as it is, and says so.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "type": "string"
+          },
+          "request_id": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_asked",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Terms a run met that the vocabulary has no concept for and nobody has accepted or declined yet — what\na steward is asked to admit, place under another name, or decline.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_vocab_candidates",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Words this vocabulary gives more than one meaning, which no document could therefore be linked to.\nA steward settles each by retiring one meaning or renaming it; until then the link is not made, because\nlinking to both is worse than linking to neither.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_vocab_conflicts",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Record a STEWARD'S NO about a candidate term, so nobody is asked about it again.\n\nThe decline used to live only on the approval, while the reconciler's \"already asked\" memory is a set in\nthe PROCESS — so every restart re-asked every still-open candidate with a fresh approval id. Measured\n10 Oct 2026: the open concept-admission cards went from 71 to 101 in one afternoon while a steward\ndecided nothing. A person's answer has to outlive the process that heard it.\n\n`actor` is the person, never an agent name — this is a decision about what the fabric will mean for every\ndocument classified from now on. The term may be met again; it will not be asked about again.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "candidate": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_decline",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Link an artifact to every reference concept whose preferred label a term matches exactly (rung X,\nmethod label-match). Misses are returned for semantic_vocab_propose.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "iri": {
+            "type": "string"
+          },
+          "schemes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "iri",
+          "terms"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_link",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Render the vocabulary as its human-readable MASTER and store it by reference — what an operator then\nsigns and publishes into the governed corpus.\n\nReturns {artifact_id: {ref, name, rows, command}}. It stages; it does not publish, and it cannot: the\nsigning seed is off every service by design and the corpus reader holds SELECT only. The `command` is the\nexact line to run. The master is the SOURCE — the publisher hashes this text and derives its records from\nparsing it, so `derived_from = master_sha256` is mechanical rather than a promise.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "owner": {
+            "default": "ea@doh",
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "version": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_master",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Put an admitted concept UNDER a broader one — or, with an empty parent, back at the root.\n\nThe vocabulary's topology, as against its membership. `broader` is settable only at proposal time and the\nsteward's batch card deliberately collects no parent, so a concept arrives unplaced and the hierarchy\nfroze at admission: this is how it gets organised afterwards, which is when somebody usually knows where a\nconcept belongs. A cycle is refused by name rather than hanging the next reader, and a retired concept is\nrefused at either end. `actor` is the signed-in steward and is required.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "concept_id": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "concept_id",
+          "scheme",
+          "parent",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_place",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Park a candidate concept for a steward. Not in any scheme until a person accepts it (semantic_promote\nwith the candidate's IRI and no predicate), at which point it IS admitted and findable from then on.\n`scheme` is the vocabulary it would join and `concept_id` the id it would take — the steward supplies\nwhichever is missing at the gate, because a concept with no home cannot be looked up.\n\n`proposed_for` is the ARTIFACT whose words proposed the term. There is ONE row per term and this is\naccumulated onto it, so a steward is asked once however many documents want the word, the count of\nthem is the evidence of whether it matters, and admitting it re-matches exactly those artifacts\ninstead of the whole catalogue. Omit it and the candidate is parked with no provenance: the frequency\nthreshold reads a count that is then always null and asks about every term on first sight, and\nadmission propagates to nothing.\n\n`alias_of` is the concept a matcher thinks this term is another WORD FOR, when the semantic tier\nfound one. It is a suggestion recorded on the candidate, never a write to the vocabulary — amending\na scheme is a steward's act behind the PROMOTE grant. It turns the card's expensive question (\"what\ndoes this mean, and where does it sit?\") into the cheap one (\"is this another word for X?\").",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "alias_of": {
+            "default": "",
+            "type": "string"
+          },
+          "broader": {
+            "default": "",
+            "type": "string"
+          },
+          "concept_id": {
+            "default": "",
+            "type": "string"
+          },
+          "definition": {
+            "default": "",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "module": {
+            "default": "",
+            "type": "string"
+          },
+          "proposed_for": {
+            "default": "",
+            "type": "string"
+          },
+          "scheme": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_propose",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "State how two concepts are connected, with a TYPED predicate.\n\n`skos:related` cannot carry what the derived rung needs — \"A is about X, X relates to Y, B is about Y\" is\nanswerable only if the edge names its predicate — so a steward's relation arrives in the same shape as the\nvocabulary's own and publishes through the relationships master unchanged. A dangling end, a retired end,\na self-relation and a duplicate are each refused by name. `actor` is the signed-in steward and is required.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "cardinality": {
+            "default": "",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme",
+          "subject",
+          "predicate",
+          "object",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_relate",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "What a structured diagram proposes about the vocabulary's TOPOLOGY, resolved against it.\n\n`arrows` are a parsed diagram's connectors — `{\"from\": <box text>, \"to\": <box text>, \"label\": <arrow text>}`,\nthe shape `storage_read_vsdx` already returns. The boxes are terms and the arrows are relations, which makes\na diagram the one artifact carrying how the things a corpus is about are CONNECTED rather than just which\nthey are.\n\nReturns `{candidates, gaps, scheme}`. A box the vocabulary cannot name is a GAP, not an error — it is a\nterm a steward can admit, and dropping it silently is how a diagram stops being evidence. An AMBIGUOUS box\nresolves to nothing: choosing between two meanings narrows the vocabulary, which no diagram may settle. An\nunlabelled arrow is a candidate marked `unnamed` — the diagram says two concepts connect, not how, and a\nguessed predicate is an edge no author drew.\n\nRead-only. It proposes; a steward writes with `semantic_vocab_relate`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "arrows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "scheme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arrows",
+          "scheme"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_relation_candidates",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "A PERSON says these two concepts are not related that way — recorded so it sticks.\n\nThe sibling of `semantic_vocab_decline`. Both producers recompute their candidates on every run, so\nwithout a durable NO the same question comes back for ever.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_relation_decline",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Relation questions still waiting on a steward — what the ontology queue asks about.\n\nOpenness is DERIVED: a question disappears exactly when the vocabulary STATES the relation, however\nit came to, and a declined one stays gone. So the queue cannot drift from the vocabulary it is a\nqueue for, and no path has to remember to clean up after itself.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "semantic_vocab_relation_open",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Park a question about how two concepts RELATE, for a steward to answer.\n\nIdempotent on (scheme, subject, predicate case-folded, object), so two producers proposing the same\nrelation — a diagram's arrows and the corpus's co-occurrences — raise ONE question. `evidence` is what\na steward triages on (\"3 documents are about both\", \"drawn on the eRx context diagram\"). It parks a\nQUESTION, never a relation: `semantic_vocab_relate` is the write, and it takes a person's name.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "default": "",
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme",
+          "subject",
+          "predicate",
+          "object"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_relation_propose",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "The classifier's subject match as ONE decision: link every term whose preferred label matches\n(rung X), ask what each MISS means against concept definitions, and park whatever is left as a\ncandidate for a steward — `proposed_for` this artifact, carrying `alias_of` when the semantic tier\nrecognised it as another word for a concept already held.\n\nAnswers with the link result whole — `linked`, `missed`, `retracted`, `excluded`, `conflicts` — plus\n`proposed`, one entry per parked term. Use this rather than calling semantic_vocab_link,\nsemantic_concept_match and semantic_vocab_propose in turn: the order and the failure rules are the\nfabric's, and a semantic tier that is unavailable costs only the suggestion, never the term.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "definition": {
+            "default": "",
+            "type": "string"
+          },
+          "iri": {
+            "type": "string"
+          },
+          "scheme": {
+            "default": "",
+            "type": "string"
+          },
+          "terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "iri",
+          "terms",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_resolve",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Supersede a concept: it stops being offered to classifiers and keeps RESOLVING to the one that replaced\nit. Never deleted — a link made last month names the old id, and a lookup that fails on it turns a correct\nhistorical statement into a dangling one. `actor` is the signed-in human; blank is refused.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "concept_id": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          },
+          "resolves_to": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "concept_id",
+          "scheme",
+          "resolves_to",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_retire",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    }
+  ]
+}

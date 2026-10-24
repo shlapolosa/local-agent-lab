@@ -38,11 +38,27 @@ class Storage:
         return 201, {"content-type": "application/json"}, b'{"refs": ["art://u0/brief.docx"]}'
 
 
+class Semantic:
+    """Stands in for semantic-mcp's vocabulary routes."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, method, path, *, params=None, body=b"", content_type=""):
+        self.calls.append((method, path, params, body, content_type))
+        return 201 if method == "POST" else 200, {"content-type": "application/json"}, b'{"ok": true}'
+
+
+SEMANTIC = Semantic()
+
+
 @pytest.fixture
 def api():
     r, storage = FakeRedis(), Storage()
+    SEMANTIC.calls.clear()
     with srv.server.container.redis.override(r):
-        yield TestClient(Starlette(routes=rest.routes(srv.server, storage=storage))), r, storage
+        yield (TestClient(Starlette(routes=rest.routes(srv.server, storage=storage, semantic=SEMANTIC))),
+               r, storage)
 
 
 # ------------------------------------------------------------------ bytes, forwarded
@@ -183,3 +199,21 @@ def test_the_queue_in_full_is_one_call(api):
     aid = _staged(r, xml_ref="art://a1/model.xml", summary={"elements": 3})
     rows = client.get("/api/approvals", params={"full": 1}).json()["approvals"]
     assert rows[0]["request_id"] == aid and rows[0]["payload"]["summary"] == {"elements": 3}
+
+
+
+# ------------------------------------------------------------------ the vocabulary, forwarded (FR-6)
+def test_the_stable_vocabulary_verbs_are_forwarded_to_semantic_mcp_as_they_came(api):
+    client, _, _ = api
+    assert client.get("/api/vocabulary/match", params={"term": "eRx"}).status_code == 200
+    got = client.post("/api/vocabulary/proposals", json={"label": "x", "actor": "a@b"})
+    assert got.status_code == 201
+    assert [(m, p) for m, p, *_ in SEMANTIC.calls] == [("GET", "/vocabulary/match"),
+                                                        ("POST", "/vocabulary/proposals")]
+    assert SEMANTIC.calls[0][2] == {"term": "eRx"} and b'"label"' in SEMANTIC.calls[1][3]
+
+
+def test_the_in_flux_verbs_are_not_on_the_door(api):
+    client, _, _ = api
+    for path in ("/api/vocabulary/resolve", "/api/vocabulary/place", "/api/vocabulary/relate"):
+        assert client.post(path, json={}).status_code in (404, 405), path

@@ -122,3 +122,16 @@ Each of these cost hours to find, and none is derivable from reading the code. T
   now READ content, transiently and bounded, to decide what an artifact is about. "We never touch the
   bytes" was true in September and is not true now; "the catalogue holds only descriptions, links and
   status" (BRS principle 2) remains true and is enforced by the schema rather than by habit.
+
+## The semantic tools' published contract (`contracts/semantic-tools.json`)
+
+What an external consumer binds to — today the SAF pack, which is the taxonomy master at go-live and
+implements the fabric's spec verbatim behind a port (user decisions 24 Oct 2026, FR-5). One JSON file:
+`server`, `contract_version` (semver, bumped BY HAND in `lab.substrate.mcp.semantic.contract.VERSION` —
+major for a removed/renamed stable tool or a breaking schema change, minor for an addition), every
+tool's `name`/`description`/`inputSchema`/`outputSchema` as the server registers them, the grant tuples
+(`READ`, `PIPELINE`, `PROMOTE`, …) and a `stability` per tool. The tiers live in ONE place,
+`SemanticTools.STABLE` / `IN_FLUX` (everything else is `internal` — not a surface for anyone outside the
+lab). Regenerate with `PYTHONPATH=src .venv/bin/python scripts/render_semantic_contract.py` (offline);
+`tests/governance/test_semantic_contract_is_current.py` fails until the committed file equals what the
+server registers, byte for byte, and tells you to bump the version when the surface changed.

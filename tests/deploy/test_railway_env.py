@@ -118,6 +118,7 @@ FAKE = {
     "EMBED_URL": "emb", "PG_VECTOR_API_BASE": "pvb", "PG_VECTOR_API_KEY": "pvk", "REFERENCE_RING": "x", "REFERENCE_MCP_URL": "x", "REFERENCE_PROVIDER": "x",
     "MICROSOFT_CLIENT_ID": "mc", "MICROSOFT_CLIENT_SECRET": "ms", "MICROSOFT_TENANT": "mt",
     "REVIEW_ENTRA_CLIENT_ID": "rc", "REVIEW_ENTRA_CLIENT_SECRET": "rs",   # the review app's own SSO
+    "REVIEW_API_CLIENT_ID": "ra", "REVIEW_API_CLIENT_SECRET": "rz",       # ...and its gateway identity
     "PROXY_BASE_URL": "pb", "DEVELOPERS_TEAM_ID": "dt", "ENTRA_CLIENT_TO_KEY": "{}",
     "OTEL_EXPORTER": "otlp_http", "OTEL_ENDPOINT": "e", "OTEL_SERVICE_NAME": "litellm-gateway",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
@@ -230,7 +231,7 @@ def test_the_front_door_holds_redis_and_two_links_and_no_store():
     the URLs are addresses — two a reviewer follows, and storage-mcp's, where `/api/artifacts` and
     `/api/uploads` are forwarded — never a store or bucket credential."""
     env = railway.env_for_role("workflow-frontdoor", FAKE)
-    assert set(env) - {"STORAGE_MCP_URL", "PUBLIC_GATEWAY_URL"} == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
+    assert set(env) - {"STORAGE_MCP_URL", "PUBLIC_GATEWAY_URL", "SEMANTIC_MCP_URL"} == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
                                               "REVIEW_APP_URL", "JAEGER_UI_URL",
                                               "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not _has(env, "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_")
@@ -241,7 +242,7 @@ def test_the_review_app_is_a_client_of_the_seam_and_holds_no_store():
     through the gateway as its own Entra identity. So it holds ADDRESSES and its own registration —
     never Redis, a store, a bucket key, a database DSN or the substrate's shared secret."""
     rv = railway.env_for_role("review", FAKE, s3=bool(railway.SUBSTRATE["review"].get("s3")))
-    assert {"GATEWAY_URL", "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",
+    assert {"GATEWAY_URL", "REVIEW_API_CLIENT_ID", "REVIEW_API_CLIENT_SECRET",
             "ENTRA_TENANT_ID"} <= set(rv)
     assert not _has(rv, "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_",
                     "MCP_SHARED_SECRET", "REFERENCE_", "LITELLM_", "ADOIT_")

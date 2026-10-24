@@ -3,10 +3,11 @@
 The review app used to read Redis, the artifact store and the corpus in-process — a peer of the
 service layer. It now calls `/api` and gateway MCP like any other client. That needs:
 
-  1. App roles on `lab-gateway` for its EXISTING Entra registration (`REVIEW_ENTRA_CLIENT_ID`, the one
-     that already signs people in): Workflow.Submit (submit, uploads, the run board), Approvals.Read
-     (the queue, artifacts), Approvals.Decide (record the signed-in person's answer). No new secret —
-     the registration already holds one, and one registration per surface is the docx pattern.
+  1. Its OWN Entra registration, `review-app-api` (REVIEW_API_CLIENT_ID / _SECRET), holding app roles on
+     `lab-gateway`: Workflow.Submit (submit, uploads, the run board), Approvals.Read (the queue,
+     artifacts), Approvals.Decide (record the signed-in person's answer). NOT the human sign-in
+     registration (REVIEW_ENTRA_*): setting that switches the password gate to SSO, so the two stay apart.
+     Created once; re-runs reconcile the role assignments and never add a secret.
   2. A virtual key the gateway maps that registration to (ENTRA_CLIENT_TO_KEY): every call is metered
      on a key, and the key's team carries the ONE MCP grant the app needs — reference_mcp, for the
      Submit form's intake groups. No vector stores (sentinel), no other server.
@@ -27,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab.platform.contracts import ReferenceTools  # noqa: E402
 
+APP_NAME = "review-app-api"
 TEAM_ALIAS = "review-app"
 KEY_ALIAS = "review-app"
 #: The ONE MCP grant: pin + lookup on the corpus, for the Submit form's intake groups and the roadmap.
@@ -38,25 +40,32 @@ def main() -> int:
     from lab.platform.contracts import ApiRoles
     from provision_meeting_agents import _grants
     from provision_usecase_agents import NO_STORES
-    from provision_visio_agents import _patch_env, ensure_sp, find_app, graph, litellm, role_id
+    from provision_visio_agents import _patch_env, ensure_agent, ensure_sp, find_app, graph, litellm, role_id
 
-    client_id = os.environ.get("REVIEW_ENTRA_CLIENT_ID") or sys.exit(
-        "REVIEW_ENTRA_CLIENT_ID is not set — the review app's sign-in registration must exist first")
     gw = find_app("lab-gateway") or sys.exit("lab-gateway does not exist — run scripts/entra_provision.py")
     have = {r["value"] for r in gw.get("appRoles") or []}
     if not set(ApiRoles.ALL) <= have:
         sys.exit("lab-gateway lacks the /api roles — run scripts/provision_connector_identity.py first")
     gw_sp = ensure_sp(gw["appId"])
-    sp = ensure_sp(client_id)
-    granted = {a["appRoleId"] for a in graph("GET", f"/servicePrincipals/{sp['id']}/appRoleAssignments")["value"]}
-    for value in (ApiRoles.SUBMIT, ApiRoles.READ, ApiRoles.DECIDE):
-        if role_id(value) not in granted:
-            graph("POST", f"/servicePrincipals/{sp['id']}/appRoleAssignments",
-                  {"principalId": sp["id"], "resourceId": gw_sp["id"], "appRoleId": role_id(value)})
-            print(f"granted {value}")
+    roles = (ApiRoles.SUBMIT, ApiRoles.READ, ApiRoles.DECIDE)
+    patch = {}
+    client_id = os.environ.get("REVIEW_API_CLIENT_ID")
+    if not client_id:
+        # creates the app, ONE secret, and the role assignments (the visio agents' own helper)
+        client_id, secret = ensure_agent(APP_NAME, roles, gw_sp)
+        # written NOW: a secret is shown once, and a failure in a later step must not lose it
+        _patch_env({"REVIEW_API_CLIENT_ID": client_id, "REVIEW_API_CLIENT_SECRET": secret})
+        print(".env patched: ['REVIEW_API_CLIENT_ID', 'REVIEW_API_CLIENT_SECRET']")
+    else:
+        sp = ensure_sp(client_id)
+        granted = {a["appRoleId"] for a in graph("GET", f"/servicePrincipals/{sp['id']}/appRoleAssignments")["value"]}
+        for value in roles:
+            if role_id(value) not in granted:
+                graph("POST", f"/servicePrincipals/{sp['id']}/appRoleAssignments",
+                      {"principalId": sp["id"], "resourceId": gw_sp["id"], "appRoleId": role_id(value)})
+                print(f"granted {value}")
 
     permission = {**_grants(REVIEW_TOOLS), "vector_stores": list(NO_STORES)}
-    patch = {}
     team_id = os.environ.get("REVIEW_TEAM_ID")
     if team_id:
         litellm("/team/update", {"team_id": team_id, "models": [], "object_permission": permission})

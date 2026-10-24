@@ -140,5 +140,5 @@ def test_without_its_own_entra_registration_the_app_says_what_to_set(monkeypatch
     from lab.substrate.review import api as api_mod
     monkeypatch.setattr(identity, "agent_token", lambda prefix: None)
     lab = api_mod.from_config()
-    with pytest.raises(RuntimeError, match="REVIEW_ENTRA_CLIENT_ID"):
+    with pytest.raises(RuntimeError, match="REVIEW_API_CLIENT_ID"):
         lab.pending()
