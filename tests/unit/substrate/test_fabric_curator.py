@@ -160,3 +160,21 @@ def test_a_subject_already_CONFIRMED_is_not_promoted_twice():
     """Idempotent, like the type branch: a card answered twice must not append a second assertion."""
     row = {**ROW, "links": [{"predicate": "subject", "rung": "H", "object": "urn:c#Prescription"}]}
     assert C.plan(row, {"subject:urn:c#Prescription": {"value": "keep"}}, "steward@x") == []
+
+
+def test_the_AUTHOR_confirms_renames_or_removes_each_extracted_term():
+    """FR-10: the owner's card carries one `term:<candidate>` item per term read out of the document; each
+    answer becomes the author's decision on that candidate, in the author's name."""
+    calls = C.plan(ROW, {"term:urn:fabric:candidate:1": {"value": "confirm"},
+                         "term:urn:fabric:candidate:2": {"value": "rename: Dispense audit"},
+                         "term:urn:fabric:candidate:3": {"value": "remove"}}, "author@x")
+    got = [(t, a) for t, a in calls if t == SemanticTools.author_confirm]
+    assert [(a["candidate"], a["decision"], a.get("label", "")) for _, a in got] == [
+        ("urn:fabric:candidate:1", "confirm", ""), ("urn:fabric:candidate:2", "rename", "Dispense audit"),
+        ("urn:fabric:candidate:3", "remove", "")]
+    assert all(a["actor"] == "author@x" for _, a in got)
+
+
+def test_a_term_answer_that_is_none_of_the_three_is_refused_naming_the_term():
+    with pytest.raises(ValueError, match="confirm, rename:<word> or remove"):
+        C.plan(ROW, {"term:urn:fabric:candidate:1": {"value": "maybe"}}, "author@x")

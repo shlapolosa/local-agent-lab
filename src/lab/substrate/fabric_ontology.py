@@ -56,9 +56,14 @@ def batch_question(rows: list[dict]) -> list[dict]:
         pred = str(q.get("predicate") or "")
         reads = f"{q.get('subject')} --{pred or '?'}--> {q.get('object')}"
         verb = "relate" if pred else "relate:<predicate>"
+        # WHO proposed it and from HOW MANY artifacts (FR-7) — evidence, never an answer; absent when the
+        # producer recorded none, rather than an invented "1".
+        who = ", ".join(q.get("proposed_by") or [])
+        many = q.get("proposals")
+        provenance = (f" · proposed by {who}" if who else "") + (f" · {many} artifacts" if many else "")
         out.append({"label": str(q.get("iri") or ""),
                     "choices": [verb, "broader", "decline"],
-                    "samples": [f"{reads} — {q.get('evidence') or 'proposed'}",
+                    "samples": [f"{reads} — {q.get('evidence') or 'proposed'}{provenance}",
                                 f"{verb} — state it · broader — {q.get('object')} sits UNDER "
                                 f"{q.get('subject')} · decline — they are not connected that way"]})
     return out

@@ -456,7 +456,7 @@ def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader
 
 @server.tool()
 def semantic_vocab_resolve(iri: str, terms: list[str], actor: str, scheme: str = "",
-                           definition: str = "") -> dict:
+                           definition: str = "", awaiting_author: bool = False) -> dict:
     """The classifier's subject match as ONE decision: link every term whose preferred label matches
     (rung X), ask what each MISS means against concept definitions, and park whatever is left as a
     candidate for a steward — `proposed_for` this artifact, carrying `alias_of` when the semantic tier
@@ -465,8 +465,13 @@ def semantic_vocab_resolve(iri: str, terms: list[str], actor: str, scheme: str =
     Answers with the link result whole — `linked`, `missed`, `retracted`, `excluded`, `conflicts` — plus
     `proposed`, one entry per parked term. Use this rather than calling semantic_vocab_link,
     semantic_concept_match and semantic_vocab_propose in turn: the order and the failure rules are the
-    fabric's, and a semantic tier that is unavailable costs only the suggestion, never the term."""
-    return fabric().vocab_resolve(iri, terms, actor=actor, scheme=scheme, definition=definition)
+    fabric's, and a semantic tier that is unavailable costs only the suggestion, never the term.
+
+    `awaiting_author`: the terms were EXTRACTED from the artifact, so each parked term first waits for the
+    artifact's author (state `awaiting-author`, answered with semantic_vocab_author_confirm) before a
+    steward is asked."""
+    return fabric().vocab_resolve(iri, terms, actor=actor, scheme=scheme, definition=definition,
+                                  awaiting_author=awaiting_author)
 
 
 @server.tool()
@@ -537,15 +542,21 @@ def semantic_concept_pairs(min_records: int = 3, limit: int = 20) -> list:
 
 @server.tool()
 def semantic_vocab_relation_propose(scheme: str, subject: str, predicate: str, object: str,
-                                    evidence: str = "") -> dict:
+                                    evidence: str = "", actor: str = "", proposed_for: str = "") -> dict:
     """Park a question about how two concepts RELATE, for a steward to answer.
 
     Idempotent on (scheme, subject, predicate case-folded, object), so two producers proposing the same
     relation — a diagram's arrows and the corpus's co-occurrences — raise ONE question. `evidence` is what
     a steward triages on ("3 documents are about both", "drawn on the eRx context diagram"). It parks a
-    QUESTION, never a relation: `semantic_vocab_relate` is the write, and it takes a person's name."""
+    QUESTION, never a relation: `semantic_vocab_relate` is the write, and it takes a person's name.
+
+    `subject`/`object` may be WORDS — a concept's label or alt label — resolved by the vocabulary, an
+    ambiguous or unknown word refused naming the choices. `actor` is who proposed it (a person, or the
+    system acting for one) and `proposed_for` the catalogue IRI of the artifact that proposed it; both
+    accumulate on the one question, and `semantic_vocab_relation_open` returns them."""
     return fabric().vocab_relation_propose(scheme=scheme, subject=subject, predicate=predicate,
-                                           object=object, evidence=evidence)
+                                           object=object, evidence=evidence, actor=actor,
+                                           proposed_for=proposed_for)
 
 
 @server.tool()
@@ -565,6 +576,27 @@ def semantic_vocab_relation_decline(question: str, actor: str, reason: str = "")
     The sibling of `semantic_vocab_decline`. Both producers recompute their candidates on every run, so
     without a durable NO the same question comes back for ever."""
     return fabric().vocab_relation_decline(question, actor=actor, reason=reason)
+
+
+@server.tool()
+def semantic_vocab_author_confirm(candidate: str, decision: str, actor: str, label: str = "") -> dict:
+    """The AUTHOR's answer about a term extracted from their document: `confirm` sends it to a steward,
+    `rename` corrects the word first (give `label`), `remove` withdraws it — recorded as withdrawn by the
+    author, not declined by a steward. `actor` is the signed-in author; blank is refused. Answered once."""
+    return fabric().vocab_author_confirm(candidate, decision=decision, actor=actor, label=label)
+
+
+@server.tool()
+def semantic_vocab_candidates_import(rows: list[dict], actor: str) -> dict:
+    """Seed the candidate register from another master's decisions — the HANDOVER, so a steward is never
+    asked twice about a term or a relation they already answered elsewhere.
+
+    Each row is a TERM `{label, scheme, status, actor?, reason?, proposed_for?}` or a RELATION
+    `{scheme, subject, predicate, object, status, actor?, reason?}`; `status` is Pending | Withdrawn |
+    Admitted, words or ids are both fine. A row's `actor` is who DECIDED; `actor` here is the operator
+    running the import (required). Idempotent. `Admitted` is checked against the vocabulary (admissions
+    travel in the master) and reported, never parked. Returns {imported, results, problems}."""
+    return fabric().vocab_candidates_import(rows, actor=actor)
 
 
 @server.tool()

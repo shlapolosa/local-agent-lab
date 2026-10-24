@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "grants": {
     "PIPELINE": [
       "semantic_catalog_assert",
@@ -21,6 +21,8 @@
       "semantic_not_about",
       "semantic_promote",
       "semantic_vocab_amend",
+      "semantic_vocab_author_confirm",
+      "semantic_vocab_candidates_import",
       "semantic_vocab_decline",
       "semantic_vocab_place",
       "semantic_vocab_relate",
@@ -97,6 +99,8 @@
       "semantic_reindex",
       "semantic_vocab_amend",
       "semantic_vocab_asked",
+      "semantic_vocab_author_confirm",
+      "semantic_vocab_candidates_import",
       "semantic_vocab_decline",
       "semantic_vocab_link",
       "semantic_vocab_place",
@@ -158,7 +162,9 @@
     "semantic_view_workflow": "internal",
     "semantic_vocab_amend": "stable",
     "semantic_vocab_asked": "internal",
+    "semantic_vocab_author_confirm": "in-flux",
     "semantic_vocab_candidates": "in-flux",
+    "semantic_vocab_candidates_import": "in-flux",
     "semantic_vocab_conflicts": "internal",
     "semantic_vocab_decline": "internal",
     "semantic_vocab_link": "stable",
@@ -167,9 +173,9 @@
     "semantic_vocab_propose": "stable",
     "semantic_vocab_relate": "in-flux",
     "semantic_vocab_relation_candidates": "in-flux",
-    "semantic_vocab_relation_decline": "internal",
-    "semantic_vocab_relation_open": "internal",
-    "semantic_vocab_relation_propose": "internal",
+    "semantic_vocab_relation_decline": "in-flux",
+    "semantic_vocab_relation_open": "in-flux",
+    "semantic_vocab_relation_propose": "in-flux",
     "semantic_vocab_resolve": "in-flux",
     "semantic_vocab_retire": "in-flux"
   },
@@ -1892,6 +1898,38 @@
       }
     },
     {
+      "description": "The AUTHOR's answer about a term extracted from their document: `confirm` sends it to a steward,\n`rename` corrects the word first (give `label`), `remove` withdraws it — recorded as withdrawn by the\nauthor, not declined by a steward. `actor` is the signed-in author; blank is refused. Answered once.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "candidate": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate",
+          "decision",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_author_confirm",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
       "description": "Terms a run met that the vocabulary has no concept for and nobody has accepted or declined yet — what\na steward is asked to admit, place under another name, or decline.",
       "inputSchema": {
         "additionalProperties": false,
@@ -1911,6 +1949,34 @@
         ],
         "type": "object",
         "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Seed the candidate register from another master's decisions — the HANDOVER, so a steward is never\nasked twice about a term or a relation they already answered elsewhere.\n\nEach row is a TERM `{label, scheme, status, actor?, reason?, proposed_for?}` or a RELATION\n`{scheme, subject, predicate, object, status, actor?, reason?}`; `status` is Pending | Withdrawn |\nAdmitted, words or ids are both fine. A row's `actor` is who DECIDED; `actor` here is the operator\nrunning the import (required). Idempotent. `Admitted` is checked against the vocabulary (admissions\ntravel in the master) and reported, never parked. Returns {imported, results, problems}.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_candidates_import",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
       }
     },
     {
@@ -2243,10 +2309,14 @@
       }
     },
     {
-      "description": "Park a question about how two concepts RELATE, for a steward to answer.\n\nIdempotent on (scheme, subject, predicate case-folded, object), so two producers proposing the same\nrelation — a diagram's arrows and the corpus's co-occurrences — raise ONE question. `evidence` is what\na steward triages on (\"3 documents are about both\", \"drawn on the eRx context diagram\"). It parks a\nQUESTION, never a relation: `semantic_vocab_relate` is the write, and it takes a person's name.",
+      "description": "Park a question about how two concepts RELATE, for a steward to answer.\n\nIdempotent on (scheme, subject, predicate case-folded, object), so two producers proposing the same\nrelation — a diagram's arrows and the corpus's co-occurrences — raise ONE question. `evidence` is what\na steward triages on (\"3 documents are about both\", \"drawn on the eRx context diagram\"). It parks a\nQUESTION, never a relation: `semantic_vocab_relate` is the write, and it takes a person's name.\n\n`subject`/`object` may be WORDS — a concept's label or alt label — resolved by the vocabulary, an\nambiguous or unknown word refused naming the choices. `actor` is who proposed it (a person, or the\nsystem acting for one) and `proposed_for` the catalogue IRI of the artifact that proposed it; both\naccumulate on the one question, and `semantic_vocab_relation_open` returns them.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "actor": {
+            "default": "",
+            "type": "string"
+          },
           "evidence": {
             "default": "",
             "type": "string"
@@ -2255,6 +2325,10 @@
             "type": "string"
           },
           "predicate": {
+            "type": "string"
+          },
+          "proposed_for": {
+            "default": "",
             "type": "string"
           },
           "scheme": {
@@ -2279,12 +2353,16 @@
       }
     },
     {
-      "description": "The classifier's subject match as ONE decision: link every term whose preferred label matches\n(rung X), ask what each MISS means against concept definitions, and park whatever is left as a\ncandidate for a steward — `proposed_for` this artifact, carrying `alias_of` when the semantic tier\nrecognised it as another word for a concept already held.\n\nAnswers with the link result whole — `linked`, `missed`, `retracted`, `excluded`, `conflicts` — plus\n`proposed`, one entry per parked term. Use this rather than calling semantic_vocab_link,\nsemantic_concept_match and semantic_vocab_propose in turn: the order and the failure rules are the\nfabric's, and a semantic tier that is unavailable costs only the suggestion, never the term.",
+      "description": "The classifier's subject match as ONE decision: link every term whose preferred label matches\n(rung X), ask what each MISS means against concept definitions, and park whatever is left as a\ncandidate for a steward — `proposed_for` this artifact, carrying `alias_of` when the semantic tier\nrecognised it as another word for a concept already held.\n\nAnswers with the link result whole — `linked`, `missed`, `retracted`, `excluded`, `conflicts` — plus\n`proposed`, one entry per parked term. Use this rather than calling semantic_vocab_link,\nsemantic_concept_match and semantic_vocab_propose in turn: the order and the failure rules are the\nfabric's, and a semantic tier that is unavailable costs only the suggestion, never the term.\n\n`awaiting_author`: the terms were EXTRACTED from the artifact, so each parked term first waits for the\nartifact's author (state `awaiting-author`, answered with semantic_vocab_author_confirm) before a\nsteward is asked.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "actor": {
             "type": "string"
+          },
+          "awaiting_author": {
+            "default": false,
+            "type": "boolean"
           },
           "definition": {
             "default": "",

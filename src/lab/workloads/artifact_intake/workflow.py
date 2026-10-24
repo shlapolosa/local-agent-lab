@@ -28,6 +28,7 @@ from lab.core.semantic.fabric import renderings
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, EXTRACTED, SUGGESTED
 from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIPT_TO_MINUTES, ApprovalKind,
                                     ApprovalTools, CollabTools, Continuation, SemanticTools, StorageTools)
+from lab.platform.contracts.fabric import TERM_ITEM
 from lab.platform import filetypes
 from lab.workloads import gateway
 from lab.core.validation import validator_for
@@ -208,6 +209,22 @@ def _subject_items(state: dict, cap: int) -> tuple[list[dict], list[str]]:
     return items, [str(l.get("label") or l.get("term") or "") for l in held]
 
 
+#: The proposer named on a relation question the intake pipeline parks from a diagram (FR-7).
+RELATION_ACTOR = "artifact-intake"
+
+
+def _term_items(state: dict) -> list[dict]:
+    """One item per term this run EXTRACTED and parked for the author to confirm before a steward sees it.
+
+    On the owner's own review card, not a card of their own: the author is already being asked about this
+    document, and one card per document is what a person can keep up with. `rename:<word>` is free text
+    beside the two picks, because the commonest correction to an extraction is the spelling."""
+    return [{"label": f"{TERM_ITEM}{p['iri']}", "choices": ["confirm", "remove"],
+             "samples": [f"{p.get('label')} — a new term read from this document; confirm it for the vocabulary "
+                         "steward, answer rename:<the right word>, or remove it if the extraction misread you"]}
+            for p in state.get("awaiting_author") or []]
+
+
 async def _propose_relations(cfg, state: dict) -> None:
     """A diagram's arrows, resolved against the vocabulary and parked as questions for a steward.
 
@@ -240,7 +257,9 @@ async def _propose_relations(cfg, state: dict) -> None:
             await gateway.call(cfg, SemanticTools.relation_propose,
                                {"scheme": cfg.get("vocabulary", ""), "subject": c.get("subject", ""),
                                 "predicate": c.get("predicate", ""), "object": c.get("object", ""),
-                                "evidence": f"drawn on {name}"})
+                                "evidence": f"drawn on {name}",
+                                # who proposed it and from what (FR-7): the intake pipeline, for this artifact
+                                "actor": RELATION_ACTOR, "proposed_for": str(state.get("iri") or "")})
         gaps = (found or {}).get("gaps") or []
         print(f"[intake] {name}: {len((found or {}).get('candidates') or [])} relation(s) proposed, "
               f"{len(gaps)} box(es) the vocabulary cannot name{': ' + ', '.join(gaps[:5]) if gaps else ''}",
@@ -473,7 +492,7 @@ def build_workflow(cfg):
                 proposed = (suggestion or {}).get("document_type") or ""
                 state = state | {"type_rung": CONSTRUCTED if recorded else "",
                                  "suggested_type": "" if by_process or proposed == recorded else proposed}
-            linked, missed, conflicts, retracted = [], [], [], []
+            linked, missed, conflicts, retracted, proposed = [], [], [], [], []
             cited, cited_missed = [], []
             # `if subjects` would skip the call on an empty answer, and `vocab_link` is where supersession
             # happens — so a record could only ever GAIN subjects and "nothing applies" was unrepresentable
@@ -509,8 +528,11 @@ def build_workflow(cfg):
                 out = await gateway.call(cfg, SemanticTools.vocab_resolve, {
                     "iri": state["iri"], "terms": subjects, "actor": "classifier-agent",
                     "scheme": cfg.get("vocabulary", ""),
-                    "definition": f"proposed while classifying {state['title']}"})
+                    "definition": f"proposed while classifying {state['title']}",
+                    # EXTRACTED, so each new term waits for this document's AUTHOR before a steward (FR-10)
+                    "awaiting_author": True})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
+                proposed = out.get("proposed") or []
                 # What a RE-READ took back: subjects an earlier pass extracted that this one no longer
                 # stands behind. Carried on the run because a re-classification whose removals are invisible
                 # is indistinguishable from one that did nothing.
@@ -569,7 +591,9 @@ def build_workflow(cfg):
             if owner:
                 await gateway.call(cfg, SemanticTools.catalog_assert, {
                     "iri": state["iri"], "field": "owner", "value": PERSON + owner, "rung": CONSTRUCTED, "method": method})
-            state = state | {"subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
+            state = state | {"awaiting_author": [p for p in proposed
+                                                 if p.get("iri") and p.get("state") == "awaiting-author"],
+                             "subjects": subjects, "linked": linked, "missed": missed, "owner": owner,
                              "conflicts": conflicts, "retracted": retracted, "unsure": unsure,
                              # how many readings were dropped for want of evidence — a reviewer judging a
                              # thin set of subjects should know whether the reader said little or was
@@ -735,6 +759,7 @@ def build_workflow(cfg):
                        "choices": sorted(v.get("label", "") for v in cfg["doc_types"].values() if v.get("label"))}]
             asked_subjects, held_back = _subject_items(state, cfg.get("subject_ask_max") or SUBJECT_ASK_MAX)
             items += asked_subjects
+            items += _term_items(state)
             if not state.get("owner"):
                 items.append({"label": "owner", "samples": ["unresolved: no owner-map rule, no requester, no author — type the owner's email"]})
             if state.get("overlap"):

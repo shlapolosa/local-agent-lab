@@ -15,6 +15,7 @@ from fixtures.workflow import Router, run_spine, spine
 from lab.core.semantic.fabric import renderings
 from lab.core.semantic.fabric.owners import OwnerMap
 from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalKind, ApprovalTools, SemanticTools, StorageTools
+from lab.platform.contracts.fabric import TERM_ITEM
 from lab.workloads.artifact_intake import agents as A
 from lab.workloads.artifact_intake import workflow as W
 from lab.core.validation import GateFailed
@@ -120,9 +121,12 @@ def _resolve_through(router):
                                 or {}).get("concept") or "")
             except Exception:                                    # noqa: BLE001 — a suggestion, never a gate
                 alias_of = ""
-            proposed.append(data("semantic_vocab_propose", {
+            parked = data("semantic_vocab_propose", {
                 "label": term, "actor": a["actor"], "scheme": a.get("scheme", ""), "proposed_for": a["iri"],
-                "alias_of": alias_of, "definition": a.get("definition", "")}))
+                "alias_of": alias_of, "definition": a.get("definition", "")})
+            if isinstance(parked, dict) and parked.get("iri") and a.get("awaiting_author"):
+                parked = {**parked, "state": "awaiting-author"}   # as the server marks an extracted term
+            proposed.append(parked)
         return {**link, "proposed": proposed}
     return resolve
 
@@ -1285,6 +1289,9 @@ def test_a_DIAGRAMS_ARROWS_become_relation_questions_for_a_steward():
     assert (proposed[0]["subject"], proposed[0]["predicate"], proposed[0]["object"]) == (
         "Prescription", "contains", "PrescriptionItem")
     assert "eRx context map.vsdx" in proposed[0]["evidence"], "a steward is told which diagram drew it"
+    # FR-7: the question names WHO proposed it and the ARTIFACT that drew it, as structured evidence
+    assert proposed[0]["actor"] == "artifact-intake"
+    assert proposed[0]["proposed_for"].startswith("urn:fabric:artifact:")
     # ...and storage was handed the RESOLVED ref, never the handle, which it cannot read
     assert calls(h, StorageTools.read_vsdx)[0]["ref"].startswith("art://")
 
@@ -1299,3 +1306,20 @@ def test_a_document_that_is_NOT_a_diagram_proposes_no_relations():
         h.close()
     assert calls(h, SemanticTools.relation_propose) == []
     assert calls(h, StorageTools.read_vsdx) == []
+
+
+def test_a_term_EXTRACTED_from_the_document_is_put_to_its_AUTHOR_on_the_owner_card():
+    """FR-10: a term read out of the document waits for the author — it is parked `awaiting_author` and
+    the owner's own review card asks confirm / rename:<word> / remove, before any steward is asked."""
+    fab = Fabric()
+    h = harness(fab, classifier=FakeAgent(CLASSIFICATION))
+    try:
+        run_spine(W, h, {"pointer": DOC, "event_id": "01J"})
+    finally:
+        h.close()
+    (resolve,) = calls(h, SemanticTools.vocab_resolve)
+    assert resolve["awaiting_author"] is True
+    ask = calls(h, ApprovalTools.ask)[0]
+    terms = [i for i in ask["items"] if i["label"].startswith(TERM_ITEM)]
+    assert terms and terms[0]["choices"] == ["confirm", "remove"]
+    assert "rename:" in terms[0]["samples"][0]

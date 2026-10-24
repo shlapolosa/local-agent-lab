@@ -135,3 +135,24 @@ tool's `name`/`description`/`inputSchema`/`outputSchema` as the server registers
 lab). Regenerate with `PYTHONPATH=src .venv/bin/python scripts/render_semantic_contract.py` (offline);
 `tests/governance/test_semantic_contract_is_current.py` fails until the committed file equals what the
 server registers, byte for byte, and tells you to bump the version when the surface changed.
+
+## Channel-agnostic vocabulary proposals (24 Oct 2026, user decisions FR-7/8/10 + handover)
+
+Vocabulary is proposed FROM THE DOCUMENT and confirmed by people working in WORDS, identically through any
+channel (contract `contracts/semantic-tools.json` 1.1.0):
+
+- **Relations carry provenance** — `semantic_vocab_relation_propose(scheme, subject, predicate, object,
+  evidence="", actor="", proposed_for="")`: ends may be labels (resolved, ambiguity refused); proposers and
+  artifacts accumulate on the ONE idempotent question; `semantic_vocab_relation_open` returns
+  `proposed_by`, `proposed_for`, `proposals`, and the ontology card shows them.
+- **"existing" in words** — a steward answers `existing:<concept label or id>`; `FabricService.vocab_amend`
+  resolves the word (also via `POST /api/vocabulary/aliases`).
+- **The author confirms first** — a term EXTRACTED by `artifact_intake` is parked `awaiting-author`
+  (`semantic_vocab_resolve(..., awaiting_author=True)`), off the steward queue until the owner's review card
+  answers its `term:<candidate>` item: `confirm` | `rename:<word>` | `remove` (withdrawn BY THE AUTHOR,
+  `fab:withdrawnBy "author"`), applied through `semantic_vocab_author_confirm(candidate, decision, actor,
+  label="")`. A term a PERSON proposes through a channel skips the step: the proposer is the author.
+- **Handover** — `semantic_vocab_candidates_import(rows, actor)` seeds the candidate register (Pending /
+  Withdrawn terms and relations) from another master, idempotently, so a decline made in SAF is never asked
+  again; `Admitted` rows are checked against the vocabulary (admissions travel in the master). PROMOTE grant.
+- A declined relation stays closed on re-proposal (pinned by `test_a_DECLINED_relation_is_never_asked_about_again`).

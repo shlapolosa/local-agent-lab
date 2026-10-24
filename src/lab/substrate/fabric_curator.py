@@ -16,6 +16,7 @@ from lab.core.semantic.fabric.ontology import (CONTEXT_IRI, DUPLICATE_OF, DELIVE
 from lab.core.semantic.fabric.catalog import iri_safe
 from lab.core.semantic.fabric.service import PERSON
 from lab.platform.contracts import ApprovalKind, SemanticTools, answer_value, continuation_of
+from lab.platform.contracts.fabric import TERM_ITEM
 from lab.substrate import answer_appliers, fabric_gateway
 
 KINDS = (ApprovalKind.ASSOCIATION.value, ApprovalKind.DRAFT_REVIEW.value)
@@ -90,6 +91,19 @@ def plan(row: dict, answer: dict, actor: str) -> list[tuple[str, dict]]:
             # AND records the NO, so `keep` and `drop` both last.
             calls.append((SemanticTools.not_about, {"iri": iri, "concept": concept, "actor": actor,
                                                     "reason": "the owner said this document is not about it"}))
+        elif label.startswith(TERM_ITEM):
+            # The AUTHOR's word on a term read out of their document (FR-10): confirm sends it to a
+            # steward, rename corrects it first, remove withdraws it as the author's NO — not a steward's.
+            candidate = label[len(TERM_ITEM):]
+            head, _, word = value.strip().partition(":")
+            head = head.strip().lower()
+            if head not in ("confirm", "rename", "remove") or (head == "rename" and not word.strip()):
+                raise ValueError(f"a term answer is confirm, rename:<word> or remove, not {value!r} "
+                                 f"(for {candidate})")
+            args = {"candidate": candidate, "decision": head, "actor": actor}
+            if head == "rename":
+                args["label"] = word.strip()
+            calls.append((SemanticTools.author_confirm, args))
         elif label == "overlap":
             if value.strip().lower() == "keep":
                 continue

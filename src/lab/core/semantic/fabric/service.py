@@ -568,7 +568,7 @@ class FabricService:
         return None
 
     def vocab_resolve(self, iri: str, terms: list[str], *, actor: str, scheme: str = "",
-                      definition: str = "") -> dict:
+                      definition: str = "", awaiting_author: bool = False) -> dict:
         """The classifier's subject match as ONE decision: link by label, ask what each miss MEANS, park
         what is left for a steward — and answer with all of it.
 
@@ -597,13 +597,14 @@ class FabricService:
             except Exception:                                  # noqa: BLE001 — a suggestion, never a gate
                 alias_of = ""
             proposed.append(self.vocab_propose(term, actor=actor, scheme=scheme, proposed_for=iri,
-                                               alias_of=alias_of, definition=definition))
+                                               alias_of=alias_of, definition=definition,
+                                               awaiting_author=awaiting_author))
         out["proposed"] = proposed
         return out
 
     def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
                       scheme: str = "", concept_id: str = "", module: str = "",
-                      proposed_for: str = "", alias_of: str = "") -> dict:
+                      proposed_for: str = "", alias_of: str = "", awaiting_author: bool = False) -> dict:
         """Park a candidate concept for a steward (the candidates graph is not a scheme: a steward accepts
         it with `promote`, which records the acceptance at rung H).
 
@@ -619,7 +620,12 @@ class FabricService:
 
         `scheme` is the vocabulary it would join and `concept_id` the id it would take — both optional here and
         both REQUIRED by the time it is admitted, because a concept with no home cannot be looked up and an id
-        is what every consumer joins on. Left out, the steward supplies them at the gate."""
+        is what every consumer joins on. Left out, the steward supplies them at the gate.
+
+        `awaiting_author` (FR-10): a term EXTRACTED from a document waits for its AUTHOR — `fab:AwaitingAuthor`
+        — before it reaches a steward (`vocab_author_confirm`). A term a PERSON proposes through a channel
+        needs no such step: the proposer is the author, so it goes straight on, and proposing a term still
+        awaiting its author confirms it."""
         if not str(label or "").strip():
             raise ValueError("a candidate has a label")
         if not actor:
@@ -630,13 +636,21 @@ class FabricService:
         g = self.ds.graph(CANDIDATES_GRAPH)
         existing = self._candidate_for(label, scheme, alias_of)
         if existing is not None:
+            added, removed = [], []
             if proposed_for:
-                g.add((existing, FAB.proposedFor, URIRef(proposed_for)))
-                self._persist(("candidates",), lambda: g.remove((existing, FAB.proposedFor,
-                                                                 URIRef(proposed_for))))
+                added.append((existing, FAB.proposedFor, URIRef(proposed_for)))
+            if not awaiting_author and g.value(existing, FAB.lifecycleState) == FAB.AwaitingAuthor:
+                removed.append((existing, FAB.lifecycleState, FAB.AwaitingAuthor))   # a person proposed it
+            for t in added:
+                g.add(t)
+            for t in removed:
+                g.remove(t)
+            if added or removed:
+                self._persist(("candidates",), lambda: ([g.remove(t) for t in added], [g.add(t) for t in removed]))
             return {"iri": str(existing), "label": str(g.value(existing, SKOS.prefLabel) or ""),
                     "scheme": scheme, "concept_id": str(g.value(existing, FAB.candidateId) or ""),
-                    "module": str(g.value(existing, FAB.candidateModule) or ""), "held_by": ""}
+                    "module": str(g.value(existing, FAB.candidateModule) or ""), "held_by": "",
+                    "state": self._candidate_state(existing)}
         c = URIRef(CANDIDATE + ids.ulid())
         g.add((c, RDF.type, SKOS.Concept)); g.add((c, SKOS.prefLabel, Literal(label.strip())))
         g.add((c, G.PROV.wasAttributedTo, Literal(actor)))
@@ -658,9 +672,59 @@ class FabricService:
             g.add((c, FAB.candidateId, Literal(concept_id)))
         if module:
             g.add((c, FAB.candidateModule, Literal(module)))
+        if awaiting_author:
+            g.add((c, FAB.lifecycleState, FAB.AwaitingAuthor))
         self._persist(("candidates",), lambda: g.remove((c, None, None)))
         return {"iri": str(c), "label": label.strip(), "scheme": scheme, "concept_id": concept_id,
-                "module": module, "held_by": ""}
+                "module": module, "held_by": "", "state": self._candidate_state(c)}
+
+    #: The register's lifecycle as a channel reads it.
+    _STATE_NAMES = {"AwaitingAuthor": "awaiting-author", "InReview": "in-review", "Withdrawn": "withdrawn",
+                    "Published": "admitted"}
+
+    def _candidate_state(self, node) -> str:
+        state = self.ds.graph(CANDIDATES_GRAPH).value(node, FAB.lifecycleState)
+        return self._STATE_NAMES.get(str(state).rsplit("#", 1)[-1], "pending") if state is not None else "pending"
+
+    AUTHOR_DECISIONS = ("confirm", "rename", "remove")
+
+    def vocab_author_confirm(self, candidate: str, *, decision: str, actor: str, label: str = "") -> dict:
+        """The AUTHOR's answer about a term extracted from their document (FR-10): `confirm` sends it on to a
+        steward, `rename` corrects the word first, `remove` withdraws it — BY THE AUTHOR, recorded as such,
+        because "the author says the extraction misread this" and "a steward says it is not a concept" are
+        different statements. Answered once: a term no longer awaiting its author answers `already`."""
+        if not actor:
+            raise ValueError("an author's confirmation names the person: actor is required")
+        verdict = str(decision or "").strip().lower()
+        if verdict not in self.AUTHOR_DECISIONS:
+            raise ValueError(f"an author answers confirm, rename or remove, not {decision!r}")
+        c, g = URIRef(candidate), self.ds.graph(CANDIDATES_GRAPH)
+        if (c, RDF.type, SKOS.Concept) not in g:
+            raise LookupError(f"no candidate {candidate}")
+        if g.value(c, FAB.lifecycleState) != FAB.AwaitingAuthor:
+            return {"iri": candidate, "already": True, "state": self._candidate_state(c)}
+        before = list(g.triples((c, None, None)))
+        g.remove((c, FAB.lifecycleState, FAB.AwaitingAuthor))
+        g.add((c, FAB.confirmedBy, Literal(actor)))
+        out = {"iri": candidate, "decision": verdict, "actor": actor}
+        if verdict == "rename":
+            new = str(label or "").strip()
+            if not new:
+                g.add((c, FAB.lifecycleState, FAB.AwaitingAuthor)); g.remove((c, FAB.confirmedBy, Literal(actor)))
+                raise ValueError("a rename names the word: label is required")
+            g.set((c, SKOS.prefLabel, Literal(new)))
+            out["label"] = new
+        elif verdict == "remove":
+            g.add((c, FAB.lifecycleState, FAB.Withdrawn))
+            g.add((c, FAB.withdrawnBy, Literal("author")))
+            out["withdrawn_by"] = "author"
+
+        def undo():
+            g.remove((c, None, None))
+            for t in before:
+                g.add(t)
+        self._persist(("candidates",), undo)
+        return {**out, "state": self._candidate_state(c)}
 
     def vocab_asked(self, candidate: str, *, request_id: str = "") -> dict:
         """Record that a steward HAS BEEN ASKED about this term, so nobody asks twice.
@@ -825,10 +889,15 @@ class FabricService:
     def vocab_amend(self, cid: str, *, scheme: str, alt: str, actor: str, reason: str = "",
                     to: str = CONFIRMED) -> dict:
         """Record that a term is another way of saying a concept the vocabulary already holds — so the next
-        document using it is LINKED rather than proposing the same candidate again."""
+        document using it is LINKED rather than proposing the same candidate again.
+
+        `cid` may be a WORD (FR-8): a steward answers "existing: Use case", not "existing: UseCase". An id is
+        taken as it is (so a retired id is still refused by name); anything else is resolved by the scheme,
+        which refuses an ambiguous or unknown word by naming the choices."""
         if not actor:
             raise ValueError("an amendment is a person's decision: actor is required")
         sc = self._scheme(scheme)
+        cid = self._concept_named(sc, cid)
         before = dict(sc.concepts.get(cid) or {})
         sc.amend(cid, alt=alt)
         try:
@@ -844,6 +913,14 @@ class FabricService:
         # have to be linked to something.
         return {"scheme": scheme, "concept_id": cid, "concept": str(sc.uri(cid)), "alt": alt,
                 "actor": actor, "rung": to, "assertion": written}
+
+    @staticmethod
+    def _concept_named(sc, word: str) -> str:
+        """A concept id from an id or a WORD — the one place a steward's or a channel's word becomes an id."""
+        text = str(word or "").strip()
+        if text in getattr(sc, "concepts", {}) or not hasattr(sc, "resolve"):
+            return text
+        return sc.resolve(text)
 
     def vocab_relation_candidates(self, arrows: Iterable[Mapping[str, Any]], *, scheme: str) -> dict:
         """What a structured diagram proposes about the vocabulary's TOPOLOGY — steward B's only feeder.
@@ -988,7 +1065,7 @@ class FabricService:
         return out[:max(1, int(limit))]
 
     def vocab_relation_propose(self, *, scheme: str, subject: str, predicate: str, object: str,
-                               evidence: str = "") -> dict:
+                               evidence: str = "", actor: str = "", proposed_for: str = "") -> dict:
         """Park a question about how two concepts RELATE, for a steward.
 
         Modelled on `_conflict`, NOT on `_candidate_for`. A term candidate is parked because it arrives
@@ -1000,16 +1077,32 @@ class FabricService:
 
         Idempotent on (scheme, subject, predicate case-folded, object): two producers proposing the same
         relation, or one producer on its second tick, is ONE question. The predicate folds because the
-        matcher and the diagram lane both fold it, and "Realises" is not a second question."""
+        matcher and the diagram lane both fold it, and "Realises" is not a second question.
+
+        WORDS, not ids: either end may be a concept's id, IRI, preferred or alt label — resolved by the
+        scheme (`DomainScheme.resolve`, which refuses an ambiguous or unknown word by naming the choices),
+        and the question is keyed on the RESOLVED id, so a word and its id are one question (FR-7/8).
+
+        PROVENANCE accumulates on the ONE row (FR-7): `actor` — who proposed it, a person or the system
+        acting for one — and `proposed_for` — the catalogue IRI of the artifact whose words or drawing
+        proposed it. Both optional, so the diagram lane's call keeps working; both are read back by
+        `vocab_relation_open` as lists, the evidence a steward triages on."""
         # The queue that feeds `vocab_relate` must refuse what `vocab_relate` refuses, or it parks a
         # question whose only possible answer raises — and a steward handed a card they cannot answer
         # correctly is worse than no card.
         sc = self._scheme(scheme)
+        ends = []
         for end in (subject, object):
             if not str(end or "").strip():
                 raise ValueError("a relation question names both concepts")
-            if str(end) not in getattr(sc, "concepts", {}):
+            try:
+                cid = self._concept_named(sc, str(end))
+            except ValueError as e:
+                raise ValueError(f"{scheme} does not hold a concept {end!r}: {e}") from e
+            if cid not in getattr(sc, "concepts", {}):
                 raise ValueError(f"{scheme} does not hold a concept {end!r}")
+            ends.append(cid)
+        subject, object = ends
         pred = str(predicate or "").strip()
         if pred and not _LOCAL_NAME.match(pred):
             # A diagram's arrow caption is PROSE ("is realised by"), and `vocab_relate` takes an IRI
@@ -1023,9 +1116,18 @@ class FabricService:
         node = URIRef(RELATION_Q + iri_safe(key))
         out = {"iri": str(node), "scheme": scheme, "subject": str(subject), "predicate": pred,
                "object": str(object)}
+        # `fab:proposedBy`, not `prov:wasAttributedTo`: a decline attributes the question to the STEWARD who
+        # answered it, and the two must never read as one list.
+        provenance = ([(node, FAB.proposedBy, Literal(actor))] if actor else []) + \
+                     ([(node, FAB.proposedFor, URIRef(proposed_for))] if proposed_for else [])
         if (node, RDF.type, FAB.RelationQuestion) in g:
+            added = [t for t in provenance if t not in g]
+            for t in added:
+                g.add(t)
+            if added:
+                self._persist(("curated",), lambda: [g.remove(t) for t in added])
             return {**out, "already": True}
-        triples = [(node, RDF.type, FAB.RelationQuestion), (node, FAB.curationScheme, Literal(scheme)),
+        triples = provenance + [(node, RDF.type, FAB.RelationQuestion), (node, FAB.curationScheme, Literal(scheme)),
                    (node, FAB.relationSubject, Literal(str(subject))),
                    (node, FAB.relationPredicate, Literal(pred)),
                    (node, FAB.relationObject, Literal(str(object))),
@@ -1067,9 +1169,13 @@ class FabricService:
 
             if sc is not None and any(settled(e) for e in getattr(sc, "relationships", ()) or ()):
                 continue                                   # the vocabulary says it now; nobody needs asking
+            for_them = sorted(str(o) for o in g.objects(node, FAB.proposedFor))
             out.append({"iri": str(node), "scheme": name, "subject": sub, "predicate": pred, "object": obj,
                         "evidence": str(g.value(node, FAB.evidence) or ""),
-                        "asked": str(g.value(node, FAB.askedIn) or "")})
+                        "asked": str(g.value(node, FAB.askedIn) or ""),
+                        # who proposed it and from what — NOT RECORDED is not one (see vocab_candidates)
+                        "proposed_by": sorted(str(o) for o in g.objects(node, FAB.proposedBy)),
+                        "proposed_for": for_them, "proposals": len(for_them) if for_them else None})
         return sorted(out, key=lambda r: (r["subject"], r["predicate"], r["object"]))
 
     def vocab_relation_decline(self, question: str, *, actor: str, reason: str = "") -> dict:
@@ -1090,6 +1196,76 @@ class FabricService:
             g.add(t)
         self._persist(("curated",), lambda: [g.remove(t) for t in triples])
         return {"iri": question, "declined": True, "actor": actor}
+
+    #: The states a candidate-register row may carry on import — the register's own lifecycle words.
+    IMPORT_STATES = ("Pending", "Withdrawn", "Admitted")
+
+    def vocab_candidates_import(self, rows: Iterable[Mapping[str, Any]], *, actor: str) -> dict:
+        """Seed the candidate register from another master's decisions — the HANDOVER from a channel that
+        ran the vocabulary itself (SAF in the work tenant) to the fabric, so nobody is asked twice.
+
+        Admissions, aliases and retirements travel in the vocabulary MASTER (`vocab_seed`); what the master
+        cannot carry is the register: the terms still waiting (`Pending`) and the ones a steward said NO to
+        (`Withdrawn`). This is that half. Each row is either a TERM {label, scheme, status, actor?, reason?,
+        proposed_for?} or a RELATION {scheme, subject, predicate, object, status, actor?, reason?} — words
+        or ids, resolved as everywhere else.
+
+        Idempotent on the keys propose already uses, so a re-run changes nothing. A row's own `actor` is who
+        DECIDED (the EA who declined); `actor` here is the operator running the import, required, and named
+        when a row carries none. `Admitted` is CHECKED, not written: a term the vocabulary does not hold
+        means the master was not seeded first, and that is reported by name rather than parked as a
+        question nobody asked. One bad row never stops the rest."""
+        if not actor:
+            raise ValueError("an import names the operator running it: actor is required")
+        results, problems = [], []
+        for n, row in enumerate(rows or []):
+            status = str(row.get("status") or "").strip()
+            who = str(row.get("actor") or actor)
+            reason = str(row.get("reason") or "")
+            scheme = str(row.get("scheme") or "")
+            try:
+                if status not in self.IMPORT_STATES:
+                    raise ValueError(f"status {status!r} is not one of {list(self.IMPORT_STATES)}")
+                if row.get("subject") or row.get("object"):
+                    results.append(self._import_relation(row, scheme, status, who, reason))
+                else:
+                    results.append(self._import_term(row, scheme, status, who, reason))
+            except (ValueError, LookupError) as e:
+                problems.append(f"row {n} ({row.get('label') or row.get('subject') or '?'}): {e}")
+        return {"imported": sum(1 for r in results if r["outcome"] in ("pending", "declined")),
+                "results": results, "problems": problems}
+
+    def _import_term(self, row, scheme, status, who, reason) -> dict:
+        label = str(row.get("label") or "").strip()
+        if not label:
+            raise ValueError("a term row carries a label")
+        if status == "Admitted":
+            if self._held_by(label):
+                return {"label": label, "outcome": "held"}
+            raise ValueError(f"{label!r} is Admitted but no vocabulary holds it — seed the master first")
+        parked = self.vocab_propose(label, actor=who, scheme=scheme,
+                                    proposed_for=str(row.get("proposed_for") or ""))
+        if parked.get("held_by"):
+            return {"label": label, "outcome": "held", "held_by": parked["held_by"]}
+        if status == "Withdrawn":
+            g = self.ds.graph(CANDIDATES_GRAPH)
+            if g.value(URIRef(parked["iri"]), FAB.lifecycleState) != FAB.Withdrawn:
+                self.vocab_decline(parked["iri"], actor=who, reason=reason)
+            return {"label": label, "iri": parked["iri"], "outcome": "declined"}
+        return {"label": label, "iri": parked["iri"], "outcome": "pending"}
+
+    def _import_relation(self, row, scheme, status, who, reason) -> dict:
+        spec = {"scheme": scheme, "subject": str(row.get("subject") or ""),
+                "predicate": str(row.get("predicate") or ""), "object": str(row.get("object") or "")}
+        if status == "Admitted":
+            raise ValueError("a stated relation travels in the relationships master, not the register")
+        parked = self.vocab_relation_propose(**spec, actor=who, evidence=reason)
+        if status == "Withdrawn":
+            g = self.ds.graph(CURATED_GRAPH)
+            if g.value(URIRef(parked["iri"]), FAB.lifecycleState) != FAB.Withdrawn:
+                self.vocab_relation_decline(parked["iri"], actor=who, reason=reason)
+            return {**parked, "outcome": "declined"}
+        return {**parked, "outcome": "pending"}
 
     def vocab_place(self, cid: str, *, scheme: str, parent: str, actor: str, reason: str = "",
                     to: str = CONFIRMED) -> dict:
@@ -1195,6 +1371,8 @@ class FabricService:
             state = g.value(node, FAB.lifecycleState)
             if state == FAB.Withdrawn or G.find(self.ds, node, FAB.lifecycleState, FAB.Published):
                 continue                     # a steward has answered: admitted, or declined and it STAYS declined
+            if state == FAB.AwaitingAuthor:
+                continue                     # the AUTHOR has not confirmed it yet — not the steward's question
             if self._held_by(label):
                 continue      # ANY vocabulary holding it closes the question — not just this candidate's own,
                               # which is what let 25 document-type labels sit here as open subject questions

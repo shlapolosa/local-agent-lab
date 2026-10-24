@@ -120,6 +120,12 @@ class SemanticTools(ToolCatalogue):
     relation_propose = "semantic_vocab_relation_propose"
     relation_open = "semantic_vocab_relation_open"
     relation_decline = "semantic_vocab_relation_decline"
+    #: The HANDOVER: another master's candidate register (pending terms, declined terms and relations)
+    #: seeded into the fabric so nobody is asked twice. A steward's decisions in bulk, so PROMOTE.
+    candidates_import = "semantic_vocab_candidates_import"
+    #: The AUTHOR's answer about a term extracted from their document (FR-10): confirm | rename | remove.
+    #: A person's decision, applied by the continuation runner with the channel's human — PROMOTE.
+    author_confirm = "semantic_vocab_author_confirm"
     #: What the CORPUS says two concepts have to do with each other, where the vocabulary says nothing —
     #: the producer that works without diagrams. A READ: it proposes a question and settles none.
     concept_pairs = "semantic_concept_pairs"
@@ -152,7 +158,7 @@ class SemanticTools(ToolCatalogue):
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.
     PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline, vocab_place, vocab_relate,
-               not_about, about_after_all, relation_decline)
+               not_about, about_after_all, relation_decline, candidates_import, author_confirm)
     REINDEX = (reindex,)
     # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has
@@ -170,7 +176,8 @@ class SemanticTools(ToolCatalogue):
     STABLE = (vocab_link, vocab_propose, vocab_master, vocab_amend, concept_match, concepts, schemes,
               catalog_get, catalog_by_url, catalog_list, edge_assert, edge_retract)
     IN_FLUX = (vocab_resolve, vocab_place, vocab_relate, vocab_retire, vocab_candidates,
-               relation_candidates)
+               relation_candidates, relation_propose, relation_open, relation_decline, candidates_import,
+               author_confirm)
 
     @classmethod
     def stability(cls) -> dict[str, str]:
@@ -345,3 +352,8 @@ VOCAB_ALIAS_FIELDS: tuple[tuple[str, bool, str], ...] = (
     ("actor", True, "The steward — a person's own token must name themselves"),
     ("reason", False, "Why"),
 )
+
+
+#: The owner-card item prefix for a term EXTRACTED from the document and awaiting its author (FR-10):
+#: `term:<candidate iri>`. Written by artifact_intake, applied by the substrate's fabric_curator.
+TERM_ITEM = "term:"

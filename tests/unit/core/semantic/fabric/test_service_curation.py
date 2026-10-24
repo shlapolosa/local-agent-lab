@@ -536,3 +536,171 @@ def test_the_SEMANTIC_TIER_works_against_the_vocabulary_the_fabric_actually_OWNS
     # ...and a retired concept is still never offered
     fab.vocab_retire("LegacyAgent", scheme="cafe", resolves_to="AIAgent", actor="s@x")
     assert "LegacyAgent" not in fab._live_concepts(fab.scheme)
+
+
+# ------------------------------------------------------------------ FR-7: who proposed it, from what
+def test_a_relation_question_carries_WHO_proposed_it_and_FROM_WHAT_accumulated_on_ONE_row(fab):
+    """A channel proposes a relation on behalf of a person and an artifact. Two channels proposing the
+    same relation are still ONE question, but neither's provenance may be lost: the proposers and the
+    artifacts accumulate on the row, as a concept candidate's `proposed_for` does."""
+    a, b = _doc(fab, "ADR-1"), _doc(fab, "ADR-2")
+    one = fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="serves", object="UseCase",
+                                     actor="maria@contoso.com", proposed_for=a)
+    fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="Serves", object="UseCase",
+                               actor="saf-assistant", proposed_for=b)
+    fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="serves", object="UseCase",
+                               actor="maria@contoso.com", proposed_for=a)          # a repeat adds nothing
+    (row,) = fab.vocab_relation_open()
+    assert row["iri"] == one["iri"]
+    assert row["proposed_by"] == ["maria@contoso.com", "saf-assistant"]
+    assert row["proposed_for"] == sorted([a, b]) and row["proposals"] == 2
+
+
+def test_a_relation_proposed_with_no_provenance_still_parks_and_says_none(fab):
+    """The diagram lane's existing call names no actor; it must keep working, and say so honestly."""
+    fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="serves", object="UseCase")
+    (row,) = fab.vocab_relation_open()
+    assert row["proposed_by"] == [] and row["proposed_for"] == [] and row["proposals"] is None
+
+
+def test_a_relation_may_be_proposed_in_WORDS_and_the_fabric_resolves_them(fab):
+    """Stewards and submitters work with words, never ids: a label or an alt label names the concept, and
+    the question is keyed on the RESOLVED id, so the word and the id are the same question."""
+    by_word = fab.vocab_relation_propose(scheme="cafe", subject="AI agent", predicate="serves",
+                                         object="use case", actor="maria@contoso.com")
+    by_id = fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="serves", object="UseCase")
+    assert by_word["iri"] == by_id["iri"] and by_word["subject"] == "AIAgent"
+    with pytest.raises(ValueError, match="Nope|does not hold"):
+        fab.vocab_relation_propose(scheme="cafe", subject="Nope", predicate="serves", object="UseCase")
+
+
+# ------------------------------------------------------------------ FR-8: "existing" in WORDS
+def test_an_alias_may_name_the_concept_by_its_LABEL_and_the_fabric_resolves_it(fab):
+    """A steward works with words: 'existing: Use case' means the concept labelled Use case."""
+    out = fab.vocab_amend("Use case", scheme="cafe", alt="Business scenario", actor="s@x")
+    assert out["concept_id"] == "UseCase"
+    assert "Business scenario" in fab.scheme.concepts["UseCase"]["alt"]
+
+
+def test_an_alias_naming_an_AMBIGUOUS_word_is_refused_naming_the_choices(fab):
+    fab.vocab_amend("LegacyAgent", scheme="cafe", alt="Agent", actor="s@x")     # now two concepts say "Agent"
+    with pytest.raises(ValueError, match="AIAgent.*LegacyAgent|several"):
+        fab.vocab_amend("Agent", scheme="cafe", alt="Bot", actor="s@x")
+
+
+def test_an_alias_naming_an_UNKNOWN_word_is_refused(fab):
+    with pytest.raises(ValueError, match="not a concept|does not hold"):
+        fab.vocab_amend("Spaceship", scheme="cafe", alt="Rocket", actor="s@x")
+
+
+# ------------------------------------------------------------------ handover: the candidate register travels
+def test_an_imported_DECLINE_is_never_asked_again_and_keeps_who_declined_it(fab):
+    """SAF is the taxonomy master until the fabric lands; its EA's declines must arrive with it, or the
+    fabric re-asks every term the EA already dismissed the first time it meets them."""
+    out = fab.vocab_candidates_import([
+        {"label": "Weekly sync", "scheme": "cafe", "status": "Withdrawn", "actor": "ea@contoso.com",
+         "reason": "a meeting, not a concept"}], actor="handover@lab")
+    assert out["imported"] == 1 and not out["problems"]
+    assert fab.vocab_candidates() == []                       # not open
+    again = fab.vocab_propose("weekly sync", actor="classifier-agent", scheme="cafe")
+    assert again["iri"] == out["results"][0]["iri"]           # the same row, still declined
+    assert fab.vocab_candidates() == []
+
+
+def test_an_imported_PENDING_term_is_open_once_and_keeps_its_evidence(fab):
+    a = _doc(fab, "SUB-1")
+    fab.vocab_candidates_import([{"label": "Dispense audit", "scheme": "cafe", "status": "Pending",
+                                  "actor": "maria@contoso.com", "proposed_for": a}], actor="handover@lab")
+    fab.vocab_candidates_import([{"label": "Dispense audit", "scheme": "cafe", "status": "Pending",
+                                  "actor": "maria@contoso.com", "proposed_for": a}], actor="handover@lab")
+    (row,) = fab.vocab_candidates()
+    assert row["proposed_for"] == [a] and row["proposed_by"] == "maria@contoso.com"
+
+
+def test_an_imported_ADMITTED_term_the_vocabulary_does_not_hold_is_a_problem_not_a_guess(fab):
+    """Admissions travel in the MASTER (vocab_seed). An admitted row the vocabulary lacks means the master
+    was not seeded first — said by name, never silently turned into a pending question."""
+    out = fab.vocab_candidates_import([{"label": "Use case", "scheme": "cafe", "status": "Admitted"},
+                                       {"label": "Never seeded", "scheme": "cafe", "status": "Admitted"}],
+                                      actor="handover@lab")
+    assert out["results"][0]["outcome"] == "held"
+    assert any("Never seeded" in p for p in out["problems"])
+    assert fab.vocab_candidates() == []
+
+
+def test_an_imported_DECLINED_relation_stays_closed(fab):
+    out = fab.vocab_candidates_import([{"scheme": "cafe", "subject": "AI agent", "predicate": "owns",
+                                        "object": "Use case", "status": "Withdrawn",
+                                        "actor": "ea@contoso.com", "reason": "not that way"}],
+                                      actor="handover@lab")
+    assert out["imported"] == 1 and fab.vocab_relation_open() == []
+    fab.vocab_relation_propose(scheme="cafe", subject="AIAgent", predicate="owns", object="UseCase")
+    assert fab.vocab_relation_open() == []
+
+
+def test_an_import_names_the_operator_and_refuses_an_unknown_status(fab):
+    with pytest.raises(ValueError, match="actor"):
+        fab.vocab_candidates_import([], actor="")
+    out = fab.vocab_candidates_import([{"label": "X", "scheme": "cafe", "status": "Maybe"}], actor="h@lab")
+    assert out["imported"] == 0 and any("Maybe" in p for p in out["problems"])
+
+
+# ------------------------------------------------------------------ FR-10: the author confirms first
+def test_a_term_EXTRACTED_from_a_document_waits_for_its_author_before_a_steward_sees_it(fab):
+    """Vocabulary is proposed from the document; the AUTHOR confirms what the extraction read before it
+    costs a steward anything. Until then it is not on the steward's queue."""
+    doc = _doc(fab)
+    out = fab.vocab_propose("Dispense audit", actor="classifier-agent", scheme="cafe", proposed_for=doc,
+                            awaiting_author=True)
+    assert out["state"] == "awaiting-author"
+    assert fab.vocab_candidates() == []
+    fab.vocab_author_confirm(out["iri"], decision="confirm", actor="author@contoso.com")
+    (row,) = fab.vocab_candidates()
+    assert row["label"] == "Dispense audit"
+
+
+def test_the_author_may_RENAME_a_term_before_it_goes_on(fab):
+    out = fab.vocab_propose("Dispence audt", actor="classifier-agent", scheme="cafe", awaiting_author=True)
+    fab.vocab_author_confirm(out["iri"], decision="rename", label="Dispense audit", actor="author@contoso.com")
+    (row,) = fab.vocab_candidates()
+    assert row["label"] == "Dispense audit"
+
+
+def test_a_term_the_AUTHOR_removes_is_withdrawn_BY_THE_AUTHOR_not_by_a_steward(fab):
+    out = fab.vocab_propose("Weekly sync", actor="classifier-agent", scheme="cafe", awaiting_author=True)
+    got = fab.vocab_author_confirm(out["iri"], decision="remove", actor="author@contoso.com")
+    assert got["withdrawn_by"] == "author"
+    assert fab.vocab_candidates() == []
+    # ...and the word met again does not come back to anyone
+    fab.vocab_propose("weekly sync", actor="classifier-agent", scheme="cafe", awaiting_author=True)
+    assert fab.vocab_candidates() == []
+
+
+def test_a_term_a_PERSON_proposes_through_a_channel_needs_no_author_step(fab):
+    """The SAF path: a person proposing a word IS its author — it goes straight to the steward."""
+    fab.vocab_propose("Dispense audit", actor="maria@contoso.com", scheme="cafe")
+    assert [r["label"] for r in fab.vocab_candidates()] == ["Dispense audit"]
+
+
+def test_a_person_proposing_a_term_still_awaiting_its_author_confirms_it(fab):
+    fab.vocab_propose("Dispense audit", actor="classifier-agent", scheme="cafe", awaiting_author=True)
+    fab.vocab_propose("Dispense audit", actor="maria@contoso.com", scheme="cafe")
+    assert [r["label"] for r in fab.vocab_candidates()] == ["Dispense audit"]
+
+
+def test_an_author_confirmation_is_a_persons_decision_and_answers_once(fab):
+    out = fab.vocab_propose("X term", actor="classifier-agent", scheme="cafe", awaiting_author=True)
+    with pytest.raises(ValueError, match="actor"):
+        fab.vocab_author_confirm(out["iri"], decision="confirm", actor="")
+    with pytest.raises(ValueError, match="confirm, rename or remove"):
+        fab.vocab_author_confirm(out["iri"], decision="maybe", actor="a@x")
+    fab.vocab_author_confirm(out["iri"], decision="confirm", actor="a@x")
+    assert fab.vocab_author_confirm(out["iri"], decision="remove", actor="a@x")["already"] is True
+
+
+def test_vocab_resolve_parks_extracted_misses_for_their_author(fab):
+    doc = _doc(fab)
+    out = fab.vocab_resolve(doc, ["Dispense audit"], actor="classifier-agent", scheme="cafe",
+                            awaiting_author=True)
+    assert out["proposed"][0]["state"] == "awaiting-author"
+    assert fab.vocab_candidates() == []

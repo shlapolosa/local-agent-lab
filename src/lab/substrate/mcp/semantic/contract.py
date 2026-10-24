@@ -17,7 +17,7 @@ from lab.platform.contracts import SemanticTools
 
 __all__ = ["VERSION", "render", "dumps"]
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 _GRANTS = ("READ", "PIPELINE", "PROMOTE", "REINDEX", "WALK", "RECLASSIFY", "VIEWS", "WRITE")
 _KEPT = ("name", "description", "inputSchema", "outputSchema")
 

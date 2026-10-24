@@ -58,7 +58,7 @@ def question(payload: dict) -> list[dict]:
                      f"proposed by {payload.get('proposed_by') or 'a run'}"]},
         {"label": "concept_id",
          "samples": [f"the id it takes, joined on by every consumer (default {concept_id_for(label)})",
-                     "for 'existing': the id it already has"]},
+                     "for 'existing': the concept it already is — its label or its id"]},
         {"label": "definition", "samples": [f"what {label!r} means, in one sentence"]},
         {"label": "module", "samples": ["the part of the vocabulary it belongs to"]},
         {"label": "broader", "samples": ["the concept it sits under, by id — or leave it at the top"]},
@@ -75,9 +75,9 @@ def _verdict(candidate: dict, entry) -> tuple[str, str]:
     head, _, target = verdict.partition(":")
     head, target = head.strip().lower(), target.strip()
     if head == "existing" and not target:
-        raise ValueError(f"{label!r}: 'existing' names no concept — answer 'existing:<concept id>'")
+        raise ValueError(f"{label!r}: 'existing' names no concept — answer 'existing:<concept label or id>'")
     if head not in ("admit", "existing", "decline"):
-        raise ValueError(f"{label!r}: {verdict!r} is not admit, existing:<id> or decline")
+        raise ValueError(f"{label!r}: {verdict!r} is not admit, existing:<concept> or decline")
     return head, target
 
 
@@ -226,7 +226,7 @@ def batch_question(candidates: list[dict]) -> list[dict]:
         alias = str(c.get("alias_of") or "")
         suggested = (f"existing:{alias.rsplit('#', 1)[-1]} — the matcher reads this as another name for "
                      f"{alias.rsplit('#', 1)[-1]!r}" if alias else
-                     "existing:<id> — it is another name for a concept already there")
+                     "existing:<concept> — it is another name for a concept already there (its label or id)")
         out.append({"label": str(c.get("iri") or ""), "samples": [
             f"{label!r} — {evidence}, for {c.get('scheme') or 'the vocabulary'}",
             f"admit — add it as a concept (id {concept_id_for(label)}) \u00b7 "

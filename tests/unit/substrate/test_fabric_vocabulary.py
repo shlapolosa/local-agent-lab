@@ -334,6 +334,14 @@ def test_one_card_carries_three_verdicts_and_each_lands_where_it_belongs():
     assert decline["candidate"] == "urn:fabric:candidate:2" and decline["actor"] == "steward@x"
 
 
+def test_existing_may_name_the_concept_in_WORDS_and_reaches_amend_as_written():
+    """FR-8: a steward answers with the concept's LABEL; the gate passes the word through and the fabric
+    resolves it (`FabricService.vocab_amend`), refusing an ambiguous or unknown word by naming the choices."""
+    answer = {"urn:fabric:candidate:0": {"value": "existing: Clinical review"}}
+    (call,) = [(t, a) for t, a in V.plan(_batch_payload(), answer, "steward@x") if t == SemanticTools.vocab_amend]
+    assert call[1]["concept_id"] == "Clinical review"
+
+
 def test_a_batch_verdict_must_be_one_of_the_three_and_name_a_term_on_the_card():
     """`plan` SKIPS what it cannot read and `batch_problems` reports it — so one bad verdict costs that
     one term rather than the nine answered beside it. The sentence names the TERM, because a steward who
@@ -512,7 +520,7 @@ def test_a_term_answered_badly_does_not_throw_away_the_ones_answered_well():
     assert SemanticTools.promote in tools and SemanticTools.vocab_decline in tools
     assert SemanticTools.vocab_amend not in tools          # the one that could not be read
     assert V.batch_problems(_card3()["context"]["candidates"], answer) == \
-        ["'Decision Support': 'existing' names no concept — answer 'existing:<concept id>'"]
+        ["'Decision Support': 'existing' names no concept — answer 'existing:<concept label or id>'"]
 
 
 def test_an_answer_everything_in_which_is_readable_reports_no_problem():
@@ -561,7 +569,7 @@ def test_the_card_OFFERS_the_concept_a_matcher_thinks_the_term_is_a_word_for():
     assert "existing:Dispense" in " ".join(suggested["samples"]), "the id must be offered ready to use"
     # ...and a term nothing matched must NOT be given a target it does not have
     assert "existing:" in " ".join(plain["samples"]), "the option still stands"
-    assert "existing:<id>" in " ".join(plain["samples"]), "but unfilled, because nothing was matched"
+    assert "existing:<concept>" in " ".join(plain["samples"]), "but unfilled, because nothing was matched"
 
 
 def test_admitting_an_ALIAS_links_the_documents_that_asked_for_the_word():

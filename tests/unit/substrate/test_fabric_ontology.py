@@ -181,3 +181,23 @@ def test_a_RE_ANSWERED_card_does_not_fail_on_what_it_already_did():
     state = {"payload": PAYLOAD, "answer": {Q1: {"value": "relate"}}}
     asyncio.run(O.apply(state, "steward@x", call=call))
     asyncio.run(O.apply(state, "steward@x", call=call))      # the redrive must not raise
+
+
+def test_the_card_tells_the_steward_WHO_proposed_a_relation_and_HOW_MANY_artifacts_did():
+    """FR-7: the evidence a steward triages on includes the proposers and the artifact count, so a
+    relation two channels and three documents want reads differently from one a diagram drew once."""
+    (item,) = O.batch_question([{"iri": "urn:fabric:relation-q:1", "subject": "Prescription",
+                                 "predicate": "contains", "object": "PrescriptionItem",
+                                 "evidence": "drawn on eRx.vsdx",
+                                 "proposed_by": ["maria@contoso.com", "saf-assistant"],
+                                 "proposed_for": ["urn:fabric:artifact:a", "urn:fabric:artifact:b"],
+                                 "proposals": 2}])
+    said = item["samples"][0]
+    assert "maria@contoso.com" in said and "saf-assistant" in said and "2 artifacts" in said
+    assert item["choices"] == ["relate", "broader", "decline"], "evidence never becomes an answer"
+
+
+def test_a_relation_with_no_recorded_proposer_reads_as_before():
+    (item,) = O.batch_question([{"iri": "q", "subject": "A", "predicate": "", "object": "B",
+                                 "evidence": "3 records are about both"}])
+    assert "proposed by" not in item["samples"][0]
