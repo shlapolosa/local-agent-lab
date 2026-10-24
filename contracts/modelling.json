@@ -378,7 +378,7 @@
       ]
     }
   },
-  "$id": "urn:lab:contracts:modelling:1.2.0",
+  "$id": "urn:lab:contracts:modelling:1.3.0",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "What modelling emits: the FR-11 engine spec UNCHANGED under `spec`, with provenance, sources, references, change status, renames, reviews, open questions and refused relations beside it (ADR docs/decisions/2026-10-24-architecture-modelling.md). Generated from lab.core.modelling; never edit by hand.",
@@ -394,7 +394,7 @@
       "type": "object"
     },
     "contract_version": {
-      "const": "1.2.0"
+      "const": "1.3.0"
     },
     "dropped": {
       "description": "Relations proposed but refused (illegal by the matrix, an undeclared or ambiguous endpoint), each with its reason.",
@@ -514,7 +514,279 @@
   ],
   "title": "Architecture modelling envelope",
   "type": "object",
-  "version": "1.2.0",
+  "version": "1.3.0",
+  "x-agent": {
+    "prompt": "# Model the architecture the inputs describe\n\nYou are an enterprise architect. You are given one or more INPUTS, each under a key (S1, S2, ...):\ndocuments as text with numbered paragraphs (`[¶n]`), and possibly images, figures or diagrams.\nBuild the ArchiMate 3.1 model those inputs describe, and cite, for every element and every\nrelationship, the words in the inputs that justify it.\n\n## What to model\n\nModel every layer the inputs actually describe. Do not fill a layer the inputs are silent about.\n- **Motivation**: drivers, goals, outcomes, principles, requirements, constraints and stakeholders the\n  inputs state.\n- **Strategy**: capabilities, value streams, resources and courses of action the inputs name.\n- **Business**: actors and roles, business processes, functions, events and services, and business\n  objects. Decompose behaviour where the ACTION changes: retrieving is not interpreting, and\n  interpreting is not deciding. Name functions verb plus object (\"assess referral\").\n- **Data**: data objects, and which business object each realises.\n- **Application**: the application components, interfaces, services and functions the inputs\n  describe, including existing systems by their own names.\n- **Technology**: nodes, system software, devices, technology services and networks the inputs\n  describe.\n\nAn element the inputs only imply is not invented. If it is plainly part of this system, include it\nand cite the words that imply it. Otherwise, ask about it in `openQuestions`.\n\n## Reading the inputs\n\n- Read every input fully before classifying anything.\n- A specific product, stencil or icon (a database cylinder, a server, a cloud glyph) is strong\n  evidence of type and layer. A plain box, a colour or a container is weak evidence: decide from the\n  caption and from what connects to it.\n- An interface is an access point: the owner is composed of it, and it is assigned to the service\n  reached through it.\n- A box drawn around others is usually a boundary (a system, a node, a domain), not an element.\n- Requirements are evidence about the system, not a second system.\n- Where two inputs disagree, keep both readings out of the model and ask in `openQuestions`,\n  quoting both sides.\n\n## Relationships\n\nEvery relationship has a direction: server to served, whole to part, realiser to realised, performer\nto behaviour, behaviour to the object it accesses. Name both ends by an element's exact `name`. Use\n`accessType` only on an Access relationship. Use only relationships ArchiMate permits between the two\ntypes; a relationship it forbids is discarded downstream, not repaired.\n\n## Citations\n\nEvery element and every relationship cites at least one source:\n- `source`: the input's key, exactly as shown (S1).\n- `location`: where in it, as `{\"paragraph\": n}` (the `[¶n]` number), `{\"page\": n}`,\n  `{\"figure\": n}` or `{\"shape\": \"<id>\"}`.\n- `quote`: the input's OWN words, copied exactly, short enough to be the evidence and nothing more.\n  Never quote the `[¶n]` marker. Never paraphrase: a paraphrase is not evidence, and it is checked.\n  For a figure or a diagram, quote the label or caption as you read it.\n\nIf you cannot cite an element, it does not belong in the model. Raise it in `openQuestions`.\n\n## Naming\n\nUse the inputs' own name for each element. One element per thing: if two names describe the same\nthing, choose one and cite both passages. A name is unique across the whole model: if the inputs use\none word for two things (a \"Referral\" object and a \"Referral\" process), name them apart (\"Referral\",\n\"Handle referral\"), because relationships name their ends by name.\n\n## How to answer\n\nReturn ONE JSON object matching the schema and nothing else: no prose before it, no markdown fence,\nno explanation after it. The reply is parsed, and anything around the object is a parse failure.\nIt has five fields: `systemName` (what the inputs call the system), `summary` (two or three\nsentences), `elements`, `relationships` and `openQuestions`.\n\nWhere you do not know something, say so in `openQuestions` rather than inventing a plausible value.\nA fabricated element is indistinguishable from a real one downstream, which is the one failure this\nmodel cannot recover from.\n",
+    "prompt_path": "src/lab/core/modelling/prompts/model.md",
+    "prompt_sha256": "96b4ec2f04530c8e10e6d879ab5931adb0d74e71fa1e47301caa1951b7801704",
+    "schema": {
+      "$defs": {
+        "citation": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "additionalProperties": false,
+              "description": "Where in that input: the [¶n] paragraph number, a page, a figure number or a diagram shape id.",
+              "minProperties": 1,
+              "properties": {
+                "figure": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "paragraph": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "shape": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "quote": {
+              "description": "The input's OWN words that justify this item, copied exactly. For a figure or diagram, the label or caption as read.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "source": {
+              "description": "The key of the input this came from, as shown (S1, S2, ...).",
+              "pattern": "^S[0-9]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "location",
+            "quote"
+          ],
+          "type": "object"
+        },
+        "element": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "description": "The element's name, as the input names it. Unique across the model.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "provenance": {
+              "items": {
+                "$ref": "#/$defs/citation"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "role": {
+              "description": "What it is and does in this system, in plain language.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "description": "The exact ArchiMate 3.1 type. Its layer and aspect follow from it.",
+              "enum": [
+                "AndJunction",
+                "ApplicationCollaboration",
+                "ApplicationComponent",
+                "ApplicationEvent",
+                "ApplicationFunction",
+                "ApplicationInteraction",
+                "ApplicationInterface",
+                "ApplicationProcess",
+                "ApplicationService",
+                "Artifact",
+                "Assessment",
+                "BusinessActor",
+                "BusinessCollaboration",
+                "BusinessEvent",
+                "BusinessFunction",
+                "BusinessInteraction",
+                "BusinessInterface",
+                "BusinessObject",
+                "BusinessProcess",
+                "BusinessRole",
+                "BusinessService",
+                "Capability",
+                "CommunicationNetwork",
+                "Constraint",
+                "Contract",
+                "CourseOfAction",
+                "DataObject",
+                "Deliverable",
+                "Device",
+                "DistributionNetwork",
+                "Driver",
+                "Equipment",
+                "Facility",
+                "Gap",
+                "Goal",
+                "Grouping",
+                "ImplementationEvent",
+                "Junction",
+                "Location",
+                "Material",
+                "Meaning",
+                "Node",
+                "OrJunction",
+                "Outcome",
+                "Path",
+                "Plateau",
+                "Principle",
+                "Product",
+                "Representation",
+                "Requirement",
+                "Resource",
+                "Stakeholder",
+                "SystemSoftware",
+                "TechnologyCollaboration",
+                "TechnologyEvent",
+                "TechnologyFunction",
+                "TechnologyInteraction",
+                "TechnologyInterface",
+                "TechnologyProcess",
+                "TechnologyService",
+                "Value",
+                "ValueStream",
+                "WorkPackage"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "role",
+            "type",
+            "provenance"
+          ],
+          "type": "object"
+        },
+        "question": {
+          "additionalProperties": false,
+          "properties": {
+            "elements": {
+              "description": "Names of the elements the question is about.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "text": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "relationship": {
+          "additionalProperties": false,
+          "properties": {
+            "accessType": {
+              "description": "Only for an Access relation.",
+              "enum": [
+                "Read",
+                "Write",
+                "ReadWrite",
+                "Access"
+              ]
+            },
+            "provenance": {
+              "items": {
+                "$ref": "#/$defs/citation"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "source": {
+              "description": "An element's `name`.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "target": {
+              "description": "An element's `name`.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "Access",
+                "Aggregation",
+                "Assignment",
+                "Association",
+                "Composition",
+                "Flow",
+                "Influence",
+                "Junction",
+                "Realization",
+                "Serving",
+                "Specialization",
+                "Triggering"
+              ]
+            }
+          },
+          "required": [
+            "source",
+            "target",
+            "type",
+            "provenance"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/element"
+          },
+          "type": "array"
+        },
+        "openQuestions": {
+          "items": {
+            "$ref": "#/$defs/question"
+          },
+          "type": "array"
+        },
+        "relationships": {
+          "items": {
+            "$ref": "#/$defs/relationship"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "systemName": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "systemName",
+        "summary",
+        "elements",
+        "relationships",
+        "openQuestions"
+      ],
+      "title": "Architecture model drawn from the inputs",
+      "type": "object"
+    }
+  },
   "x-id-prefixes": {
     "ac-": "ApplicationComponent",
     "af-": "ApplicationFunction",

@@ -28,7 +28,7 @@ __all__ = ["CHANGES", "CONCEPT_STATUSES", "CONTRACT_VERSION", "ELEMENT_KEYS", "I
            "QUESTION_KINDS", "REFERENCE_KINDS", "RELATION_KEYS", "REVIEW_KEYS", "REVIEW_STATES",
            "RefField", "RefKind", "SPEC_KEYS", "STATUSES", "build"]
 
-CONTRACT_VERSION = "1.2.0"
+CONTRACT_VERSION = "1.3.0"
 
 #: The keys the FR-11 schema declares (v1.0.0). Parity with the schema is a governance test.
 SPEC_KEYS = ("name", "id", "elements", "relations", "views", "standard_views")

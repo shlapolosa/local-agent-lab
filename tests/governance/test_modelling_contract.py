@@ -96,6 +96,19 @@ def test_a_full_envelope_validates_against_the_contract():
     assert {q["kind"] for q in env["open_questions"]} == {"no-provenance", "raised"}
 
 
+def test_the_contract_carries_the_agent_s_schema_and_prompt_so_a_vendor_sees_every_change():
+    """1.3.0, confirmed by SAF: one vendored file is everything a channel mirrors. The prompt is inline
+    AND hashed, so a channel's build can check the text it was given."""
+    import hashlib
+    from lab.core.modelling import agent_schema
+    agent = MODELLING["x-agent"]
+    assert agent["schema"] == agent_schema.schema()
+    assert agent["prompt"] == agent_schema.prompt()
+    assert agent["prompt_sha256"] == hashlib.sha256(agent["prompt"].encode("utf-8")).hexdigest()
+    with open(os.path.join(ROOT, agent["prompt_path"]), "rb") as f:
+        assert hashlib.sha256(f.read()).hexdigest() == agent["prompt_sha256"]
+
+
 def test_a_review_decision_shape_is_published_for_the_d8_gate():
     _validator("review_decision").validate(
         {"item_kind": "element", "item_id": "ba-x", "state": "corrected", "actor": "ea@tenant",

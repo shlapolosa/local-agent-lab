@@ -7,9 +7,11 @@ holds the committed file to this function byte for byte.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 
 from lab.core.archimate import ids
+from lab.core.modelling import agent_schema
 from lab.core.modelling import envelope as E
 from lab.core.modelling.provenance import LOCATION_KEYS
 
@@ -48,6 +50,16 @@ def _prefixes() -> dict:
     return dict(sorted(table.items()))
 
 
+def _agent() -> dict:
+    """The modelling agent's instructions and output schema (1.3.0, agreed with SAF): a channel that
+    emulates modelling mirrors both, so both are part of what it vendors. The prompt travels inline
+    and hashed; the hash is of the committed file's UTF-8 bytes."""
+    text = agent_schema.prompt()
+    return {"schema": agent_schema.schema(), "prompt": text,
+            "prompt_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "prompt_path": "src/lab/core/modelling/prompts/model.md"}
+
+
 def schema() -> dict:
     v = E.CONTRACT_VERSION
     by_id = {"type": "object", "propertyNames": {"pattern": _ID["pattern"]}}
@@ -72,6 +84,7 @@ def schema() -> dict:
             "`renamed_from` when modelling can show it is the same thing. A relation id is 'r-' + "
             "md5(src|type|tgt)[:10]."),
         "x-id-prefixes": _prefixes(),
+        "x-agent": _agent(),
         "type": "object", "additionalProperties": False,
         "required": ["contract_version", "spec", "sources", "provenance", "references", "changes",
                      "renamed_from", "reviews", "open_questions", "dropped", "gaps"],
