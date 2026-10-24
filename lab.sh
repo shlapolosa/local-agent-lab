@@ -342,6 +342,7 @@ for_each_workload() {   # calls "$1 <service> <module>" for every workload host
   "$1" wf-usecase-design     lab.workloads.use_case_design.consumer
   "$1" wf-usecase-investment lab.workloads.use_case_investment.consumer
   "$1" wf-usecase-provisioning lab.workloads.use_case_provisioning.consumer
+  "$1" wf-architecture-modelling lab.workloads.architecture_modelling.consumer
   "$1" wf-fabric            lab.workloads.artifact_intake.consumer
   "$1" wf-artifact-publish  lab.workloads.artifact_publish.consumer
 }

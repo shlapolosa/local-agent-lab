@@ -408,6 +408,9 @@ MINUTES_AGENT_MODEL = _e("MINUTES_AGENT_MODEL", "gpt-5.4-mini")
 # group with reasoning_effort=medium) recalled 0.50/0.40 in ~90 s — the kimi baseline — at a
 # fraction of claude-sonnet-5's cost. Speed alone is the wrong answer for this step.
 USECASE_AGENT_MODEL = _e("USECASE_AGENT_MODEL", "gpt-5.4-mini-think")
+#: The architecture-modelling agent's model (ADR 2026-10-24). Its own setting because modelling is its
+#: own capability; it starts on the use-case model, which the gateway already serves and meters.
+MODELLING_AGENT_MODEL = _e("MODELLING_AGENT_MODEL", "gpt-5.4-mini-think")
 #: How long a workload waits for ONE governed tool call before treating it as hung. The FLOOR under
 #: every other bound, so it sits above the longest legitimate synchronous call — speech transcription
 #: is 900 s by design (`lab.substrate.mcp.speech.http.TIMEOUT`: an hour of audio is not quick) — and

@@ -1545,6 +1545,8 @@ from lab.platform.contracts.usecase import (  # noqa: E402
     USE_CASE_DESIGN, USE_CASE_INVESTMENT, USE_CASE_PROVISIONING, USE_CASE_SCREENING, DecisionTools,
     ValuationTools,
 )
+from lab.platform.contracts import modelling as _modelling  # noqa: E402
+from lab.platform.contracts.modelling import ARCHITECTURE_MODELLING  # noqa: E402
 
 #: Every process whose PRODUCTS the fabric ingests — derived from the specs' `products`, so declaring what a
 #: process makes is the one place that also makes it a producer (a governance test names the non-producers).
@@ -1577,13 +1579,14 @@ AGENTS: tuple[AgentSpec, ...] = (
               processes=("visio_to_archimate",)),
     *_speech.AGENTS,
     *_usecase.AGENTS,
+    *_modelling.AGENTS,
 
     *_fabric.AGENTS,
 )
 
 
 PROCESSES: dict[str, ProcessSpec] = {p.name: p for p in (VISIO_TO_ARCHIMATE, *_speech.PROCESSES,
-                                                         *_usecase.PROCESSES,
+                                                         *_usecase.PROCESSES, *_modelling.PROCESSES,
                                                          *_fabric.PROCESSES)}
 
 

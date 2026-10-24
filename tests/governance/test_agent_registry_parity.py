@@ -75,6 +75,7 @@ def _provisioned_prefixes() -> set[str]:
     found = set(U.SERVICE_PREFIXES.values())
     for module, names in (("provision_meeting_agents", ("MEETING_AGENT", "MINUTES_AGENT")),
                           ("provision_visio_agents", ("BA_AGENT", "ARCHITECT_AGENT")),
+                          ("provision_modelling_agents", ("MODELLING_AGENT",)),
                           ("provision_fabric_agents", ("CLASSIFIER_AGENT", "SYNTHESIS_AGENT", "PUBLISH_AGENT"))):
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts",
                                 f"{module}.py"), encoding="utf-8").read()

@@ -18,6 +18,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
 import provision_fabric_agents as fabric  # noqa: E402
 import provision_meeting_agents as meeting  # noqa: E402
+import provision_modelling_agents as modelling  # noqa: E402
 import provision_review_app_identity as review  # noqa: E402
 import provision_usecase_agents as usecase  # noqa: E402
 from lab.platform.contracts import EATools, SemanticTools, StorageTools  # noqa: E402
@@ -40,6 +41,7 @@ TEAMS: dict[str, dict[str, list[str] | None]] = {
     "meeting-transcript": meeting.TRANSCRIPT_TOOLS,
     "meeting-minutes": meeting.MINUTES_TOOLS,
     "power-automate": meeting.CONNECTOR_TOOLS,
+    "architecture-modelling": modelling.MODELLING_TOOLS,
     "fabric-intake": fabric.INTAKE_TOOLS,
     "fabric-publish": fabric.PUBLISH_TOOLS,
     "fabric-bot": fabric.BOT_TOOLS,

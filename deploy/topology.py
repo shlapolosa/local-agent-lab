@@ -759,6 +759,11 @@ WORKLOAD_ENV: dict[str, list[str]] = {
                                                    # LLM identity where the transcription one does not.
         "AGENT_*",                                 # agents.py: responses-store toggle, timeouts, caps
     ],
+    "architecture-modelling": [
+        "MODELLING_AGENT_*",                       # identity.agent_headers(): MODELLING_AGENT_CLIENT_ID/
+                                                   # SECRET/KEY, and MODELLING_AGENT_MODEL
+        "AGENT_*",                                 # agents.py: responses-store toggle
+    ],
     "fabric-intake": [
         "CLASSIFIER_AGENT_*", "SYNTHESIS_AGENT_*", # two identities: the classifier SUGGESTS (and carries the tool
                                                    # calls), the synthesiser WRITES tagged drafts
@@ -940,6 +945,13 @@ WORKLOADS = {
     "minutes": {
         "service": "wf-meeting-minutes",
         "cmd": "python -m lab.workloads.transcript_to_minutes.consumer",
+        "restart": "ALWAYS",
+        "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
+        "markers": ("consumer ready", "request "),
+    },
+    "architecture-modelling": {
+        "service": "wf-architecture-modelling",
+        "cmd": "python -m lab.workloads.architecture_modelling.consumer",
         "restart": "ALWAYS",
         "env": {"AGENT_RESPONSES_STORE": "false", "WF_CONSUMER": "1"},
         "markers": ("consumer ready", "request "),
