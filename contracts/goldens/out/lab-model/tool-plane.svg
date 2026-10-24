@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1258" height="1472" font-family="Helvetica,Arial" font-size="10">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="40" font-size="15" font-weight="bold">Tool Plane — EA Modelling (scoped)</text>
+<defs><marker id="arrF" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 10 4, 0 8" fill="#444"/></marker><marker id="arrO" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polyline points="0 0, 9 4, 0 8" fill="none" stroke="#444"/></marker><marker id="triH" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto"><polygon points="0 0, 11 5, 0 10" fill="white" stroke="#444"/></marker><marker id="diaF" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="#444"/></marker><marker id="diaH" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="white" stroke="#444"/></marker><marker id="dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#444"/></marker></defs>
+<rect x="534" y="60" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<circle cx="712" cy="67" r="2.5" stroke="#333" stroke-width="1" fill="none"/><line x1="712" y1="69.5" x2="712" y2="75" stroke="#333" stroke-width="1" fill="none"/><line x1="707" y1="72" x2="717" y2="72" stroke="#333" stroke-width="1" fill="none"/><line x1="712" y1="75" x2="708" y2="80" stroke="#333" stroke-width="1" fill="none"/><line x1="712" y1="75" x2="716" y2="80" stroke="#333" stroke-width="1" fill="none"/>
+<text x="629.0" y="92.0" text-anchor="middle" font-weight="normal">DOH Enterprise Architect</text>
+<rect x="404" y="228" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="499.0" y="260.0" text-anchor="middle" font-weight="normal">EA Model Generation</text>
+<circle cx="629.0" cy="411.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="629.0" y="392" text-anchor="middle" font-size="8">MCP endpoint (:9100/mcp)</text>
+<rect x="144" y="536" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="316,555 316,546 322,541 328,546 328,555 322,550" stroke="#333" stroke-width="1" fill="none"/>
+<text x="239.0" y="568.0" text-anchor="middle" font-weight="normal">Lay Out Views</text>
+<rect x="404" y="536" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="576,555 576,546 582,541 588,546 588,555 582,550" stroke="#333" stroke-width="1" fill="none"/>
+<text x="499.0" y="568.0" text-anchor="middle" font-weight="normal">Validate ArchiMate Rules</text>
+<rect x="664" y="536" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="836,555 836,546 842,541 848,546 848,555 842,550" stroke="#333" stroke-width="1" fill="none"/>
+<text x="759.0" y="568.0" text-anchor="middle" font-weight="normal">Emit Exchange XML</text>
+<rect x="534" y="710" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="708" y="715" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="705" y="718" width="6" height="3" fill="white" stroke="#333"/><rect x="705" y="723" width="6" height="3" fill="white" stroke="#333"/>
+<text x="629.0" y="742.0" text-anchor="middle" font-weight="normal">ADOIT MCP Server</text>
+<rect x="664" y="228" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="759.0" y="260.0" text-anchor="middle" font-weight="normal">Tool Gateway</text>
+<rect x="924" y="536" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="1098" y="541" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="1095" y="544" width="6" height="3" fill="white" stroke="#333"/><rect x="1095" y="549" width="6" height="3" fill="white" stroke="#333"/>
+<text x="1019.0" y="568.0" text-anchor="middle" font-weight="normal">LiteLLM Proxy</text>
+<rect x="534" y="878" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/><line x1="534" y1="892" x2="724" y2="892" stroke="#5c6e82"/>
+<rect x="705" y="884" width="14" height="12" stroke="#333" stroke-width="1" fill="none"/><line x1="705" y1="888" x2="719" y2="888" stroke="#333" stroke-width="1" fill="none"/>
+<text x="629.0" y="918.0" text-anchor="middle" font-weight="normal">ArchiMate Model (Exchange XML)</text>
+<polygon points="534,1362 542,1354 724,1354 724,1404 716,1412 534,1412" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="534,1362 716,1362 724,1354" fill="none" stroke="#5c6e82"/><line x1="716" y1="1362" x2="716" y2="1412" stroke="#5c6e82"/>
+<polygon points="705,1363 709,1359 719,1359 719,1369 715,1373 705,1373" stroke="#333" stroke-width="1" fill="none"/><polyline points="705,1363 715,1363 719,1359" stroke="#333" stroke-width="1" fill="none"/><line x1="715" y1="1363" x2="715" y2="1373" stroke="#333" stroke-width="1" fill="none"/>
+<text x="629.0" y="1386.0" text-anchor="middle" font-weight="normal">ADOIT:CE (BOC Cloud)</text>
+<circle cx="629.0" cy="1229.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="629.0" y="1210" text-anchor="middle" font-size="8">REST API (read-only)</text>
+<rect x="534" y="1046" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="629.0" y="1078.0" text-anchor="middle" font-weight="normal">EA Repository</text>
+<polyline points="566,710 566,634 239,634 239,594" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="597,710 597,652 499,652 499,594" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="629,710 629,634 759,634 759,594" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="239,536 239,490 114,490 114,350 480,350 480,286" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="499,536 499,472 96,472 96,332 442,332 442,286" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="759,536 759,490 1144,490 1144,350 556,350 556,286" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="692,710 692,670 1162,670 1162,472 629,472 629,426" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="629,396 629,332 518,332 518,286" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="499,228 499,173 629,173 629,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="661,710 661,652 1019,652 1019,594" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="613,768 613,878" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="597,1354 597,1299 629,1299 629,1244" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="629,1214 629,1159 597,1159 597,1104" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="661,1354 661,1299 1180,1299 1180,1159 661,1159 661,1104" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="629,1046 629,991 1198,991 1198,823 661,823 661,768" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+</svg>

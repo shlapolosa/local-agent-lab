@@ -1,0 +1,99 @@
+{
+  "name": "Golden: gutter routing",
+  "id": "golden-gutter",
+  "standard_views": false,
+  "elements": [
+    {
+      "id": "actor",
+      "type": "BusinessActor",
+      "name": "Clerk"
+    },
+    {
+      "id": "bsvc",
+      "type": "BusinessService",
+      "name": "Registration"
+    },
+    {
+      "id": "proc",
+      "type": "BusinessProcess",
+      "name": "Register"
+    },
+    {
+      "id": "asvc",
+      "type": "ApplicationService",
+      "name": "Registry API"
+    },
+    {
+      "id": "comp",
+      "type": "ApplicationComponent",
+      "name": "Registry"
+    },
+    {
+      "id": "comp2",
+      "type": "ApplicationComponent",
+      "name": "Audit"
+    },
+    {
+      "id": "node",
+      "type": "Node",
+      "name": "Host"
+    }
+  ],
+  "relations": [
+    {
+      "type": "Serving",
+      "src": "bsvc",
+      "tgt": "actor"
+    },
+    {
+      "type": "Realization",
+      "src": "proc",
+      "tgt": "bsvc"
+    },
+    {
+      "type": "Serving",
+      "src": "asvc",
+      "tgt": "proc"
+    },
+    {
+      "type": "Realization",
+      "src": "comp",
+      "tgt": "asvc"
+    },
+    {
+      "type": "Serving",
+      "src": "node",
+      "tgt": "comp"
+    },
+    {
+      "type": "Serving",
+      "src": "node",
+      "tgt": "actor"
+    },
+    {
+      "type": "Flow",
+      "src": "comp",
+      "tgt": "comp2"
+    },
+    {
+      "type": "Serving",
+      "src": "asvc",
+      "tgt": "actor"
+    }
+  ],
+  "views": [
+    {
+      "id": "long-edges",
+      "title": "Edges spanning several rows",
+      "elements": [
+        "actor",
+        "bsvc",
+        "proc",
+        "asvc",
+        "comp",
+        "comp2",
+        "node"
+      ]
+    }
+  ]
+}

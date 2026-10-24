@@ -1,0 +1,279 @@
+{
+  "model": "golden-gutter",
+  "views": [
+    {
+      "canvas": {
+        "h": 1018,
+        "w": 738
+      },
+      "connections": [
+        {
+          "k": 0,
+          "points": [
+            [
+              369,
+              228
+            ],
+            [
+              369,
+              164
+            ],
+            [
+              322,
+              164
+            ],
+            [
+              322,
+              118
+            ]
+          ],
+          "relation": "r1",
+          "src": "bsvc",
+          "tgt": "actor"
+        },
+        {
+          "k": 1,
+          "points": [
+            [
+              369,
+              396
+            ],
+            [
+              369,
+              286
+            ]
+          ],
+          "relation": "r2",
+          "src": "proc",
+          "tgt": "bsvc"
+        },
+        {
+          "k": 2,
+          "points": [
+            [
+              353,
+              564
+            ],
+            [
+              353,
+              454
+            ]
+          ],
+          "relation": "r3",
+          "src": "asvc",
+          "tgt": "proc"
+        },
+        {
+          "k": 3,
+          "points": [
+            [
+              239,
+              732
+            ],
+            [
+              239,
+              677
+            ],
+            [
+              369,
+              677
+            ],
+            [
+              369,
+              622
+            ]
+          ],
+          "relation": "r4",
+          "src": "comp",
+          "tgt": "asvc"
+        },
+        {
+          "k": 4,
+          "points": [
+            [
+              337,
+              900
+            ],
+            [
+              337,
+              836
+            ],
+            [
+              207,
+              836
+            ],
+            [
+              207,
+              790
+            ]
+          ],
+          "relation": "r5",
+          "src": "node",
+          "tgt": "comp"
+        },
+        {
+          "k": 5,
+          "points": [
+            [
+              401,
+              900
+            ],
+            [
+              401,
+              836
+            ],
+            [
+              624,
+              836
+            ],
+            [
+              624,
+              182
+            ],
+            [
+              369,
+              182
+            ],
+            [
+              369,
+              118
+            ]
+          ],
+          "relation": "r6",
+          "src": "node",
+          "tgt": "actor"
+        },
+        {
+          "k": 6,
+          "points": [
+            [
+              271,
+              790
+            ],
+            [
+              271,
+              854
+            ],
+            [
+              499,
+              854
+            ],
+            [
+              499,
+              790
+            ]
+          ],
+          "relation": "r7",
+          "src": "comp",
+          "tgt": "comp2"
+        },
+        {
+          "k": 7,
+          "points": [
+            [
+              401,
+              564
+            ],
+            [
+              401,
+              509
+            ],
+            [
+              642,
+              509
+            ],
+            [
+              642,
+              164
+            ],
+            [
+              416,
+              164
+            ],
+            [
+              416,
+              118
+            ]
+          ],
+          "relation": "r8",
+          "src": "asvc",
+          "tgt": "actor"
+        }
+      ],
+      "id": "long-edges",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "actor",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "bsvc",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 228
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "proc",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 396
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "asvc",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 564
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "comp",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 732
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "comp2",
+          "parent": null,
+          "w": 190,
+          "x": 404,
+          "y": 732
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "node",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 900
+        }
+      ],
+      "title": "Edges spanning several rows"
+    }
+  ]
+}

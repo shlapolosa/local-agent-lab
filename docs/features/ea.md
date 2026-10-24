@@ -107,3 +107,23 @@ The engine originates from `~/Development/health-service-idp` (archi_layout.py /
   `source: requirements`), otherwise it is an `openQuestion`. Per-element **`provenance`
   `{source, representation}` is REQUIRED** by `ba_output.schema.json` and by the `[D]` gate (which
   expands the bare-string shorthand to the object form; both BA modes share one normaliser).
+
+## Modelling contracts a channel vendors (FR-11, 24 Oct 2026)
+
+A channel that emulates the lab's modelling until the lab lands in its tenant (the SAF pack) uses the
+lab's contracts verbatim and proves its port against goldens. All three are generated, committed and held
+byte-for-byte by governance tests; re-render with
+`PYTHONPATH=src .venv/bin/python scripts/render_ea_contracts.py`.
+
+| file | what | version |
+|---|---|---|
+| `contracts/archimate-spec.schema.json` | the engine SPEC (the interchange an Architect emits), enums generated from `engine._TYPES` / `_REL_TYPES` / `ACCESS_TYPES` | `lab.core.archimate.spec_schema.VERSION` |
+| `contracts/ea-tools.json` | the EA port's tools (`EATools`, alias `ea_mcp`) as adoit-mcp registers them, with stability tiers | `lab.substrate.mcp.adoit.contract.VERSION` |
+| `contracts/goldens/specs/*.json` → `contracts/goldens/out/<spec>/` | for each sample spec: `layout.json` (every view's canvas, node boxes, connection points), `model.archimate.xml`, one SVG per view | covered by `spec_schema.VERSION` |
+
+The engine has ONE spec builder, `lab.core.archimate.engine.from_spec` — adoit-mcp's render/validate, the
+Architect's probe build, the goldens and the tests all use it. A port must mirror four things
+(documented in `lab.core.archimate.goldens`): Python's round-half-to-even rounding, insertion order of
+nodes/relations/views, code-point `sorted(id)` order inside standard views, and stable sorts. The layout
+uses no randomness, clock or hash order (a test renders under two `PYTHONHASHSEED`s). When a golden
+test fails: re-render, bump `spec_schema.VERSION`, and tell the channels porting the engine.

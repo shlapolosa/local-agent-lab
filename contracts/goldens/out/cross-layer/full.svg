@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="738" height="1940" font-family="Helvetica,Arial" font-size="10">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="40" font-size="15" font-weight="bold">Full Architecture View</text>
+<defs><marker id="arrF" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 10 4, 0 8" fill="#444"/></marker><marker id="arrO" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polyline points="0 0, 9 4, 0 8" fill="none" stroke="#444"/></marker><marker id="triH" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto"><polygon points="0 0, 11 5, 0 10" fill="white" stroke="#444"/></marker><marker id="diaF" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="#444"/></marker><marker id="diaH" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="white" stroke="#444"/></marker><marker id="dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#444"/></marker></defs>
+<polygon points="144,1720 152,1712 334,1712 334,1762 326,1770 144,1770" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="144,1720 326,1720 334,1712" fill="none" stroke="#5c6e82"/><line x1="326" y1="1720" x2="326" y2="1770" stroke="#5c6e82"/>
+<polygon points="315,1721 319,1717 329,1717 329,1727 325,1731 315,1731" stroke="#333" stroke-width="1" fill="none"/><polyline points="315,1721 325,1721 329,1717" stroke="#333" stroke-width="1" fill="none"/><line x1="325" y1="1721" x2="325" y2="1731" stroke="#333" stroke-width="1" fill="none"/>
+<text x="239.0" y="1744.0" text-anchor="middle" font-weight="normal">Application server</text>
+<rect x="404" y="1712" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="582" cy="1724" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="584" cy="1722" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="499.0" y="1744.0" text-anchor="middle" font-weight="normal">Database</text>
+<rect x="274" y="564" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<polygon points="445,573 453,573 453,570 459,576 453,582 453,579 445,579" stroke="#333" stroke-width="1" fill="none"/>
+<text x="369.0" y="596.0" text-anchor="middle" font-weight="normal">Dispense medication</text>
+<rect x="274" y="396" width="190" height="58" rx="14" fill="#FFFFB5" stroke="#5c6e82"/>
+
+<text x="369.0" y="428.0" text-anchor="middle" font-weight="normal">Dispensing service</text>
+<rect x="274" y="60" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<circle cx="452" cy="72" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="452" cy="72" r="4" stroke="#333" stroke-width="1" fill="none"/><circle cx="452" cy="72" r="1.5" fill="#333"/>
+<text x="369.0" y="92.0" text-anchor="middle" font-weight="normal">Safer dispensing</text>
+<rect x="274" y="228" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<circle cx="452" cy="235" r="2.5" stroke="#333" stroke-width="1" fill="none"/><line x1="452" y1="237.5" x2="452" y2="243" stroke="#333" stroke-width="1" fill="none"/><line x1="447" y1="240" x2="457" y2="240" stroke="#333" stroke-width="1" fill="none"/><line x1="452" y1="243" x2="448" y2="248" stroke="#333" stroke-width="1" fill="none"/><line x1="452" y1="243" x2="456" y2="248" stroke="#333" stroke-width="1" fill="none"/>
+<text x="369.0" y="260.0" text-anchor="middle" font-weight="normal">Patient</text>
+<rect x="274" y="732" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<rect x="447" y="740" width="10" height="8" stroke="#333" stroke-width="1" fill="none"/><ellipse cx="457" cy="744" rx="2.5" ry="4" fill="white" stroke="#333"/><path d="M447,740 a2.5,4 0 0 0 0,8" stroke="#333" stroke-width="1" fill="none"/>
+<text x="369.0" y="764.0" text-anchor="middle" font-weight="normal">Pharmacist</text>
+<rect x="274" y="1376" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="448" y="1381" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="445" y="1384" width="6" height="3" fill="white" stroke="#333"/><rect x="445" y="1389" width="6" height="3" fill="white" stroke="#333"/>
+<text x="369.0" y="1408.0" text-anchor="middle" font-weight="normal">Patient portal</text>
+<circle cx="369.0" cy="1083.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="369.0" y="1064" text-anchor="middle" font-size="8">Portal UI</text>
+<rect x="274" y="1544" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/><line x1="274" y1="1558" x2="464" y2="1558" stroke="#5c6e82"/>
+<rect x="445" y="1550" width="14" height="12" stroke="#333" stroke-width="1" fill="none"/><line x1="445" y1="1554" x2="459" y2="1554" stroke="#333" stroke-width="1" fill="none"/>
+<text x="369.0" y="1584.0" text-anchor="middle" font-weight="normal">Prescription</text>
+<rect x="274" y="1208" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="446,1227 446,1218 452,1213 458,1218 458,1227 452,1222" stroke="#333" stroke-width="1" fill="none"/>
+<text x="369.0" y="1240.0" text-anchor="middle" font-weight="normal">Manage prescriptions</text>
+<rect x="274" y="900" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="369.0" y="932.0" text-anchor="middle" font-weight="normal">Prescription service</text>
+<polyline points="401,286 401,332 624,332 624,668 401,668 401,732" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="337,732 337,622" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="369,564 369,454" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="337,396 337,286" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="401,1376 401,1312 642,1312 642,1144 369,1144 369,1098" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="369,1068 369,1013 337,1013 337,958" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="337,1376 337,1266" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="369,1208 369,1162 660,1162 660,1013 401,1013 401,958" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="369,900 369,845 678,845 678,686 401,686 401,622" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="401,1266 401,1330 696,1330 696,1498 369,1498 369,1544" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="239,1712 239,1657 114,1657 114,1480 369,1480 369,1434" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="239,1770 239,1825 499,1825 499,1770" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="401,396 401,350 714,350 714,173 369,173 369,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+</svg>

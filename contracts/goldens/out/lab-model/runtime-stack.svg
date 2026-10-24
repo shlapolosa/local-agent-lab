@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2298" height="996" font-family="Helvetica,Arial" font-size="10">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="40" font-size="15" font-weight="bold">Local Runtime Stack (scoped)</text>
+<defs><marker id="arrF" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 10 4, 0 8" fill="#444"/></marker><marker id="arrO" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polyline points="0 0, 9 4, 0 8" fill="none" stroke="#444"/></marker><marker id="triH" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto"><polygon points="0 0, 11 5, 0 10" fill="white" stroke="#444"/></marker><marker id="diaF" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="#444"/></marker><marker id="diaH" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="white" stroke="#444"/></marker><marker id="dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#444"/></marker></defs>
+<rect x="1054" y="60" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="1228" y="65" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="1225" y="68" width="6" height="3" fill="white" stroke="#333"/><rect x="1225" y="73" width="6" height="3" fill="white" stroke="#333"/>
+<text x="1149.0" y="92.0" text-anchor="middle" font-weight="normal">LiteLLM Proxy</text>
+<rect x="1314" y="234" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="1488" y="239" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="1485" y="242" width="6" height="3" fill="white" stroke="#333"/><rect x="1485" y="247" width="6" height="3" fill="white" stroke="#333"/>
+<text x="1409.0" y="266.0" text-anchor="middle" font-weight="normal">Workflow Host (Agent Framework)</text>
+<rect x="1054" y="234" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="1228" y="239" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="1225" y="242" width="6" height="3" fill="white" stroke="#333"/><rect x="1225" y="247" width="6" height="3" fill="white" stroke="#333"/>
+<text x="1149.0" y="266.0" text-anchor="middle" font-weight="normal">ADOIT MCP Server</text>
+<rect x="794" y="234" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="968" y="239" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="965" y="242" width="6" height="3" fill="white" stroke="#333"/><rect x="965" y="247" width="6" height="3" fill="white" stroke="#333"/>
+<text x="889.0" y="266.0" text-anchor="middle" font-weight="normal">Architecture Review App (Streamlit)</text>
+<polygon points="144,716 152,708 334,708 334,758 326,766 144,766" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="144,716 326,716 334,708" fill="none" stroke="#5c6e82"/><line x1="326" y1="716" x2="326" y2="766" stroke="#5c6e82"/>
+<polygon points="315,717 319,713 329,713 329,723 325,727 315,727" stroke="#333" stroke-width="1" fill="none"/><polyline points="315,717 325,717 329,713" stroke="#333" stroke-width="1" fill="none"/><line x1="325" y1="717" x2="325" y2="727" stroke="#333" stroke-width="1" fill="none"/>
+<text x="239.0" y="740.0" text-anchor="middle" font-weight="normal">M1 MacBook (8 GB, macOS)</text>
+<rect x="1704" y="708" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1882" cy="720" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1884" cy="718" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1799.0" y="740.0" text-anchor="middle" font-weight="normal">Python 3.12 (.venv)</text>
+<rect x="1184" y="708" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1362" cy="720" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1364" cy="718" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1279.0" y="740.0" text-anchor="middle" font-weight="normal">Uvicorn</text>
+<rect x="1444" y="708" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1622" cy="720" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1624" cy="718" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1539.0" y="740.0" text-anchor="middle" font-weight="normal">FastMCP 3</text>
+<rect x="404" y="708" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="582" cy="720" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="584" cy="718" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="499.0" y="740.0" text-anchor="middle" font-weight="normal">Prisma Client</text>
+<rect x="664" y="708" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="842" cy="720" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="844" cy="718" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="759.0" y="740.0" text-anchor="middle" font-weight="normal">Redis (Homebrew)</text>
+<rect x="1964" y="708" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="2142" cy="720" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="2144" cy="718" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2059.0" y="740.0" text-anchor="middle" font-weight="normal">Jaeger v2 (native binary)</text>
+<polygon points="924,716 932,708 1114,708 1114,758 1106,766 924,766" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="924,716 1106,716 1114,708" fill="none" stroke="#5c6e82"/><line x1="1106" y1="716" x2="1106" y2="766" stroke="#5c6e82"/>
+<polygon points="1095,717 1099,713 1109,713 1109,723 1105,727 1095,727" stroke="#333" stroke-width="1" fill="none"/><polyline points="1095,717 1105,717 1109,713" stroke="#333" stroke-width="1" fill="none"/><line x1="1105" y1="717" x2="1105" y2="727" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1019.0" y="740.0" text-anchor="middle" font-weight="normal">Neon Postgres (cloud)</text>
+<rect x="1054" y="462" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="1149.0" y="494.0" text-anchor="middle" font-weight="normal">Key &amp; Spend Store</text>
+<polyline points="1142,234 1142,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1377,292 1377,404 2184,404 2184,668 2059,668 2059,708" fill="none" stroke="#444" stroke-dasharray="6 4" marker-end="url(#arrF)"/>
+<polyline points="280,766 280,878 1799,878 1799,766" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="225,766 225,842 1279,842 1279,766" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="253,766 253,860 1539,860 1539,766" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="171,766 171,806 499,806 499,766" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="1752,708 1752,614 2202,614 2202,158 1163,158 1163,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1799,708 1799,632 2220,632 2220,422 1441,422 1441,292" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1846,708 1846,650 2238,650 2238,332 1102,332 1102,292" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1247,708 1247,560 2256,560 2256,176 1190,176 1190,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1311,708 1311,578 2274,578 2274,350 1149,350 1149,292" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1539,708 1539,596 2292,596 2292,386 1196,386 1196,292" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="499,708 499,578 114,578 114,176 1108,176 1108,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="198,766 198,824 759,824 759,766" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="307,766 307,896 2059,896 2059,766" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="759,708 759,560 96,560 96,158 1081,158 1081,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1019,708 1019,560 1149,560 1149,520" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1149,462 1149,368 2310,368 2310,194 1217,194 1217,118" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+</svg>

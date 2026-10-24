@@ -36,6 +36,7 @@ from enum import StrEnum
 from typing import Any, Mapping
 
 from lab.core.ids import POINTER_ID_FIELDS      # stdlib-only: this module must import without rdflib
+from lab.platform import filetypes               # the ONE file-type table (stdlib-only)
 
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
@@ -51,6 +52,16 @@ class ToolCatalogue:
     attribute is a tool name as the server registers it."""
 
     SERVER: str = ""
+    #: The published contract's tiers (contracts/<server>-tools.json). STABLE: live, used, changed only with
+    #: a contract-version bump. IN_FLUX: callable, shape still settling. Everything else is INTERNAL.
+    STABLE: tuple[str, ...] = ()
+    IN_FLUX: tuple[str, ...] = ()
+
+    @classmethod
+    def stability(cls) -> dict[str, str]:
+        """Every catalogued tool -> "stable" | "in-flux" | "internal"."""
+        return {name: "stable" if name in cls.STABLE else "in-flux" if name in cls.IN_FLUX else "internal"
+                for name in cls.names()}
 
     @classmethod
     def names(cls) -> frozenset[str]:
@@ -100,6 +111,10 @@ class EATools(ToolCatalogue):
     stage_import = "ea_stage_import"
     import_status = "ea_import_status"
     import_instructions = "ea_import_instructions"
+
+    # contracts/ea-tools.json (FR-11): the whole port is live and used, so all of it is STABLE.
+    STABLE = (validate, render, repositories, search, object, stage_import, import_status,
+              import_instructions)
 
 
 class WorkflowTools(ToolCatalogue):
@@ -1097,6 +1112,10 @@ class InputField:
     questions: str = ""
     choices: tuple[str, ...] = ()          # CHOICE only: the closed set of accepted values
     columns: tuple[Column, ...] = ()       # TABLE only: the typed columns one row may carry
+    #: REF / REF_LIST only: the file KINDS accepted (`lab.platform.filetypes`: vsdx, image, document,
+    #: artifact). Empty = any. Checked at the door, so a document passed as a diagram is refused by name
+    #: instead of reaching a branch that cannot read it.
+    kinds: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # A CHOICE with no members would accept nothing (and read as an oversight); a CHOICE that
@@ -1104,6 +1123,8 @@ class InputField:
         # to avoid. Either way the failure belongs at construction, not at the first submit.
         if (self.kind is InputKind.CHOICE) != bool(self.choices):
             raise ValueError(f"{self.name}: CHOICE declares its choices, and nothing else takes them")
+        if self.kinds and self.kind not in (InputKind.REF, InputKind.REF_LIST):
+            raise ValueError(f"{self.name}: only a reference field declares file kinds")
         if (self.kind is InputKind.TABLE) != bool(self.columns):
             raise ValueError(f"{self.name}: a TABLE declares its columns, and nothing else takes "
                              f"them — a table whose shape nobody stated is a free-text blob")
@@ -1157,6 +1178,12 @@ class InputField:
             ArtifactRef.parse(value)          # raises ValueError on a malformed ref
         elif "://" in value:                  # a URL is never an input: uploads live in the lab's store
             raise ValueError(f"{self.name}: {value!r} is not an art:// reference (upload the file first)")
+        if self.kinds:
+            name = split_fragment(value)[0].rstrip("/").rsplit("/", 1)[-1]
+            kind = filetypes.kind_for(name)
+            if kind not in self.kinds:
+                raise ValueError(f"{self.name}: {name!r} is a {kind} file; this field accepts "
+                                 f"{' or '.join(self.kinds)}")
         return value
 
 
@@ -1404,7 +1431,7 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
         InputField("diagram", InputKind.REF,
                    "The diagram to read: ONE art://<id>/<name> reference to a .vsdx file or a diagram "
                    "image (.png/.jpg) already uploaded to the lab's upload store. Append #<page> to "
-                   "read a single page of a multi-page .vsdx."),
+                   "read a single page of a multi-page .vsdx.", kinds=("vsdx", "image")),
         InputField("requirements", InputKind.REF_LIST,
                    "Optional art:// references to requirements documents (.docx/.pdf/.md/.txt) that "
                    "describe the same system; they are used as evidence about the diagram, never as a "

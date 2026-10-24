@@ -1,0 +1,303 @@
+{
+  "contract_version": "1.0.0",
+  "grants": {},
+  "server": "ea_mcp",
+  "stability": {
+    "archimate_render": "stable",
+    "archimate_validate": "stable",
+    "ea_import_instructions": "stable",
+    "ea_import_status": "stable",
+    "ea_object": "stable",
+    "ea_repositories": "stable",
+    "ea_search": "stable",
+    "ea_stage_import": "stable"
+  },
+  "tools": [
+    {
+      "description": "Validate, lay out and render a model spec to importable ArchiMate Model Exchange XML plus\none SVG preview per view. Pass spec by value, spec_ref (art://…) or, locally, spec_path.\nOutputs go to the artifact store: returns xml_ref + svg_refs (usable from any host),\nper-view canvas sizes, legality warnings. outdir additionally keeps local copies (dev).\nstrict (default true) fails the call on a layout-invariant or XSD violation; strict=false\nstill renders and returns them in `violations` so a reviewer can judge them — use it when a\nfailed render at the last step would waste a whole run.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "type": "string"
+          },
+          "outdir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "strict": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "basename"
+        ],
+        "type": "object"
+      },
+      "name": "archimate_render",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Check a model spec against ArchiMate legality rules (no rendering). Pass spec by\nvalue, spec_ref (art://… from semantic_export_archimate) or, locally, spec_path.\nReturns warnings (semantic) — an empty list means the model is clean.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spec_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "name": "archimate_validate",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "The governed human write path into this EA repository (ADOIT). TWO files, TWO purposes (the\nhosted CE blocks REST writes at the edge; the granular REST facade is gated behind\nADOIT_REST_WRITE for a full tenant): the Excel object file CREATES + UPDATES objects (matched by\nname), the ArchiMate XML imports the views/diagrams. ea_stage_import returns this same text with\nthe artifacts it produced.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "ea_import_instructions",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "WRITE PATH, step 2. Current decision on an import request and what happens next.\napprove -> the artifacts ea_stage_import produced are released for the human import\n(ea_import_instructions). ADOIT_REST_WRITE=true only reports that the REST write\npath is enabled (`rest_write_enabled`); the gated REST apply step is not implemented, so\nfile-import stays the release path. decline -> stop. update -> changes requested, see\ncomment; re-render and re-request.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "name": "ea_import_status",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Full detail of one existing repository object (read-only): its class, group, key attributes and\nits relations ({type, target_id, target_name}). Use the `id` from ea_search. Read this before\ndeciding an input is an UPDATE, to see what the existing element already connects to.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "object_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_id"
+        ],
+        "type": "object"
+      },
+      "name": "ea_object",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "List the EA repositories visible to the lab's service account (read-only; the repository\ncredentials are injected by this server — agents never see them).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "ea_repositories",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "Search the EXISTING architecture in the EA repository (read-only) — the way to check\nwhether something is already modelled before designing. Give a `name_like` (substring, e.g.\n'portal') and/or a `class_name` (an ArchiMate type like 'ApplicationComponent', or the\nrepository's own class name such as 'C_APPLICATION_COMPONENT'); at least one is required.\n`scope`: 'objects' (repository objects, default), 'models' (diagrams/views), or 'all'. Returns\n[{id, name, class, artefactType, groupId, modelName}] — use the `id` with ea_object, and reuse\nit as an element id when regenerating so the object is updated in place instead of duplicated.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "class_name": {
+            "default": "",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer"
+          },
+          "name_like": {
+            "default": "",
+            "type": "string"
+          },
+          "scope": {
+            "default": "objects",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "ea_search",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "WRITE PATH, step 1. Stage a model for a human-approved write into the EA repository: produce\nwhatever THIS repository needs in order to take the model, and publish an approval request (Redis\nStreams). NOTHING is written here — a human decides via the review app or Telegram, then\nea_import_status says what happens next.\n`spec_ref` is the model BY REFERENCE (art://…, e.g. from semantic_store_spec). `xml_ref`/`svg_refs`\nare OPTIONAL ArchiMate view artifacts you already rendered (archimate_render) that this repository\nmay reuse instead of rendering them again; omit them and it renders what it needs itself.\nReturns the `request_id` to poll with ea_import_status, `artifacts` — whatever this repository\nstaged as the MODEL (`artifacts`: the ArchiMate views XML + SVG previews), `import_artifacts` —\nthe files a HUMAN must carry into this repository, each as {ref, label, note} in the adapter's own\nwords — and the human `instructions` for them. Do NOT interpret the import artifacts: they are\nopaque, labelled downloads, and a repository that writes over its own API after the approval\nreturns `import_artifacts: []`. An adapter MAY add facts of its own\nto the staged summary (this one adds the object count and, when it rendered the views itself, the\nlenient render's violation count) — a caller must never require them.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "model_name": {
+            "type": "string"
+          },
+          "requester": {
+            "default": "ea-modeling-agent",
+            "type": "string"
+          },
+          "spec_ref": {
+            "type": "string"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "svg_refs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "xml_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "spec_ref",
+          "model_name",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "name": "ea_stage_import",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    }
+  ]
+}

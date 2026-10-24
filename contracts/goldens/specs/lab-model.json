@@ -1,0 +1,1225 @@
+{
+  "name": "Local Enterprise-Agentic Prototyping Platform",
+  "id": "lab-platform",
+  "elements": [
+    {
+      "id": "driver-azure",
+      "type": "Driver",
+      "name": "Azure-first enterprise strategy"
+    },
+    {
+      "id": "goal-parity",
+      "type": "Goal",
+      "name": "Pattern parity with Azure at zero licence cost",
+      "doc": "Every prototype agent authenticates, egresses through a gateway, is metered, PII-scanned and traced"
+    },
+    {
+      "id": "principle-gw",
+      "type": "Principle",
+      "name": "Single gateway for all egress"
+    },
+    {
+      "id": "req-gov",
+      "type": "Requirement",
+      "name": "All traffic authenticated, metered, traced"
+    },
+    {
+      "id": "req-pii",
+      "type": "Requirement",
+      "name": "No unredacted PII crosses the egress boundary"
+    },
+    {
+      "id": "cap-apa",
+      "type": "Capability",
+      "name": "Agentic Process Automation"
+    },
+    {
+      "id": "coa-cloud",
+      "type": "CourseOfAction",
+      "name": "Cloud-first inference",
+      "doc": "No local models; 7B-class local inference out of scope on 8 GB"
+    },
+    {
+      "id": "res-lab",
+      "type": "Resource",
+      "name": "M1 MacBook prototyping lab"
+    },
+    {
+      "id": "actor-ea",
+      "type": "BusinessActor",
+      "name": "DOH Enterprise Architect"
+    },
+    {
+      "id": "svc-auto",
+      "type": "BusinessService",
+      "name": "Business Process Automation"
+    },
+    {
+      "id": "proc-biz",
+      "type": "BusinessProcess",
+      "name": "Automated Business Process",
+      "doc": "Pilot processes run as Agent Framework workflows"
+    },
+    {
+      "id": "comp-gw",
+      "type": "ApplicationComponent",
+      "name": "LiteLLM Proxy",
+      "doc": "Governance plane: /v1, /mcp, A2A; virtual keys, budgets, rate limits, tool ACLs"
+    },
+    {
+      "id": "if-v1",
+      "type": "ApplicationInterface",
+      "name": "/v1 (OpenAI)"
+    },
+    {
+      "id": "if-mcp",
+      "type": "ApplicationInterface",
+      "name": "/mcp (MCP gateway)"
+    },
+    {
+      "id": "if-a2a",
+      "type": "ApplicationInterface",
+      "name": "A2A"
+    },
+    {
+      "id": "svc-route",
+      "type": "ApplicationService",
+      "name": "Model Routing"
+    },
+    {
+      "id": "svc-tools",
+      "type": "ApplicationService",
+      "name": "Tool Gateway",
+      "doc": "Central MCP registry; per-key tool filtering; upstream credential injection"
+    },
+    {
+      "id": "svc-a2a",
+      "type": "ApplicationService",
+      "name": "A2A Mediation"
+    },
+    {
+      "id": "comp-host",
+      "type": "ApplicationComponent",
+      "name": "Workflow Host (Agent Framework)",
+      "doc": "One async Python host per business process (~100 MB idle)"
+    },
+    {
+      "id": "comp-presidio",
+      "type": "ApplicationComponent",
+      "name": "Presidio PII Middleware"
+    },
+    {
+      "id": "comp-guard",
+      "type": "ApplicationComponent",
+      "name": "Guardrails Middleware",
+      "doc": "Prompt-injection and output scanning; heavy checks delegated to cloud LLM-judge"
+    },
+    {
+      "id": "svc-redact",
+      "type": "ApplicationService",
+      "name": "PII Redaction",
+      "doc": "Prompts, tool arguments and results redacted before egress"
+    },
+    {
+      "id": "svc-exec",
+      "type": "ApplicationService",
+      "name": "Workflow Execution"
+    },
+    {
+      "id": "comp-adoitmcp",
+      "type": "ApplicationComponent",
+      "name": "ADOIT MCP Server",
+      "doc": "FastMCP facade: ArchiMate engine + ADOIT REST reads; holds ADOIT credentials"
+    },
+    {
+      "id": "svc-ea",
+      "type": "ApplicationService",
+      "name": "EA Model Generation",
+      "doc": "ArchiMate validate/render; ADOIT-importable Model Exchange XML"
+    },
+    {
+      "id": "data-keys",
+      "type": "DataObject",
+      "name": "Virtual Keys & Budgets"
+    },
+    {
+      "id": "data-cards",
+      "type": "DataObject",
+      "name": "A2A Agent Cards"
+    },
+    {
+      "id": "data-model",
+      "type": "DataObject",
+      "name": "ArchiMate Model (Exchange XML)"
+    },
+    {
+      "id": "node-mac",
+      "type": "Node",
+      "name": "M1 MacBook (8 GB, macOS)"
+    },
+    {
+      "id": "ss-python",
+      "type": "SystemSoftware",
+      "name": "Python 3.12 (.venv)"
+    },
+    {
+      "id": "ss-uvicorn",
+      "type": "SystemSoftware",
+      "name": "Uvicorn"
+    },
+    {
+      "id": "ss-fastmcp",
+      "type": "SystemSoftware",
+      "name": "FastMCP 3"
+    },
+    {
+      "id": "ss-prisma",
+      "type": "SystemSoftware",
+      "name": "Prisma Client",
+      "doc": "LiteLLM ORM to the Neon key/spend store"
+    },
+    {
+      "id": "node-ollama",
+      "type": "Node",
+      "name": "Ollama Cloud"
+    },
+    {
+      "id": "tsvc-infer",
+      "type": "TechnologyService",
+      "name": "Model Inference",
+      "doc": "gpt-oss:120b primary, glm-5.3-flash utility; OpenAI-compatible"
+    },
+    {
+      "id": "node-entra",
+      "type": "Node",
+      "name": "Entra ID Tenant (free)"
+    },
+    {
+      "id": "tsvc-id",
+      "type": "TechnologyService",
+      "name": "Identity & OAuth2",
+      "doc": "LIVE: lab-gateway audience + app roles; ea-modeling-agent app registration; MSAL client-credentials; gateway validates JWTs and maps app -> virtual key"
+    },
+    {
+      "id": "node-jaeger",
+      "type": "SystemSoftware",
+      "name": "Jaeger v2 (native binary)",
+      "doc": "Trace store + UI; in-memory storage; ~50 MB RSS instead of a 2 GB Colima VM"
+    },
+    {
+      "id": "if-otlp",
+      "type": "TechnologyInterface",
+      "name": "OTLP"
+    },
+    {
+      "id": "tsvc-trace",
+      "type": "TechnologyService",
+      "name": "Trace Collection",
+      "doc": "Trace tree per workflow run; doubles as audit trail"
+    },
+    {
+      "id": "node-adoit",
+      "type": "Node",
+      "name": "ADOIT:CE (BOC Cloud)"
+    },
+    {
+      "id": "if-rest",
+      "type": "TechnologyInterface",
+      "name": "REST API (read-only)",
+      "doc": "Only /rest/2.0/repos works on CE; writes go through governed UI import"
+    },
+    {
+      "id": "tsvc-repo",
+      "type": "TechnologyService",
+      "name": "EA Repository"
+    },
+    {
+      "id": "ss-redis",
+      "type": "SystemSoftware",
+      "name": "Redis (Homebrew)",
+      "doc": "Gateway limiter/budget/router state and the approval event streams"
+    },
+    {
+      "id": "node-neon",
+      "type": "Node",
+      "name": "Neon Postgres (cloud)"
+    },
+    {
+      "id": "tsvc-keystore",
+      "type": "TechnologyService",
+      "name": "Key & Spend Store",
+      "doc": "LiteLLM teams, virtual keys, budgets, spend logs, skills"
+    },
+    {
+      "id": "tsvc-events",
+      "type": "TechnologyService",
+      "name": "Approval Event Bus",
+      "doc": "Redis Streams approvals:requests / approvals:decisions; consumer group per channel"
+    },
+    {
+      "id": "comp-review",
+      "type": "ApplicationComponent",
+      "name": "Architecture Review App (Streamlit)",
+      "doc": "Approval channel with diagrams, model contents, trace link"
+    },
+    {
+      "id": "comp-telegram",
+      "type": "ApplicationComponent",
+      "name": "Telegram Approval Channel",
+      "doc": "Same contract as the review app; plumbing only until a bot token is configured"
+    },
+    {
+      "id": "svc-approval",
+      "type": "ApplicationService",
+      "name": "Import Approval",
+      "doc": "approve / decline / changes-requested from any channel"
+    },
+    {
+      "id": "data-approvals",
+      "type": "DataObject",
+      "name": "Approval Events (requests, decisions)"
+    },
+    {
+      "id": "proc-approve",
+      "type": "BusinessProcess",
+      "name": "Approve EA Repository Change"
+    },
+    {
+      "id": "role-reviewer",
+      "type": "BusinessRole",
+      "name": "Architecture Reviewer"
+    },
+    {
+      "id": "bsvc-approval",
+      "type": "BusinessService",
+      "name": "Architecture Change Approval"
+    },
+    {
+      "id": "bif-web",
+      "type": "BusinessInterface",
+      "name": "Web Review Channel",
+      "doc": "Channel: the review portal"
+    },
+    {
+      "id": "bif-chat",
+      "type": "BusinessInterface",
+      "name": "Chat Channel (Telegram)",
+      "doc": "Channel: mobile chat; summary only, no diagrams"
+    },
+    {
+      "id": "ev-change",
+      "type": "BusinessEvent",
+      "name": "Change Requested"
+    },
+    {
+      "id": "ev-approved",
+      "type": "BusinessEvent",
+      "name": "Import Approved"
+    },
+    {
+      "id": "if-adoitmcp",
+      "type": "ApplicationInterface",
+      "name": "MCP endpoint (:9100/mcp)"
+    },
+    {
+      "id": "if-review-ui",
+      "type": "ApplicationInterface",
+      "name": "Review Web UI (:8501)"
+    },
+    {
+      "id": "if-bot",
+      "type": "ApplicationInterface",
+      "name": "Telegram Bot API"
+    },
+    {
+      "id": "if-admin",
+      "type": "ApplicationInterface",
+      "name": "Admin UI & API (/ui, /key, /team)"
+    },
+    {
+      "id": "svc-registry",
+      "type": "ApplicationService",
+      "name": "Agent Registry",
+      "doc": "Teams, virtual keys, budgets, tool ACLs, skill catalogue (Agent 365 analogue)"
+    },
+    {
+      "id": "fn-route",
+      "type": "ApplicationFunction",
+      "name": "Route Model Requests"
+    },
+    {
+      "id": "fn-govern",
+      "type": "ApplicationFunction",
+      "name": "Enforce Budgets, Rate Limits & Tool ACLs"
+    },
+    {
+      "id": "fn-inject",
+      "type": "ApplicationFunction",
+      "name": "Inject Upstream Credentials"
+    },
+    {
+      "id": "fn-registry",
+      "type": "ApplicationFunction",
+      "name": "Manage Teams, Keys & Skills"
+    },
+    {
+      "id": "fn-layout",
+      "type": "ApplicationFunction",
+      "name": "Lay Out Views"
+    },
+    {
+      "id": "fn-validate",
+      "type": "ApplicationFunction",
+      "name": "Validate ArchiMate Rules"
+    },
+    {
+      "id": "fn-emit",
+      "type": "ApplicationFunction",
+      "name": "Emit Exchange XML"
+    },
+    {
+      "id": "fn-stage",
+      "type": "ApplicationFunction",
+      "name": "Stage Import for Approval"
+    },
+    {
+      "id": "fn-redact",
+      "type": "ApplicationFunction",
+      "name": "Detect & Redact PII"
+    },
+    {
+      "id": "fn-present",
+      "type": "ApplicationFunction",
+      "name": "Present Views for Review"
+    },
+    {
+      "id": "fn-decide",
+      "type": "ApplicationFunction",
+      "name": "Record Decision"
+    },
+    {
+      "id": "if-redis",
+      "type": "TechnologyInterface",
+      "name": "RESP :6379"
+    },
+    {
+      "id": "if-neon",
+      "type": "TechnologyInterface",
+      "name": "Postgres wire (TLS)"
+    },
+    {
+      "id": "if-ollama",
+      "type": "TechnologyInterface",
+      "name": "OpenAI-compatible API"
+    },
+    {
+      "id": "if-entra",
+      "type": "TechnologyInterface",
+      "name": "OAuth2 / OIDC endpoints"
+    },
+    {
+      "id": "if-jaeger-ui",
+      "type": "TechnologyInterface",
+      "name": "Jaeger Query UI/API :16686"
+    },
+    {
+      "id": "wp1",
+      "type": "WorkPackage",
+      "name": "Scaffold Lab Repository"
+    },
+    {
+      "id": "wp2",
+      "type": "WorkPackage",
+      "name": "Build ADOIT MCP Server"
+    },
+    {
+      "id": "wp3",
+      "type": "WorkPackage",
+      "name": "Implement Pilot Processes"
+    },
+    {
+      "id": "wp4",
+      "type": "WorkPackage",
+      "name": "Evaluate ADOIT 18 Tenant"
+    },
+    {
+      "id": "plateau-1",
+      "type": "Plateau",
+      "name": "Lab Operational"
+    },
+    {
+      "id": "plateau-2",
+      "type": "Plateau",
+      "name": "Pilots Live"
+    }
+  ],
+  "relations": [
+    {
+      "type": "Influence",
+      "src": "driver-azure",
+      "tgt": "goal-parity"
+    },
+    {
+      "type": "Realization",
+      "src": "req-gov",
+      "tgt": "principle-gw"
+    },
+    {
+      "type": "Realization",
+      "src": "req-pii",
+      "tgt": "goal-parity"
+    },
+    {
+      "type": "Realization",
+      "src": "cap-apa",
+      "tgt": "goal-parity"
+    },
+    {
+      "type": "Realization",
+      "src": "coa-cloud",
+      "tgt": "goal-parity"
+    },
+    {
+      "type": "Assignment",
+      "src": "res-lab",
+      "tgt": "cap-apa"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-auto",
+      "tgt": "actor-ea"
+    },
+    {
+      "type": "Realization",
+      "src": "proc-biz",
+      "tgt": "svc-auto"
+    },
+    {
+      "type": "Realization",
+      "src": "svc-auto",
+      "tgt": "cap-apa"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-gw",
+      "tgt": "if-v1"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-gw",
+      "tgt": "if-mcp"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-gw",
+      "tgt": "if-a2a"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-gw",
+      "tgt": "fn-route"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-gw",
+      "tgt": "fn-govern"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-gw",
+      "tgt": "fn-inject"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-gw",
+      "tgt": "fn-registry"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-route",
+      "tgt": "svc-route"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-govern",
+      "tgt": "svc-tools"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-inject",
+      "tgt": "svc-tools"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-registry",
+      "tgt": "svc-registry"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-gw",
+      "tgt": "if-admin"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-v1",
+      "tgt": "svc-route"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-mcp",
+      "tgt": "svc-tools"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-a2a",
+      "tgt": "svc-a2a"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-admin",
+      "tgt": "svc-registry"
+    },
+    {
+      "type": "Realization",
+      "src": "comp-gw",
+      "tgt": "svc-a2a"
+    },
+    {
+      "type": "Realization",
+      "src": "comp-gw",
+      "tgt": "principle-gw"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-route",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-tools",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-a2a",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Access",
+      "src": "comp-gw",
+      "tgt": "data-keys",
+      "accessType": "ReadWrite"
+    },
+    {
+      "type": "Access",
+      "src": "comp-gw",
+      "tgt": "data-cards",
+      "accessType": "Read"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-host",
+      "tgt": "comp-presidio"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-host",
+      "tgt": "comp-guard"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-presidio",
+      "tgt": "fn-redact"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-redact",
+      "tgt": "svc-redact"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-redact",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Realization",
+      "src": "svc-redact",
+      "tgt": "req-pii"
+    },
+    {
+      "type": "Realization",
+      "src": "comp-host",
+      "tgt": "svc-exec"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-exec",
+      "tgt": "proc-biz"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-adoitmcp",
+      "tgt": "fn-layout"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-adoitmcp",
+      "tgt": "fn-validate"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-adoitmcp",
+      "tgt": "fn-emit"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-adoitmcp",
+      "tgt": "fn-stage"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-layout",
+      "tgt": "svc-ea"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-validate",
+      "tgt": "svc-ea"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-emit",
+      "tgt": "svc-ea"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-stage",
+      "tgt": "svc-approval"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-adoitmcp",
+      "tgt": "if-adoitmcp"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-adoitmcp",
+      "tgt": "svc-ea"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-ea",
+      "tgt": "actor-ea"
+    },
+    {
+      "type": "Serving",
+      "src": "comp-adoitmcp",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Access",
+      "src": "comp-adoitmcp",
+      "tgt": "data-model",
+      "accessType": "Write"
+    },
+    {
+      "type": "Realization",
+      "src": "node-ollama",
+      "tgt": "tsvc-infer"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-infer",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Realization",
+      "src": "node-entra",
+      "tgt": "tsvc-id"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-id",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-id",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Composition",
+      "src": "node-jaeger",
+      "tgt": "if-otlp"
+    },
+    {
+      "type": "Composition",
+      "src": "node-jaeger",
+      "tgt": "if-jaeger-ui"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-otlp",
+      "tgt": "tsvc-trace"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-jaeger-ui",
+      "tgt": "tsvc-trace"
+    },
+    {
+      "type": "Realization",
+      "src": "node-jaeger",
+      "tgt": "tsvc-trace"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-trace",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Flow",
+      "src": "comp-host",
+      "tgt": "node-jaeger"
+    },
+    {
+      "type": "Composition",
+      "src": "node-adoit",
+      "tgt": "if-rest"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-rest",
+      "tgt": "tsvc-repo"
+    },
+    {
+      "type": "Composition",
+      "src": "node-ollama",
+      "tgt": "if-ollama"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-ollama",
+      "tgt": "tsvc-infer"
+    },
+    {
+      "type": "Composition",
+      "src": "node-entra",
+      "tgt": "if-entra"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-entra",
+      "tgt": "tsvc-id"
+    },
+    {
+      "type": "Composition",
+      "src": "node-neon",
+      "tgt": "if-neon"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-neon",
+      "tgt": "tsvc-keystore"
+    },
+    {
+      "type": "Composition",
+      "src": "ss-redis",
+      "tgt": "if-redis"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-redis",
+      "tgt": "tsvc-events"
+    },
+    {
+      "type": "Realization",
+      "src": "node-adoit",
+      "tgt": "tsvc-repo"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-repo",
+      "tgt": "comp-adoitmcp"
+    },
+    {
+      "type": "Composition",
+      "src": "node-mac",
+      "tgt": "ss-python"
+    },
+    {
+      "type": "Composition",
+      "src": "node-mac",
+      "tgt": "ss-uvicorn"
+    },
+    {
+      "type": "Composition",
+      "src": "node-mac",
+      "tgt": "ss-fastmcp"
+    },
+    {
+      "type": "Composition",
+      "src": "node-mac",
+      "tgt": "ss-prisma"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-python",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-python",
+      "tgt": "comp-host"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-python",
+      "tgt": "comp-adoitmcp"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-uvicorn",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-uvicorn",
+      "tgt": "comp-adoitmcp"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-fastmcp",
+      "tgt": "comp-adoitmcp"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-prisma",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Composition",
+      "src": "node-mac",
+      "tgt": "ss-redis"
+    },
+    {
+      "type": "Composition",
+      "src": "node-mac",
+      "tgt": "node-jaeger"
+    },
+    {
+      "type": "Serving",
+      "src": "ss-redis",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Realization",
+      "src": "ss-redis",
+      "tgt": "tsvc-events"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-events",
+      "tgt": "comp-adoitmcp"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-events",
+      "tgt": "comp-review"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-events",
+      "tgt": "comp-telegram"
+    },
+    {
+      "type": "Realization",
+      "src": "node-neon",
+      "tgt": "tsvc-keystore"
+    },
+    {
+      "type": "Serving",
+      "src": "tsvc-keystore",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-review",
+      "tgt": "fn-present"
+    },
+    {
+      "type": "Assignment",
+      "src": "comp-review",
+      "tgt": "fn-decide"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-present",
+      "tgt": "svc-approval"
+    },
+    {
+      "type": "Realization",
+      "src": "fn-decide",
+      "tgt": "svc-approval"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-review",
+      "tgt": "if-review-ui"
+    },
+    {
+      "type": "Composition",
+      "src": "comp-telegram",
+      "tgt": "if-bot"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-review-ui",
+      "tgt": "svc-approval"
+    },
+    {
+      "type": "Assignment",
+      "src": "if-bot",
+      "tgt": "svc-approval"
+    },
+    {
+      "type": "Realization",
+      "src": "comp-telegram",
+      "tgt": "svc-approval"
+    },
+    {
+      "type": "Assignment",
+      "src": "actor-ea",
+      "tgt": "role-reviewer"
+    },
+    {
+      "type": "Assignment",
+      "src": "role-reviewer",
+      "tgt": "proc-approve"
+    },
+    {
+      "type": "Realization",
+      "src": "proc-approve",
+      "tgt": "bsvc-approval"
+    },
+    {
+      "type": "Composition",
+      "src": "role-reviewer",
+      "tgt": "bif-web"
+    },
+    {
+      "type": "Composition",
+      "src": "role-reviewer",
+      "tgt": "bif-chat"
+    },
+    {
+      "type": "Assignment",
+      "src": "bif-web",
+      "tgt": "bsvc-approval"
+    },
+    {
+      "type": "Assignment",
+      "src": "bif-chat",
+      "tgt": "bsvc-approval"
+    },
+    {
+      "type": "Realization",
+      "src": "if-review-ui",
+      "tgt": "bif-web"
+    },
+    {
+      "type": "Realization",
+      "src": "if-bot",
+      "tgt": "bif-chat"
+    },
+    {
+      "type": "Triggering",
+      "src": "ev-change",
+      "tgt": "proc-approve"
+    },
+    {
+      "type": "Triggering",
+      "src": "proc-approve",
+      "tgt": "ev-approved"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-approval",
+      "tgt": "comp-adoitmcp"
+    },
+    {
+      "type": "Serving",
+      "src": "svc-approval",
+      "tgt": "proc-approve"
+    },
+    {
+      "type": "Access",
+      "src": "comp-adoitmcp",
+      "tgt": "data-approvals",
+      "accessType": "Write"
+    },
+    {
+      "type": "Access",
+      "src": "comp-review",
+      "tgt": "data-approvals",
+      "accessType": "ReadWrite"
+    },
+    {
+      "type": "Access",
+      "src": "comp-telegram",
+      "tgt": "data-approvals",
+      "accessType": "ReadWrite"
+    },
+    {
+      "type": "Triggering",
+      "src": "wp1",
+      "tgt": "wp2"
+    },
+    {
+      "type": "Triggering",
+      "src": "wp2",
+      "tgt": "wp3"
+    },
+    {
+      "type": "Triggering",
+      "src": "wp3",
+      "tgt": "wp4"
+    },
+    {
+      "type": "Realization",
+      "src": "wp2",
+      "tgt": "plateau-1"
+    },
+    {
+      "type": "Realization",
+      "src": "wp3",
+      "tgt": "plateau-2"
+    },
+    {
+      "type": "Aggregation",
+      "src": "plateau-1",
+      "tgt": "comp-gw"
+    },
+    {
+      "type": "Aggregation",
+      "src": "plateau-2",
+      "tgt": "comp-adoitmcp"
+    }
+  ],
+  "views": [
+    {
+      "id": "governance-plane",
+      "title": "Governance Plane (scoped)",
+      "elements": [
+        "comp-gw",
+        "if-v1",
+        "if-mcp",
+        "if-a2a",
+        "svc-route",
+        "svc-tools",
+        "svc-a2a",
+        "comp-host",
+        "comp-presidio",
+        "comp-guard",
+        "svc-redact",
+        "data-keys",
+        "data-cards",
+        "node-ollama",
+        "tsvc-infer",
+        "node-entra",
+        "tsvc-id",
+        "node-jaeger",
+        "if-otlp",
+        "tsvc-trace"
+      ]
+    },
+    {
+      "id": "tool-plane",
+      "title": "Tool Plane — EA Modelling (scoped)",
+      "elements": [
+        "actor-ea",
+        "svc-ea",
+        "if-adoitmcp",
+        "fn-layout",
+        "fn-validate",
+        "fn-emit",
+        "comp-adoitmcp",
+        "svc-tools",
+        "comp-gw",
+        "data-model",
+        "node-adoit",
+        "if-rest",
+        "tsvc-repo"
+      ]
+    },
+    {
+      "id": "runtime-stack",
+      "title": "Local Runtime Stack (scoped)",
+      "elements": [
+        "comp-gw",
+        "comp-host",
+        "comp-adoitmcp",
+        "comp-review",
+        "node-mac",
+        "ss-python",
+        "ss-uvicorn",
+        "ss-fastmcp",
+        "ss-prisma",
+        "ss-redis",
+        "node-jaeger",
+        "node-neon",
+        "tsvc-keystore"
+      ]
+    },
+    {
+      "id": "approval-loop",
+      "title": "Approval Gate — EA Repository Writes (scoped)",
+      "elements": [
+        "actor-ea",
+        "role-reviewer",
+        "bif-web",
+        "bif-chat",
+        "bsvc-approval",
+        "proc-approve",
+        "ev-change",
+        "ev-approved",
+        "if-review-ui",
+        "if-bot",
+        "svc-approval",
+        "fn-present",
+        "fn-decide",
+        "comp-review",
+        "comp-telegram",
+        "data-approvals",
+        "fn-stage",
+        "comp-adoitmcp",
+        "tsvc-events",
+        "if-redis",
+        "ss-redis"
+      ]
+    },
+    {
+      "id": "gateway-decomposition",
+      "title": "Gateway — Functional Decomposition (scoped)",
+      "elements": [
+        "comp-gw",
+        "if-v1",
+        "if-mcp",
+        "if-a2a",
+        "if-admin",
+        "fn-route",
+        "fn-govern",
+        "fn-inject",
+        "fn-registry",
+        "svc-route",
+        "svc-tools",
+        "svc-a2a",
+        "svc-registry",
+        "data-keys",
+        "data-cards",
+        "comp-host"
+      ]
+    }
+  ],
+  "standard_views": true
+}

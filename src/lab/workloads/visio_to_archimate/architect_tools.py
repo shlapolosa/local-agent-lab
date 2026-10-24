@@ -42,7 +42,7 @@ import re
 from typing import Any
 
 from lab.core.archimate import relrepair  # (skill script: legality via the semantic matrix)
-from lab.core.archimate.engine import _REL_TYPES, _TYPES, Model
+from lab.core.archimate.engine import _REL_TYPES, _TYPES, ACCESS_TYPES, from_spec
 from lab.core.archimate import ids
 from lab.core.archimate.suggest import suggest
 from lab.workloads.accumulator import MAX_BATCH, Accumulator, coerce_items, fmt, nonempty_str
@@ -50,7 +50,6 @@ from lab.workloads.accumulator import MAX_BATCH, Accumulator, coerce_items, fmt,
 # ---- vocabularies, taken from the engine (never hardcoded) --------------------------------------
 ELEMENT_TYPES: tuple[str, ...] = tuple(_TYPES.keys())
 RELATION_TYPES: tuple[str, ...] = tuple(r for r in _REL_TYPES if r != "Junction")
-ACCESS_TYPES: tuple[str, ...] = ("Read", "Write", "ReadWrite", "Access")
 
 ELEMENT_FIELDS: tuple[str, ...] = ("id", "type", "name", "doc", "folder")
 RELATION_FIELDS: tuple[str, ...] = ("id", "type", "src", "tgt", "accessType")
@@ -282,18 +281,9 @@ class ArchitectAccumulator(Accumulator):
         return spec
 
     def _probe_build(self, spec: dict) -> list[str]:
-        """Build the spec exactly the way adoit_mcp.server._build does, so finish() proves it renders.
+        """Build the spec with the engine's one builder (what adoit-mcp renders), so finish() proves it renders.
         Returns the engine's 'not permitted' findings (empty = legal)."""
-        m = Model(spec["name"], spec.get("id", "model"))
-        for e in spec.get("elements", []):
-            m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
-        for r in spec.get("relations", []):
-            m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
-        for v in spec.get("views", []):
-            vw = m.view(v["id"], v["title"])
-            vw.place(*v["elements"])
-            vw.auto_edges()
-        return [w for w in m.validate_relations() if "not permitted" in w]
+        return [w for w in from_spec(spec).validate_relations() if "not permitted" in w]
 
     def _gate(self, spec: dict) -> tuple[list[str], str | None]:
         """Validate the spec: name set, >=1 element, unique ids, valid types, no dangling endpoints,

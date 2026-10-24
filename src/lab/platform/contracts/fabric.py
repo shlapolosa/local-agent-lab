@@ -179,12 +179,6 @@ class SemanticTools(ToolCatalogue):
                relation_candidates, relation_propose, relation_open, relation_decline, candidates_import,
                author_confirm)
 
-    @classmethod
-    def stability(cls) -> dict[str, str]:
-        """Every catalogued tool -> "stable" | "in-flux" | "internal"."""
-        return {name: "stable" if name in cls.STABLE else "in-flux" if name in cls.IN_FLUX else "internal"
-                for name in cls.names()}
-
 
 ARTIFACT_INTAKE = ProcessSpec(
     name="artifact_intake",

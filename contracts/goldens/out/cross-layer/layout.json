@@ -1,0 +1,1579 @@
+{
+  "model": "golden-cross-layer",
+  "views": [
+    {
+      "canvas": {
+        "h": 1494,
+        "w": 478
+      },
+      "connections": [
+        {
+          "k": 0,
+          "points": [
+            [
+              271,
+              118
+            ],
+            [
+              271,
+              173
+            ],
+            [
+              364,
+              173
+            ],
+            [
+              364,
+              500
+            ],
+            [
+              271,
+              500
+            ],
+            [
+              271,
+              564
+            ]
+          ],
+          "relation": "r1",
+          "src": "patient",
+          "tgt": "pharmacist"
+        },
+        {
+          "k": 1,
+          "points": [
+            [
+              207,
+              564
+            ],
+            [
+              207,
+              454
+            ]
+          ],
+          "relation": "r2",
+          "src": "pharmacist",
+          "tgt": "dispense"
+        },
+        {
+          "k": 2,
+          "points": [
+            [
+              239,
+              396
+            ],
+            [
+              239,
+              286
+            ]
+          ],
+          "relation": "r3",
+          "src": "dispense",
+          "tgt": "dispensing-svc"
+        },
+        {
+          "k": 3,
+          "points": [
+            [
+              223,
+              228
+            ],
+            [
+              223,
+              118
+            ]
+          ],
+          "relation": "r4",
+          "src": "dispensing-svc",
+          "tgt": "patient"
+        },
+        {
+          "k": 4,
+          "points": [
+            [
+              271,
+              1208
+            ],
+            [
+              271,
+              1144
+            ],
+            [
+              382,
+              1144
+            ],
+            [
+              382,
+              976
+            ],
+            [
+              239,
+              976
+            ],
+            [
+              239,
+              930
+            ]
+          ],
+          "relation": "r5",
+          "src": "portal",
+          "tgt": "portal-ui"
+        },
+        {
+          "k": 5,
+          "points": [
+            [
+              239,
+              900
+            ],
+            [
+              239,
+              845
+            ],
+            [
+              207,
+              845
+            ],
+            [
+              207,
+              790
+            ]
+          ],
+          "relation": "r6",
+          "src": "portal-ui",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 6,
+          "points": [
+            [
+              207,
+              1208
+            ],
+            [
+              207,
+              1098
+            ]
+          ],
+          "relation": "r7",
+          "src": "portal",
+          "tgt": "rx-fn"
+        },
+        {
+          "k": 7,
+          "points": [
+            [
+              239,
+              1040
+            ],
+            [
+              239,
+              994
+            ],
+            [
+              400,
+              994
+            ],
+            [
+              400,
+              845
+            ],
+            [
+              271,
+              845
+            ],
+            [
+              271,
+              790
+            ]
+          ],
+          "relation": "r8",
+          "src": "rx-fn",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 8,
+          "points": [
+            [
+              239,
+              732
+            ],
+            [
+              239,
+              677
+            ],
+            [
+              418,
+              677
+            ],
+            [
+              418,
+              518
+            ],
+            [
+              271,
+              518
+            ],
+            [
+              271,
+              454
+            ]
+          ],
+          "relation": "r9",
+          "src": "rx-svc",
+          "tgt": "dispense"
+        },
+        {
+          "k": 9,
+          "points": [
+            [
+              271,
+              1098
+            ],
+            [
+              271,
+              1162
+            ],
+            [
+              436,
+              1162
+            ],
+            [
+              436,
+              1321
+            ],
+            [
+              239,
+              1321
+            ],
+            [
+              239,
+              1376
+            ]
+          ],
+          "relation": "r10",
+          "src": "rx-fn",
+          "tgt": "rx"
+        }
+      ],
+      "id": "context",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "patient",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "pharmacist",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 564
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispense",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 396
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispensing-svc",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 228
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "portal",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1208
+        },
+        {
+          "container": false,
+          "h": 30,
+          "icon": true,
+          "id": "portal-ui",
+          "parent": null,
+          "w": 30,
+          "x": 224,
+          "y": 900
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-svc",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 732
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-fn",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1040
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1376
+        }
+      ],
+      "title": "Dispensing context"
+    },
+    {
+      "canvas": {
+        "h": 682,
+        "w": 478
+      },
+      "connections": [
+        {
+          "k": 0,
+          "points": [
+            [
+              271,
+              118
+            ],
+            [
+              271,
+              173
+            ],
+            [
+              364,
+              173
+            ],
+            [
+              364,
+              509
+            ],
+            [
+              271,
+              509
+            ],
+            [
+              271,
+              564
+            ]
+          ],
+          "relation": "r1",
+          "src": "patient",
+          "tgt": "pharmacist"
+        },
+        {
+          "k": 1,
+          "points": [
+            [
+              223,
+              564
+            ],
+            [
+              223,
+              454
+            ]
+          ],
+          "relation": "r2",
+          "src": "pharmacist",
+          "tgt": "dispense"
+        },
+        {
+          "k": 2,
+          "points": [
+            [
+              239,
+              396
+            ],
+            [
+              239,
+              286
+            ]
+          ],
+          "relation": "r3",
+          "src": "dispense",
+          "tgt": "dispensing-svc"
+        },
+        {
+          "k": 3,
+          "points": [
+            [
+              223,
+              228
+            ],
+            [
+              223,
+              118
+            ]
+          ],
+          "relation": "r4",
+          "src": "dispensing-svc",
+          "tgt": "patient"
+        }
+      ],
+      "id": "strategy-biz",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispense",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 396
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispensing-svc",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 228
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "patient",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "pharmacist",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 564
+        }
+      ],
+      "title": "Strategy to Business Mapping"
+    },
+    {
+      "canvas": {
+        "h": 1494,
+        "w": 478
+      },
+      "connections": [
+        {
+          "k": 0,
+          "points": [
+            [
+              271,
+              118
+            ],
+            [
+              271,
+              173
+            ],
+            [
+              364,
+              173
+            ],
+            [
+              364,
+              500
+            ],
+            [
+              271,
+              500
+            ],
+            [
+              271,
+              564
+            ]
+          ],
+          "relation": "r1",
+          "src": "patient",
+          "tgt": "pharmacist"
+        },
+        {
+          "k": 1,
+          "points": [
+            [
+              207,
+              564
+            ],
+            [
+              207,
+              454
+            ]
+          ],
+          "relation": "r2",
+          "src": "pharmacist",
+          "tgt": "dispense"
+        },
+        {
+          "k": 2,
+          "points": [
+            [
+              239,
+              396
+            ],
+            [
+              239,
+              286
+            ]
+          ],
+          "relation": "r3",
+          "src": "dispense",
+          "tgt": "dispensing-svc"
+        },
+        {
+          "k": 3,
+          "points": [
+            [
+              223,
+              228
+            ],
+            [
+              223,
+              118
+            ]
+          ],
+          "relation": "r4",
+          "src": "dispensing-svc",
+          "tgt": "patient"
+        },
+        {
+          "k": 4,
+          "points": [
+            [
+              271,
+              1208
+            ],
+            [
+              271,
+              1144
+            ],
+            [
+              382,
+              1144
+            ],
+            [
+              382,
+              976
+            ],
+            [
+              239,
+              976
+            ],
+            [
+              239,
+              930
+            ]
+          ],
+          "relation": "r5",
+          "src": "portal",
+          "tgt": "portal-ui"
+        },
+        {
+          "k": 5,
+          "points": [
+            [
+              239,
+              900
+            ],
+            [
+              239,
+              845
+            ],
+            [
+              207,
+              845
+            ],
+            [
+              207,
+              790
+            ]
+          ],
+          "relation": "r6",
+          "src": "portal-ui",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 6,
+          "points": [
+            [
+              207,
+              1208
+            ],
+            [
+              207,
+              1098
+            ]
+          ],
+          "relation": "r7",
+          "src": "portal",
+          "tgt": "rx-fn"
+        },
+        {
+          "k": 7,
+          "points": [
+            [
+              239,
+              1040
+            ],
+            [
+              239,
+              994
+            ],
+            [
+              400,
+              994
+            ],
+            [
+              400,
+              845
+            ],
+            [
+              271,
+              845
+            ],
+            [
+              271,
+              790
+            ]
+          ],
+          "relation": "r8",
+          "src": "rx-fn",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 8,
+          "points": [
+            [
+              239,
+              732
+            ],
+            [
+              239,
+              677
+            ],
+            [
+              418,
+              677
+            ],
+            [
+              418,
+              518
+            ],
+            [
+              271,
+              518
+            ],
+            [
+              271,
+              454
+            ]
+          ],
+          "relation": "r9",
+          "src": "rx-svc",
+          "tgt": "dispense"
+        },
+        {
+          "k": 9,
+          "points": [
+            [
+              271,
+              1098
+            ],
+            [
+              271,
+              1162
+            ],
+            [
+              436,
+              1162
+            ],
+            [
+              436,
+              1321
+            ],
+            [
+              239,
+              1321
+            ],
+            [
+              239,
+              1376
+            ]
+          ],
+          "relation": "r10",
+          "src": "rx-fn",
+          "tgt": "rx"
+        }
+      ],
+      "id": "biz-app",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispense",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 396
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispensing-svc",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 228
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "patient",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "pharmacist",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 564
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "portal",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1208
+        },
+        {
+          "container": false,
+          "h": 30,
+          "icon": true,
+          "id": "portal-ui",
+          "parent": null,
+          "w": 30,
+          "x": 224,
+          "y": 900
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1376
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-fn",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1040
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-svc",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 732
+        }
+      ],
+      "title": "Business to Application Mapping"
+    },
+    {
+      "canvas": {
+        "h": 1100,
+        "w": 738
+      },
+      "connections": [
+        {
+          "k": 0,
+          "points": [
+            [
+              401,
+              536
+            ],
+            [
+              401,
+              472
+            ],
+            [
+              624,
+              472
+            ],
+            [
+              624,
+              304
+            ],
+            [
+              369,
+              304
+            ],
+            [
+              369,
+              258
+            ]
+          ],
+          "relation": "r5",
+          "src": "portal",
+          "tgt": "portal-ui"
+        },
+        {
+          "k": 1,
+          "points": [
+            [
+              369,
+              228
+            ],
+            [
+              369,
+              173
+            ],
+            [
+              337,
+              173
+            ],
+            [
+              337,
+              118
+            ]
+          ],
+          "relation": "r6",
+          "src": "portal-ui",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 2,
+          "points": [
+            [
+              337,
+              536
+            ],
+            [
+              337,
+              426
+            ]
+          ],
+          "relation": "r7",
+          "src": "portal",
+          "tgt": "rx-fn"
+        },
+        {
+          "k": 3,
+          "points": [
+            [
+              369,
+              368
+            ],
+            [
+              369,
+              322
+            ],
+            [
+              642,
+              322
+            ],
+            [
+              642,
+              173
+            ],
+            [
+              401,
+              173
+            ],
+            [
+              401,
+              118
+            ]
+          ],
+          "relation": "r8",
+          "src": "rx-fn",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 4,
+          "points": [
+            [
+              401,
+              426
+            ],
+            [
+              401,
+              490
+            ],
+            [
+              660,
+              490
+            ],
+            [
+              660,
+              658
+            ],
+            [
+              369,
+              658
+            ],
+            [
+              369,
+              704
+            ]
+          ],
+          "relation": "r10",
+          "src": "rx-fn",
+          "tgt": "rx"
+        },
+        {
+          "k": 5,
+          "points": [
+            [
+              239,
+              872
+            ],
+            [
+              239,
+              817
+            ],
+            [
+              114,
+              817
+            ],
+            [
+              114,
+              640
+            ],
+            [
+              369,
+              640
+            ],
+            [
+              369,
+              594
+            ]
+          ],
+          "relation": "r11",
+          "src": "app-node",
+          "tgt": "portal"
+        },
+        {
+          "k": 6,
+          "points": [
+            [
+              239,
+              930
+            ],
+            [
+              239,
+              985
+            ],
+            [
+              499,
+              985
+            ],
+            [
+              499,
+              930
+            ]
+          ],
+          "relation": "r12",
+          "src": "app-node",
+          "tgt": "db"
+        }
+      ],
+      "id": "app-tech",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "app-node",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 872
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "db",
+          "parent": null,
+          "w": 190,
+          "x": 404,
+          "y": 872
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "portal",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 536
+        },
+        {
+          "container": false,
+          "h": 30,
+          "icon": true,
+          "id": "portal-ui",
+          "parent": null,
+          "w": 30,
+          "x": 354,
+          "y": 228
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 704
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-fn",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 368
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-svc",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 60
+        }
+      ],
+      "title": "Application to Technology & Physical Mapping"
+    },
+    {
+      "canvas": {
+        "h": 1940,
+        "w": 738
+      },
+      "connections": [
+        {
+          "k": 0,
+          "points": [
+            [
+              401,
+              286
+            ],
+            [
+              401,
+              332
+            ],
+            [
+              624,
+              332
+            ],
+            [
+              624,
+              668
+            ],
+            [
+              401,
+              668
+            ],
+            [
+              401,
+              732
+            ]
+          ],
+          "relation": "r1",
+          "src": "patient",
+          "tgt": "pharmacist"
+        },
+        {
+          "k": 1,
+          "points": [
+            [
+              337,
+              732
+            ],
+            [
+              337,
+              622
+            ]
+          ],
+          "relation": "r2",
+          "src": "pharmacist",
+          "tgt": "dispense"
+        },
+        {
+          "k": 2,
+          "points": [
+            [
+              369,
+              564
+            ],
+            [
+              369,
+              454
+            ]
+          ],
+          "relation": "r3",
+          "src": "dispense",
+          "tgt": "dispensing-svc"
+        },
+        {
+          "k": 3,
+          "points": [
+            [
+              337,
+              396
+            ],
+            [
+              337,
+              286
+            ]
+          ],
+          "relation": "r4",
+          "src": "dispensing-svc",
+          "tgt": "patient"
+        },
+        {
+          "k": 4,
+          "points": [
+            [
+              401,
+              1376
+            ],
+            [
+              401,
+              1312
+            ],
+            [
+              642,
+              1312
+            ],
+            [
+              642,
+              1144
+            ],
+            [
+              369,
+              1144
+            ],
+            [
+              369,
+              1098
+            ]
+          ],
+          "relation": "r5",
+          "src": "portal",
+          "tgt": "portal-ui"
+        },
+        {
+          "k": 5,
+          "points": [
+            [
+              369,
+              1068
+            ],
+            [
+              369,
+              1013
+            ],
+            [
+              337,
+              1013
+            ],
+            [
+              337,
+              958
+            ]
+          ],
+          "relation": "r6",
+          "src": "portal-ui",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 6,
+          "points": [
+            [
+              337,
+              1376
+            ],
+            [
+              337,
+              1266
+            ]
+          ],
+          "relation": "r7",
+          "src": "portal",
+          "tgt": "rx-fn"
+        },
+        {
+          "k": 7,
+          "points": [
+            [
+              369,
+              1208
+            ],
+            [
+              369,
+              1162
+            ],
+            [
+              660,
+              1162
+            ],
+            [
+              660,
+              1013
+            ],
+            [
+              401,
+              1013
+            ],
+            [
+              401,
+              958
+            ]
+          ],
+          "relation": "r8",
+          "src": "rx-fn",
+          "tgt": "rx-svc"
+        },
+        {
+          "k": 8,
+          "points": [
+            [
+              369,
+              900
+            ],
+            [
+              369,
+              845
+            ],
+            [
+              678,
+              845
+            ],
+            [
+              678,
+              686
+            ],
+            [
+              401,
+              686
+            ],
+            [
+              401,
+              622
+            ]
+          ],
+          "relation": "r9",
+          "src": "rx-svc",
+          "tgt": "dispense"
+        },
+        {
+          "k": 9,
+          "points": [
+            [
+              401,
+              1266
+            ],
+            [
+              401,
+              1330
+            ],
+            [
+              696,
+              1330
+            ],
+            [
+              696,
+              1498
+            ],
+            [
+              369,
+              1498
+            ],
+            [
+              369,
+              1544
+            ]
+          ],
+          "relation": "r10",
+          "src": "rx-fn",
+          "tgt": "rx"
+        },
+        {
+          "k": 10,
+          "points": [
+            [
+              239,
+              1712
+            ],
+            [
+              239,
+              1657
+            ],
+            [
+              114,
+              1657
+            ],
+            [
+              114,
+              1480
+            ],
+            [
+              369,
+              1480
+            ],
+            [
+              369,
+              1434
+            ]
+          ],
+          "relation": "r11",
+          "src": "app-node",
+          "tgt": "portal"
+        },
+        {
+          "k": 11,
+          "points": [
+            [
+              239,
+              1770
+            ],
+            [
+              239,
+              1825
+            ],
+            [
+              499,
+              1825
+            ],
+            [
+              499,
+              1770
+            ]
+          ],
+          "relation": "r12",
+          "src": "app-node",
+          "tgt": "db"
+        },
+        {
+          "k": 12,
+          "points": [
+            [
+              401,
+              396
+            ],
+            [
+              401,
+              350
+            ],
+            [
+              714,
+              350
+            ],
+            [
+              714,
+              173
+            ],
+            [
+              369,
+              173
+            ],
+            [
+              369,
+              118
+            ]
+          ],
+          "relation": "r13",
+          "src": "dispensing-svc",
+          "tgt": "goal"
+        }
+      ],
+      "id": "full",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "app-node",
+          "parent": null,
+          "w": 190,
+          "x": 144,
+          "y": 1712
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "db",
+          "parent": null,
+          "w": 190,
+          "x": 404,
+          "y": 1712
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispense",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 564
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "dispensing-svc",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 396
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "goal",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "patient",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 228
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "pharmacist",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 732
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "portal",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 1376
+        },
+        {
+          "container": false,
+          "h": 30,
+          "icon": true,
+          "id": "portal-ui",
+          "parent": null,
+          "w": 30,
+          "x": 354,
+          "y": 1068
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 1544
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-fn",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 1208
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "rx-svc",
+          "parent": null,
+          "w": 190,
+          "x": 274,
+          "y": 900
+        }
+      ],
+      "title": "Full Architecture View"
+    }
+  ]
+}

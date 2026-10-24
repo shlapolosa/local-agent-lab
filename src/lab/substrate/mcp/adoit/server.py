@@ -67,7 +67,7 @@ import re
 import sys
 import urllib.request
 
-from lab.core.archimate.engine import Model
+from lab.core.archimate.engine import from_spec
 from lab.platform import config
 from lab.platform.contracts import ApprovalKind, ImportArtifact
 from lab.substrate import approvals  # (approval gate)
@@ -86,24 +86,8 @@ def _put_file(path) -> str:
 
 
 def _build(spec):
-    m = Model(spec["name"], spec.get("id", "model"))
-    for e in spec.get("elements", []):
-        m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
-    for r in spec.get("relations", []):
-        m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
-    for v in spec.get("views", []):
-        vw = m.view(v["id"], v["title"])
-        if v.get("rows"):                       # explicit rows (e.g. capability-map overview grids)
-            for i, row in enumerate(v["rows"]):
-                vw.place(*row, rank=i)
-        else:
-            vw.place(*v["elements"])
-        for c in v.get("containers", []):       # nesting where the notation calls for it (capability maps)
-            vw.container(c["id"], children=c["children"])
-        vw.auto_edges()
-    if spec.get("standard_views"):
-        m.standard_views()
-    return m
+    """The spec as a Model — the engine's ONE builder (`lab.core.archimate.engine.from_spec`)."""
+    return from_spec(spec)
 
 
 @server.tool()

@@ -307,16 +307,15 @@ def test_finish_gate_hint_and_doctored_specs():
     errs, _ = gate(views=[{"id": "v", "title": "V", "elements": ["portal", "ghost"]}])
     assert errs == ["view 'v' references unknown element ids: ['ghost']"]
     # engine probe failure is reported, never raised
-    saved = T.Model
+    saved = T.from_spec
     try:
-        class Boom:
-            def __init__(self, *a, **k):
-                raise ValueError("no engine")
-        T.Model = Boom
+        def boom(spec):
+            raise ValueError("no engine")
+        T.from_spec = boom
         r = t["finish"]()
         assert r["ok"] is False and r["errors"] == ["engine build failed: ValueError: no engine"] and acc.last_finish is r
     finally:
-        T.Model = saved
+        T.from_spec = saved
     assert t["finish"]()["ok"] is True
     # the probe build itself: a legal spec with a view yields no findings
     t["add_view"]("ctx", "Context", ["portal", "portal-service", "clinician"])

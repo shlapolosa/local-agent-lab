@@ -18,25 +18,8 @@ JUNCTIONS = {"AndJunction", "OrJunction"}          # exchange-format subtypes th
 
 
 def build_model(spec):
-    """Spec -> Model, the same shape adoit-mcp's _build() uses."""
-    m = E.Model(spec["name"], spec.get("id", "model"))
-    for e in spec.get("elements", []):
-        m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
-    for r in spec.get("relations", []):
-        m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
-    for v in spec.get("views", []):
-        vw = m.view(v["id"], v["title"])
-        if v.get("rows"):
-            for i, row in enumerate(v["rows"]):
-                vw.place(*row, rank=i)
-        else:
-            vw.place(*v["elements"])
-        for c in v.get("containers", []):
-            vw.container(c["id"], children=c["children"])
-        vw.auto_edges()
-    if spec.get("standard_views"):
-        m.standard_views()
-    return m
+    """Spec -> Model through the engine's one builder (what adoit-mcp renders)."""
+    return E.from_spec(spec)
 
 
 def test_taxonomy_is_one_file():

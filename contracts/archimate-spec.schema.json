@@ -1,0 +1,265 @@
+{
+  "$defs": {
+    "element": {
+      "additionalProperties": false,
+      "properties": {
+        "doc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "folder": {
+          "description": "Domain folder (organisation: domain -> layer)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Stable id; an EA-repository UUID is emitted as its native identifier",
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "description": "ArchiMate 3.1 element type",
+          "enum": [
+            "AndJunction",
+            "ApplicationCollaboration",
+            "ApplicationComponent",
+            "ApplicationEvent",
+            "ApplicationFunction",
+            "ApplicationInteraction",
+            "ApplicationInterface",
+            "ApplicationProcess",
+            "ApplicationService",
+            "Artifact",
+            "Assessment",
+            "BusinessActor",
+            "BusinessCollaboration",
+            "BusinessEvent",
+            "BusinessFunction",
+            "BusinessInteraction",
+            "BusinessInterface",
+            "BusinessObject",
+            "BusinessProcess",
+            "BusinessRole",
+            "BusinessService",
+            "Capability",
+            "CommunicationNetwork",
+            "Constraint",
+            "Contract",
+            "CourseOfAction",
+            "DataObject",
+            "Deliverable",
+            "Device",
+            "DistributionNetwork",
+            "Driver",
+            "Equipment",
+            "Facility",
+            "Gap",
+            "Goal",
+            "Grouping",
+            "ImplementationEvent",
+            "Junction",
+            "Location",
+            "Material",
+            "Meaning",
+            "Node",
+            "OrJunction",
+            "Outcome",
+            "Path",
+            "Plateau",
+            "Principle",
+            "Product",
+            "Representation",
+            "Requirement",
+            "Resource",
+            "Stakeholder",
+            "SystemSoftware",
+            "TechnologyCollaboration",
+            "TechnologyEvent",
+            "TechnologyFunction",
+            "TechnologyInteraction",
+            "TechnologyInterface",
+            "TechnologyProcess",
+            "TechnologyService",
+            "Value",
+            "ValueStream",
+            "WorkPackage"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    "id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "relation": {
+      "additionalProperties": false,
+      "properties": {
+        "accessType": {
+          "description": "Access relationships only",
+          "enum": [
+            "Read",
+            "Write",
+            "ReadWrite",
+            "Access"
+          ]
+        },
+        "id": {
+          "description": "Stable id, e.g. ids.rid: \"r-\" + md5(\"src|type|tgt\")[:10]",
+          "minLength": 1,
+          "type": "string"
+        },
+        "src": {
+          "$ref": "#/$defs/id"
+        },
+        "tgt": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "enum": [
+            "Composition",
+            "Aggregation",
+            "Assignment",
+            "Realization",
+            "Serving",
+            "Access",
+            "Influence",
+            "Triggering",
+            "Flow",
+            "Specialization",
+            "Association",
+            "Junction"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "src",
+        "tgt"
+      ],
+      "type": "object"
+    },
+    "view": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "required": [
+            "rows"
+          ]
+        }
+      ],
+      "properties": {
+        "containers": {
+          "description": "Nesting: a container element and the children drawn inside it",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "children": {
+                "items": {
+                  "$ref": "#/$defs/id"
+                },
+                "type": "array"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "id",
+              "children"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "elements": {
+          "description": "Elements placed by layer band (aspect rows)",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "rows": {
+          "description": "Explicit rows, each pinned to its rank (capability-map grids)",
+          "items": {
+            "items": {
+              "$ref": "#/$defs/id"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:lab:contracts:archimate-spec:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "elements": {
+      "items": {
+        "$ref": "#/$defs/element"
+      },
+      "type": "array"
+    },
+    "id": {
+      "description": "The model id (default \"model\")",
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "description": "The model's name",
+      "type": "string"
+    },
+    "relations": {
+      "items": {
+        "$ref": "#/$defs/relation"
+      },
+      "type": "array"
+    },
+    "standard_views": {
+      "description": "Add the engine's cross-layer view catalogue after the explicit views",
+      "type": "boolean"
+    },
+    "views": {
+      "items": {
+        "$ref": "#/$defs/view"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "ArchiMate engine spec",
+  "type": "object",
+  "version": "1.0.0"
+}

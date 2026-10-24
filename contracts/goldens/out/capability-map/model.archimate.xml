@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.opengroup.org/xsd/archimate/3.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengroup.org/xsd/archimate/3.0/ http://www.opengroup.org/xsd/archimate/3.1/archimate3_Diagram.xsd" identifier="id-golden-capability-map">
+<name xml:lang="en">Golden: capability map</name>
+<elements>
+<element identifier="id-cap-customer" xsi:type="Capability"><name xml:lang="en">Customer Management</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-product" xsi:type="Capability"><name xml:lang="en">Product Management</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-finance" xsi:type="Capability"><name xml:lang="en">Finance Management</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-customer-info" xsi:type="Capability"><name xml:lang="en">Customer Information Management</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-customer-engage" xsi:type="Capability"><name xml:lang="en">Customer Engagement</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-customer-agree" xsi:type="Capability"><name xml:lang="en">Customer Agreement Management</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-product-design" xsi:type="Capability"><name xml:lang="en">Product Design</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+<element identifier="id-cap-product-catalog" xsi:type="Capability"><name xml:lang="en">Product Catalog Management</name><documentation xml:lang="en">[Strategy layer · behaviour structure — Capability] Ability an active structure element possesses; what the organisation can do.</documentation></element>
+</elements>
+<relationships>
+<relationship identifier="id-comp-cap-customer-info" source="id-cap-customer" target="id-cap-customer-info" xsi:type="Composition"/>
+<relationship identifier="id-comp-cap-customer-engage" source="id-cap-customer" target="id-cap-customer-engage" xsi:type="Composition"/>
+<relationship identifier="id-comp-cap-customer-agree" source="id-cap-customer" target="id-cap-customer-agree" xsi:type="Composition"/>
+<relationship identifier="id-comp-cap-product-design" source="id-cap-product" target="id-cap-product-design" xsi:type="Composition"/>
+<relationship identifier="id-comp-cap-product-catalog" source="id-cap-product" target="id-cap-product-catalog" xsi:type="Composition"/>
+</relationships>
+<views><diagrams>
+<view identifier="id-v-golden-cap-overview" xsi:type="Diagram"><name xml:lang="en">Capability Map (L1)</name>
+<node identifier="id-n-golden-cap-overview-cap-customer" elementRef="id-cap-customer" xsi:type="Element" x="60" y="60" w="190" h="58"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-golden-cap-overview-cap-product" elementRef="id-cap-product" xsi:type="Element" x="320" y="60" w="190" h="58"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-golden-cap-overview-cap-finance" elementRef="id-cap-finance" xsi:type="Element" x="190" y="228" w="190" h="58"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+</view>
+<view identifier="id-v-golden-cap-customer" xsi:type="Diagram"><name xml:lang="en">Customer Management — L2 capabilities</name>
+<node identifier="id-n-golden-cap-customer-cap-customer" elementRef="id-cap-customer" xsi:type="Element" x="60" y="60" w="742" h="102"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="11"><color r="0" g="0" b="0"/></font></style>
+<node identifier="id-n-golden-cap-customer-cap-customer-info" elementRef="id-cap-customer-info" xsi:type="Element" x="76" y="88" w="190" h="58"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-golden-cap-customer-cap-customer-engage" elementRef="id-cap-customer-engage" xsi:type="Element" x="336" y="88" w="190" h="58"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-golden-cap-customer-cap-customer-agree" elementRef="id-cap-customer-agree" xsi:type="Element" x="596" y="88" w="190" h="58"><style><fillColor r="245" g="222" b="170"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+</node>
+</view>
+</diagrams></views>
+</model>

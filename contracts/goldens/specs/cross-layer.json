@@ -1,0 +1,157 @@
+{
+  "name": "Golden: cross-layer with interfaces",
+  "id": "golden-cross-layer",
+  "standard_views": true,
+  "elements": [
+    {
+      "id": "patient",
+      "type": "BusinessActor",
+      "name": "Patient"
+    },
+    {
+      "id": "pharmacist",
+      "type": "BusinessRole",
+      "name": "Pharmacist"
+    },
+    {
+      "id": "dispense",
+      "type": "BusinessProcess",
+      "name": "Dispense medication"
+    },
+    {
+      "id": "dispensing-svc",
+      "type": "BusinessService",
+      "name": "Dispensing service",
+      "folder": "Pharmacy"
+    },
+    {
+      "id": "portal",
+      "type": "ApplicationComponent",
+      "name": "Patient portal",
+      "folder": "Pharmacy"
+    },
+    {
+      "id": "portal-ui",
+      "type": "ApplicationInterface",
+      "name": "Portal UI"
+    },
+    {
+      "id": "rx-svc",
+      "type": "ApplicationService",
+      "name": "Prescription service",
+      "folder": "Pharmacy"
+    },
+    {
+      "id": "rx-fn",
+      "type": "ApplicationFunction",
+      "name": "Manage prescriptions"
+    },
+    {
+      "id": "rx",
+      "type": "DataObject",
+      "name": "Prescription"
+    },
+    {
+      "id": "app-node",
+      "type": "Node",
+      "name": "Application server",
+      "folder": "Platform"
+    },
+    {
+      "id": "db",
+      "type": "SystemSoftware",
+      "name": "Database",
+      "folder": "Platform"
+    },
+    {
+      "id": "goal",
+      "type": "Goal",
+      "name": "Safer dispensing"
+    }
+  ],
+  "relations": [
+    {
+      "type": "Assignment",
+      "src": "patient",
+      "tgt": "pharmacist"
+    },
+    {
+      "type": "Assignment",
+      "src": "pharmacist",
+      "tgt": "dispense"
+    },
+    {
+      "type": "Realization",
+      "src": "dispense",
+      "tgt": "dispensing-svc"
+    },
+    {
+      "type": "Serving",
+      "src": "dispensing-svc",
+      "tgt": "patient"
+    },
+    {
+      "type": "Composition",
+      "src": "portal",
+      "tgt": "portal-ui"
+    },
+    {
+      "type": "Assignment",
+      "src": "portal-ui",
+      "tgt": "rx-svc"
+    },
+    {
+      "type": "Assignment",
+      "src": "portal",
+      "tgt": "rx-fn"
+    },
+    {
+      "type": "Realization",
+      "src": "rx-fn",
+      "tgt": "rx-svc"
+    },
+    {
+      "type": "Serving",
+      "src": "rx-svc",
+      "tgt": "dispense"
+    },
+    {
+      "type": "Access",
+      "src": "rx-fn",
+      "tgt": "rx",
+      "accessType": "Write"
+    },
+    {
+      "type": "Serving",
+      "src": "app-node",
+      "tgt": "portal"
+    },
+    {
+      "type": "Composition",
+      "src": "app-node",
+      "tgt": "db"
+    },
+    {
+      "type": "Realization",
+      "src": "dispensing-svc",
+      "tgt": "goal"
+    }
+  ],
+  "views": [
+    {
+      "id": "context",
+      "title": "Dispensing context",
+      "elements": [
+        "patient",
+        "pharmacist",
+        "dispense",
+        "dispensing-svc",
+        "portal",
+        "portal-ui",
+        "rx-svc",
+        "rx-fn",
+        "rx"
+      ]
+    }
+  ]
+}

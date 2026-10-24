@@ -1,0 +1,97 @@
+{
+  "model": "golden-capability-map",
+  "views": [
+    {
+      "canvas": {
+        "h": 346,
+        "w": 570
+      },
+      "connections": [],
+      "id": "golden-cap-overview",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "cap-customer",
+          "parent": null,
+          "w": 190,
+          "x": 60,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "cap-product",
+          "parent": null,
+          "w": 190,
+          "x": 320,
+          "y": 60
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "cap-finance",
+          "parent": null,
+          "w": 190,
+          "x": 190,
+          "y": 228
+        }
+      ],
+      "title": "Capability Map (L1)"
+    },
+    {
+      "canvas": {
+        "h": 222,
+        "w": 862
+      },
+      "connections": [],
+      "id": "golden-cap-customer",
+      "nodes": [
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "cap-customer-info",
+          "parent": "cap-customer",
+          "w": 190,
+          "x": 76,
+          "y": 88
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "cap-customer-engage",
+          "parent": "cap-customer",
+          "w": 190,
+          "x": 336,
+          "y": 88
+        },
+        {
+          "container": false,
+          "h": 58,
+          "icon": false,
+          "id": "cap-customer-agree",
+          "parent": "cap-customer",
+          "w": 190,
+          "x": 596,
+          "y": 88
+        },
+        {
+          "container": true,
+          "h": 102,
+          "icon": false,
+          "id": "cap-customer",
+          "parent": null,
+          "w": 742,
+          "x": 60,
+          "y": 60
+        }
+      ],
+      "title": "Customer Management — L2 capabilities"
+    }
+  ]
+}

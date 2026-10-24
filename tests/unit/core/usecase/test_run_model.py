@@ -1,19 +1,14 @@
 """The use-case model: grows by id, stays legal, round-trips through the engine's spec."""
 import pytest
 
-from lab.core.archimate.engine import Model as EngineModel
+from lab.core.archimate.engine import from_spec
 from lab.core.archimate import ids
 from lab.core.usecase.run_model import LAYER_OF, Model
 
 
 def _build(spec):
-    """Exactly what adoit-mcp's `_build` does with a spec — the shape the renderer must accept."""
-    m = EngineModel(spec["name"], mid=spec["id"])
-    for e in spec["elements"]:
-        m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
-    for r in spec["relations"]:
-        m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
-    return m
+    """Exactly what adoit-mcp does with a spec — the engine's one builder, the shape the renderer accepts."""
+    return from_spec(spec)
 
 
 def test_an_element_is_updated_by_id_and_its_props_are_merged():

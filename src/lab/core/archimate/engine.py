@@ -149,6 +149,8 @@ _TYPES = {t: c["layer"] for t, c in _TAXONOMY.items()} if _TAXONOMY else dict(_F
 _TYPES.setdefault("AndJunction", "Other"); _TYPES.setdefault("OrJunction", "Other")
 _REL_TYPES = ("Composition Aggregation Assignment Realization Serving Access Influence "
               "Triggering Flow Specialization Association Junction").split()
+#: The Exchange format's `accessType` values for an Access relationship (ArchiMate 3.1 §5.2.1).
+ACCESS_TYPES: tuple[str, ...] = ("Read", "Write", "ReadWrite", "Access")
 _FALLBACK_BEHAVIOUR = set("Driver Assessment Goal Outcome Principle Requirement Constraint Meaning Value "
                           "Capability CourseOfAction ValueStream WorkPackage Plateau".split())
 _FALLBACK_PASSIVE = ("Artifact", "Contract", "Representation", "Product", "Material", "Deliverable", "Gap")
@@ -823,3 +825,30 @@ class View:
             s.append(f'<polyline points="{pts}" fill="none" stroke="#444"{attrs}/>')
         s.append('</svg>')
         return "\n".join(s)
+
+
+def from_spec(spec: dict) -> Model:
+    """A spec (the engine's interchange JSON — `contracts/archimate-spec.schema.json`) -> a Model with
+    its views declared. ONE builder: adoit-mcp's render/validate, the visio Architect's probe build,
+    the golden fixtures and the tests all go through it, so they cannot disagree about a spec.
+
+    `rows` pin each row's rank (capability-map overview grids); `containers` nest children (capability
+    maps nest by convention); `standard_views` adds the cross-layer catalogue after the explicit views."""
+    m = Model(spec["name"], spec.get("id", "model"))
+    for e in spec.get("elements", []):
+        m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
+    for r in spec.get("relations", []):
+        m.rel(r["type"], r["src"], r["tgt"], rid=r.get("id"), accessType=r.get("accessType"))
+    for v in spec.get("views", []):
+        vw = m.view(v["id"], v["title"])
+        if v.get("rows"):
+            for i, row in enumerate(v["rows"]):
+                vw.place(*row, rank=i)
+        else:
+            vw.place(*v["elements"])
+        for c in v.get("containers", []):
+            vw.container(c["id"], children=c["children"])
+        vw.auto_edges()
+    if spec.get("standard_views"):
+        m.standard_views()
+    return m

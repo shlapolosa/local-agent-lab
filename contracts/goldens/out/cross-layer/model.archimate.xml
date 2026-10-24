@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.opengroup.org/xsd/archimate/3.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengroup.org/xsd/archimate/3.0/ http://www.opengroup.org/xsd/archimate/3.1/archimate3_Diagram.xsd" identifier="id-golden-cross-layer">
+<name xml:lang="en">Golden: cross-layer with interfaces</name>
+<elements>
+<element identifier="id-patient" xsi:type="BusinessActor"><name xml:lang="en">Patient</name><documentation xml:lang="en">[Business layer · active structure — BusinessActor] Organisational entity capable of performing behaviour.</documentation></element>
+<element identifier="id-pharmacist" xsi:type="BusinessRole"><name xml:lang="en">Pharmacist</name><documentation xml:lang="en">[Business layer · active structure — BusinessRole] Responsibility for performing specific behaviour, to which an actor is assigned.</documentation></element>
+<element identifier="id-dispense" xsi:type="BusinessProcess"><name xml:lang="en">Dispense medication</name><documentation xml:lang="en">[Business layer · behaviour structure — BusinessProcess] Sequence of behaviours achieving a specific result (has a trigger and an outcome).</documentation></element>
+<element identifier="id-dispensing-svc" xsi:type="BusinessService"><name xml:lang="en">Dispensing service</name><documentation xml:lang="en">[Business layer · behaviour structure — BusinessService] Explicitly defined behaviour exposed to the environment, named as the consumer's outcome.</documentation></element>
+<element identifier="id-portal" xsi:type="ApplicationComponent"><name xml:lang="en">Patient portal</name><documentation xml:lang="en">[Application layer · active structure — ApplicationComponent] Encapsulation of application functionality; deployable unit.</documentation></element>
+<element identifier="id-portal-ui" xsi:type="ApplicationInterface"><name xml:lang="en">Portal UI</name><documentation xml:lang="en">[Application layer · active structure — ApplicationInterface] API / UI / protocol endpoint: point of access where an application service is made available.</documentation></element>
+<element identifier="id-rx-svc" xsi:type="ApplicationService"><name xml:lang="en">Prescription service</name><documentation xml:lang="en">[Application layer · behaviour structure — ApplicationService] Explicitly defined application behaviour exposed to consumers (noun phrase for an outcome).</documentation></element>
+<element identifier="id-rx-fn" xsi:type="ApplicationFunction"><name xml:lang="en">Manage prescriptions</name><documentation xml:lang="en">[Application layer · behaviour structure — ApplicationFunction] Automated behaviour performed by a component — the functional decomposition unit (verb + object).</documentation></element>
+<element identifier="id-rx" xsi:type="DataObject"><name xml:lang="en">Prescription</name><documentation xml:lang="en">[Application layer · passive structure — DataObject] Data structured for automated processing.</documentation></element>
+<element identifier="id-app-node" xsi:type="Node"><name xml:lang="en">Application server</name><documentation xml:lang="en">[Technology layer · active structure — Node] Computational or physical resource hosting/executing other technology elements.</documentation></element>
+<element identifier="id-db" xsi:type="SystemSoftware"><name xml:lang="en">Database</name><documentation xml:lang="en">[Technology layer · active structure — SystemSoftware] Software environment for specific types of components/objects deployed on it.</documentation></element>
+<element identifier="id-goal" xsi:type="Goal"><name xml:lang="en">Safer dispensing</name><documentation xml:lang="en">[Motivation layer · behaviour structure — Goal] High-level statement of intent or desired end state.</documentation></element>
+</elements>
+<relationships>
+<relationship identifier="id-r1" source="id-patient" target="id-pharmacist" xsi:type="Assignment"/>
+<relationship identifier="id-r2" source="id-pharmacist" target="id-dispense" xsi:type="Assignment"/>
+<relationship identifier="id-r3" source="id-dispense" target="id-dispensing-svc" xsi:type="Realization"/>
+<relationship identifier="id-r4" source="id-dispensing-svc" target="id-patient" xsi:type="Serving"/>
+<relationship identifier="id-r5" source="id-portal" target="id-portal-ui" xsi:type="Composition"/>
+<relationship identifier="id-r6" source="id-portal-ui" target="id-rx-svc" xsi:type="Assignment"/>
+<relationship identifier="id-r7" source="id-portal" target="id-rx-fn" xsi:type="Assignment"/>
+<relationship identifier="id-r8" source="id-rx-fn" target="id-rx-svc" xsi:type="Realization"/>
+<relationship identifier="id-r9" source="id-rx-svc" target="id-dispense" xsi:type="Serving"/>
+<relationship identifier="id-r10" source="id-rx-fn" target="id-rx" xsi:type="Access" accessType="Write"/>
+<relationship identifier="id-r11" source="id-app-node" target="id-portal" xsi:type="Serving"/>
+<relationship identifier="id-r12" source="id-app-node" target="id-db" xsi:type="Composition"/>
+<relationship identifier="id-r13" source="id-dispensing-svc" target="id-goal" xsi:type="Realization"/>
+</relationships>
+<organizations>
+<item><label xml:lang="en">Pharmacy</label>
+<item><label xml:lang="en">Application</label>
+<item identifierRef="id-portal"/>
+<item identifierRef="id-rx-svc"/>
+</item>
+<item><label xml:lang="en">Business</label>
+<item identifierRef="id-dispensing-svc"/>
+</item>
+</item>
+<item><label xml:lang="en">Platform</label>
+<item><label xml:lang="en">Technology</label>
+<item identifierRef="id-app-node"/>
+<item identifierRef="id-db"/>
+</item>
+</item>
+</organizations>
+<views><diagrams>
+<view identifier="id-v-context" xsi:type="Diagram"><name xml:lang="en">Dispensing context</name>
+<node identifier="id-n-context-patient" elementRef="id-patient" xsi:type="Element" x="144" y="60" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-pharmacist" elementRef="id-pharmacist" xsi:type="Element" x="144" y="564" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-dispense" elementRef="id-dispense" xsi:type="Element" x="144" y="396" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-dispensing-svc" elementRef="id-dispensing-svc" xsi:type="Element" x="144" y="228" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-portal" elementRef="id-portal" xsi:type="Element" x="144" y="1208" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-portal-ui" elementRef="id-portal-ui" xsi:type="Element" x="224" y="900" w="30" h="30"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-rx-svc" elementRef="id-rx-svc" xsi:type="Element" x="144" y="732" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-rx-fn" elementRef="id-rx-fn" xsi:type="Element" x="144" y="1040" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-context-rx" elementRef="id-rx" xsi:type="Element" x="144" y="1376" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<connection identifier="id-c-context-0" relationshipRef="id-r1" xsi:type="Relationship" source="id-n-context-patient" target="id-n-context-pharmacist"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="173"/><bendpoint x="364" y="173"/><bendpoint x="364" y="500"/><bendpoint x="271" y="500"/></connection>
+<connection identifier="id-c-context-1" relationshipRef="id-r2" xsi:type="Relationship" source="id-n-context-pharmacist" target="id-n-context-dispense"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-context-2" relationshipRef="id-r3" xsi:type="Relationship" source="id-n-context-dispense" target="id-n-context-dispensing-svc"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-context-3" relationshipRef="id-r4" xsi:type="Relationship" source="id-n-context-dispensing-svc" target="id-n-context-patient"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-context-4" relationshipRef="id-r5" xsi:type="Relationship" source="id-n-context-portal" target="id-n-context-portal-ui"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="1144"/><bendpoint x="382" y="1144"/><bendpoint x="382" y="976"/><bendpoint x="239" y="976"/></connection>
+<connection identifier="id-c-context-5" relationshipRef="id-r6" xsi:type="Relationship" source="id-n-context-portal-ui" target="id-n-context-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="845"/><bendpoint x="207" y="845"/></connection>
+<connection identifier="id-c-context-6" relationshipRef="id-r7" xsi:type="Relationship" source="id-n-context-portal" target="id-n-context-rx-fn"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-context-7" relationshipRef="id-r8" xsi:type="Relationship" source="id-n-context-rx-fn" target="id-n-context-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="994"/><bendpoint x="400" y="994"/><bendpoint x="400" y="845"/><bendpoint x="271" y="845"/></connection>
+<connection identifier="id-c-context-8" relationshipRef="id-r9" xsi:type="Relationship" source="id-n-context-rx-svc" target="id-n-context-dispense"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="677"/><bendpoint x="418" y="677"/><bendpoint x="418" y="518"/><bendpoint x="271" y="518"/></connection>
+<connection identifier="id-c-context-9" relationshipRef="id-r10" xsi:type="Relationship" source="id-n-context-rx-fn" target="id-n-context-rx"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="1162"/><bendpoint x="436" y="1162"/><bendpoint x="436" y="1321"/><bendpoint x="239" y="1321"/></connection>
+</view>
+<view identifier="id-v-strategy-biz" xsi:type="Diagram"><name xml:lang="en">Strategy to Business Mapping</name>
+<node identifier="id-n-strategy-biz-dispense" elementRef="id-dispense" xsi:type="Element" x="144" y="396" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-strategy-biz-dispensing-svc" elementRef="id-dispensing-svc" xsi:type="Element" x="144" y="228" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-strategy-biz-patient" elementRef="id-patient" xsi:type="Element" x="144" y="60" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-strategy-biz-pharmacist" elementRef="id-pharmacist" xsi:type="Element" x="144" y="564" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<connection identifier="id-c-strategy-biz-0" relationshipRef="id-r1" xsi:type="Relationship" source="id-n-strategy-biz-patient" target="id-n-strategy-biz-pharmacist"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="173"/><bendpoint x="364" y="173"/><bendpoint x="364" y="509"/><bendpoint x="271" y="509"/></connection>
+<connection identifier="id-c-strategy-biz-1" relationshipRef="id-r2" xsi:type="Relationship" source="id-n-strategy-biz-pharmacist" target="id-n-strategy-biz-dispense"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-strategy-biz-2" relationshipRef="id-r3" xsi:type="Relationship" source="id-n-strategy-biz-dispense" target="id-n-strategy-biz-dispensing-svc"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-strategy-biz-3" relationshipRef="id-r4" xsi:type="Relationship" source="id-n-strategy-biz-dispensing-svc" target="id-n-strategy-biz-patient"><style><lineColor r="70" g="70" b="70"/></style></connection>
+</view>
+<view identifier="id-v-biz-app" xsi:type="Diagram"><name xml:lang="en">Business to Application Mapping</name>
+<node identifier="id-n-biz-app-dispense" elementRef="id-dispense" xsi:type="Element" x="144" y="396" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-dispensing-svc" elementRef="id-dispensing-svc" xsi:type="Element" x="144" y="228" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-patient" elementRef="id-patient" xsi:type="Element" x="144" y="60" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-pharmacist" elementRef="id-pharmacist" xsi:type="Element" x="144" y="564" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-portal" elementRef="id-portal" xsi:type="Element" x="144" y="1208" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-portal-ui" elementRef="id-portal-ui" xsi:type="Element" x="224" y="900" w="30" h="30"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-rx" elementRef="id-rx" xsi:type="Element" x="144" y="1376" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-rx-fn" elementRef="id-rx-fn" xsi:type="Element" x="144" y="1040" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-biz-app-rx-svc" elementRef="id-rx-svc" xsi:type="Element" x="144" y="732" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<connection identifier="id-c-biz-app-0" relationshipRef="id-r1" xsi:type="Relationship" source="id-n-biz-app-patient" target="id-n-biz-app-pharmacist"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="173"/><bendpoint x="364" y="173"/><bendpoint x="364" y="500"/><bendpoint x="271" y="500"/></connection>
+<connection identifier="id-c-biz-app-1" relationshipRef="id-r2" xsi:type="Relationship" source="id-n-biz-app-pharmacist" target="id-n-biz-app-dispense"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-biz-app-2" relationshipRef="id-r3" xsi:type="Relationship" source="id-n-biz-app-dispense" target="id-n-biz-app-dispensing-svc"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-biz-app-3" relationshipRef="id-r4" xsi:type="Relationship" source="id-n-biz-app-dispensing-svc" target="id-n-biz-app-patient"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-biz-app-4" relationshipRef="id-r5" xsi:type="Relationship" source="id-n-biz-app-portal" target="id-n-biz-app-portal-ui"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="1144"/><bendpoint x="382" y="1144"/><bendpoint x="382" y="976"/><bendpoint x="239" y="976"/></connection>
+<connection identifier="id-c-biz-app-5" relationshipRef="id-r6" xsi:type="Relationship" source="id-n-biz-app-portal-ui" target="id-n-biz-app-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="845"/><bendpoint x="207" y="845"/></connection>
+<connection identifier="id-c-biz-app-6" relationshipRef="id-r7" xsi:type="Relationship" source="id-n-biz-app-portal" target="id-n-biz-app-rx-fn"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-biz-app-7" relationshipRef="id-r8" xsi:type="Relationship" source="id-n-biz-app-rx-fn" target="id-n-biz-app-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="994"/><bendpoint x="400" y="994"/><bendpoint x="400" y="845"/><bendpoint x="271" y="845"/></connection>
+<connection identifier="id-c-biz-app-8" relationshipRef="id-r9" xsi:type="Relationship" source="id-n-biz-app-rx-svc" target="id-n-biz-app-dispense"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="677"/><bendpoint x="418" y="677"/><bendpoint x="418" y="518"/><bendpoint x="271" y="518"/></connection>
+<connection identifier="id-c-biz-app-9" relationshipRef="id-r10" xsi:type="Relationship" source="id-n-biz-app-rx-fn" target="id-n-biz-app-rx"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="1162"/><bendpoint x="436" y="1162"/><bendpoint x="436" y="1321"/><bendpoint x="239" y="1321"/></connection>
+</view>
+<view identifier="id-v-app-tech" xsi:type="Diagram"><name xml:lang="en">Application to Technology &amp; Physical Mapping</name>
+<node identifier="id-n-app-tech-app-node" elementRef="id-app-node" xsi:type="Element" x="144" y="872" w="190" h="58"><style><fillColor r="201" g="231" b="184"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-app-tech-db" elementRef="id-db" xsi:type="Element" x="404" y="872" w="190" h="58"><style><fillColor r="201" g="231" b="184"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-app-tech-portal" elementRef="id-portal" xsi:type="Element" x="274" y="536" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-app-tech-portal-ui" elementRef="id-portal-ui" xsi:type="Element" x="354" y="228" w="30" h="30"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-app-tech-rx" elementRef="id-rx" xsi:type="Element" x="274" y="704" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-app-tech-rx-fn" elementRef="id-rx-fn" xsi:type="Element" x="274" y="368" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-app-tech-rx-svc" elementRef="id-rx-svc" xsi:type="Element" x="274" y="60" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<connection identifier="id-c-app-tech-0" relationshipRef="id-r5" xsi:type="Relationship" source="id-n-app-tech-portal" target="id-n-app-tech-portal-ui"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="472"/><bendpoint x="624" y="472"/><bendpoint x="624" y="304"/><bendpoint x="369" y="304"/></connection>
+<connection identifier="id-c-app-tech-1" relationshipRef="id-r6" xsi:type="Relationship" source="id-n-app-tech-portal-ui" target="id-n-app-tech-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="369" y="173"/><bendpoint x="337" y="173"/></connection>
+<connection identifier="id-c-app-tech-2" relationshipRef="id-r7" xsi:type="Relationship" source="id-n-app-tech-portal" target="id-n-app-tech-rx-fn"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-app-tech-3" relationshipRef="id-r8" xsi:type="Relationship" source="id-n-app-tech-rx-fn" target="id-n-app-tech-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="369" y="322"/><bendpoint x="642" y="322"/><bendpoint x="642" y="173"/><bendpoint x="401" y="173"/></connection>
+<connection identifier="id-c-app-tech-4" relationshipRef="id-r10" xsi:type="Relationship" source="id-n-app-tech-rx-fn" target="id-n-app-tech-rx"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="490"/><bendpoint x="660" y="490"/><bendpoint x="660" y="658"/><bendpoint x="369" y="658"/></connection>
+<connection identifier="id-c-app-tech-5" relationshipRef="id-r11" xsi:type="Relationship" source="id-n-app-tech-app-node" target="id-n-app-tech-portal"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="817"/><bendpoint x="114" y="817"/><bendpoint x="114" y="640"/><bendpoint x="369" y="640"/></connection>
+<connection identifier="id-c-app-tech-6" relationshipRef="id-r12" xsi:type="Relationship" source="id-n-app-tech-app-node" target="id-n-app-tech-db"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="985"/><bendpoint x="499" y="985"/></connection>
+</view>
+<view identifier="id-v-full" xsi:type="Diagram"><name xml:lang="en">Full Architecture View</name>
+<node identifier="id-n-full-app-node" elementRef="id-app-node" xsi:type="Element" x="144" y="1712" w="190" h="58"><style><fillColor r="201" g="231" b="184"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-db" elementRef="id-db" xsi:type="Element" x="404" y="1712" w="190" h="58"><style><fillColor r="201" g="231" b="184"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-dispense" elementRef="id-dispense" xsi:type="Element" x="274" y="564" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-dispensing-svc" elementRef="id-dispensing-svc" xsi:type="Element" x="274" y="396" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-goal" elementRef="id-goal" xsi:type="Element" x="274" y="60" w="190" h="58"><style><fillColor r="230" g="230" b="250"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-patient" elementRef="id-patient" xsi:type="Element" x="274" y="228" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-pharmacist" elementRef="id-pharmacist" xsi:type="Element" x="274" y="732" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-portal" elementRef="id-portal" xsi:type="Element" x="274" y="1376" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-portal-ui" elementRef="id-portal-ui" xsi:type="Element" x="354" y="1068" w="30" h="30"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-rx" elementRef="id-rx" xsi:type="Element" x="274" y="1544" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-rx-fn" elementRef="id-rx-fn" xsi:type="Element" x="274" y="1208" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-full-rx-svc" elementRef="id-rx-svc" xsi:type="Element" x="274" y="900" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<connection identifier="id-c-full-0" relationshipRef="id-r1" xsi:type="Relationship" source="id-n-full-patient" target="id-n-full-pharmacist"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="332"/><bendpoint x="624" y="332"/><bendpoint x="624" y="668"/><bendpoint x="401" y="668"/></connection>
+<connection identifier="id-c-full-1" relationshipRef="id-r2" xsi:type="Relationship" source="id-n-full-pharmacist" target="id-n-full-dispense"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-full-2" relationshipRef="id-r3" xsi:type="Relationship" source="id-n-full-dispense" target="id-n-full-dispensing-svc"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-full-3" relationshipRef="id-r4" xsi:type="Relationship" source="id-n-full-dispensing-svc" target="id-n-full-patient"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-full-4" relationshipRef="id-r5" xsi:type="Relationship" source="id-n-full-portal" target="id-n-full-portal-ui"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="1312"/><bendpoint x="642" y="1312"/><bendpoint x="642" y="1144"/><bendpoint x="369" y="1144"/></connection>
+<connection identifier="id-c-full-5" relationshipRef="id-r6" xsi:type="Relationship" source="id-n-full-portal-ui" target="id-n-full-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="369" y="1013"/><bendpoint x="337" y="1013"/></connection>
+<connection identifier="id-c-full-6" relationshipRef="id-r7" xsi:type="Relationship" source="id-n-full-portal" target="id-n-full-rx-fn"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-full-7" relationshipRef="id-r8" xsi:type="Relationship" source="id-n-full-rx-fn" target="id-n-full-rx-svc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="369" y="1162"/><bendpoint x="660" y="1162"/><bendpoint x="660" y="1013"/><bendpoint x="401" y="1013"/></connection>
+<connection identifier="id-c-full-8" relationshipRef="id-r9" xsi:type="Relationship" source="id-n-full-rx-svc" target="id-n-full-dispense"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="369" y="845"/><bendpoint x="678" y="845"/><bendpoint x="678" y="686"/><bendpoint x="401" y="686"/></connection>
+<connection identifier="id-c-full-9" relationshipRef="id-r10" xsi:type="Relationship" source="id-n-full-rx-fn" target="id-n-full-rx"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="1330"/><bendpoint x="696" y="1330"/><bendpoint x="696" y="1498"/><bendpoint x="369" y="1498"/></connection>
+<connection identifier="id-c-full-10" relationshipRef="id-r11" xsi:type="Relationship" source="id-n-full-app-node" target="id-n-full-portal"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="1657"/><bendpoint x="114" y="1657"/><bendpoint x="114" y="1480"/><bendpoint x="369" y="1480"/></connection>
+<connection identifier="id-c-full-11" relationshipRef="id-r12" xsi:type="Relationship" source="id-n-full-app-node" target="id-n-full-db"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="1825"/><bendpoint x="499" y="1825"/></connection>
+<connection identifier="id-c-full-12" relationshipRef="id-r13" xsi:type="Relationship" source="id-n-full-dispensing-svc" target="id-n-full-goal"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="350"/><bendpoint x="714" y="350"/><bendpoint x="714" y="173"/><bendpoint x="369" y="173"/></connection>
+</view>
+</diagrams></views>
+</model>

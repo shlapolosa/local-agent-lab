@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.opengroup.org/xsd/archimate/3.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengroup.org/xsd/archimate/3.0/ http://www.opengroup.org/xsd/archimate/3.1/archimate3_Diagram.xsd" identifier="id-golden-gutter">
+<name xml:lang="en">Golden: gutter routing</name>
+<elements>
+<element identifier="id-actor" xsi:type="BusinessActor"><name xml:lang="en">Clerk</name><documentation xml:lang="en">[Business layer · active structure — BusinessActor] Organisational entity capable of performing behaviour.</documentation></element>
+<element identifier="id-bsvc" xsi:type="BusinessService"><name xml:lang="en">Registration</name><documentation xml:lang="en">[Business layer · behaviour structure — BusinessService] Explicitly defined behaviour exposed to the environment, named as the consumer's outcome.</documentation></element>
+<element identifier="id-proc" xsi:type="BusinessProcess"><name xml:lang="en">Register</name><documentation xml:lang="en">[Business layer · behaviour structure — BusinessProcess] Sequence of behaviours achieving a specific result (has a trigger and an outcome).</documentation></element>
+<element identifier="id-asvc" xsi:type="ApplicationService"><name xml:lang="en">Registry API</name><documentation xml:lang="en">[Application layer · behaviour structure — ApplicationService] Explicitly defined application behaviour exposed to consumers (noun phrase for an outcome).</documentation></element>
+<element identifier="id-comp" xsi:type="ApplicationComponent"><name xml:lang="en">Registry</name><documentation xml:lang="en">[Application layer · active structure — ApplicationComponent] Encapsulation of application functionality; deployable unit.</documentation></element>
+<element identifier="id-comp2" xsi:type="ApplicationComponent"><name xml:lang="en">Audit</name><documentation xml:lang="en">[Application layer · active structure — ApplicationComponent] Encapsulation of application functionality; deployable unit.</documentation></element>
+<element identifier="id-node" xsi:type="Node"><name xml:lang="en">Host</name><documentation xml:lang="en">[Technology layer · active structure — Node] Computational or physical resource hosting/executing other technology elements.</documentation></element>
+</elements>
+<relationships>
+<relationship identifier="id-r1" source="id-bsvc" target="id-actor" xsi:type="Serving"/>
+<relationship identifier="id-r2" source="id-proc" target="id-bsvc" xsi:type="Realization"/>
+<relationship identifier="id-r3" source="id-asvc" target="id-proc" xsi:type="Serving"/>
+<relationship identifier="id-r4" source="id-comp" target="id-asvc" xsi:type="Realization"/>
+<relationship identifier="id-r5" source="id-node" target="id-comp" xsi:type="Serving"/>
+<relationship identifier="id-r6" source="id-node" target="id-actor" xsi:type="Serving"/>
+<relationship identifier="id-r7" source="id-comp" target="id-comp2" xsi:type="Flow"/>
+<relationship identifier="id-r8" source="id-asvc" target="id-actor" xsi:type="Serving"/>
+</relationships>
+<views><diagrams>
+<view identifier="id-v-long-edges" xsi:type="Diagram"><name xml:lang="en">Edges spanning several rows</name>
+<node identifier="id-n-long-edges-actor" elementRef="id-actor" xsi:type="Element" x="274" y="60" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-long-edges-bsvc" elementRef="id-bsvc" xsi:type="Element" x="274" y="228" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-long-edges-proc" elementRef="id-proc" xsi:type="Element" x="274" y="396" w="190" h="58"><style><fillColor r="255" g="255" b="181"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-long-edges-asvc" elementRef="id-asvc" xsi:type="Element" x="274" y="564" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-long-edges-comp" elementRef="id-comp" xsi:type="Element" x="144" y="732" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-long-edges-comp2" elementRef="id-comp2" xsi:type="Element" x="404" y="732" w="190" h="58"><style><fillColor r="181" g="255" b="255"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<node identifier="id-n-long-edges-node" elementRef="id-node" xsi:type="Element" x="274" y="900" w="190" h="58"><style><fillColor r="201" g="231" b="184"/><lineColor r="92" g="110" b="130"/><font name="Sans" size="9"><color r="0" g="0" b="0"/></font></style>
+</node>
+<connection identifier="id-c-long-edges-0" relationshipRef="id-r1" xsi:type="Relationship" source="id-n-long-edges-bsvc" target="id-n-long-edges-actor"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="369" y="164"/><bendpoint x="322" y="164"/></connection>
+<connection identifier="id-c-long-edges-1" relationshipRef="id-r2" xsi:type="Relationship" source="id-n-long-edges-proc" target="id-n-long-edges-bsvc"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-long-edges-2" relationshipRef="id-r3" xsi:type="Relationship" source="id-n-long-edges-asvc" target="id-n-long-edges-proc"><style><lineColor r="70" g="70" b="70"/></style></connection>
+<connection identifier="id-c-long-edges-3" relationshipRef="id-r4" xsi:type="Relationship" source="id-n-long-edges-comp" target="id-n-long-edges-asvc"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="239" y="677"/><bendpoint x="369" y="677"/></connection>
+<connection identifier="id-c-long-edges-4" relationshipRef="id-r5" xsi:type="Relationship" source="id-n-long-edges-node" target="id-n-long-edges-comp"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="337" y="836"/><bendpoint x="207" y="836"/></connection>
+<connection identifier="id-c-long-edges-5" relationshipRef="id-r6" xsi:type="Relationship" source="id-n-long-edges-node" target="id-n-long-edges-actor"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="836"/><bendpoint x="624" y="836"/><bendpoint x="624" y="182"/><bendpoint x="369" y="182"/></connection>
+<connection identifier="id-c-long-edges-6" relationshipRef="id-r7" xsi:type="Relationship" source="id-n-long-edges-comp" target="id-n-long-edges-comp2"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="271" y="854"/><bendpoint x="499" y="854"/></connection>
+<connection identifier="id-c-long-edges-7" relationshipRef="id-r8" xsi:type="Relationship" source="id-n-long-edges-asvc" target="id-n-long-edges-actor"><style><lineColor r="70" g="70" b="70"/></style><bendpoint x="401" y="509"/><bendpoint x="642" y="509"/><bendpoint x="642" y="164"/><bendpoint x="416" y="164"/></connection>
+</view>
+</diagrams></views>
+</model>

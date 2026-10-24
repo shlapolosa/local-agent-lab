@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="998" height="682" font-family="Helvetica,Arial" font-size="10">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="40" font-size="15" font-weight="bold">Motivation to Strategy Mapping</text>
+<defs><marker id="arrF" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 10 4, 0 8" fill="#444"/></marker><marker id="arrO" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polyline points="0 0, 9 4, 0 8" fill="none" stroke="#444"/></marker><marker id="triH" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto"><polygon points="0 0, 11 5, 0 10" fill="white" stroke="#444"/></marker><marker id="diaF" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="#444"/></marker><marker id="diaH" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="white" stroke="#444"/></marker><marker id="dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#444"/></marker></defs>
+<rect x="274" y="396" width="190" height="58" fill="#F5DEAA" stroke="#5c6e82"/>
+<rect x="445" y="411" width="4" height="4" stroke="#333" stroke-width="1" fill="none"/><rect x="450" y="406" width="4" height="9" stroke="#333" stroke-width="1" fill="none"/><rect x="455" y="401" width="4" height="14" stroke="#333" stroke-width="1" fill="none"/>
+<text x="369.0" y="428.0" text-anchor="middle" font-weight="normal">Agentic Process Automation</text>
+<rect x="534" y="396" width="190" height="58" fill="#F5DEAA" stroke="#5c6e82"/>
+<circle cx="710" cy="410" r="5" stroke="#333" stroke-width="1" fill="none"/><circle cx="710" cy="410" r="2" stroke="#333" stroke-width="1" fill="none"/><line x1="710" y1="410" x2="719" y2="401" stroke="#333" stroke-width="1" fill="none"/><polyline points="715,401 719,401 719,405" stroke="#333" stroke-width="1" fill="none"/>
+<text x="629.0" y="428.0" text-anchor="middle" font-weight="normal">Cloud-first inference</text>
+<rect x="144" y="228" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<circle cx="322" cy="240" r="6" stroke="#333" stroke-width="1" fill="none"/><circle cx="322" cy="240" r="1.5" fill="#333"/><line x1="322" y1="233" x2="322" y2="247" stroke="#333" stroke-width="1" fill="none"/><line x1="315" y1="240" x2="329" y2="240" stroke="#333" stroke-width="1" fill="none"/><line x1="317" y1="235" x2="327" y2="245" stroke="#333" stroke-width="1" fill="none"/><line x1="327" y1="235" x2="317" y2="245" stroke="#333" stroke-width="1" fill="none"/>
+<text x="239.0" y="260.0" text-anchor="middle" font-weight="normal">Azure-first enterprise strategy</text>
+<rect x="274" y="60" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<circle cx="452" cy="72" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="452" cy="72" r="4" stroke="#333" stroke-width="1" fill="none"/><circle cx="452" cy="72" r="1.5" fill="#333"/>
+<text x="369.0" y="92.0" text-anchor="middle" font-weight="normal">Pattern parity with Azure at zero licence cost</text>
+<rect x="534" y="60" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<rect x="706" y="65" width="12" height="14" stroke="#333" stroke-width="1" fill="none"/><line x1="712" y1="68" x2="712" y2="74" stroke="#333" stroke-width="2"/><circle cx="712" cy="76.5" r="1" fill="#333"/>
+<text x="629.0" y="92.0" text-anchor="middle" font-weight="normal">Single gateway for all egress</text>
+<rect x="664" y="228" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<polygon points="838,235 849,235 846,245 835,245" stroke="#333" stroke-width="1" fill="none"/>
+<text x="759.0" y="260.0" text-anchor="middle" font-weight="normal">All traffic authenticated, metered, traced</text>
+<rect x="404" y="228" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<polygon points="578,235 589,235 586,245 575,245" stroke="#333" stroke-width="1" fill="none"/>
+<text x="499.0" y="260.0" text-anchor="middle" font-weight="normal">No unredacted PII crosses the egress boundary</text>
+<rect x="404" y="564" width="190" height="58" fill="#F5DEAA" stroke="#5c6e82"/>
+<rect x="575" y="572" width="12" height="8" stroke="#333" stroke-width="1" fill="none"/><rect x="587" y="574" width="2" height="4" fill="#333"/><line x1="578" y1="574" x2="578" y2="578" stroke="#333" stroke-width="1" fill="none"/><line x1="581" y1="574" x2="581" y2="578" stroke="#333" stroke-width="1" fill="none"/><line x1="584" y1="574" x2="584" y2="578" stroke="#333" stroke-width="1" fill="none"/>
+<text x="499.0" y="596.0" text-anchor="middle" font-weight="normal">M1 MacBook prototyping lab</text>
+<polyline points="239,228 239,182 350,182 350,118" fill="none" stroke="#444" stroke-dasharray="6 4" marker-end="url(#arrO)"/>
+<polyline points="759,228 759,164 629,164 629,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="499,228 499,164 388,164 388,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="369,396 369,341 114,341 114,164 312,164 312,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="629,396 629,341 884,341 884,182 426,182 426,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="499,564 499,509 369,509 369,454" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+</svg>

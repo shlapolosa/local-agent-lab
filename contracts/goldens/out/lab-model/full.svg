@@ -1,0 +1,373 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3694" height="5112" font-family="Helvetica,Arial" font-size="10">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="40" font-size="15" font-weight="bold">Full Architecture View</text>
+<defs><marker id="arrF" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 10 4, 0 8" fill="#444"/></marker><marker id="arrO" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polyline points="0 0, 9 4, 0 8" fill="none" stroke="#444"/></marker><marker id="triH" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto"><polygon points="0 0, 11 5, 0 10" fill="white" stroke="#444"/></marker><marker id="diaF" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="#444"/></marker><marker id="diaH" markerWidth="14" markerHeight="8" refX="1" refY="4" orient="auto"><polygon points="1 4, 7 0, 13 4, 7 8" fill="white" stroke="#444"/></marker><marker id="dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#444"/></marker></defs>
+<rect x="2060" y="744" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<circle cx="2238" cy="751" r="2.5" stroke="#333" stroke-width="1" fill="none"/><line x1="2238" y1="753.5" x2="2238" y2="759" stroke="#333" stroke-width="1" fill="none"/><line x1="2233" y1="756" x2="2243" y2="756" stroke="#333" stroke-width="1" fill="none"/><line x1="2238" y1="759" x2="2234" y2="764" stroke="#333" stroke-width="1" fill="none"/><line x1="2238" y1="759" x2="2242" y2="764" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2155.0" y="776.0" text-anchor="middle" font-weight="normal">DOH Enterprise Architect</text>
+<circle cx="2105.0" cy="1095.0" r="15.0" fill="#FFFFB5" stroke="#5c6e82"/>
+<text x="2105.0" y="1076" text-anchor="middle" font-size="8">Chat Channel (Telegram)</text>
+<circle cx="2205.0" cy="1095.0" r="15.0" fill="#FFFFB5" stroke="#5c6e82"/>
+<text x="2205.0" y="1076" text-anchor="middle" font-size="8">Web Review Channel</text>
+<rect x="2190" y="912" width="190" height="58" rx="14" fill="#FFFFB5" stroke="#5c6e82"/>
+
+<text x="2285.0" y="944.0" text-anchor="middle" font-weight="normal">Architecture Change Approval</text>
+<rect x="1930" y="408" width="190" height="58" fill="#F5DEAA" stroke="#5c6e82"/>
+<rect x="2101" y="423" width="4" height="4" stroke="#333" stroke-width="1" fill="none"/><rect x="2106" y="418" width="4" height="9" stroke="#333" stroke-width="1" fill="none"/><rect x="2111" y="413" width="4" height="14" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2025.0" y="440.0" text-anchor="middle" font-weight="normal">Agentic Process Automation</text>
+<rect x="2190" y="408" width="190" height="58" fill="#F5DEAA" stroke="#5c6e82"/>
+<circle cx="2366" cy="422" r="5" stroke="#333" stroke-width="1" fill="none"/><circle cx="2366" cy="422" r="2" stroke="#333" stroke-width="1" fill="none"/><line x1="2366" y1="422" x2="2375" y2="413" stroke="#333" stroke-width="1" fill="none"/><polyline points="2371,413 2375,413 2375,417" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2285.0" y="440.0" text-anchor="middle" font-weight="normal">Cloud-first inference</text>
+<rect x="2060" y="2504" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="2234" y="2509" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="2231" y="2512" width="6" height="3" fill="white" stroke="#333"/><rect x="2231" y="2517" width="6" height="3" fill="white" stroke="#333"/>
+<text x="2155.0" y="2536.0" text-anchor="middle" font-weight="normal">ADOIT MCP Server</text>
+<rect x="1670" y="3622" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="1844" y="3627" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="1841" y="3630" width="6" height="3" fill="white" stroke="#333"/><rect x="1841" y="3635" width="6" height="3" fill="white" stroke="#333"/>
+<text x="1765.0" y="3654.0" text-anchor="middle" font-weight="normal">Guardrails Middleware</text>
+<rect x="2060" y="2186" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="2234" y="2191" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="2231" y="2194" width="6" height="3" fill="white" stroke="#333"/><rect x="2231" y="2199" width="6" height="3" fill="white" stroke="#333"/>
+<text x="2155.0" y="2218.0" text-anchor="middle" font-weight="normal">LiteLLM Proxy</text>
+<rect x="2060" y="1772" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="2234" y="1777" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="2231" y="1780" width="6" height="3" fill="white" stroke="#333"/><rect x="2231" y="1785" width="6" height="3" fill="white" stroke="#333"/>
+<text x="2155.0" y="1804.0" text-anchor="middle" font-weight="normal">Workflow Host (Agent Framework)</text>
+<rect x="1930" y="3622" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="2104" y="3627" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="2101" y="3630" width="6" height="3" fill="white" stroke="#333"/><rect x="2101" y="3635" width="6" height="3" fill="white" stroke="#333"/>
+<text x="2025.0" y="3654.0" text-anchor="middle" font-weight="normal">Presidio PII Middleware</text>
+<rect x="2450" y="3622" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="2624" y="3627" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="2621" y="3630" width="6" height="3" fill="white" stroke="#333"/><rect x="2621" y="3635" width="6" height="3" fill="white" stroke="#333"/>
+<text x="2545.0" y="3654.0" text-anchor="middle" font-weight="normal">Architecture Review App (Streamlit)</text>
+<rect x="2190" y="3622" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<rect x="2364" y="3627" width="11" height="14" stroke="#333" stroke-width="1" fill="none"/><rect x="2361" y="3630" width="6" height="3" fill="white" stroke="#333"/><rect x="2361" y="3635" width="6" height="3" fill="white" stroke="#333"/>
+<text x="2285.0" y="3654.0" text-anchor="middle" font-weight="normal">Telegram Approval Channel</text>
+<rect x="2450" y="3814" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/><line x1="2450" y1="3828" x2="2640" y2="3828" stroke="#5c6e82"/>
+<rect x="2621" y="3820" width="14" height="12" stroke="#333" stroke-width="1" fill="none"/><line x1="2621" y1="3824" x2="2635" y2="3824" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2545.0" y="3854.0" text-anchor="middle" font-weight="normal">Approval Events (requests, decisions)</text>
+<rect x="1670" y="3814" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/><line x1="1670" y1="3828" x2="1860" y2="3828" stroke="#5c6e82"/>
+<rect x="1841" y="3820" width="14" height="12" stroke="#333" stroke-width="1" fill="none"/><line x1="1841" y1="3824" x2="1855" y2="3824" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1765.0" y="3854.0" text-anchor="middle" font-weight="normal">A2A Agent Cards</text>
+<rect x="1930" y="3814" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/><line x1="1930" y1="3828" x2="2120" y2="3828" stroke="#5c6e82"/>
+<rect x="2101" y="3820" width="14" height="12" stroke="#333" stroke-width="1" fill="none"/><line x1="2101" y1="3824" x2="2115" y2="3824" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2025.0" y="3854.0" text-anchor="middle" font-weight="normal">Virtual Keys &amp; Budgets</text>
+<rect x="2190" y="3814" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/><line x1="2190" y1="3828" x2="2380" y2="3828" stroke="#5c6e82"/>
+<rect x="2361" y="3820" width="14" height="12" stroke="#333" stroke-width="1" fill="none"/><line x1="2361" y1="3824" x2="2375" y2="3824" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2285.0" y="3854.0" text-anchor="middle" font-weight="normal">ArchiMate Model (Exchange XML)</text>
+<rect x="2060" y="234" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<circle cx="2238" cy="246" r="6" stroke="#333" stroke-width="1" fill="none"/><circle cx="2238" cy="246" r="1.5" fill="#333"/><line x1="2238" y1="239" x2="2238" y2="253" stroke="#333" stroke-width="1" fill="none"/><line x1="2231" y1="246" x2="2245" y2="246" stroke="#333" stroke-width="1" fill="none"/><line x1="2233" y1="241" x2="2243" y2="251" stroke="#333" stroke-width="1" fill="none"/><line x1="2243" y1="241" x2="2233" y2="251" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2155.0" y="266.0" text-anchor="middle" font-weight="normal">Azure-first enterprise strategy</text>
+<polygon points="1670,1244 1848,1244 1860,1273.0 1848,1302 1670,1302 1682,1273.0" fill="#FFFFB5" stroke="#5c6e82"/>
+
+<text x="1765.0" y="1276.0" text-anchor="middle" font-weight="normal">Import Approved</text>
+<polygon points="2450,1244 2628,1244 2640,1273.0 2628,1302 2450,1302 2462,1273.0" fill="#FFFFB5" stroke="#5c6e82"/>
+
+<text x="2545.0" y="1276.0" text-anchor="middle" font-weight="normal">Change Requested</text>
+<rect x="3100" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="3272,3431 3272,3422 3278,3417 3284,3422 3284,3431 3278,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="3195.0" y="3444.0" text-anchor="middle" font-weight="normal">Record Decision</text>
+<rect x="1540" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="1712,3431 1712,3422 1718,3417 1724,3422 1724,3431 1718,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1635.0" y="3444.0" text-anchor="middle" font-weight="normal">Emit Exchange XML</text>
+<rect x="760" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="932,3431 932,3422 938,3417 944,3422 944,3431 938,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="855.0" y="3444.0" text-anchor="middle" font-weight="normal">Enforce Budgets, Rate Limits &amp; Tool ACLs</text>
+<rect x="1020" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="1192,3431 1192,3422 1198,3417 1204,3422 1204,3431 1198,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1115.0" y="3444.0" text-anchor="middle" font-weight="normal">Inject Upstream Credentials</text>
+<rect x="1800" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="1972,3431 1972,3422 1978,3417 1984,3422 1984,3431 1978,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1895.0" y="3444.0" text-anchor="middle" font-weight="normal">Lay Out Views</text>
+<rect x="3360" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="3532,3431 3532,3422 3538,3417 3544,3422 3544,3431 3538,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="3455.0" y="3444.0" text-anchor="middle" font-weight="normal">Present Views for Review</text>
+<rect x="1280" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="1452,3431 1452,3422 1458,3417 1464,3422 1464,3431 1458,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1375.0" y="3444.0" text-anchor="middle" font-weight="normal">Detect &amp; Redact PII</text>
+<rect x="2840" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="3012,3431 3012,3422 3018,3417 3024,3422 3024,3431 3018,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2935.0" y="3444.0" text-anchor="middle" font-weight="normal">Manage Teams, Keys &amp; Skills</text>
+<rect x="2320" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="2492,3431 2492,3422 2498,3417 2504,3422 2504,3431 2498,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2415.0" y="3444.0" text-anchor="middle" font-weight="normal">Route Model Requests</text>
+<rect x="2580" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="2752,3431 2752,3422 2758,3417 2764,3422 2764,3431 2758,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2675.0" y="3444.0" text-anchor="middle" font-weight="normal">Stage Import for Approval</text>
+<rect x="2060" y="3412" width="190" height="58" fill="#B5FFFF" stroke="#5c6e82"/>
+<polygon points="2232,3431 2232,3422 2238,3417 2244,3422 2244,3431 2238,3426" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2155.0" y="3444.0" text-anchor="middle" font-weight="normal">Validate ArchiMate Rules</text>
+<rect x="2190" y="60" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<circle cx="2368" cy="72" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="2368" cy="72" r="4" stroke="#333" stroke-width="1" fill="none"/><circle cx="2368" cy="72" r="1.5" fill="#333"/>
+<text x="2285.0" y="92.0" text-anchor="middle" font-weight="normal">Pattern parity with Azure at zero licence cost</text>
+<circle cx="1855.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="1855.0" y="3118" text-anchor="middle" font-size="8">A2A</text>
+<circle cx="2355.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="2355.0" y="3118" text-anchor="middle" font-size="8">Admin UI &amp; API (/ui, /key, /team)</text>
+<circle cx="2055.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="2055.0" y="3118" text-anchor="middle" font-size="8">MCP endpoint (:9100/mcp)</text>
+<circle cx="2255.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="2255.0" y="3118" text-anchor="middle" font-size="8">Telegram Bot API</text>
+<circle cx="1855.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="1855.0" y="4212" text-anchor="middle" font-size="8">OAuth2 / OIDC endpoints</text>
+<circle cx="1955.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="1955.0" y="4212" text-anchor="middle" font-size="8">Jaeger Query UI/API :16686</text>
+<circle cx="1955.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="1955.0" y="3118" text-anchor="middle" font-size="8">/mcp (MCP gateway)</text>
+<circle cx="2355.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="2355.0" y="4212" text-anchor="middle" font-size="8">Postgres wire (TLS)</text>
+<circle cx="2455.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="2455.0" y="4212" text-anchor="middle" font-size="8">OpenAI-compatible API</text>
+<circle cx="2055.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="2055.0" y="4212" text-anchor="middle" font-size="8">OTLP</text>
+<circle cx="2155.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="2155.0" y="4212" text-anchor="middle" font-size="8">RESP :6379</text>
+<circle cx="2255.0" cy="4231.0" r="15.0" fill="#C9E7B8" stroke="#5c6e82"/>
+<text x="2255.0" y="4212" text-anchor="middle" font-size="8">REST API (read-only)</text>
+<circle cx="2455.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="2455.0" y="3118" text-anchor="middle" font-size="8">Review Web UI (:8501)</text>
+<circle cx="2155.0" cy="3137.0" r="15.0" fill="#B5FFFF" stroke="#5c6e82"/>
+<text x="2155.0" y="3118" text-anchor="middle" font-size="8">/v1 (OpenAI)</text>
+<polygon points="2580,4478 2588,4470 2770,4470 2770,4520 2762,4528 2580,4528" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="2580,4478 2762,4478 2770,4470" fill="none" stroke="#5c6e82"/><line x1="2762" y1="4478" x2="2762" y2="4528" stroke="#5c6e82"/>
+<polygon points="2751,4479 2755,4475 2765,4475 2765,4485 2761,4489 2751,4489" stroke="#333" stroke-width="1" fill="none"/><polyline points="2751,4479 2761,4479 2765,4475" stroke="#333" stroke-width="1" fill="none"/><line x1="2761" y1="4479" x2="2761" y2="4489" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2675.0" y="4502.0" text-anchor="middle" font-weight="normal">ADOIT:CE (BOC Cloud)</text>
+<polygon points="760,4478 768,4470 950,4470 950,4520 942,4528 760,4528" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="760,4478 942,4478 950,4470" fill="none" stroke="#5c6e82"/><line x1="942" y1="4478" x2="942" y2="4528" stroke="#5c6e82"/>
+<polygon points="931,4479 935,4475 945,4475 945,4485 941,4489 931,4489" stroke="#333" stroke-width="1" fill="none"/><polyline points="931,4479 941,4479 945,4475" stroke="#333" stroke-width="1" fill="none"/><line x1="941" y1="4479" x2="941" y2="4489" stroke="#333" stroke-width="1" fill="none"/>
+<text x="855.0" y="4502.0" text-anchor="middle" font-weight="normal">Entra ID Tenant (free)</text>
+<rect x="2060" y="4470" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="2238" cy="4482" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="2240" cy="4480" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2155.0" y="4502.0" text-anchor="middle" font-weight="normal">Jaeger v2 (native binary)</text>
+<polygon points="3360,4478 3368,4470 3550,4470 3550,4520 3542,4528 3360,4528" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="3360,4478 3542,4478 3550,4470" fill="none" stroke="#5c6e82"/><line x1="3542" y1="4478" x2="3542" y2="4528" stroke="#5c6e82"/>
+<polygon points="3531,4479 3535,4475 3545,4475 3545,4485 3541,4489 3531,4489" stroke="#333" stroke-width="1" fill="none"/><polyline points="3531,4479 3541,4479 3545,4475" stroke="#333" stroke-width="1" fill="none"/><line x1="3541" y1="4479" x2="3541" y2="4489" stroke="#333" stroke-width="1" fill="none"/>
+<text x="3455.0" y="4502.0" text-anchor="middle" font-weight="normal">M1 MacBook (8 GB, macOS)</text>
+<polygon points="2840,4478 2848,4470 3030,4470 3030,4520 3022,4528 2840,4528" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="2840,4478 3022,4478 3030,4470" fill="none" stroke="#5c6e82"/><line x1="3022" y1="4478" x2="3022" y2="4528" stroke="#5c6e82"/>
+<polygon points="3011,4479 3015,4475 3025,4475 3025,4485 3021,4489 3011,4489" stroke="#333" stroke-width="1" fill="none"/><polyline points="3011,4479 3021,4479 3025,4475" stroke="#333" stroke-width="1" fill="none"/><line x1="3021" y1="4479" x2="3021" y2="4489" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2935.0" y="4502.0" text-anchor="middle" font-weight="normal">Neon Postgres (cloud)</text>
+<polygon points="3100,4478 3108,4470 3290,4470 3290,4520 3282,4528 3100,4528" fill="#C9E7B8" stroke="#5c6e82"/><polyline points="3100,4478 3282,4478 3290,4470" fill="none" stroke="#5c6e82"/><line x1="3282" y1="4478" x2="3282" y2="4528" stroke="#5c6e82"/>
+<polygon points="3271,4479 3275,4475 3285,4475 3285,4485 3281,4489 3271,4489" stroke="#333" stroke-width="1" fill="none"/><polyline points="3271,4479 3281,4479 3285,4475" stroke="#333" stroke-width="1" fill="none"/><line x1="3281" y1="4479" x2="3281" y2="4489" stroke="#333" stroke-width="1" fill="none"/>
+<text x="3195.0" y="4502.0" text-anchor="middle" font-weight="normal">Ollama Cloud</text>
+<rect x="1930" y="4716" width="190" height="58" fill="#FFE0E0" stroke="#5c6e82"/>
+<line x1="2101" y1="4725" x2="2113" y2="4725" stroke="#333" stroke-width="2"/><line x1="2103" y1="4729" x2="2115" y2="4729" stroke="#333" stroke-width="2"/><line x1="2101" y1="4733" x2="2113" y2="4733" stroke="#333" stroke-width="2"/>
+<text x="2025.0" y="4748.0" text-anchor="middle" font-weight="normal">Lab Operational</text>
+<rect x="2190" y="4716" width="190" height="58" fill="#FFE0E0" stroke="#5c6e82"/>
+<line x1="2361" y1="4725" x2="2373" y2="4725" stroke="#333" stroke-width="2"/><line x1="2363" y1="4729" x2="2375" y2="4729" stroke="#333" stroke-width="2"/><line x1="2361" y1="4733" x2="2373" y2="4733" stroke="#333" stroke-width="2"/>
+<text x="2285.0" y="4748.0" text-anchor="middle" font-weight="normal">Pilots Live</text>
+<rect x="1930" y="60" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<rect x="2102" y="65" width="12" height="14" stroke="#333" stroke-width="1" fill="none"/><line x1="2108" y1="68" x2="2108" y2="74" stroke="#333" stroke-width="2"/><circle cx="2108" cy="76.5" r="1" fill="#333"/>
+<text x="2025.0" y="92.0" text-anchor="middle" font-weight="normal">Single gateway for all egress</text>
+<rect x="2190" y="1244" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<polygon points="2361,1253 2369,1253 2369,1250 2375,1256 2369,1262 2369,1259 2361,1259" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2285.0" y="1276.0" text-anchor="middle" font-weight="normal">Approve EA Repository Change</text>
+<rect x="1930" y="1244" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<polygon points="2101,1253 2109,1253 2109,1250 2115,1256 2109,1262 2109,1259 2101,1259" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2025.0" y="1276.0" text-anchor="middle" font-weight="normal">Automated Business Process</text>
+<rect x="1800" y="234" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<polygon points="1974,241 1985,241 1982,251 1971,251" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1895.0" y="266.0" text-anchor="middle" font-weight="normal">All traffic authenticated, metered, traced</text>
+<rect x="2320" y="234" width="190" height="58" fill="#E6E6FA" stroke="#5c6e82"/>
+<polygon points="2494,241 2505,241 2502,251 2491,251" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2415.0" y="266.0" text-anchor="middle" font-weight="normal">No unredacted PII crosses the egress boundary</text>
+<rect x="2060" y="576" width="190" height="58" fill="#F5DEAA" stroke="#5c6e82"/>
+<rect x="2231" y="584" width="12" height="8" stroke="#333" stroke-width="1" fill="none"/><rect x="2243" y="586" width="2" height="4" fill="#333"/><line x1="2234" y1="586" x2="2234" y2="590" stroke="#333" stroke-width="1" fill="none"/><line x1="2237" y1="586" x2="2237" y2="590" stroke="#333" stroke-width="1" fill="none"/><line x1="2240" y1="586" x2="2240" y2="590" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2155.0" y="608.0" text-anchor="middle" font-weight="normal">M1 MacBook prototyping lab</text>
+<rect x="2060" y="1436" width="190" height="58" fill="#FFFFB5" stroke="#5c6e82"/>
+<rect x="2233" y="1444" width="10" height="8" stroke="#333" stroke-width="1" fill="none"/><ellipse cx="2243" cy="1448" rx="2.5" ry="4" fill="white" stroke="#333"/><path d="M2233,1444 a2.5,4 0 0 0 0,8" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2155.0" y="1468.0" text-anchor="middle" font-weight="normal">Architecture Reviewer</text>
+<rect x="1020" y="4470" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1198" cy="4482" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1200" cy="4480" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1115.0" y="4502.0" text-anchor="middle" font-weight="normal">FastMCP 3</text>
+<rect x="1280" y="4470" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1458" cy="4482" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1460" cy="4480" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1375.0" y="4502.0" text-anchor="middle" font-weight="normal">Prisma Client</text>
+<rect x="1540" y="4470" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1718" cy="4482" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1720" cy="4480" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1635.0" y="4502.0" text-anchor="middle" font-weight="normal">Python 3.12 (.venv)</text>
+<rect x="2320" y="4470" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="2498" cy="4482" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="2500" cy="4480" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2415.0" y="4502.0" text-anchor="middle" font-weight="normal">Redis (Homebrew)</text>
+<rect x="1800" y="4470" width="190" height="58" fill="#C9E7B8" stroke="#5c6e82"/>
+<circle cx="1978" cy="4482" r="7" stroke="#333" stroke-width="1" fill="none"/><circle cx="1980" cy="4480" r="4.5" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1895.0" y="4502.0" text-anchor="middle" font-weight="normal">Uvicorn</text>
+<rect x="2060" y="2018" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="2155.0" y="2050.0" text-anchor="middle" font-weight="normal">A2A Mediation</text>
+<rect x="2450" y="2822" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="2545.0" y="2854.0" text-anchor="middle" font-weight="normal">Import Approval</text>
+<rect x="1930" y="912" width="190" height="58" rx="14" fill="#FFFFB5" stroke="#5c6e82"/>
+
+<text x="2025.0" y="944.0" text-anchor="middle" font-weight="normal">Business Process Automation</text>
+<rect x="1930" y="2822" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="2025.0" y="2854.0" text-anchor="middle" font-weight="normal">EA Model Generation</text>
+<rect x="2060" y="1604" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="2155.0" y="1636.0" text-anchor="middle" font-weight="normal">Workflow Execution</text>
+<rect x="1670" y="2822" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="1765.0" y="2854.0" text-anchor="middle" font-weight="normal">PII Redaction</text>
+<rect x="2710" y="2822" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="2805.0" y="2854.0" text-anchor="middle" font-weight="normal">Agent Registry</text>
+<rect x="2190" y="2822" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="2285.0" y="2854.0" text-anchor="middle" font-weight="normal">Model Routing</text>
+<rect x="1410" y="2822" width="190" height="58" rx="14" fill="#B5FFFF" stroke="#5c6e82"/>
+
+<text x="1505.0" y="2854.0" text-anchor="middle" font-weight="normal">Tool Gateway</text>
+<rect x="1930" y="4024" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="2025.0" y="4056.0" text-anchor="middle" font-weight="normal">Approval Event Bus</text>
+<rect x="1410" y="4024" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="1505.0" y="4056.0" text-anchor="middle" font-weight="normal">Identity &amp; OAuth2</text>
+<rect x="2710" y="4024" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="2805.0" y="4056.0" text-anchor="middle" font-weight="normal">Model Inference</text>
+<rect x="2450" y="4024" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="2545.0" y="4056.0" text-anchor="middle" font-weight="normal">Key &amp; Spend Store</text>
+<rect x="2190" y="4024" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="2285.0" y="4056.0" text-anchor="middle" font-weight="normal">EA Repository</text>
+<rect x="1670" y="4024" width="190" height="58" rx="14" fill="#C9E7B8" stroke="#5c6e82"/>
+
+<text x="1765.0" y="4056.0" text-anchor="middle" font-weight="normal">Trace Collection</text>
+<rect x="1670" y="4884" width="190" height="58" fill="#FFE0E0" stroke="#5c6e82"/>
+<path d="M1853,4892 a6,6 0 1 0 1,5" stroke="#333" stroke-width="1" fill="none"/><polyline points="1850,4890 1854,4892 1852,4896" stroke="#333" stroke-width="1" fill="none"/>
+<text x="1765.0" y="4916.0" text-anchor="middle" font-weight="normal">Scaffold Lab Repository</text>
+<rect x="1930" y="4884" width="190" height="58" fill="#FFE0E0" stroke="#5c6e82"/>
+<path d="M2113,4892 a6,6 0 1 0 1,5" stroke="#333" stroke-width="1" fill="none"/><polyline points="2110,4890 2114,4892 2112,4896" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2025.0" y="4916.0" text-anchor="middle" font-weight="normal">Build ADOIT MCP Server</text>
+<rect x="2190" y="4884" width="190" height="58" fill="#FFE0E0" stroke="#5c6e82"/>
+<path d="M2373,4892 a6,6 0 1 0 1,5" stroke="#333" stroke-width="1" fill="none"/><polyline points="2370,4890 2374,4892 2372,4896" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2285.0" y="4916.0" text-anchor="middle" font-weight="normal">Implement Pilot Processes</text>
+<rect x="2450" y="4884" width="190" height="58" fill="#FFE0E0" stroke="#5c6e82"/>
+<path d="M2633,4892 a6,6 0 1 0 1,5" stroke="#333" stroke-width="1" fill="none"/><polyline points="2630,4890 2634,4892 2632,4896" stroke="#333" stroke-width="1" fill="none"/>
+<text x="2545.0" y="4916.0" text-anchor="middle" font-weight="normal">Evaluate ADOIT 18 Tenant</text>
+<polyline points="2155,234 2155,158 2228,158 2228,118" fill="none" stroke="#444" stroke-dasharray="6 4" marker-end="url(#arrO)"/>
+<polyline points="1895,234 1895,176 2057,176 2057,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2415,234 2415,158 2266,158 2266,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2025,408 2025,350 3580,350 3580,176 2304,176 2304,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2285,408 2285,368 3598,368 3598,194 2342,194 2342,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2155,576 2155,521 2057,521 2057,466" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2057,912 2057,866 2155,866 2155,802" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2025,1244 2025,1168 730,1168 730,1016 2025,1016 2025,970" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1993,912 1993,866 712,866 712,521 1993,521 1993,466" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2184,2244 2184,2284 3616,2284 3616,2938 2160,2938 2160,3122" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2164,2244 2164,2464 694,2464 694,3082 1950,3082 1950,3122" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2155,2244 2155,2446 676,2446 676,3064 1860,3064 1860,3122" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2193,2244 2193,2302 3634,2302 3634,3228 2383,3228 2383,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2146,2244 2146,2428 658,2428 658,3354 887,3354 887,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2136,2244 2136,2410 640,2410 640,3336 1147,3336 1147,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2202,2244 2202,2320 3652,2320 3652,3318 2903,3318 2903,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2447,3412 2447,3246 3670,3246 3670,2920 2317,2920 2317,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="823,3412 823,3318 622,3318 622,3046 1505,3046 1505,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1083,3412 1083,3300 604,3300 604,3028 1458,3028 1458,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2967,3412 2967,3336 3688,3336 3688,2992 2837,2992 2837,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2212,2244 2212,2338 3706,2338 3706,3010 2360,3010 2360,3122" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2150,3122 2150,2920 2253,2920 2253,2880" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="1960,3122 1960,3028 1552,3028 1552,2880" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="1850,3122 1850,3010 586,3010 586,2140 2123,2140 2123,2076" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2350,3122 2350,2992 2773,2992 2773,2880" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2187,2186 2187,2076" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2123,2186 2123,2122 568,2122 568,158 1993,158 1993,118" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2285,2822 2285,2728 3724,2728 3724,1888 2215,1888 2215,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1505,2822 1505,2782 550,2782 550,1978 2181,1978 2181,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2155,2018 2155,1870 2198,1870 2198,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2126,2244 2126,2392 532,2392 532,3738 2025,3738 2025,3814" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="2117,2244 2117,2374 514,2374 514,3720 1765,3720 1765,3814" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="2164,1830 2164,1960 496,1960 496,3528 1993,3528 1993,3622" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2146,1830 2146,1942 478,1942 478,3510 1765,3510 1765,3622" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2057,3622 2057,3546 1375,3546 1375,3470" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="1375,3412 1375,3282 460,3282 460,2992 1765,2992 1765,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1797,2822 1797,2764 442,2764 442,1924 2129,1924 2129,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1733,2822 1733,2746 424,2746 424,332 2415,332 2415,292" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2155,1772 2155,1662" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2155,1604 2155,1549 406,1549 406,1360 2025,1360 2025,1302" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2149,2562 2149,2728 388,2728 388,3264 1927,3264 1927,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2174,2562 2174,2620 3742,2620 3742,3192 2187,3192 2187,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2136,2562 2136,2710 370,2710 370,3246 1667,3246 1667,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2187,2562 2187,2638 3760,2638 3760,3282 2643,3282 2643,3412" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="1863,3412 1863,3228 352,3228 352,2974 2044,2974 2044,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2123,3412 2123,3210 334,3210 334,2956 2006,2956 2006,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1603,3412 1603,3192 316,3192 316,2938 1968,2938 1968,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2707,3412 2707,3300 3778,3300 3778,2956 2531,2956 2531,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2123,2562 2123,2692 298,2692 298,2920 2050,2920 2050,3122" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2060,3122 2060,2938 2082,2938 2082,2880" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2025,2822 2025,2674 280,2674 280,848 2108,848 2108,802" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2164,2504 2164,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2199,2562 2199,2656 3796,2656 3796,3738 2285,3738 2285,3814" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="3227,4470 3227,4358 3814,4358 3814,4176 2837,4176 2837,4082" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2805,4024 2805,3984 3832,3984 3832,2356 2222,2356 2222,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="823,4470 823,4430 262,4430 262,4140 1473,4140 1473,4082" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1537,4024 1537,3966 244,3966 244,2356 2108,2356 2108,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1473,4024 1473,3948 226,3948 226,1906 2112,1906 2112,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2174,4470 2174,4304 2055,4304 2055,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2136,4470 2136,4286 1955,4286 1955,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2055,4216 2055,4158 1812,4158 1812,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="1955,4216 1955,4122 1765,4122 1765,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2098,4470 2098,4412 208,4412 208,4122 1718,4122 1718,4082" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1765,4024 1765,3930 190,3930 190,1888 2095,1888 2095,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2233,1830 2233,1870 3850,1870 3850,4286 2212,4286 2212,4470" fill="none" stroke="#444" stroke-dasharray="6 4" marker-end="url(#arrF)"/>
+<polyline points="2643,4470 2643,4304 2255,4304 2255,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2254,4216 2254,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="3163,4470 3163,4358 2455,4358 2455,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2455,4216 2455,4176 2773,4176 2773,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="887,4470 887,4430 1855,4430 1855,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="1855,4216 1855,4140 1537,4140 1537,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2903,4470 2903,4340 2355,4340 2355,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2355,4216 2355,4158 2513,4158 2513,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2368,4470 2368,4322 2155,4322 2155,4246" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2155,4216 2155,4122 1993,4122 1993,4082" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2707,4470 2707,4304 3868,4304 3868,4122 2317,4122 2317,4082" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2285,4024 2285,3948 3886,3948 3886,2674 2212,2674 2212,2562" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="3441,4528 3441,4622 1635,4622 1635,4528" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="3469,4528 3469,4640 1895,4640 1895,4528" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="3387,4528 3387,4586 1115,4586 1115,4528" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="3414,4528 3414,4604 1375,4604 1375,4528" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="1682,4470 1682,4394 172,4394 172,2338 2098,2338 2098,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1635,4470 1635,4376 154,4376 154,1870 2077,1870 2077,1830" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1588,4470 1588,4358 136,4358 136,2656 2111,2656 2111,2562" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1927,4470 1927,4340 118,4340 118,2320 2088,2320 2088,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1863,4470 1863,4322 100,4322 100,2638 2098,2638 2098,2562" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1115,4470 1115,4304 82,4304 82,2620 2085,2620 2085,2562" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="1375,4470 1375,4286 64,4286 64,2302 2079,2302 2079,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="3523,4528 3523,4676 2415,4676 2415,4528" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="3496,4528 3496,4568 2155,4568 2155,4528" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2415,4470 2415,4322 3904,4322 3904,2374 2231,2374 2231,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2462,4470 2462,4376 3922,4376 3922,4140 2057,4140 2057,4082" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="1978,4024 1978,3912 46,3912 46,2602 2073,2602 2073,2562" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2025,4024 2025,3912 3940,3912 3940,3720 2577,3720 2577,3680" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2072,4024 2072,3930 3958,3930 3958,3756 2317,3756 2317,3680" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2967,4470 2967,4340 3976,4340 3976,4158 2577,4158 2577,4082" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2545,4024 2545,3966 3994,3966 3994,2392 2240,2392 2240,2244" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2545,3622 2545,3564 3455,3564 3455,3470" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2498,3622 2498,3546 3195,3546 3195,3470" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="3455,3412 3455,3372 4012,3372 4012,3028 2559,3028 2559,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="3195,3412 3195,3354 4030,3354 4030,3064 2586,3064 2586,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2592,3622 2592,3582 4048,3582 4048,3264 2455,3264 2455,3152" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2253,3622 2253,3510 4066,3510 4066,3210 2255,3210 2255,3152" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2450,3122 2450,3028 2504,3028 2504,2880" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2250,3122 2250,2956 2477,2956 2477,2880" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2317,3622 2317,3528 4084,3528 4084,3082 2613,3082 2613,2880" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2202,802 2202,848 4102,848 4102,1360 2174,1360 2174,1436" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2136,1436 2136,1342 2266,1342 2266,1302" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2285,1244 2285,1204 4120,1204 4120,1016 2332,1016 2332,970" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2212,1436 2212,1396 4138,1396 4138,1150 2200,1150 2200,1110" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2098,1436 2098,1342 28,1342 28,1150 2100,1150 2100,1110" fill="none" stroke="#444" marker-start="url(#diaF)"/>
+<polyline points="2205,1080 2205,1034 2285,1034 2285,970" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2105,1080 2105,1016 2238,1016 2238,970" fill="none" stroke="#444" marker-start="url(#dot)" marker-end="url(#arrF)"/>
+<polyline points="2460,3122 2460,3046 4156,3046 4156,1186 2210,1186 2210,1110" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2260,3122 2260,2974 4174,2974 4174,1168 2110,1168 2110,1110" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2545,1302 2545,1342 2304,1342 2304,1302" fill="none" stroke="#444" marker-end="url(#arrF)"/>
+<polyline points="2228,1302 2228,1378 1765,1378 1765,1302" fill="none" stroke="#444" marker-end="url(#arrF)"/>
+<polyline points="2513,2822 2513,2602 2161,2602 2161,2562" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2577,2822 2577,2602 4192,2602 4192,1378 2342,1378 2342,1302" fill="none" stroke="#444" marker-end="url(#arrO)"/>
+<polyline points="2225,2562 2225,2692 4210,2692 4210,3774 2592,3774 2592,3814" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="2529,3680 2529,3814" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="2253,3680 2253,3720 2498,3720 2498,3814" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#arrO)"/>
+<polyline points="1765,4942 1765,4997 1993,4997 1993,4942" fill="none" stroke="#444" marker-end="url(#arrF)"/>
+<polyline points="2057,4942 2057,4997 2253,4997 2253,4942" fill="none" stroke="#444" marker-end="url(#arrF)"/>
+<polyline points="2317,4942 2317,4997 2545,4997 2545,4942" fill="none" stroke="#444" marker-end="url(#arrF)"/>
+<polyline points="2025,4884 2025,4774" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2285,4884 2285,4774" fill="none" stroke="#444" stroke-dasharray="2 3" marker-end="url(#triH)"/>
+<polyline points="2025,4716 2025,4568 10,4568 10,2284 2070,2284 2070,2244" fill="none" stroke="#444" marker-start="url(#diaH)"/>
+<polyline points="2285,4716 2285,4658 4228,4658 4228,2710 2237,2710 2237,2562" fill="none" stroke="#444" marker-start="url(#diaH)"/>
+</svg>

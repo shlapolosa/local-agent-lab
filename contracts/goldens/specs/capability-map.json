@@ -1,0 +1,114 @@
+{
+  "name": "Golden: capability map",
+  "id": "golden-capability-map",
+  "standard_views": false,
+  "elements": [
+    {
+      "id": "cap-customer",
+      "type": "Capability",
+      "name": "Customer Management"
+    },
+    {
+      "id": "cap-product",
+      "type": "Capability",
+      "name": "Product Management"
+    },
+    {
+      "id": "cap-finance",
+      "type": "Capability",
+      "name": "Finance Management"
+    },
+    {
+      "id": "cap-customer-info",
+      "type": "Capability",
+      "name": "Customer Information Management"
+    },
+    {
+      "id": "cap-customer-engage",
+      "type": "Capability",
+      "name": "Customer Engagement"
+    },
+    {
+      "id": "cap-customer-agree",
+      "type": "Capability",
+      "name": "Customer Agreement Management"
+    },
+    {
+      "id": "cap-product-design",
+      "type": "Capability",
+      "name": "Product Design"
+    },
+    {
+      "id": "cap-product-catalog",
+      "type": "Capability",
+      "name": "Product Catalog Management"
+    }
+  ],
+  "relations": [
+    {
+      "id": "comp-cap-customer-info",
+      "type": "Composition",
+      "src": "cap-customer",
+      "tgt": "cap-customer-info"
+    },
+    {
+      "id": "comp-cap-customer-engage",
+      "type": "Composition",
+      "src": "cap-customer",
+      "tgt": "cap-customer-engage"
+    },
+    {
+      "id": "comp-cap-customer-agree",
+      "type": "Composition",
+      "src": "cap-customer",
+      "tgt": "cap-customer-agree"
+    },
+    {
+      "id": "comp-cap-product-design",
+      "type": "Composition",
+      "src": "cap-product",
+      "tgt": "cap-product-design"
+    },
+    {
+      "id": "comp-cap-product-catalog",
+      "type": "Composition",
+      "src": "cap-product",
+      "tgt": "cap-product-catalog"
+    }
+  ],
+  "views": [
+    {
+      "id": "golden-cap-overview",
+      "title": "Capability Map (L1)",
+      "rows": [
+        [
+          "cap-customer",
+          "cap-product"
+        ],
+        [
+          "cap-finance"
+        ]
+      ]
+    },
+    {
+      "id": "golden-cap-customer",
+      "title": "Customer Management — L2 capabilities",
+      "elements": [
+        "cap-customer-info",
+        "cap-customer-engage",
+        "cap-customer-agree",
+        "cap-customer"
+      ],
+      "containers": [
+        {
+          "id": "cap-customer",
+          "children": [
+            "cap-customer-info",
+            "cap-customer-engage",
+            "cap-customer-agree"
+          ]
+        }
+      ]
+    }
+  ]
+}
