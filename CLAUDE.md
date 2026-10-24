@@ -308,7 +308,7 @@ proceeded with four obligations bound to no enforcement point, eleven components
 and a benefit nobody could compute — every one recorded in the package, and the conformance
 approval's summary was literally EMPTY, because `approvals_ask` had no way to carry one. A reviewer
 given a package and no summary judges what reads well rather than what is complete, which is the one
-failure this gate exists to prevent. `lab.workloads.usecase.owed` derives the lines from the package
+failure this gate exists to prevent. `lab.core.usecase.owed` derives the lines from the package
 — worst first: an unbound obligation (Q5.3 is a stop), a commit-invariant violation, what step 21
 left `unresolved`, the figures that could not be computed, the steps that defaulted, what is missing
 from the drawing — and `counts()` adds the headline the lines are judged against. `approvals_ask`
@@ -345,8 +345,12 @@ receives only accept, authorization (the shared secret), connection, host, user-
 identity does not survive the gateway hop**, so enforcing where the validated claims already are needs
 no forwarding at all. Per-tool ACLs cannot help here either: `mcp_tool_permissions` is keyed by MCP
 server + tool name and a REST path is neither. A VIRTUAL KEY cannot call `/api` (it authenticates but
-carries no roles); the master key is excepted as the admin plane; a DELEGATED user token is refused
-(`scp`, not `roles`) — a signed-in human decides at the review app, which reaches the gate in-process.
+carries no roles); the master key is excepted as the admin plane; a DELEGATED user token is accepted
+only when the PERSON holds the operation's app role (assigned to them or a group; the `/api` roles allow
+member type User), and the gateway holds the body's `actor` / `requester` to the token, so nobody acts in
+someone else's name (user decision 24 Oct 2026 — a custom connector can carry only a person's token).
+The review app is a RELAY: its own registration holds the three roles and it passes the signed-in
+reviewer as `actor` (`lab.substrate.review.api`, `scripts/provision_review_app_identity.py`).
 This is the APIM `validate-jwt` + `<required-claims>` analogue and migrates as CONFIGURATION: the
 table moves to an inbound policy, the front door changes not at all. The connector's identity is
 `scripts/provision_connector_identity.py` (idempotent; APPENDS to `lab-gateway`'s `appRoles`, because
@@ -398,7 +402,7 @@ The first, `src/lab/workloads/visio_to_archimate/` (see its README), is the refe
   all in one team per process. `scripts/provision_visio_agents.py` is the pattern (extends
   `entra_provision.py` + `bootstrap_registry.py`, auto-refreshes `var/run/graph_token.json`, patches
   `.env` incl. the single-quoted `ENTRA_CLIENT_TO_KEY`). Agents authenticate with
-  `lab.workloads.identity.agent_headers("<PREFIX>")` — MSAL client-credentials JWT (gateway maps it to the
+  `lab.platform.identity.agent_headers("<PREFIX>")` — MSAL client-credentials JWT (gateway maps it to the
   key), else the durable key. LLM calls use each agent's own credential (spend attributes per key);
   tool nodes use the identity that holds the MCP grants (here the Architect: `Tools.ADOIT`).
 - **One trace per run** joins process→gateway→MCP: `propagate.inject(headers)` under the root span,
@@ -543,6 +547,146 @@ not reached is not an instrument. **After any deploy that did not end green, rea
 
 *(Moved to `docs/features/ea.md`, loaded automatically when working in that feature's code.)*
 
+## TO-BE Architecture (target, agreed 24 Oct 2026 — onion + hexagonal, one low-code/pro-code seam)
+
+**This is the TARGET, not what the tree looks like today.** The as-is is the four tiers in the next
+section; the deltas are listed at the end of this one. Decided with the user 24 Oct 2026 while testing
+whether the Documentation Fabric could run purely low-code (verdict: no — the provenance rungs, the
+derived rung and governed retrieval have no low-code equivalent).
+
+**The shape is onion INSIDE hexagonal, with the four existing tiers kept as trust and deployment
+boundaries.** Domain is the innermost ring and imports nothing; providers are the outermost ring and
+are reached only over the network; the application ring orchestrates and computes nothing.
+
+```
+┌─ PRESENTATION ──────────────────────────────── [physical] LOW-CODE ───┐
+│ Teams tab · Copilot Studio (human-initiated) · Power Pages ·          │
+│ Approvals cards · review UI                                           │
+└───────────────────────────────┬───────────────────────────────────────┘
+   ┌────────────────────────────▼────────────────────────────────────┐
+   │ THE SEAM — the only one                          [contract]     │
+   │   pro-code in:  MCP via gateway   ·   /api + Entra app roles    │
+   │   low-code in:  CUSTOM CONNECTOR wrapping that same OpenAPI     │
+   └────────────────────────────┬────────────────────────────────────┘
+┌───────────────────────────────▼───────────────────────────────────────┐
+│ INBOUND ADAPTERS (driving)                        [generated]         │
+│ <process>_submit | _status | _result   <- from ProcessSpec            │
+│   -> MCP tools (pro-code)  -> OpenAPI -> custom connector (low-code)  │
+│ SharePoint/Graph trigger · queue consumer                             │
+├───────────────────────────────────────────────────────────────────────┤
+│ APPLICATION — orchestration ONLY      [physical, one per use case]    │
+│   LOW-CODE peer                      PRO-CODE peer                    │
+│   Power Automate                     Microsoft Agent Framework        │
+│   AI Builder / Copilot prompt        Python agent via gateway         │
+│   may: sequence · branch on a RETURNED value · retry · wait · pass ref│
+│   may not: thresholds · formulas · joins · strategy choice            │
+│   little reuse between use cases — they refer to each other by contract│
+└──────┬──────────────────────────────────────────┬─────────────────────┘
+       │ inward (import)              outward: MCP · gateway · CONNECTORS
+┌──────▼───────────────────────┐        ┌──────────▼─────────────────────┐
+│ DOMAIN            [library]  │        │ PROVIDERS   [logical tier]     │
+│ rules · computation          │<───────│ one PHYSICAL service per       │
+│ outbound ports               │ depends│ external dependency            │
+│ imports nothing              │on ports│  MCP server = adapter          │
+│ no process — never deployed  │        │  Dataverse custom API          │
+│ callable by pro-code only;   │        │  repositories, credentials     │
+│ low-code reaches it ONLY     │        └──────────┬─────────────────────┘
+│ through a provider service   │                   │
+└──────────────────────────────┘        ┌──────────▼─────────────────────┐
+                                        │ OUTBOUND CONNECTORS / adapters │
+                                        │ standard & premium connectors  │
+                                        │ (SharePoint, Graph, SQL, mail) │
+                                        │ · SDK/REST clients  [physical] │
+                                        └──────────┬─────────────────────┘
+                                                   │ adapter's own credential
+                                        ┌──────────▼─────────────────────┐
+                                        │ EXTERNAL  Graph · ADOIT ·      │
+                                        │ Postgres · model providers     │
+                                        └────────────────────────────────┘
+
+PLATFORM — cross-cutting, NOT a ring
+  [library]  config · DI · contracts · observability · run log
+  [managed]  queue / stream / lock / cache behind ports (Redis today)
+```
+
+**Annotation key** — `[physical]` deployed, has an endpoint · `[logical tier]` a boundary and a rule
+set, not one deployable · `[library]` imported, never deployed alone · `[generated]` emitted from
+`ProcessSpec` · `[contract]` interface definition only · `[managed]` externally operated behind a port.
+
+**Three rules.**
+1. **One seam only**: presentation -> application, through `/api` or MCP. Nothing below the application
+   ring is reachable from a surface. A low-code surface crosses it with a CUSTOM CONNECTOR over the same
+   OpenAPI the pro-code caller uses as MCP tools.
+2. **The application ring orchestrates and computes nothing.** It may sequence, branch on a value a tool
+   RETURNED, retry, wait and pass refs. The moment it needs a threshold, a formula, a join or a choice of
+   strategy, that belongs below the seam behind a typed contract. The practical test: *could this step be
+   rebuilt by somebody who cannot read the code?* If no, it is computation.
+3. **Low-code earns no portability investment** — see `low-code-is-disposable` in memory. Some solutions
+   stay low-code for life and that is fine; none of them justify designing for migration.
+
+**Orchestrator peers are substitutable; implementations are not.** Power Automate and Microsoft Agent
+Framework occupy the SAME slot, so either can drive a process and callers cannot tell which ran. On a
+full low-code -> pro-code move (Power Automate + AI Builder + Dataverse + Power Fx) **everything is
+replaced except the CONTRACTS** — what containment buys is that consumers keep working, not that code is
+reused. Reuse across the seam needs all three of: a pure function of typed inputs, published as a
+Dataverse **custom API** (not embedded in a flow or app), in a host matching its computation class.
+
+**Logic hosting by computation class** — this, not preference, decides the tier:
+
+| class | host | portable across the seam |
+|---|---|---|
+| lookups, thresholds, validation, record-level sets | Dataverse custom API (Power Fx low-code plug-in) | yes, if published as a custom API |
+| set-based, graph, statistical (SPARQL/SHACL, the derived rung) | pro-code service (ACA) | n/a — starts pro-code |
+
+**Copilot's ring is decided by the INITIATOR**: human-initiated (a person asks in Teams, and the
+signed-in actor is recorded) is PRESENTATION; flow-invoked returning JSON against a schema is an
+APPLICATION step, interchangeable with an AI Builder prompt. Agents hold no tools in either case — the
+model is reached through the inference port and tool I/O stays in deterministic nodes.
+
+**Azure without APIM is sufficient**: ACA + self-hosted LiteLLM IS the gateway, with Entra app
+registrations and app roles validated in our own service, Key Vault, Postgres and App Insights. APIM
+replaces the gateway later as CONFIGURATION, which is the parity the lab already demonstrates.
+
+**Deltas from the as-is — status 24 Oct 2026 (branch `arch/to-be-seam`).** Two governance ratchets now
+MEASURE the gap instead of this paragraph asserting it: `tests/governance/test_presentation_uses_the_seam.py`
+and `tests/governance/test_workloads_compute_nothing.py`. Their `KNOWN` tables are the live delta list.
+
+1. **Presentation as a client of the seam — DONE for the review app and the fabric tab.** The review app
+   reaches nothing in-process (`lab.substrate.review.api.LabApi` over `/api` + gateway MCP) and its
+   service holds no Redis, store, database or MCP secret. New `/api` operations, each a policy row:
+   `artifacts.get` and `uploads.put` (the front door FORWARDS bytes to storage-mcp, which holds the store
+   credentials — the front door still holds Redis only), `board.list|run`, `requests.list|get`,
+   `approvals.list?history=`, `approvals.card` (the Adaptive Card every surface posts, now
+   `lab.substrate.approval_card`, shared with the Teams channel), and `openapi.get`. `approvals.get`
+   returns the full payload. The fabric tab reads its drawing through `storage_read_artifact` as the
+   curator identity. **Channels are INBOUND ADAPTERS** (queue consumers, below the seam), so they may
+   drive the approval API and streams but never a store. **Remaining debt (ratcheted): the meeting app**
+   — its channel rebuilds lane comparisons and writes them to the store, and its tab serves stored
+   transcripts/minutes as bytes, for which no gateway tool exists.
+2. **Computation out of the application ring — DONE for the shared use-case package.** The pure halves
+   moved to `lab.core.usecase` (`steps` + schemas/prompts, `mappers`, `run_model`, `families`,
+   `fallbacks`, `owed`, `intake`, `coverage` matching/voting, `outline`, `provenance`, `views.inputs`);
+   `lab.workloads.usecase` holds only `ORCHESTRATION` modules. `artifact_intake`'s three-tier match is one
+   tool returning the decision (`semantic_vocab_resolve`). Marker counts: usecase 15 → 2, visio 7 → 6,
+   artifact_intake 6 (thresholds `subject_floor`, `associate`, `overlap` are the next decrements),
+   visio's BA completeness gate stays (it depends on the accumulator's schema).
+3. **`substrate` should be renamed `providers`** once the surfaces leave it — "repository" is wrong, it
+   is a DDD term for aggregate persistence and the tier also holds gateway hooks, channel egress and the
+   projector. Cost: ~1,580 occurrences across ~450 files (src, tests, deploy, docs, this file). Do it last;
+   NOT started.
+4. **The low-code inbound adapter is GENERATED — DONE.** `lab.platform.openapi` emits Swagger 2.0 from
+   `PROCESSES` × `WorkflowTools.verbs_for` plus the policy table (two-way parity test); `operationId` = the
+   MCP tool name; served at `GET /api/openapi.json` and rendered by `./lab.sh clients` with its `paconn`
+   properties (`config/clients/power-automate/lab-api.*`). Submit schemas come from ONE place,
+   `lab.platform.submit_schema`, which the MCP server also uses (byte-identical, tested).
+
+**What does not change**: the tier import rules (`core` imports only `core`; **workloads never import the
+substrate**, ast-enforced with an EMPTY exception ratchet), ports declared where the need is (domain ports
+in `lab.core`, infrastructure ports in `lab.platform`), adapters living where their credentials do, and
+composition roots as the only place naming an adapter. The service -> provider dependency is inverted by a
+PROCESS boundary rather than an in-process interface, deliberately, because that is the Azure Container
+Apps -> APIM seam; this is the one place the target is not textbook onion.
+
 ## Repository Layout & Tiers (restructured Sep 4 2026 — `src/lab` package, four tiers)
 
 Source lives in ONE installable package (`pyproject.toml`, `pip install -r deploy/requirements.txt -e .`);
@@ -625,7 +769,7 @@ holds a client secret and is granted both roles (appRoleAssignment = admin conse
 registration per agent, paired 1:1 with its virtual key (key metadata + `ENTRA_CLIENT_TO_KEY`
 in `.env` — JSON, must be single-quoted or `.env` sourcing breaks).
 
-- **Agents authenticate with MSAL** (`src/lab/workloads/identity.py: agent_headers()`), client-credentials
+- **Agents authenticate with MSAL** (`src/lab/platform/identity.py: agent_headers()`), client-credentials
   against `<audience>/.default`; falls back to the static virtual key when no client id is set.
 - **The gateway validates JWTs** in `src/lab/substrate/gateway/custom_auth.py` (`general_settings.custom_auth`,
   module resolved relative to the config file). **Contract: return None** (not a lab JWT →
@@ -793,7 +937,8 @@ workload host, hash `workflow:req:<id>` with status pending|running|done|failed 
 ids written back by the consumer) — what the review app's Submit mode emits and
 `src/lab/workloads/visio_to_archimate/consumer.py` consumes. `src/lab/substrate/approvals.py` is the approval API:
 `request()` publishes to `approvals:requests` (one consumer group per channel:
-`review-app`, `telegram`, `teams` — each channel sees every request); `decide()` appends to
+`telegram`, `teams`, … — each channel sees every request; the review app is no longer one: it reads the
+queue through `/api`); `decide()` appends to
 `approvals:decisions` (the audit log) with `approve | decline | update` (= changes requested,
 stays open), actor, channel, comment; `status()/await_decision()` for the requester.
 
@@ -818,7 +963,7 @@ stays open), actor, channel, comment; `status()/await_decision()` for the reques
   bot to call with the **signed-in user as `actor`** — a blank actor RAISES, never defaults, because
   "who approved this EA write" is the audit log's whole point. `python -m lab.substrate.approvals
   approve|decline|update <id>` is the CLI channel. Adding a channel = a new consumer group name in
-  `CHANNELS` + a consumer (`CHANNELS = ("review-app", "telegram", "teams", "teams-app", "steward")`).
+  `CHANNELS` + a consumer (`CHANNELS = ("telegram", "teams", "teams-app", "steward", "ontology")`).
   **Reading a stream, and serving one, live in ONE place: `lab.platform.streams`.** `StreamGroup`
   (`ensure`/`read`/`ack`) and `serve` — every reader and every long-lived consumer goes through them,
   and each rule below was learned once and now applies everywhere instead of to whichever copy got
