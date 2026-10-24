@@ -24,13 +24,19 @@ def _listed(mcp) -> list:
     return list(tools.values()) if isinstance(tools, dict) else list(tools)
 
 
-def render(mcp, catalogue, version: str, grants: tuple[str, ...] = ()) -> dict:
+def render(mcp, catalogue, version: str, grants: tuple[str, ...] = (),
+           results: dict[str, dict] | None = None) -> dict:
     """The contract document for a FastMCP server: its tools, `catalogue`'s named grant tuples and the
-    stability tier of every tool (`ToolCatalogue.stability`)."""
+    stability tier of every tool (`ToolCatalogue.stability`). `results` adds a published `resultSchema`
+    per tool — what it RETURNS, declared apart from MCP's `outputSchema` because declaring that one
+    changes what a client hands its caller (see `lab.platform.ea_contract`)."""
     tools = []
     for t in _listed(mcp):
         spec = t.to_mcp_tool().model_dump(exclude_none=True)
-        tools.append({k: spec[k] for k in _KEPT if k in spec})
+        entry = {k: spec[k] for k in _KEPT if k in spec}
+        if results and spec["name"] in results:
+            entry["resultSchema"] = results[spec["name"]]
+        tools.append(entry)
     stability = catalogue.stability()
     names = sorted(t["name"] for t in tools)
     return {"server": catalogue.SERVER, "contract_version": version,

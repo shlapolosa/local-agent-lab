@@ -1,0 +1,151 @@
+{
+  "$id": "contracts/ea-approval.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "The `ea-import` approval a human decides — opaque import files rendered as labelled downloads.",
+  "properties": {
+    "import_artifacts": {
+      "description": "empty on a repository that writes over its own API",
+      "items": {
+        "additionalProperties": false,
+        "description": "`lab.platform.contracts.ImportArtifact` as data: one file a human carries into the repository.",
+        "properties": {
+          "label": {
+            "description": "what the human sees, in the adapter's words",
+            "minLength": 1,
+            "type": "string"
+          },
+          "media_type": {
+            "default": "",
+            "description": "overrides the MIME guessed from the filename",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "description": "one line of guidance: how this file is imported",
+            "type": "string"
+          },
+          "ref": {
+            "description": "art://<id>/<name> — the download",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "label"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "instructions": {
+      "default": "",
+      "description": "the adapter's human import procedure",
+      "type": "string"
+    },
+    "summary": {
+      "additionalProperties": true,
+      "description": "What the reviewer triages on. The caller's counts plus any facts the adapter adds — all optional.",
+      "properties": {
+        "elements": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "import_objects": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "adapter fact: objects in the import file"
+        },
+        "relations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "render_violations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "adapter fact: the lenient render's violations"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "violations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "warnings": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "svg_refs": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "view id -> SVG preview ref",
+      "type": "object"
+    },
+    "xml_ref": {
+      "description": "the ArchiMate Model Exchange XML (with views)",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "xml_ref"
+  ],
+  "type": "object",
+  "x-contract-version": "1.1.0"
+}

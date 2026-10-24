@@ -127,3 +127,25 @@ Architect's probe build, the goldens and the tests all use it. A port must mirro
 nodes/relations/views, code-point `sorted(id)` order inside standard views, and stable sorts. The layout
 uses no randomness, clock or hash order (a test renders under two `PYTHONHASHSEED`s). When a golden
 test fails: re-render, bump `spec_schema.VERSION`, and tell the channels porting the engine.
+
+## Visualisation contract (FR-19, 24 Oct 2026)
+
+**Owner: the VISUALISATION capability** (this lab's rendering: `engine.from_spec` → standard views and
+layout → Exchange XML with views → an SVG per view → the repository's import files → the `ea-import`
+approval). MODELLING — turning documents, figures and diagrams into a spec — is a separate capability
+with a separate owner; visualisation takes a model and builds outputs, nothing else.
+
+| | contract | version |
+|---|---|---|
+| **in** | `contracts/archimate-spec.schema.json` — the engine spec | `spec_schema.VERSION` 1.0.0 |
+| **out** | `contracts/ea-tools.json` — the tools, each visualisation tool with a `resultSchema` | `adoit.contract.VERSION` 1.1.0 |
+| **out** | `contracts/ea-approval.schema.json` — the `ea-import` approval payload a person decides | same 1.1.0 |
+| **out** | `contracts/goldens/` — exact layout, XML and SVG for fixed specs | `spec_schema.VERSION` |
+
+The result shapes are typed once in `lab.platform.ea_contract` (pydantic, additive: an adapter may add
+facts, a caller must never require them; the import artifact mirrors `ImportArtifact` field for field).
+They are **published, not registered as MCP `outputSchema`**: declaring that makes fastmcp's client hand
+callers a generated object instead of a dict, and `lab.platform.mcp_client` returns `.data` to every
+workload. `tests/integration/test_adoit_mcp_server.py` validates the real outputs and the published
+approval payload against them; `tests/governance/test_ea_contract_is_current.py` holds the files to the
+code. Re-render with `scripts/render_ea_contracts.py`.

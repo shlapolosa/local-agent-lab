@@ -9,15 +9,27 @@ change; minor: an addition). Held byte-for-byte by `tests/governance/test_ea_con
 """
 from __future__ import annotations
 
+from lab.platform import ea_contract
 from lab.platform.contracts import EATools
 from lab.substrate.mcp import contract as _contract
 
-__all__ = ["VERSION", "render", "dumps"]
+__all__ = ["VERSION", "render", "dumps", "approval"]
 
-VERSION = "1.0.0"
+#: 1.1.0 (FR-19): every visualisation tool carries a `resultSchema` — an ADDITION, so minor.
+VERSION = "1.1.0"
 dumps = _contract.dumps
 
 
 def render(mcp) -> dict:
-    """The contract document for the EA port's tools."""
-    return _contract.render(mcp, EATools, VERSION)
+    """The contract document for the EA port's tools, each visualisation tool with its result schema."""
+    return _contract.render(mcp, EATools, VERSION, results=ea_contract.result_schemas())
+
+
+def approval() -> dict:
+    """`contracts/ea-approval.schema.json`: the `ea-import` approval payload a person decides, versioned
+    with the tools that publish it."""
+    return {"$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "contracts/ea-approval.schema.json", "x-contract-version": VERSION,
+            "description": "The ea-import approval payload (approval kind `ea-import`): the staged model by "
+                           "reference, the reviewer's summary, and the files a human imports.",
+            **ea_contract.approval_schema()}

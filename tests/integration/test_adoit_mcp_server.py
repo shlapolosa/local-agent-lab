@@ -455,3 +455,26 @@ def test_integration_real_approvals_on_local_redis():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------- FR-19: results match their published schemas
+def test_every_visualisation_result_and_the_approval_match_their_published_schemas():
+    """`contracts/ea-tools.json` (resultSchema) and `contracts/ea-approval.schema.json` describe what these
+    tools ACTUALLY return — checked here on real outputs, so the contract a channel vendors cannot drift
+    from the adapter it describes."""
+    import jsonschema
+    from lab.platform import ea_contract
+    from lab.platform.contracts import EATools
+    schemas = ea_contract.result_schemas()
+    rendered = call("archimate_render", basename="claims", spec=SPEC)
+    jsonschema.validate(rendered, schemas[EATools.render])
+    with approvals() as fake:
+        staged = call("ea_stage_import", spec_ref=spec_ref(), model_name="Claims Portal",
+                      summary={"elements": 5})                 # renders itself: adds render_violations
+        jsonschema.validate(staged, schemas[EATools.stage_import])
+        jsonschema.validate(fake.requests[staged["request_id"]]["payload"], ea_contract.approval_schema())
+        for decision in (None, "approve", "decline", "update"):
+            if decision:
+                fake.decide(staged["request_id"], decision, "a note")
+            jsonschema.validate(call("ea_import_status", request_id=staged["request_id"]),
+                                schemas[EATools.import_status])

@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "grants": {},
   "server": "ea_mcp",
   "stability": {
@@ -79,6 +79,73 @@
       "name": "archimate_render",
       "outputSchema": {
         "additionalProperties": true,
+        "type": "object"
+      },
+      "resultSchema": {
+        "additionalProperties": true,
+        "description": "`archimate_render`: the model laid out and rendered, stored by reference.",
+        "properties": {
+          "files": {
+            "description": "local copies, only with outdir (dev)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "schema_validated": {
+            "description": "whether the XML was checked against the Exchange XSD",
+            "type": "boolean"
+          },
+          "svg_refs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "views": {
+            "additionalProperties": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "description": "view id -> [canvas width, canvas height]",
+            "type": "object"
+          },
+          "violations": {
+            "description": "layout-invariant / XSD findings (non-empty only when strict=false)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "description": "relationship-legality warnings",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "xml_ref": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "xml_ref",
+          "svg_refs",
+          "views",
+          "violations",
+          "warnings",
+          "schema_validated"
+        ],
         "type": "object"
       }
     },
@@ -168,6 +235,231 @@
       "name": "ea_import_status",
       "outputSchema": {
         "additionalProperties": true,
+        "type": "object"
+      },
+      "resultSchema": {
+        "additionalProperties": true,
+        "description": "`ea_import_status`: the decision so far and what happens next.",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "kind": {
+            "type": "string"
+          },
+          "next": {
+            "description": "what happens next, in words",
+            "type": "string"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "description": "The `ea-import` approval a human decides — opaque import files rendered as labelled downloads.",
+                "properties": {
+                  "import_artifacts": {
+                    "description": "empty on a repository that writes over its own API",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "`lab.platform.contracts.ImportArtifact` as data: one file a human carries into the repository.",
+                      "properties": {
+                        "label": {
+                          "description": "what the human sees, in the adapter's words",
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "media_type": {
+                          "default": "",
+                          "description": "overrides the MIME guessed from the filename",
+                          "type": "string"
+                        },
+                        "note": {
+                          "default": "",
+                          "description": "one line of guidance: how this file is imported",
+                          "type": "string"
+                        },
+                        "ref": {
+                          "description": "art://<id>/<name> — the download",
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "ref",
+                        "label"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "instructions": {
+                    "default": "",
+                    "description": "the adapter's human import procedure",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "additionalProperties": true,
+                    "description": "What the reviewer triages on. The caller's counts plus any facts the adapter adds — all optional.",
+                    "properties": {
+                      "elements": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "import_objects": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "adapter fact: objects in the import file"
+                      },
+                      "relations": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "render_violations": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "adapter fact: the lenient render's violations"
+                      },
+                      "views": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "violations": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "warnings": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "svg_refs": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "view id -> SVG preview ref",
+                    "type": "object"
+                  },
+                  "xml_ref": {
+                    "description": "the ArchiMate Model Exchange XML (with views)",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "xml_ref"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "rest_write_enabled": {
+            "type": "boolean"
+          },
+          "status": {
+            "description": "A request's status: pending until it ENDS, then how it ended.\n\nThree of the four are a human's decision. `WITHDRAWN` is the one that is not: a question retired\nbecause nobody is going to answer it — a superseded test run, a pipeline replaced by a newer one.\nIt exists because the alternative was recording a `decline`, which puts a person's name against a\njudgement they never made, and \"who decided this\" is the entire point of the audit log.",
+            "enum": [
+              "pending",
+              "approve",
+              "decline",
+              "update",
+              "withdrawn"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "default": "",
+            "type": "string"
+          },
+          "write_path": {
+            "description": "'file-import' on this tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "kind",
+          "status",
+          "next",
+          "write_path",
+          "rest_write_enabled"
+        ],
         "type": "object"
       }
     },
@@ -296,6 +588,99 @@
       "name": "ea_stage_import",
       "outputSchema": {
         "additionalProperties": true,
+        "type": "object"
+      },
+      "resultSchema": {
+        "additionalProperties": true,
+        "description": "`ea_stage_import`: the approval was published; nothing was written to the repository.",
+        "properties": {
+          "artifacts": {
+            "additionalProperties": true,
+            "description": "The staged MODEL: the Exchange XML with its views and an SVG preview per view.",
+            "properties": {
+              "svg_refs": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "view id -> SVG preview ref",
+                "type": "object"
+              },
+              "xml_ref": {
+                "description": "the ArchiMate Model Exchange XML (with views)",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "xml_ref"
+            ],
+            "type": "object"
+          },
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "import_artifacts": {
+            "items": {
+              "additionalProperties": false,
+              "description": "`lab.platform.contracts.ImportArtifact` as data: one file a human carries into the repository.",
+              "properties": {
+                "label": {
+                  "description": "what the human sees, in the adapter's words",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "media_type": {
+                  "default": "",
+                  "description": "overrides the MIME guessed from the filename",
+                  "type": "string"
+                },
+                "note": {
+                  "default": "",
+                  "description": "one line of guidance: how this file is imported",
+                  "type": "string"
+                },
+                "ref": {
+                  "description": "art://<id>/<name> — the download",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ref",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "request_id": {
+            "description": "poll with ea_import_status",
+            "minLength": 1,
+            "type": "string"
+          },
+          "review_app": {
+            "type": "string"
+          },
+          "status": {
+            "description": "'pending' — a human has not decided yet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "status",
+          "channels",
+          "review_app",
+          "artifacts",
+          "import_artifacts",
+          "instructions"
+        ],
         "type": "object"
       }
     }

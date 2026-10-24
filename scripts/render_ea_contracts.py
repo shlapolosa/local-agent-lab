@@ -4,7 +4,8 @@ and the golden layout fixtures.
     PYTHONPATH=src .venv/bin/python scripts/render_ea_contracts.py
 
   contracts/archimate-spec.schema.json   lab.core.archimate.spec_schema (generated from the engine)
-  contracts/ea-tools.json                adoit-mcp's tool listing (lab.substrate.mcp.adoit.contract)
+  contracts/ea-tools.json                adoit-mcp's tool listing (lab.substrate.mcp.adoit.contract), with result schemas
+  contracts/ea-approval.schema.json      the ea-import approval payload (lab.platform.ea_contract)
   contracts/goldens/out/<spec>/          lab.core.archimate.goldens.render for each contracts/goldens/specs/*.json
 
 Offline: adoit-mcp is imported with a throwaway file:// store and no tracing. Re-run after any change
@@ -54,6 +55,7 @@ def main() -> int:
     write(os.path.join(CONTRACTS, "archimate-spec.schema.json"), spec_schema.dumps(spec_schema.schema()))
     doc = contract.render(server.server.mcp)
     write(os.path.join(CONTRACTS, "ea-tools.json"), contract.dumps(doc))
+    write(os.path.join(CONTRACTS, "ea-approval.schema.json"), contract.dumps(contract.approval()))
     n = render_goldens()
     print(f"wrote archimate-spec.schema.json {spec_schema.VERSION}, ea-tools.json {doc['contract_version']} "
           f"({len(doc['tools'])} tools), goldens for {n} spec(s)")

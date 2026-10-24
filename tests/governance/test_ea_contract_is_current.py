@@ -50,6 +50,21 @@ def test_the_committed_ea_tools_contract_equals_what_the_server_registers(server
         pytest.fail(f"contracts/ea-tools.json is stale.{bump} re-render with {RENDER} and commit it.")
 
 
+def test_the_committed_approval_schema_equals_the_typed_payload():
+    from lab.substrate.mcp.adoit import contract
+    path = os.path.join(ROOT, "contracts", "ea-approval.schema.json")
+    if contract.dumps(contract.approval()) != open(path, encoding="utf-8").read():
+        pytest.fail("contracts/ea-approval.schema.json is stale — the ea-import payload moved "
+                    "(lab.platform.ea_contract). Bump lab.substrate.mcp.adoit.contract.VERSION, re-render "
+                    f"with {RENDER}, and notify channels that show EA approvals.")
+
+
+def test_every_visualisation_tool_publishes_its_result_schema():
+    doc = json.load(open(TOOLS, encoding="utf-8"))
+    with_results = {t["name"] for t in doc["tools"] if "resultSchema" in t}
+    assert {EATools.render, EATools.stage_import, EATools.import_status} <= with_results
+
+
 def test_every_port_tool_has_a_stability_tier():
     tiers = EATools.stability()
     assert set(tiers) == EATools.names() and set(tiers.values()) <= {"stable", "in-flux", "internal"}
