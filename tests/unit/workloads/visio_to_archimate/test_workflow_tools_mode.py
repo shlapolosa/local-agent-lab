@@ -120,7 +120,9 @@ def test_architect_tools_mode_second_chance_then_failure():
     with harness(agents, env={"ARCHITECT_MODE": "tools"}) as h:
         out = run(h, "diagrams/x.vsdx")
     prompts = h.agents.runs_of("architect-agent")
-    assert "BA system description:" in prompts[0] and prompts[1].startswith("Your model has no elements")
+    # the second chance re-sends the BA description (stateless client) with the correction appended
+    assert "BA system description:" in prompts[0]
+    assert prompts[1].startswith(prompts[0]) and "Your model has no elements" in prompts[1]
     assert out["summary"]["elements"] == 3
 
     agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [nothing, nothing]})

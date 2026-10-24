@@ -35,6 +35,16 @@ def load(src: str) -> bytes:
     return Path(split_page(src)[0]).read_bytes()
 
 
+def load_image(src: str) -> tuple[bytes, str]:
+    """A local IMAGE path through the sizing contract every ref read gets from `storage_get`
+    (`docparse.normalise_image`: decorations refused, ≤ MAX_IMAGE_EDGE, PNG/JPEG). A path that does
+    not normalise raises, exactly as a ref whose read returns no image does."""
+    norm = docparse.normalise_image(load(src), media_type(src))
+    if not norm:
+        raise RuntimeError(f"{src}: no usable image (below the sizing floor, or not an image PIL can read)")
+    return norm[0], norm[1]
+
+
 def read_document(src: str) -> str:
     return docparse.document_text(load(src), docparse.ext_of(src))
 

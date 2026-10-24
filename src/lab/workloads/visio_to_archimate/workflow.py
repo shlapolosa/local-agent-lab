@@ -344,7 +344,9 @@ def build_workflow(cfg):
                     raise RuntimeError(f"{StorageTools.get} returned no image content for {diagram}")
                 contents += [Content.from_data(d, mt) for d, mt, _ in imgs]
             else:
-                contents.append(Content.from_data(I.load(diagram), I.media_type(diagram)))
+                # the SAME sizing contract a ref read gets from storage_get (docparse, ≤1600 px)
+                data, mtype = I.load_image(diagram)
+                contents.append(Content.from_data(data, mtype))
         else:
             tool = StorageTools.read_vsdx if I.is_ref(diagram) else "read_vsdx"
             lines.append(f"The Visio diagram to analyse is: {diagram}\nCall {tool} with exactly that source.")
@@ -542,8 +544,12 @@ def build_workflow(cfg):
                 acc.last_finish or acc.finish()
                 spec = acc.result()
                 if not spec.get("elements"):
-                    await agent.run("Your model has no elements, or finish() reported errors. Add what is "
-                                    "missing with the tools, call finish() again, and reply 'done'.")
+                    # The retry carries the ORIGINAL prompt: the client is stateless (store=False), so a
+                    # bare correction would run blind to the BA description — the defect eea5830 fixed
+                    # for the BA, here for the Architect.
+                    await agent.run(prompt + "\n\nYour model has no elements, or finish() reported "
+                                    "errors. Add what is missing with the tools, call finish() again, "
+                                    "and reply 'done'.")
                     acc.last_finish or acc.finish()
                     spec = acc.result()
                 if not spec.get("elements"):
@@ -552,8 +558,9 @@ def build_workflow(cfg):
                 r = await agent.run(prompt)
                 spec = _extract_json(r.text)
                 if not spec or "elements" not in spec:
-                    r = await agent.run("That was not a valid engine spec. Resend ONLY the JSON object "
-                                        "with keys name, id, elements[], relations[].")
+                    # with the original prompt — stateless client, see the tools branch above
+                    r = await agent.run(prompt + "\n\nThat was not a valid engine spec. Resend ONLY the "
+                                        "JSON object with keys name, id, elements[], relations[].")
                     spec = _extract_json(r.text)
                 if not spec or "elements" not in spec:
                     raise RuntimeError(f"Architect produced no spec: {(r.text or '')[:160]!r}")

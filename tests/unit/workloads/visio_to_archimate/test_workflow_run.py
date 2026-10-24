@@ -289,7 +289,11 @@ def test_local_image_path_and_local_document():
     agents = Agents(**{"ba-agent": [BA_OK], "architect-agent": [SPEC_OK, "done"]})
     with tempfile.TemporaryDirectory() as d, harness(agents) as h:
         png, md = os.path.join(d, "diagram.png"), os.path.join(d, "req.md")
-        open(png, "wb").write(b"\x89PNG local")
+        from PIL import Image
+        import io as _io
+        buf = _io.BytesIO()
+        Image.effect_noise((200, 120), 64).convert("RGB").save(buf, "PNG")   # past the sizing floor
+        open(png, "wb").write(buf.getvalue())
         open(md, "w").write("# Requirements\n- the portal must be fast\n")
         run(h, {"diagram": png, "requirements": [md]})
     msg = h.agents.runs_of("ba-agent")[0]
