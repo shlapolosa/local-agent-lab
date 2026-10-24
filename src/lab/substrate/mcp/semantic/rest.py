@@ -45,8 +45,13 @@ def routes(*, fabric, master) -> list[Route]:
             limit = int(request.query_params.get("limit", 5))
         except ValueError:
             return _error(400, "limit must be a whole number")
-        return JSONResponse(fabric().concept_match(term, scheme=request.query_params.get("scheme", ""),
-                                                   limit=limit))
+        try:
+            return JSONResponse(fabric().concept_match(term, scheme=request.query_params.get("scheme", ""),
+                                                       limit=limit))
+        except Exception as e:                          # noqa: BLE001 — the embedder, not the caller
+            # "I could not ask" is a claim about the DEPLOYMENT (an embedder down or refusing its key),
+            # never about the vocabulary — and never a bare 500 the caller cannot read.
+            return _error(503, f"the semantic matcher could not run: {type(e).__name__}: {e}")
 
     async def propose(request: Request) -> JSONResponse:
         try:

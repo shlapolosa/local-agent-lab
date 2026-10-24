@@ -86,3 +86,17 @@ def test_the_master_is_staged_by_reference(api):
     client, _, staged = api
     got = client.get("/vocabulary/master", params={"scheme": "cafe"}).json()
     assert got["ontology_concepts"]["ref"].startswith("art://") and staged[0][0] == "cafe"
+
+
+def test_an_embedder_that_cannot_answer_is_a_503_naming_it_not_a_bare_500():
+    """Measured live 24 Oct 2026: a revoked upstream embedding key surfaced as `500 Internal Server
+    Error` with no body. "I could not ask" is a claim about the deployment, and says so."""
+    class Down(Fabric):
+        def concept_match(self, term, *, scheme="", limit=5):
+            raise RuntimeError("HTTP Error 401: Unauthorized")
+
+    async def master(*_):
+        return {}
+    client = TestClient(Starlette(routes=rest.routes(fabric=lambda: Down(), master=master)))
+    got = client.get("/vocabulary/match", params={"term": "eRx"})
+    assert got.status_code == 503 and "401" in got.json()["error"]
