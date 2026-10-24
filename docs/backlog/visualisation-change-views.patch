@@ -1,0 +1,350 @@
+diff --git a/src/lab/core/archimate/__init__.py b/src/lab/core/archimate/__init__.py
+index e69de29..db18634 100644
+--- a/src/lab/core/archimate/__init__.py
++++ b/src/lab/core/archimate/__init__.py
+@@ -0,0 +1,5 @@
++
++
++# The ONE impact vocabulary (element changes and capability statuses), shared by the element views and
++# the capability heatmaps — see lab.core.archimate.impact.
++from lab.core.archimate.impact import CAPABILITY_STATUSES, CHANGES  # noqa: E402,F401
+diff --git a/src/lab/core/archimate/engine.py b/src/lab/core/archimate/engine.py
+index 9ef99d0..e4124be 100644
+--- a/src/lab/core/archimate/engine.py
++++ b/src/lab/core/archimate/engine.py
+@@ -48,6 +48,8 @@ import json as _json
+ import os as _os
+ import re as _re
+ 
++from lab.core.archimate import impact as _impact
++
+ # ADOIT encodes a repository object's UUID in the ArchiMate exchange as identifier="id_<uuid>" (no
+ # braces), while its REST API returns the id as "{<uuid>}". So when an element id we emit IS a reused
+ # ADOIT object id (a UUID, with or without braces), emit ADOIT's NATIVE identifier `id_<uuid>` — then a
+@@ -117,6 +119,12 @@ def _semantic():
+ FILL = {"Motivation": "#E6E6FA", "Strategy": "#F5DEAA", "Business": "#FFFFB5",
+         "Application": "#B5FFFF", "Technology": "#C9E7B8", "Physical": "#C9E7B8",
+         "Implementation": "#FFE0E0", "Other": "#F0F0F0"}
++# What a proposal does to each element travels BESIDE the spec (`from_spec(spec, changes=…)`), never in
++# it: the spec is a contract other channels vendor, and a change status describes one proposal. The
++# vocabulary and colours are the ONE impact scale (`lab.core.archimate.impact`), shared with the
++# capability heatmaps.
++CHANGES = _impact.CHANGES
++CHANGE_FILL = _impact.ELEMENT_FILL
+ _LAYER_BAND = {"Motivation": 0, "Strategy": 1, "Business": 2, "Application": 3,
+                "Technology": 4, "Physical": 4, "Implementation": 5, "Other": 3}
+ # aspect sub-row inside a layer band, top -> down (services above realizers, data last)
+@@ -200,6 +208,7 @@ class Model:
+         self.relations = {}     # rid -> (type, src, tgt, extra-attrs dict)
+         self.views = []
+         self.folders = {}       # eid -> folder/domain label (drives <organizations>)
++        self.changes = {}       # eid -> one of CHANGES; empty = layer colours, no change views
+         self._rseq = 0
+ 
+     def el(self, eid, atype, name, doc=None, folder=None):
+@@ -267,6 +276,38 @@ class Model:
+                 self.views.remove(v)   # a mapping view with no relationships says nothing
+         return made
+ 
++    # ---------------- change impact ----------------
++    def set_changes(self, changes):
++        """What a proposal does to each element. An unknown element or status is refused by NAME; an
++        element with no status is CONSUMED (it exists today and still will, unchanged)."""
++        bad_ids = sorted(set(changes) - set(self.elements))
++        if bad_ids:
++            raise ValueError(f"changes name elements the model does not hold: {bad_ids}")
++        bad = sorted({str(v) for v in changes.values()} - set(CHANGES))
++        if bad:
++            raise ValueError(f"unknown change status {bad}; use one of {list(CHANGES)}")
++        self.changes = {e: changes.get(e, "consumed") for e in self.elements}
++
++    def fill_for(self, eid):
++        """The element's fill: its CHANGE when the model carries changes, else its ArchiMate layer."""
++        if self.changes:
++            return CHANGE_FILL[self.changes[eid]]
++        return FILL[_TYPES.get(self.elements[eid][0], "Other")]
++
++    def change_views(self, prefix=""):
++        """`as-is` (what exists today: consumed, updated, removed) and `to-be` (what will: consumed,
++        updated, new), laid out like every other view, with the relations among their elements."""
++        made = {}
++        for vid, title, keep in (("as-is", "As-Is Architecture", _impact.AS_IS),
++                                 ("to-be", "To-Be Architecture", _impact.TO_BE)):
++            sel = sorted(e for e in self.elements if self.changes.get(e, "consumed") in keep)
++            if sel:
++                v = self.view(prefix + vid, title)
++                v.place(*sel)
++                v.auto_edges()
++                made[vid] = v
++        return made
++
+     # ---------------- semantic validation ----------------
+     def to_spec(self):
+         """The JSON shape the MCP tools and the semantic layer accept."""
+@@ -428,6 +469,7 @@ class View:
+     SNAP = 36               # near-aligned adjacent edges snap to a straight vertical
+     MIN_SEP = 24            # min horizontal clearance between runs sharing a lane
+     IPAD = 16; ICH = 28     # container inner padding / caption strip
++    LEGEND_H = 30           # the change legend under the canvas (only when the model carries changes)
+ 
+     def __init__(self, model, vid, title):
+         self.m, self.vid, self.title = model, vid, title
+@@ -748,8 +790,7 @@ class View:
+             n = self.nodes[eid]
+             nn = f"id-n-{self.vid}-{_safe(eid)}"
+             nid[eid] = nn
+-            t = self._t(eid)
+-            r, g, b = _rgb(FILL[_TYPES.get(t, "Other")])
++            r, g, b = _rgb(self.m.fill_for(eid))
+             out.append(f'<node identifier="{nn}" elementRef="{_ident(eid)}" xsi:type="Element" '
+                        f'x="{round(x)}" y="{round(y)}" w="{n["w"]}" h="{n["h"]}">'
+                        f'<style><fillColor r="{r}" g="{g}" b="{b}"/>'
+@@ -778,7 +819,9 @@ class View:
+         if not hasattr(self, "_E"):
+             self._build()
+         N, P = self.nodes, self.pos
+-        s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.canvas_w}" height="{self.canvas_h}" '
++        legend = bool(self.m.changes)
++        height = self.canvas_h + (self.LEGEND_H if legend else 0)
++        s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.canvas_w}" height="{height}" '
+              f'font-family="Helvetica,Arial" font-size="10">',
+              '<rect width="100%" height="100%" fill="white"/>',
+              f'<text x="{self.MARGIN}" y="{self.MARGIN - 20}" font-size="15" font-weight="bold">'
+@@ -786,8 +829,11 @@ class View:
+              _NMARKERS]                 # relationship markers (archimate_notation.MARKER_DEFS)
+         def draw(eid):
+             x, y = P[eid]; n = N[eid]; t = self._t(eid)
+-            fill = FILL[_TYPES.get(t, "Other")]
++            fill = self.m.fill_for(eid)
+             name = self.m.elements[eid][1]
++            removed = self.m.changes.get(eid) == "removed"
++            if removed:                     # drawn distinctly, not only by colour
++                s.append('<g stroke-dasharray="5 3" opacity="0.8">')
+             if n["icon"]:
+                 s.append(f'<circle cx="{x + n["w"]/2}" cy="{y + n["h"]/2}" r="{n["w"]/2}" '
+                          f'fill="{fill}" stroke="#5c6e82"/>')
+@@ -805,6 +851,8 @@ class View:
+                 mid = "" if n["container"] else ' text-anchor="middle"'
+                 wt = "bold" if n["container"] else "normal"
+                 s.append(f'<text x="{anch}" y="{ty}"{mid} font-weight="{wt}">{escape(name)}</text>')
++            if removed:
++                s.append('</g>')
+         for e in self.nodes:
+             if N[e]["parent"] is None:
+                 draw(e)
+@@ -823,17 +871,27 @@ class View:
+             if me:
+                 attrs += f' marker-end="url(#{me})"'
+             s.append(f'<polyline points="{pts}" fill="none" stroke="#444"{attrs}/>')
++        if legend:
++            y0 = self.canvas_h + 8
++            for i, status in enumerate(CHANGES):
++                x0 = self.MARGIN + i * 120
++                dash = ' stroke-dasharray="5 3"' if status == "removed" else ""
++                s.append(f'<rect x="{x0}" y="{y0}" width="18" height="14" fill="{CHANGE_FILL[status]}" '
++                         f'stroke="#5c6e82"{dash}/>')
++                s.append(f'<text x="{x0 + 24}" y="{y0 + 11}">{status.capitalize()}</text>')
+         s.append('</svg>')
+         return "\n".join(s)
+ 
+ 
+-def from_spec(spec: dict) -> Model:
++def from_spec(spec: dict, changes: dict | None = None) -> Model:
+     """A spec (the engine's interchange JSON — `contracts/archimate-spec.schema.json`) -> a Model with
+     its views declared. ONE builder: adoit-mcp's render/validate, the visio Architect's probe build,
+     the golden fixtures and the tests all go through it, so they cannot disagree about a spec.
+ 
+     `rows` pin each row's rank (capability-map overview grids); `containers` nest children (capability
+-    maps nest by convention); `standard_views` adds the cross-layer catalogue after the explicit views."""
++    maps nest by convention); `standard_views` adds the cross-layer catalogue after the explicit views.
++    `changes` ({element id: new|updated|consumed|removed}, beside the spec) colours every view by change
++    and adds `as-is` and `to-be` after the rest."""
+     m = Model(spec["name"], spec.get("id", "model"))
+     for e in spec.get("elements", []):
+         m.el(e["id"], e["type"], e["name"], e.get("doc"), folder=e.get("folder"))
+@@ -849,6 +907,10 @@ def from_spec(spec: dict) -> Model:
+         for c in v.get("containers", []):
+             vw.container(c["id"], children=c["children"])
+         vw.auto_edges()
++    if changes:
++        m.set_changes(changes)
+     if spec.get("standard_views"):
+         m.standard_views()
++    if changes:
++        m.change_views()
+     return m
+diff --git a/src/lab/core/archimate/impact.py b/src/lab/core/archimate/impact.py
+new file mode 100644
+index 0000000..2514317
+--- /dev/null
++++ b/src/lab/core/archimate/impact.py
+@@ -0,0 +1,35 @@
++"""The ONE impact vocabulary and colour scale, shared by element views and the capability heatmaps.
++
++User decision 24 Oct 2026. An element in a proposal is `new`, `updated`, `consumed` (exists and is used
++unchanged) or `removed`; a capability in a map is `new`, `updated`, `consumed` or `missing` (required
++and nothing provides it). One scale, so an EA reading an as-is/to-be view and a capability heatmap side
++by side reads the same colour as the same thing:
++
++  green  new        amber  consumed / updated (updated a darker shade on element views)
++  red    missing    grey   removed (also drawn dashed)
++
++The heatmap colours are the CAFÉ ones they always were (`lab.core.usecase.views.common` imports them
++from here); element views add only what a capability never needs — `removed`, and a shade that tells
++`updated` from `consumed` where a heatmap uses a tag instead.
++"""
++from __future__ import annotations
++
++__all__ = ["CHANGES", "CAPABILITY_STATUSES", "FILL", "EDGE", "ELEMENT_FILL", "AS_IS", "TO_BE"]
++
++#: What a proposal does to an element (`changes`, beside the spec). A SHARED CONTRACT — intake imports
++#: it — so the members AND their order are pinned by a test.
++CHANGES: tuple[str, ...] = ("new", "updated", "consumed", "removed")
++#: What a proposal means for a capability (the envelope's `references`).
++CAPABILITY_STATUSES: tuple[str, ...] = ("new", "updated", "consumed", "missing")
++
++#: Fill and edge per status — the CAFÉ heatmap RAG mapping, plus `removed`.
++FILL = {"new": "#bfe6c6", "consumed": "#ffd98c", "updated": "#ffd98c", "missing": "#f5b1b1",
++        "removed": "#e0e0e0"}
++EDGE = {"new": "#1e7b34", "consumed": "#a86b00", "updated": "#a86b00", "missing": "#b3261e",
++        "removed": "#8a8a8a"}
++#: Element views: the same scale, with `updated` a darker amber so it is told apart without a tag.
++ELEMENT_FILL = {**FILL, "updated": "#f5b94a"}
++
++#: Which elements each change view holds.
++AS_IS = frozenset({"consumed", "updated", "removed"})
++TO_BE = frozenset({"consumed", "updated", "new"})
+diff --git a/src/lab/core/usecase/views/common.py b/src/lab/core/usecase/views/common.py
+index a165ebe..3680409 100644
+--- a/src/lab/core/usecase/views/common.py
++++ b/src/lab/core/usecase/views/common.py
+@@ -17,6 +17,8 @@ import json
+ import re
+ from typing import Any, Mapping
+ 
++from lab.core.archimate import impact as _impact
++
+ __all__ = ["EDGE", "FILL", "TAG", "ViewError", "esc", "norm_status", "retired_map", "script_json",
+            "section"]
+ 
+@@ -31,8 +33,9 @@ STATUS_ALIASES = {'missing': 'missing', 'gap': 'missing', 'red': 'missing',
+                   'new': 'new', 'green': 'new',
+                   'consumed': 'consumed', 'reused': 'consumed', 'existing': 'consumed',
+                   'updated': 'updated', 'changed': 'updated', 'extended': 'updated', 'amber': 'updated'}
+-FILL = {'new': '#bfe6c6', 'consumed': '#ffd98c', 'updated': '#ffd98c', 'missing': '#f5b1b1'}
+-EDGE = {'new': '#1e7b34', 'consumed': '#a86b00', 'updated': '#a86b00', 'missing': '#b3261e'}
++# The colours are the ONE impact scale, shared with the element views (as-is / to-be).
++FILL = {k: _impact.FILL[k] for k in _impact.CAPABILITY_STATUSES}
++EDGE = {k: _impact.EDGE[k] for k in _impact.CAPABILITY_STATUSES}
+ TAG = {'new': 'NEW', 'consumed': 'C', 'updated': 'U', 'missing': 'MISSING'}
+ 
+ 
+diff --git a/tests/unit/core/archimate/test_change_views.py b/tests/unit/core/archimate/test_change_views.py
+new file mode 100644
+index 0000000..c7364a4
+--- /dev/null
++++ b/tests/unit/core/archimate/test_change_views.py
+@@ -0,0 +1,103 @@
++"""Change-aware views — what an EA reads impact from: the model as it is, the model as it will be, and
++every view coloured by what changes (new / updated / consumed / removed).
++
++`changes` travels BESIDE the spec, never in it: the spec schema is a contract other channels vendor
++(1.0.0), and a change status is about one proposal, not about the architecture.
++"""
++import pytest
++
++from lab.core.archimate import engine
++from lab.core.archimate.engine import CHANGE_FILL, CHANGES, from_spec
++
++SPEC = {"name": "Impact", "id": "impact", "standard_views": True, "elements": [
++    {"id": "actor", "type": "BusinessActor", "name": "Pharmacist"},
++    {"id": "proc", "type": "BusinessProcess", "name": "Dispense"},
++    {"id": "old-app", "type": "ApplicationComponent", "name": "Legacy dispensing"},
++    {"id": "new-app", "type": "ApplicationComponent", "name": "eRx hub"},
++    {"id": "svc", "type": "ApplicationService", "name": "Prescription lookup"},
++], "relations": [
++    {"type": "Assignment", "src": "actor", "tgt": "proc"},
++    {"type": "Serving", "src": "svc", "tgt": "proc"},
++    {"type": "Realization", "src": "old-app", "tgt": "svc"},
++    {"type": "Realization", "src": "new-app", "tgt": "svc"},
++]}
++CHANGES_MAP = {"actor": "consumed", "proc": "updated", "old-app": "removed", "new-app": "new",
++               "svc": "consumed"}
++
++
++def _views(m):
++    return {v.vid: v for v in m.views}
++
++
++def test_without_changes_nothing_new_is_drawn():
++    m = from_spec(SPEC)
++    assert "as-is" not in _views(m) and "to-be" not in _views(m)
++
++
++def test_as_is_holds_what_exists_today_and_to_be_what_will():
++    m = from_spec(SPEC, changes=CHANGES_MAP)
++    v = _views(m)
++    assert set(v["as-is"].nodes) == {"actor", "proc", "old-app", "svc"}       # no NEW element
++    assert set(v["to-be"].nodes) == {"actor", "proc", "new-app", "svc"}       # no REMOVED element
++    assert all(s in v["to-be"].nodes and t in v["to-be"].nodes for _, s, t in v["to-be"].edges)
++    order = [x.vid for x in m.views]
++    assert "full" in order and order.index("full") < order.index("as-is") < order.index("to-be")
++
++
++def test_every_view_is_coloured_by_change_and_the_svg_carries_a_legend():
++    m = from_spec(SPEC, changes=CHANGES_MAP)
++    full = _views(m)["full"]
++    full.render()
++    svg = full.to_svg()
++    for status in CHANGES:
++        assert CHANGE_FILL[status] in svg
++        assert status.capitalize() in svg                                      # the legend names it
++    xml, _, _ = full.render()
++    r, g, b = engine._rgb(CHANGE_FILL["new"])
++    assert f'<fillColor r="{r}" g="{g}" b="{b}"/>' in xml                       # ADOIT/Archi see it too
++
++
++def test_a_removed_element_is_drawn_distinctly():
++    m = from_spec(SPEC, changes=CHANGES_MAP)
++    assert 'stroke-dasharray' in _views(m)["as-is"].to_svg()
++
++
++def test_an_unchanged_model_renders_byte_identically():
++    """No `changes`, no difference: the goldens other channels port against must not move."""
++    a, b = from_spec(SPEC), from_spec(SPEC, changes=None)
++    assert [v.render()[0] for v in a.views] == [v.render()[0] for v in b.views]
++    assert [v.to_svg() for v in a.views] == [v.to_svg() for v in b.views]
++
++
++def test_an_unknown_element_or_status_is_refused_by_name():
++    with pytest.raises(ValueError, match="ghost"):
++        from_spec(SPEC, changes={"ghost": "new"})
++    with pytest.raises(ValueError, match="reused"):
++        from_spec(SPEC, changes={"actor": "reused"})       # the old word is not the vocabulary
++
++
++def test_an_element_with_no_status_is_treated_as_consumed():
++    """A partial map is allowed: what the proposal does not touch exists today and still will."""
++    m = from_spec(SPEC, changes={"new-app": "new", "old-app": "removed"})
++    v = _views(m)
++    assert "actor" in v["as-is"].nodes and "actor" in v["to-be"].nodes
++
++
++def test_one_scale_with_the_capability_heatmaps():
++    """The element views and the CAFÉ heatmaps read the same colour as the same thing."""
++    from lab.core.archimate import impact
++    from lab.core.usecase.views import common
++    for status in ("new", "consumed", "missing"):
++        assert common.FILL[status] == impact.FILL[status]
++    assert CHANGE_FILL["new"] == common.FILL["new"]
++    assert CHANGE_FILL["consumed"] == common.FILL["consumed"]
++    assert CHANGE_FILL["updated"] != CHANGE_FILL["consumed"]          # a shade tells them apart
++
++
++def test_the_shared_vocabulary_is_pinned_EXACTLY_including_its_order():
++    """A deliberate parity exception to "assert membership, not exact sets": `lab.core.archimate.CHANGES`
++    is a SHARED CONTRACT — intake imports it and its own contract test checks the order — so drift in
++    either the members or their order is the defect."""
++    import lab.core.archimate as archimate
++    assert archimate.CHANGES == ("new", "updated", "consumed", "removed")
++    assert archimate.CAPABILITY_STATUSES == ("new", "updated", "consumed", "missing")
