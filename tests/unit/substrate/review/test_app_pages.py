@@ -37,13 +37,13 @@ def _traces(spans=()):
 
 
 # ============================================================================ Review mode
-def test_review_page_no_pending_shows_history_and_acks_channel_events():
-    ap = FakeApprovals(events=[("1-0", {"request_id": "apr-9"}), ("2-0", {"request_id": "apr-8"})],
-                       history=[{"request_id": "apr-7", "decision": "approve", "actor": "ann", "channel": "cli",
+def test_review_page_no_pending_shows_history_and_consumes_no_stream():
+    """The app reads the open set through /api; it no longer consumes `approvals:requests`, so there
+    is no channel stream to drain (the FakeApprovals has no channel_events to call)."""
+    ap = FakeApprovals(history=[{"request_id": "apr-7", "decision": "approve", "actor": "ann", "channel": "cli",
                                  "comment": "", "decided_at": "t1"}])
     st = install(FakeSt(), approvals=ap)
     APP._review_page("ann")
-    assert ap.acked == [("review-app", "1-0"), ("review-app", "2-0")]
     assert st.said("info", "Nothing awaiting a person")
     assert st.said("write", "`apr-7` **approve** by ann via cli")
     assert ("sidebar.metric", ("Pending", 0), {}) in st.calls
@@ -315,9 +315,9 @@ def test_the_intake_form_suggests_the_field_groups_the_governed_artifact_publish
     suggested shape must still be possible to make. Read from the CORPUS under a pin, and
     recorded there, never from the packaged seed."""
     library = _intake_corpus()
-    with APP.container.reference.override(library):
-        st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
-        APP._submit_page("ann")
+    st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows(),
+                 reference=library)
+    APP._submit_page("ann")
     rows = st.session_state["map_use_case_screening_intake"]
     labels = {r["label"] for r in rows}
     assert {"Effort table", "Quality baseline", "Sensitivity flags", "Volume assumptions"} <= labels
@@ -327,9 +327,9 @@ def test_the_intake_form_suggests_the_field_groups_the_governed_artifact_publish
 
 def test_a_missing_suggestion_artifact_leaves_the_form_free_rather_than_refusing(monkeypatch):
     monkeypatch.setitem(APP.MAPPING_ROWS, ("use_case_screening", "intake"), "no-such-artifact")
-    with APP.container.reference.override(_intake_corpus()):
-        st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows())
-        APP._submit_page("ann")
+    st = install(FakeSt(**{"Process": "use_case_screening"}), workflows=FakeWorkflows(),
+                 reference=_intake_corpus())
+    APP._submit_page("ann")
     assert st.session_state["map_use_case_screening_intake"] == [{"label": "", "value": ""}]
 
 
@@ -593,8 +593,10 @@ def test_review_app_records_through_human_decision_with_a_named_reviewer(monkeyp
     import inspect
     from lab.substrate.review import app as A
     src = inspect.getsource(A._review_page)
-    assert "approvals.human_decision(" in src, "the review app must use the one human-gate path"
-    assert "approvals.decide(" not in src, "the raw recorder must not be called from a channel"
+    # the one human-gate path, reached through /api (`approvals.human_decision` behind
+    # `POST /api/approvals/{id}/decide`) — never the raw recorder, never Redis in-process
+    assert "LAB.decide(" in src, "the review app must decide through the seam"
+    assert "approvals." not in src, "the review app must not reach the approval API in-process"
 
 
 def test_a_blank_reviewer_cannot_release_a_write(monkeypatch):

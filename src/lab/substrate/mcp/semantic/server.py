@@ -38,7 +38,7 @@ from lab.platform import config, workflows
 from lab.substrate import container
 from lab.platform.contracts import ARTIFACT_INTAKE
 from lab.core.viz import CONCEPT
-from lab.platform.filetypes import content_type_for, file_slug
+from lab.core.canon import file_slug
 from lab.platform.fabric_events import METRICS_KEY
 from lab.platform.filetypes import content_type_for
 from lab.substrate import fabric_custody, fabric_publication
@@ -452,6 +452,21 @@ def semantic_vocab_propose(label: str, actor: str, definition: str = "", broader
     return fabric().vocab_propose(label, definition=definition, actor=actor, broader=broader,
                                   scheme=scheme, concept_id=concept_id, module=module,
                                   proposed_for=proposed_for, alias_of=alias_of)
+
+
+@server.tool()
+def semantic_vocab_resolve(iri: str, terms: list[str], actor: str, scheme: str = "",
+                           definition: str = "") -> dict:
+    """The classifier's subject match as ONE decision: link every term whose preferred label matches
+    (rung X), ask what each MISS means against concept definitions, and park whatever is left as a
+    candidate for a steward — `proposed_for` this artifact, carrying `alias_of` when the semantic tier
+    recognised it as another word for a concept already held.
+
+    Answers with the link result whole — `linked`, `missed`, `retracted`, `excluded`, `conflicts` — plus
+    `proposed`, one entry per parked term. Use this rather than calling semantic_vocab_link,
+    semantic_concept_match and semantic_vocab_propose in turn: the order and the failure rules are the
+    fabric's, and a semantic tier that is unavailable costs only the suggestion, never the term."""
+    return fabric().vocab_resolve(iri, terms, actor=actor, scheme=scheme, definition=definition)
 
 
 @server.tool()

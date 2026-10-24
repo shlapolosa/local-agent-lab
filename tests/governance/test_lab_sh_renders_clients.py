@@ -83,3 +83,22 @@ def test_a_template_keeps_its_credential_as_a_designer_placeholder(tpl):
     body = open(tpl).read()
     for m in re.finditer(r"<<([A-Z_]+)", body):
         assert not re.search(r"\$\{", m.group(0)), "a placeholder cannot be both forms"
+
+
+def test_the_connector_document_is_rendered_from_the_registry():
+    """The custom-connector document is GENERATED (`scripts/render_openapi.py`), not a template — so the
+    glob cannot see it, and only this test notices if `render_clients` stops writing it."""
+    block = _render_block()
+    assert "scripts/render_openapi.py" in block
+    assert "lab-api.swagger.json" in block
+    assert os.path.exists(os.path.join(ROOT, "scripts", "render_openapi.py"))
+
+
+@pytest.mark.parametrize("tpl", sorted(_templates()), ids=lambda p: os.path.basename(p))
+def test_a_template_names_no_deployment(tpl):
+    """A deployment's host, tenant or audience in a COMMITTED template is the one value `./lab.sh
+    clients` can never correct — the steward card pointed at one Railway host for its whole life."""
+    body = open(tpl).read()
+    guid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    assert not re.search(r"\.up\.railway\.app|\.azure-api\.net|api://" + guid, body), tpl
+    assert not re.search(r'"(tenant|audience|clientId)":\s*"' + guid, body), tpl

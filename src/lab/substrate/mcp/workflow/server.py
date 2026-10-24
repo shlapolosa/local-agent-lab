@@ -33,13 +33,14 @@ front door that exposes the run.
 from __future__ import annotations
 
 import inspect
-from typing import Annotated, Any, Callable, Literal
+from typing import Annotated, Any, Callable
 
 from pydantic import BaseModel, Field
 
 from lab.platform import config, workflows
-from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, InputKind, ProcessSpec,
+from lab.platform.contracts import (PROCESSES, WORKFLOW_FINISHED, ProcessSpec,
                                     WorkflowStatus, WorkflowTools)
+from lab.platform.submit_schema import submit_parameters
 from lab.substrate.mcp.workflow import approval_tools, listing
 from lab.substrate.mcp.workflow import rest
 from lab.substrate.mcpserver import LabServer, span
@@ -49,54 +50,8 @@ SERVICE = "workflow-frontdoor"     # the SERVICE says what it is; the gateway AL
                                   # ea_mcp / collab_mcp / speech_mcp — and it is what teams
                                   # are granted, so renaming it would invalidate every grant.
 
-# an input field's kind -> the Python annotation the generated tool declares (and fastmcp turns into
-# the JSON schema an agent reads). One table: a new kind is one line here and one in InputField.coerce.
-ANNOTATION: dict[InputKind, Any] = {InputKind.REF: str, InputKind.REF_LIST: list[str],
-                                    InputKind.HANDLE: str, InputKind.IDENTITY: str,
-                                    InputKind.CONVERSATION: str, InputKind.TITLE: str,
-                                    InputKind.MAPPING: dict[str, dict[str, str]],
-                                    InputKind.CHOICE: str,
-                                    # the fabric's kinds: a pointer is a small object, the rest are opaque ids
-                                    InputKind.POINTER: dict[str, str], InputKind.EVENT: str,
-                                    InputKind.CONTEXT: str, InputKind.ARTIFACT: str, InputKind.APPROVAL: str,
-                                    # NUMBER is a figure, not prose for a formula to parse. TABLE's
-                                    # annotation is BUILT per field from its declared columns —
-                                    # `list[dict]` would teach an agent no more than the opaque bag
-                                    # it replaces — so the entry here is only the fallback shape.
-                                    InputKind.NUMBER: float, InputKind.TABLE: list[dict]}
-
-
-def _row_model(field) -> Any:
-    """A pydantic model for ONE row of a TABLE, built from the field's declared columns.
-
-    So the generated JSON schema carries named, typed columns with the required ones marked, and an
-    agent can fill the table instead of guessing its shape — the same reason a CHOICE becomes a
-    `Literal` rather than a bare string.
-    """
-    import pydantic
-    fields: dict[str, Any] = {}
-    for column in field.columns:
-        ann = (Literal[tuple(column.choices)] if column.kind is InputKind.CHOICE
-               else ANNOTATION[column.kind])
-        fields[column.name] = ((ann, ...) if column.required else (ann | None, None))
-    return pydantic.create_model(f"{field.name}_row", **fields)
-
-
-def annotation_of(field) -> Any:
-    """An OPTIONAL single reference must also accept `null`: LLM clients routinely fill every declared
-    parameter, and pydantic would reject `None` against a bare `str` before `coerce` ever sees it.
-
-    A CHOICE becomes a real `Literal`, so its members reach the JSON schema as an `enum` and an agent
-    can SEE what it may pass. Declaring it as a bare string would leave the closed set discoverable
-    only by guessing wrong and reading the error — which is how a lane gets picked at random.
-    """
-    if field.kind is InputKind.TABLE:
-        ann: Any = list[_row_model(field)]          # type: ignore[valid-type]
-    elif field.kind is InputKind.CHOICE:
-        ann = Literal[tuple(field.choices)]
-    else:
-        ann = ANNOTATION[field.kind]
-    return ann if field.required or field.kind is InputKind.REF_LIST else ann | None
+# The submit call's parameters — and so its schema — come from the platform, the ONE derivation the
+# REST route and the generated OpenAPI document share (`lab.platform.submit_schema`).
 
 
 # ----------------------------------------------------------------------------- tool bodies
@@ -120,7 +75,7 @@ def _state(server: LabServer, spec: ProcessSpec, request_id: str) -> dict:
 
 def _plain(value: Any) -> Any:
     """Tool arguments as plain data. fastmcp validates a TABLE's rows against the generated row model
-    (`_row_model`) and passes the tool model INSTANCES, while the ProcessSpec validator — shared with
+    (`lab.platform.submit_schema.row_model`) and passes the tool model INSTANCES, while the ProcessSpec validator — shared with
     every other surface — reads mappings. The typed schema is for the caller; the contract is data."""
     if isinstance(value, BaseModel):
         return value.model_dump()
@@ -200,19 +155,7 @@ def _request_id_param(spec: ProcessSpec):
 
 
 def submit_tool(server: LabServer, spec: ProcessSpec):
-    params = [_param(f.name, annotation_of(f), f.description,
-                     inspect.Parameter.empty if f.required else ([] if f.kind is InputKind.REF_LIST else None))
-              for f in spec.inputs]
-    params.append(_param("requester", str, "Who is asking (agent name, user principal or channel) — "
-                                           "recorded on the request for audit.", "mcp"))
-    params.append(_param("idempotency_key", str | None,
-                         "Optional key that makes this call SAFE TO RETRY: submitting again with the "
-                         "SAME key returns the SAME request_id (with duplicate: true) instead of "
-                         "queueing a second run, for 24 hours. Use a stable id you already have for "
-                         "this piece of work (the message, ticket or correlation id that asked for "
-                         "it) — never a fresh random value per attempt. Omit it and every call is a "
-                         "new run, deliberately: re-submitting the same diagram is a legitimate "
-                         "re-run.", None))
+    params = [_param(*p) for p in submit_parameters(spec)]
     doc = (f"Start a run of {spec.title}. {spec.description}\n\n"
            f"Returns IMMEDIATELY with a request_id; it does NOT wait for the run. Poll "
            f"{spec.tool('status')} with that id and read {spec.tool('result')} once the status is "

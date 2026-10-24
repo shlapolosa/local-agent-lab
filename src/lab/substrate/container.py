@@ -17,7 +17,7 @@ from lab.platform.container import CONFIG_KEYS, Container, configure
 from lab.substrate import artifacts as _artifacts
 
 # the platform allowlist + the store settings that exist ONLY here
-SUBSTRATE_KEYS = CONFIG_KEYS + ("ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "S3_REGION",
+SUBSTRATE_KEYS = CONFIG_KEYS + ("PUBLIC_GATEWAY_URL", "ARTIFACTS_URL", "UPLOADS_URL", "S3_ENDPOINT", "S3_REGION",
                                 "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_URL_STYLE",
                                 "COLLAB_PROVIDER", "SPEECH_PROVIDER", "VOICEPRINT_URL",
                                 "REFERENCE_PROVIDER", "REFERENCE_DB_URL", "REFERENCE_RING",

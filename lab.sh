@@ -267,6 +267,16 @@ render_clients() {
         -e "s#\${ONEDRIVE_RECORDINGS_FOLDER_ID}#${ONEDRIVE_RECORDINGS_FOLDER_ID:-}#g" "$tpl" > "$out"
     n=$((n+1))
   done
+  # The CONNECTOR document is generated, not templated: it is derived from the process registry and
+  # the gateway's /api operation table, so a process registered once becomes a connector action with
+  # no template to edit. Swagger 2.0 — the only version a Power Platform custom connector imports.
+  if PYTHONPATH="$ROOT/src" "$PY" scripts/render_openapi.py \
+       "${PUBLIC_GATEWAY_URL:-${GATEWAY_URL:-http://127.0.0.1:4000}}" \
+       config/clients/power-automate/lab-api.swagger.json; then
+    n=$((n+1))
+  else
+    echo "clients      WARN the connector document (lab-api.swagger.json) did not render" >&2
+  fi
   echo "clients      rendered $n client file(s) from templates (GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:4000})"
   echo "             copy config/clients/claude-code/settings.json -> your project's .claude/settings.json"
 }

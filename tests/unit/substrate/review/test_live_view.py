@@ -66,9 +66,9 @@ def test_the_record_is_fetched_once_per_ref_not_once_per_tick():
     state = {}
     h = {"record_ref": "art://a/partial.json"}
     for _ in range(4):
-        app._record_cached(h, store=_Store(), cache=state)
+        app._record_cached(h, read=_Store().get, cache=state)
     assert calls == ["art://a/partial.json"], "one fetch for four reads of the same ref"
-    app._record_cached({"record_ref": "art://a/next.json"}, store=_Store(), cache=state)
+    app._record_cached({"record_ref": "art://a/next.json"}, read=_Store().get, cache=state)
     assert len(calls) == 2, "a new ref is a new fetch"
 
 
@@ -77,7 +77,7 @@ def test_a_record_that_cannot_be_read_is_an_empty_record_not_a_broken_page():
         def get(self, ref):
             raise KeyError(ref)
 
-    assert app._record_cached({"record_ref": "art://gone/x.json"}, store=_Boom(), cache={}) == {}
+    assert app._record_cached({"record_ref": "art://gone/x.json"}, read=_Boom().get, cache={}) == {}
 
 
 def test_no_ref_means_no_fetch_at_all():
@@ -85,7 +85,7 @@ def test_no_ref_means_no_fetch_at_all():
         def get(self, ref):
             raise AssertionError("must not be called")
 
-    assert app._record_cached({}, store=_Never(), cache={}) == {}
+    assert app._record_cached({}, read=_Never().get, cache={}) == {}
 
 
 # ---------------------------------------------------------------- surviving a page reload

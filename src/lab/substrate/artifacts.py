@@ -41,6 +41,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -139,6 +140,7 @@ class LocalStore(_BaseStore):
         self.root = root; os.makedirs(root, exist_ok=True)
 
     def put(self, name, data: bytes, content_type="application/octet-stream") -> str:
+        check_name(name)
         self._guard(name, len(data))
         aid = self._new_id(); d = os.path.join(self.root, aid); os.makedirs(d, exist_ok=True)
         open(os.path.join(d, name), "wb").write(data)
@@ -147,6 +149,7 @@ class LocalStore(_BaseStore):
     def put_stream(self, name, fileobj, content_type="application/octet-stream", size_hint=None) -> str:
         """Chunked copy to disk — the source is never read whole. A refusal (or any failure) takes
         the half-written directory with it: no ref is ever handed out for a partial object."""
+        check_name(name)
         src = self._capped(name, fileobj, size_hint)
         aid = self._new_id(); d = os.path.join(self.root, aid); os.makedirs(d, exist_ok=True)
         try:
@@ -336,11 +339,26 @@ class S3Store(_BaseStore):
         return out
 
 
+_ID = re.compile(r"[0-9A-Za-z_-]+")
+_UNSAFE = re.compile(r"[\\\x00-\x1f]")
+
+
+def check_name(name: str) -> str:
+    """An object name is a NAME, never a path: no empty, `.` or `..` segment, no backslash, no control
+    character. A ref arrives from a caller through `/api/artifacts`, so this is a trust boundary."""
+    segments = str(name or "").split("/")
+    if (not name or _UNSAFE.search(name) or any(seg in ("", ".", "..") for seg in segments)):
+        raise ValueError(f"not a safe artifact name: {name!r}")
+    return name
+
+
 def _split(ref):
-    if not ref.startswith("art://"):
+    if not str(ref).startswith("art://"):
         raise ValueError(f"not an artifact ref: {ref}")
     aid, _, name = ref[6:].partition("/")
-    return aid, name
+    if not _ID.fullmatch(aid):
+        raise ValueError(f"not an artifact id: {aid!r}")
+    return aid, check_name(name)
 
 
 # The store PORT, structurally: put / put_stream / get / info / list. Kept a union (not an ABC) —

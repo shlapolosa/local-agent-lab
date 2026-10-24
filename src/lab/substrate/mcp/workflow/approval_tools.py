@@ -44,9 +44,9 @@ from pydantic import Field
 
 from lab.platform.contracts import (
     APPROVAL_FINAL, SPEAKER_FIELDS, ApprovalKind, ApprovalStatus, ApprovalTools,
-                                    Continuation, Decision, SpeakerPrompt, import_artifacts,
+                                    Continuation, Decision, SpeakerPrompt,
                                     speaker_candidates)
-from lab.substrate import approvals
+from lab.substrate import approval_view, approvals
 from lab.substrate.mcpserver import LabServer, span
 
 SOURCE = "mcp"        # provenance the SERVER stamps, never the caller (see channel_of below)
@@ -73,45 +73,15 @@ def channel_of(claimed: str) -> str:
 
 
 def _brief(st: dict, jaeger_url: str) -> dict:
-    """What a channel needs to TRIAGE one approval: who wants what, how big it is, where to look."""
-    payload = st.get("payload") or {}
-    out = {"request_id": st.get("request_id"), "kind": st.get("kind"), "subject": st.get("subject"),
-           "requester": st.get("requester"), "status": st.get("status"),
-           "created_at": st.get("created_at"), "open": st.get("status") not in APPROVAL_FINAL,
-           "summary": payload.get("summary") or {},
-           "trace_url": approvals.trace_url(st.get("trace_id"), jaeger_url),
-           "decide_with": ApprovalTools.decide}
-    if st.get("comment"):                      # a previous "changes requested" is part of the triage
-        out |= {"comment": st["comment"], "decided_by": st.get("decided_by"),
-                "decided_via": st.get("decided_via")}
-    return out
-
-
-_NOT_ARTIFACTS = ("summary", "import_artifacts", "instructions",
-                  "question", "answer_labels", "answer_required", "continuation", "context")
+    """What a channel needs to TRIAGE one approval — the shared projection (`approval_view`), plus the
+    tool a human's answer is recorded with."""
+    return approval_view.brief(st, jaeger_url=jaeger_url, decide_with=ApprovalTools.decide)
 
 
 def _detail(st: dict, jaeger_url: str, review_app: str) -> dict:
-    """Everything a human needs to JUDGE one approval — the brief, the staged model BY REFERENCE, and
-    the files the repository needs a human to import.
-
-    `import_artifacts` + `instructions` are the repository's own, OPAQUE: each artifact is a
-    {ref, label, note} the ADAPTER wrote, and this surface repeats them without interpreting them —
-    a spreadsheet, a change-set, or nothing at all on a repository that writes over its own API. The
-    normaliser (`lab.platform.contracts.import_artifacts`) also renders approvals staged before that
-    shape existed, so an old request still lists every file a reviewer can take."""
-    payload = st.get("payload") or {}
-    return _brief(st, jaeger_url) | {
-        "artifacts": {k: v for k, v in payload.items() if k not in _NOT_ARTIFACTS},
-        "import_artifacts": [a.to_dict() for a in import_artifacts(payload)],
-        "instructions": payload.get("instructions", ""),
-        # A question comes back FLAT — a list of {label, samples, seconds, turns} — because the
-        # intended long-term surface is an adaptive card templated by a low-code flow, not our own
-        # renderer. A nested tree would be unusable there.
-        "question": payload.get("question") or {},
-        "answer_required": bool(payload.get("answer_labels")) and payload.get("answer_required", True),
-        "trace_id": st.get("trace_id") or None, "decided_at": st.get("decided_at") or None,
-        "review_app": review_app}
+    """Everything a human needs to JUDGE one approval — the shared projection REST also serves."""
+    return approval_view.detail(st, jaeger_url=jaeger_url, decide_with=ApprovalTools.decide,
+                                review_app=review_app)
 
 
 def register(server: LabServer) -> None:
@@ -278,9 +248,9 @@ def register(server: LabServer) -> None:
         # silently replace the completeness contract declared two lines above, and `check_answer`
         # reads exactly that field — so `artifacts={"answer_labels": []}` would make an approval that
         # asked about four speakers approvable with no answer at all. The reserved names are
-        # `_NOT_ARTIFACTS`, the SAME tuple the read side uses to decide what is not an artifact, so
+        # `approval_view.NOT_ARTIFACTS`, the SAME tuple the read side uses to decide what is not an artifact, so
         # the two ends of this module cannot drift into disagreeing about what a caller may set.
-        clashes = sorted(set(artifacts or {}) & set(_NOT_ARTIFACTS))
+        clashes = sorted(set(artifacts or {}) & set(approval_view.NOT_ARTIFACTS))
         if clashes:
             raise ValueError(f"{clashes} cannot be passed as artifacts — those names carry the "
                              "approval's own meaning (the question, its completeness contract, the "

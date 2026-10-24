@@ -6,7 +6,6 @@ import base64
 import contextlib
 import json
 import os
-import tempfile
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,7 +16,6 @@ from opentelemetry import trace
 from lab.platform import runlog
 from lab.workloads import gateway
 from lab.workloads.visio_to_archimate import workflow as W
-from lab.workloads import ids
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

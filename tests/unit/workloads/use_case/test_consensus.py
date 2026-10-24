@@ -7,6 +7,7 @@ travels with the record — a capability two runs of three chose is not a wrong 
 disagreement, and the approver is the one entitled to settle it.
 """
 from lab.workloads.usecase import coverage
+from lab.core.usecase import coverage as core_coverage
 
 
 def m(function, ident, label="L", confidence="lookup"):
@@ -28,7 +29,7 @@ def sample(*matches, **rest):
 
 def test_a_match_every_sample_made_is_kept_and_carries_its_full_vote():
     s = sample(m("intake a form", "c1"))
-    agreed, excluded = coverage.vote([s, s, s], threshold=2)
+    agreed, excluded = core_coverage.vote([s, s, s], threshold=2)
     assert [x["capability_id"] for x in agreed["matched"]] == ["c1"]
     assert agreed["matched"][0]["votes"] == 3 and agreed["matched"][0]["of"] == 3
     assert excluded == []
@@ -37,7 +38,7 @@ def test_a_match_every_sample_made_is_kept_and_carries_its_full_vote():
 def test_a_match_below_the_threshold_is_excluded_rather_than_dropped():
     """The whole point of the change for an approver: a capability one run of three chose is
     evidence of a disagreement, and deleting it silently is what made the spread invisible."""
-    agreed, excluded = coverage.vote(
+    agreed, excluded = core_coverage.vote(
         [sample(m("f", "c1"), m("f", "c2")), sample(m("f", "c1")), sample(m("f", "c1"))],
         threshold=2)
     assert [x["capability_id"] for x in agreed["matched"]] == ["c1"]
@@ -48,13 +49,13 @@ def test_a_match_below_the_threshold_is_excluded_rather_than_dropped():
 def test_a_capability_matched_for_a_DIFFERENT_function_is_a_different_vote():
     """The unit is the PAIR. The same capability serving two functions is two claims, and pooling
     them would let one well-agreed function carry a second that nothing agreed on."""
-    agreed, _ = coverage.vote([sample(m("f1", "c1"), m("f2", "c1")),
+    agreed, _ = core_coverage.vote([sample(m("f1", "c1"), m("f2", "c1")),
                                sample(m("f1", "c1")), sample(m("f1", "c1"))], threshold=2)
     assert {(x["function"], x["capability_id"]) for x in agreed["matched"]} == {("f1", "c1")}
 
 
 def test_the_kept_match_keeps_the_fields_a_real_answer_carried():
-    agreed, _ = coverage.vote([sample(m("f", "c1", label="Intake", confidence="assumption"))],
+    agreed, _ = core_coverage.vote([sample(m("f", "c1", label="Intake", confidence="assumption"))],
                               threshold=1)
     kept = agreed["matched"][0]
     assert kept["capability_label"] == "Intake" and kept["confidence"] == "assumption"
@@ -63,7 +64,7 @@ def test_the_kept_match_keeps_the_fields_a_real_answer_carried():
 def test_the_gap_lists_are_voted_on_the_same_terms_as_the_matches():
     """A function reported as having no capability by ONE run of three is not a gap; it is the
     same disagreement seen from the other side."""
-    agreed, _ = coverage.vote(
+    agreed, _ = core_coverage.vote(
         [sample(functions_without_capability=["a", "b"]),
          sample(functions_without_capability=["a"]),
          sample(functions_without_capability=["a"])], threshold=2)
@@ -74,17 +75,17 @@ def test_one_sample_is_the_behaviour_that_was_there_before():
     """`COVERAGE_SAMPLES=1` must be exactly today's run — a threshold of one, nothing excluded,
     so turning sampling off is a real off switch and not a differently-shaped answer."""
     s = sample(m("f", "c1"), m("f", "c2"), functions_without_capability=["x"])
-    agreed, excluded = coverage.vote([s], threshold=1)
+    agreed, excluded = core_coverage.vote([s], threshold=1)
     assert [x["capability_id"] for x in agreed["matched"]] == ["c1", "c2"]
     assert agreed["functions_without_capability"] == ["x"] and excluded == []
 
 
 def test_no_samples_votes_nothing_rather_than_raising():
-    assert coverage.vote([], threshold=1) == ({}, [])
+    assert core_coverage.vote([], threshold=1) == ({}, [])
 
 
 def test_the_majority_of_n_is_more_than_half_of_it():
-    assert [coverage.majority(n) for n in (1, 2, 3, 4, 5)] == [1, 2, 2, 3, 3]
+    assert [core_coverage.majority(n) for n in (1, 2, 3, 4, 5)] == [1, 2, 2, 3, 3]
 
 
 def test_the_agreed_order_is_the_order_the_first_sample_gave():
@@ -92,7 +93,7 @@ def test_the_agreed_order_is_the_order_the_first_sample_gave():
     for another."""
     a = sample(m("f", "c2"), m("f", "c1"))
     b = sample(m("f", "c1"), m("f", "c2"))
-    agreed, _ = coverage.vote([a, b], threshold=1)
+    agreed, _ = core_coverage.vote([a, b], threshold=1)
     assert [x["capability_id"] for x in agreed["matched"]] == ["c2", "c1"]
 
 
@@ -229,7 +230,7 @@ def test_a_match_is_given_the_label_of_the_candidate_its_id_was_copied_from():
     candidate this step was shown, and that candidate carries the label, so the name is a join the
     workload can do itself rather than a thing to ask a model for or to render around."""
     matched = [{"function": "f", "capability_id": "c1", "confidence": "lookup"}]
-    named = coverage.named(matched, CANDS)
+    named = core_coverage.named(matched, CANDS)
     assert named[0]["capability_label"] == "Cap 1"
     assert named[0]["capability_id"] == "c1", "the id is untouched — it is what joins"
 
@@ -238,7 +239,7 @@ def test_a_label_the_model_did_supply_is_not_overwritten():
     """The model saw the candidate too. If it chose different words, that is its answer and this
     is not the place to silently correct it."""
     matched = [{"function": "f", "capability_id": "c1", "capability_label": "its own words"}]
-    assert coverage.named(matched, CANDS)[0]["capability_label"] == "its own words"
+    assert core_coverage.named(matched, CANDS)[0]["capability_label"] == "its own words"
 
 
 def test_an_id_no_candidate_carries_is_left_exactly_as_it_is():
@@ -246,7 +247,7 @@ def test_an_id_no_candidate_carries_is_left_exactly_as_it_is():
     an unjoinable row look like a good one — which the eval counts as `invalid_ids` precisely
     because it cannot be allowed to read as a match."""
     matched = [{"function": "f", "capability_id": "not-on-the-list"}]
-    assert "capability_label" not in coverage.named(matched, CANDS)[0]
+    assert "capability_label" not in core_coverage.named(matched, CANDS)[0]
 
 
 def test_the_vote_hands_back_matches_that_are_already_named():
@@ -268,7 +269,7 @@ def test_a_function_whose_matches_all_lose_becomes_an_uncovered_function():
     samples = [sample(m("f", "c1"), m("g", "c9")),
                sample(m("f", "c2"), m("g", "c9")),
                sample(m("f", "c3"), m("g", "c9"))]
-    agreed, excluded = coverage.vote(samples, threshold=2)
+    agreed, excluded = core_coverage.vote(samples, threshold=2)
     assert [x["capability_id"] for x in agreed["matched"]] == ["c9"]
     assert "f" in agreed["functions_without_capability"], "f lost every match and must be a gap"
     assert "g" not in agreed["functions_without_capability"]
@@ -276,7 +277,7 @@ def test_a_function_whose_matches_all_lose_becomes_an_uncovered_function():
 
 
 def test_a_function_that_kept_a_match_is_not_also_reported_as_uncovered():
-    agreed, _ = coverage.vote([sample(m("f", "c1"), m("f", "c2")), sample(m("f", "c1")),
+    agreed, _ = core_coverage.vote([sample(m("f", "c1"), m("f", "c2")), sample(m("f", "c1")),
                                sample(m("f", "c1"))], threshold=2)
     assert agreed["functions_without_capability"] == []
 

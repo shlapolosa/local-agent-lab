@@ -11,7 +11,7 @@ open; a search that fetched every stored record would be a different feature wea
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping
+from typing import Any
 
 from lab.platform import workflows
 from lab.platform.contracts import ProcessSpec

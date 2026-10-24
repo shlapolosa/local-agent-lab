@@ -17,7 +17,7 @@ from lab.core.semantic.fabric.owners import OwnerMap
 from lab.platform.contracts import ARTIFACT_PUBLISH, ApprovalKind, ApprovalTools, SemanticTools, StorageTools
 from lab.workloads.artifact_intake import agents as A
 from lab.workloads.artifact_intake import workflow as W
-from lab.workloads.gates import GateFailed
+from lab.core.validation import GateFailed
 
 MINUTES = {"source": "lab", "ref": "art://run1/meeting-AAMk1.minutes.json"}
 DOC = {"source": "collab", "handle": "collab://item/drive-1/doc7", "version": "2"}
@@ -102,12 +102,38 @@ class Fabric:
         return {k: v for k, v in t.items() if v is not None}
 
 
+def _resolve_through(router):
+    """`semantic_vocab_resolve` as the real server composes it (`FabricService.vocab_resolve`): link, ask the
+    semantic tier about each miss (a failure costs only the suggestion), park the rest. Composed from the
+    router's OWN link / match / propose handlers, so each inner call is recorded with the arguments the
+    server would pass and every assertion about what reached those tools still means what it did."""
+    def data(name, args):
+        return router.call(f"srv-{name}", args).data
+
+    def resolve(a):
+        link = dict(data("semantic_vocab_link", {"iri": a["iri"], "terms": a["terms"]}) or {})
+        proposed = []
+        for term in link.get("missed") or []:
+            alias_of = ""
+            try:
+                alias_of = str((data("semantic_concept_match", {"term": term, "scheme": a.get("scheme", "")})
+                                or {}).get("concept") or "")
+            except Exception:                                    # noqa: BLE001 — a suggestion, never a gate
+                alias_of = ""
+            proposed.append(data("semantic_vocab_propose", {
+                "label": term, "actor": a["actor"], "scheme": a.get("scheme", ""), "proposed_for": a["iri"],
+                "alias_of": alias_of, "definition": a.get("definition", "")}))
+        return {**link, "proposed": proposed}
+    return resolve
+
+
 def harness(fab: Fabric, *, classifier=None, synthesis=None, extractor=None, extract_first=False,
             threshold=0.75, default_label="", tools=None,
             owners=None, vocabulary="", subject_floor=0.0):
     # `None` for a tool = the gateway does NOT expose it (a missing grant, a version skew): unlisted, not just unanswered
     hidden = {k for k, v in (tools or {}).items() if v is None}
     router = Router(fab.tools(**(tools or {})), hidden=hidden, full=True)
+    router.tools.setdefault("semantic_vocab_resolve", _resolve_through(router))
     ctx = spine(W, router)
     h = ctx.__enter__()
     h.cfg.update({"agents": {k: v for k, v in (("classifier", classifier), ("synthesis", synthesis),

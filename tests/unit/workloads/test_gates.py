@@ -6,13 +6,13 @@ def test_a_retry_is_told_every_missing_key_not_the_first_five():
     keys on ten steps is forty problems, and a refusal cut to five left the model unable to
     comply on its one retry (13 Sep 2026)."""
     from jsonschema import Draft202012Validator
-    from lab.workloads import gates
+    from lab.core import validation
     schema = {"type": "object", "properties": {"steps": {"type": "array", "items": {
         "type": "object", "required": [f"c{i}" for i in range(4)],
         "properties": {f"c{i}": {"type": "boolean"} for i in range(4)}}}}}
     out = {"steps": [{} for _ in range(10)]}
-    problems = gates.schema_errors(Draft202012Validator(schema), out)
-    assert len(problems) == 40 and gates.MAX_REPORTED >= 40
+    problems = validation.schema_errors(Draft202012Validator(schema), out)
+    assert len(problems) == 40 and validation.MAX_REPORTED >= 40
 
 
 class _Agent:
@@ -51,8 +51,8 @@ def test_a_soft_rule_never_reasons_about_an_answer_the_hard_gate_refused():
 
 def test_a_hard_failure_still_raises_after_the_one_retry():
     import pytest
-    from lab.workloads import gates
-    with pytest.raises(gates.GateFailed):
+    from lab.core.validation import GateFailed
+    with pytest.raises(GateFailed):
         _run(_Agent('{"nope": 1}', '{"nope": 2}'), soft=lambda o: [])
 
 
@@ -71,7 +71,7 @@ def _facets_validator():
 
 
 def test_a_value_that_belongs_to_a_sibling_field_is_named_as_that_fields():
-    from lab.workloads.gates import schema_errors
+    from lab.core.validation import schema_errors
     [problem] = schema_errors(_facets_validator(), {"steps": [{"blast_radius": "internal group"}]})
     assert problem.startswith("steps/0/blast_radius:")
     assert "'internal group' is an `audience` value" in problem
@@ -79,6 +79,6 @@ def test_a_value_that_belongs_to_a_sibling_field_is_named_as_that_fields():
 
 
 def test_a_value_that_belongs_nowhere_keeps_the_plain_message():
-    from lab.workloads.gates import schema_errors
+    from lab.core.validation import schema_errors
     [problem] = schema_errors(_facets_validator(), {"steps": [{"blast_radius": "everyone"}]})
     assert "is not one of" in problem and "value —" not in problem

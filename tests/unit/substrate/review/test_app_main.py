@@ -96,24 +96,23 @@ def test_password_gate_accepts_then_reruns_and_authed_session_passes_through():
 
 
 def test_streamlit_entry_point_runs_main():
-    """Streamlit executes src/lab/substrate/review/app.py as __main__: main() runs with the real shared modules
-    swapped for fakes on the `shared` package (no Redis)."""
+    """Streamlit executes src/lab/substrate/review/app.py as __main__: main() runs with the app's ONE
+    collaborator — the seam client — swapped for a fake (no gateway, no Redis)."""
     import runpy
     import lab.platform
-    shared = lab.platform   # the app rebinds lab.platform.runlog / .config below
-    from fixtures.streamlit import FakeRunlog
+    from lab.substrate.review import api
+    from fixtures.streamlit import FakeLab
     fake_st = FakeSt(Mode="Runs")
-    saved = {k: getattr(shared, k) for k in ("runlog", "config")}
+    saved_config, saved_factory = lab.platform.config, api.from_config
     real_st = sys.modules.get("streamlit")
     sys.modules["streamlit"] = fake_st
-    lab.platform.runlog = FakeRunlog()
+    api.from_config = FakeLab
     lab.platform.config = SimpleNamespace(REVIEW_APP_PASSWORD=None, JAEGER_UI_URL="http://jaeger.test/",
                                           build_id=lambda: "build=test")
     try:
         runpy.run_path(os.path.join(ROOT, "src", "lab", "substrate", "review", "app.py"), run_name="__main__")
     finally:
-        for k, v in saved.items():
-            setattr(shared, k, v)
+        lab.platform.config, api.from_config = saved_config, saved_factory
         if real_st is not None:
             sys.modules["streamlit"] = real_st
         else:

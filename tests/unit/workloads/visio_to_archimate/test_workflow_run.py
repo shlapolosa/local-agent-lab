@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from lab.workloads.visio_to_archimate import workflow as W
-from lab.workloads import ids
+from lab.core.archimate import ids
 
 from fixtures.workflow import (
     SCHEMA, TRACEPARENT, BA_OK, BA_NORMALISED, SPEC_OK, FakeResult, image_block, text_block, Agents, text_of, data_contents, tool_call_response, make_cfg, harness, run, raises, EXECUTOR_IDS)

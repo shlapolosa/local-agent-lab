@@ -49,7 +49,7 @@ def test_the_page_is_offered_with_the_ref_so_a_multi_page_source_still_opens():
 
 def test_the_stamp_carries_the_artifacts_beside_the_shape(monkeypatch):
     from lab.platform import runlog
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     seen = {}
     monkeypatch.setattr(runlog, "node", lambda rid, name, status, **kw: seen.update(kw))
     D.stamp_shape({"run_id": "r1"}, step_for("5"), {"ref": "art://abc/coverage.json"})
@@ -58,7 +58,7 @@ def test_the_stamp_carries_the_artifacts_beside_the_shape(monkeypatch):
 
 def test_a_step_that_wrote_nothing_stamps_no_artifacts(monkeypatch):
     from lab.platform import runlog
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     seen = {}
     monkeypatch.setattr(runlog, "node", lambda rid, name, status, **kw: seen.update(kw))
     D.stamp_shape({"run_id": "r1"}, step_for("5"), {"matched": []})

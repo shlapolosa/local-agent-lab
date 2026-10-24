@@ -17,7 +17,7 @@ import pytest
 
 from lab.platform import runlog
 from lab.workloads.usecase import derivation as D
-from lab.workloads.usecase import steps as S
+from lab.core.usecase import steps as S
 
 
 def test_the_three_derived_steps_the_audit_found_are_declared():

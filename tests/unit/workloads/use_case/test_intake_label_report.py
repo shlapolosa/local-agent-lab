@@ -13,7 +13,7 @@ paraphrase, or it may be a field published since this image was built — and re
 submission for either would lose the thirty answers that were fine. It becomes a gap flag the
 business case carries to the approver, which is what every other unresolved thing here does.
 """
-from lab.workloads.usecase import intake as intake_mod
+from lab.core.usecase import intake as intake_mod
 
 
 PUBLISHED = ["Effort table · Role", "Quality baseline · error rate", "Urgency · Required-by date"]

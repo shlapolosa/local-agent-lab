@@ -64,7 +64,7 @@ def test_a_derived_step_says_so_rather_than_naming_an_agent():
 
 
 def test_the_index_is_injected_so_the_substrate_never_imports_a_workload():
-    """`Step.service` lives in `lab.workloads.usecase.steps`, and `substrate` may not import
+    """`Step.service` lives in `lab.core.usecase.steps`, and `substrate` may not import
     `workloads` — the seam that keeps a workload reachable only over the network. So the join is
     derived into a published artifact and read from the corpus like any other reference."""
     import ast

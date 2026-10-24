@@ -1,6 +1,6 @@
 """What a design owes, said out loud — the run-8 package is the fixture, because it is the one that
 proceeded with four obligations bound to nothing and a reviewer summary that was empty."""
-from lab.workloads.usecase.owed import counts, owed
+from lab.core.usecase.owed import counts, owed
 
 PACKAGE = {
     "composition": {"topology": "T4", "families": ["F1", "F2"], "unbound": ["G04", "G08"]},

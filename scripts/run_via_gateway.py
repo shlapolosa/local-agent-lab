@@ -14,7 +14,7 @@ from fastmcp.client.transports import StreamableHttpTransport
 from opentelemetry import propagate
 
 from lab.platform import config, otel
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 
 GATEWAY = config.GATEWAY_MCP_URL
 SERVICE = "process-ea-modelling"      # one distinct service name per business process (docx §7)

@@ -34,8 +34,9 @@ from lab.workloads.usecase import agents as A
 from lab.workloads.usecase import coverage
 from lab.core.usecase import capabilities
 from lab.workloads.usecase import reference
-from lab.workloads.usecase.steps import SCREENING_STEPS, step_for
-from lab.workloads.usecase import intake, modelling
+from lab.core.usecase.steps import SCREENING_STEPS, step_for
+from lab.workloads.usecase import modelling
+from lab.core.usecase import intake
 from lab.workloads.usecase import views as cafe_views
 from lab.workloads.usecase.derivation import Derivation
 

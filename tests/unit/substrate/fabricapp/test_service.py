@@ -137,3 +137,21 @@ def test_with_no_key_configured_the_drawing_is_open():
     """Local development binds to loopback, where `refuse_open` already permits no credential at all.
     A gate that could not be switched off would make the offline loop need a secret to draw a picture."""
     assert gated(key="").get("/corpus").status_code == 200
+
+
+def test_with_no_reader_injected_the_BYTES_come_through_the_gateway_too():
+    """TO-BE seam (24 Oct 2026): the tab holds no store credential. The drawing's bytes are read with
+    `storage_read_artifact` over the same gateway call that drew it, as the fabric's own identity."""
+    from lab.platform.contracts import StorageTools
+    seen = []
+
+    async def call(calls):
+        seen.extend(n for n, _ in calls)
+        if calls[0][0] == SemanticTools.view_corpus:
+            return [{"ref": "art://corpus/1.html"}]
+        assert calls[0][1] == {"ref": "art://corpus/1.html"}
+        return ["<html>via the gateway</html>"]
+
+    client = TestClient(service.web(call=call, key=""))
+    assert client.get("/corpus").text == "<html>via the gateway</html>"
+    assert seen == [SemanticTools.view_corpus, StorageTools.read_artifact]

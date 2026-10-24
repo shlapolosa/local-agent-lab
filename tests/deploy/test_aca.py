@@ -287,7 +287,8 @@ def test_production_computes_its_own_coordinates_and_never_holds_a_dev_vendor_ke
         env = {e["name"]: e.get("value") for e in _env(az.substrate_app(name, spec, RAILWAY_VALUED, TARGET)).values()}
         assert not [k for k, v in env.items() if v and "railway" in v], name
         assert not {"OLLAMA_API_KEY", "ANTHROPIC_UPSTREAM_API_KEY", "OPENAI_UPSTREAM_API_KEY"} & set(env), name
-    gw = _env(az.substrate_app("review", topology.SUBSTRATE["review"], RAILWAY_VALUED, TARGET))
+    gw = _env(az.substrate_app("workflow-frontdoor", topology.SUBSTRATE["workflow-frontdoor"],
+                               RAILWAY_VALUED, TARGET))
     assert gw["REDIS_URL"] == {"name": "REDIS_URL", "value": "redis://redis:6379/0"}
 
 

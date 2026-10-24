@@ -12,11 +12,11 @@ import sys
 
 from lab.platform import config, container
 from lab.platform.contracts import USE_CASE_DESIGN
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.usecase import identity as ids
 from lab.workloads.run import governed_run
 from lab.workloads.usecase import agents as A
-from lab.workloads.usecase.steps import DESIGN_STEPS
+from lab.core.usecase.steps import DESIGN_STEPS
 from lab.workloads.use_case_design.workflow import make_cfg, run_workflow
 
 SERVICE = "process-usecase-design"

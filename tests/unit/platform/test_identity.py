@@ -1,4 +1,4 @@
-"""Offline tests for src/lab/workloads/identity.py — agent_headers(prefix): MSAL client-credentials (an Entra
+"""Offline tests for src/lab/platform/identity.py — agent_headers(prefix): MSAL client-credentials (an Entra
 JWT) when <PREFIX>_CLIENT_ID/SECRET are set, else the durable virtual key <PREFIX>_KEY.
 `msal.ConfidentialClientApplication` is a recording fake; env values are set here — never read
 from the real .env.
@@ -10,7 +10,7 @@ import os
 
 import msal  # (installed; only its class is faked)
 
-from lab.workloads import identity
+from lab.platform import identity
 
 TENANT, AUD = "tenant-fake-0001", "api://lab-gateway-fake/"
 

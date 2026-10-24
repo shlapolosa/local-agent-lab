@@ -14,7 +14,7 @@ published relationship matrix refused. A mapper is deterministic and runs inside
 workflow, so an illegal relation is COUNTED and left out, never raised — the model stays legal,
 and the count says how much of a step's output could not be expressed.
 
-Pure: no I/O, no gateway. `lab.workloads.usecase` because it is this run's working artifact; the
+Pure: no I/O, no gateway. In the domain core because it is a rule-bound accumulator, not a run step; the
 legality decision it defers to lives in `lab.core.archimate.relrepair`.
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any, Mapping
 
 from lab.core.archimate import relrepair
 from lab.core.archimate.engine import _REL_TYPES, _TYPES
-from lab.workloads import ids
+from lab.core.archimate import ids
 
 __all__ = ["LAYER_OF", "Model"]
 

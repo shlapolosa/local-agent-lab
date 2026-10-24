@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 
-from lab.platform.filetypes import file_slug
+from lab.core.canon import file_slug
 
 __all__ = ["rid", "slug"]
 
@@ -24,6 +24,6 @@ def slug(text: str) -> str:
     """The prompt's element-id rule: lowercase, ASCII only (accents folded, the rest dropped),
     runs of spaces/punctuation -> one dash, no leading/trailing dash. "" when nothing survives.
 
-    The kernel's `file_slug` IS this rule; an element id differs only in taking no length cap and in answering
+    The core's `file_slug` IS this rule; an element id differs only in taking no length cap and in answering
     "" rather than a placeholder, so both are arguments rather than a second copy of the transformation."""
     return file_slug(text, default="", limit=len(text) + 1)

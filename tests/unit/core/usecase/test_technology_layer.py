@@ -10,8 +10,8 @@ business possess" with a list of Microsoft products, which is the category error
 decision exists to prevent.
 """
 from lab.core.archimate import relrepair
-from lab.workloads.usecase import mappers
-from lab.workloads.usecase.model import Model
+from lab.core.usecase import mappers
+from lab.core.usecase.run_model import Model
 
 ELEMENTS = {"active": [{"name": "Triage nurse", "kind": "role"}],
             "behavioural": [{"name": "assess urgency", "verb": "assess", "object": "Referral"}],

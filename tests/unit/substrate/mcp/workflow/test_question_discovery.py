@@ -88,7 +88,7 @@ def test_a_table_input_reaches_an_agent_as_a_real_row_schema():
     objects with NAMED, TYPED columns and its required ones marked, or the agent is back to
     guessing — which is the whole reason the kind exists."""
     from lab.platform.contracts import Column, InputField, InputKind
-    from lab.substrate.mcp.workflow.server import annotation_of
+    from lab.platform.submit_schema import annotation_of
     field = InputField("effort", InputKind.TABLE, "who does this today", required=False,
                        columns=(Column("role", InputKind.CHOICE, required=True,
                                        choices=("mid", "senior")),
@@ -107,5 +107,5 @@ def test_a_table_input_reaches_an_agent_as_a_real_row_schema():
 
 def test_a_number_input_is_a_number_not_a_string():
     from lab.platform.contracts import InputField, InputKind
-    from lab.substrate.mcp.workflow.server import ANNOTATION
+    from lab.platform.submit_schema import ANNOTATION
     assert ANNOTATION[InputKind.NUMBER] is float

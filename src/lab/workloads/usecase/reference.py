@@ -22,6 +22,7 @@ import json
 from typing import Any, Iterable, Mapping, Sequence
 
 from lab.core.reference.cells import rows
+from lab.core.usecase.provenance import attribution, drift  # noqa: F401
 from lab.platform import runlog
 from lab.platform.contracts import ReferenceTools
 from lab.workloads import gateway
@@ -31,23 +32,6 @@ __all__ = ["attribution", "drift", "pin", "records"]
 
 def _payload(res: Any) -> dict:
     return res if isinstance(res, dict) else json.loads(res or "{}")
-
-
-def attribution(cfg: Mapping[str, Any], field: str) -> dict:
-    """Who is consulting the corpus, and for which derived field. A CLI or test run with no run
-    id is still attributed — as what it is — because the server refuses a blank."""
-    return {"run_id": cfg.get("run_id") or "local", "process": cfg.get("process") or "local",
-            "field": field}
-
-
-def drift(previous: Iterable[Mapping[str, Any]], current: Iterable[Mapping[str, Any]]) -> list[dict]:
-    """Per artifact in BOTH sets, the version pair where they differ — what a later run must say
-    about an earlier one's citations."""
-    before = {v["artifact_id"]: v["version"] for v in previous}
-    return [{"artifact_id": v["artifact_id"], "before": before[v["artifact_id"]],
-             "after": v["version"]}
-            for v in current
-            if v["artifact_id"] in before and before[v["artifact_id"]] != v["version"]]
 
 
 async def pin(cfg: Mapping[str, Any], artifact_ids: Sequence[str], *,

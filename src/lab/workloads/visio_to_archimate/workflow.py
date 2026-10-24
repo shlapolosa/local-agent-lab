@@ -36,7 +36,8 @@ from jsonschema import Draft7Validator
 
 from lab.workloads.visio_to_archimate import agents as A
 from lab.workloads.visio_to_archimate import inputs as I
-from lab.workloads import gateway, ids, workflowviz  # (live run visibility: Runs board + graph)
+from lab.core.archimate import ids
+from lab.workloads import gateway, workflowviz  # (live run visibility: Runs board + graph)
 from lab.platform import runlog
 from lab.platform.contracts import EATools, SemanticTools, StorageTools
 from lab.workloads.visio_to_archimate import ba_tools as BT  # (BA_MODE=tools accumulator)
@@ -199,7 +200,7 @@ _call_tools = gateway.call_tools
 _ref_from = gateway.ref_from
 
 
-_rid = ids.rid   # one relation-id formula in the repo (src/lab/workloads/ids.py), shared with the accumulators
+_rid = ids.rid   # one relation-id formula in the repo (src/lab/core/archimate/ids.py), shared with the accumulators
 
 
 async def _ea_search_many(headers, mcp_url, terms, scope="all", per=5, cap=60):

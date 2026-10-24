@@ -26,9 +26,9 @@ from typing import Any, Callable, Mapping
 
 from lab.core.usecase.model import VOCABULARY, canonical_facet
 from lab.core.usecase.predicates import NAMED_CONDITIONS, normalise_value
-from lab.workloads.usecase.gates import validator_for
+from lab.core.validation import validator_for
 from lab.core.usecase import enforcement
-from lab.workloads.usecase.mappers import as_list
+from lab.core.usecase.mappers import as_list
 
 __all__ = ["CAPABILITY_QUERY", "DESIGN_STEPS", "SCREENING_STEPS", "STEPS", "Step", "schema",
            "step_for"]

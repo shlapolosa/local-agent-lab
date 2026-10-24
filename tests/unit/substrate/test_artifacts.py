@@ -25,7 +25,8 @@ def _raises(exc, fn, *a, **kw):
 def test_ref_format_and_parse():
     assert artifacts._ref("ab12", "m.xml") == "art://ab12/m.xml"
     assert artifacts._split("art://ab12/m.xml") == ("ab12", "m.xml")
-    assert artifacts._split("art://ab12") == ("ab12", "")
+    # a ref names an OBJECT: an id with no name is refused (every producer writes `_ref(aid, name)`)
+    _raises(ValueError, artifacts._split, "art://ab12")
     assert artifacts._split("art://ab12/dir/m.xml") == ("ab12", "dir/m.xml")
     e = _raises(ValueError, artifacts._split, "/tmp/m.xml")
     assert "not an artifact ref" in str(e)
@@ -505,3 +506,30 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
             fn(); print("ok", name)
+
+
+# ------------------------------------------------------------------ a ref is never a path
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize("bad", ["art://../x/../../etc/passwd", "art://abc/../secret", "art://abc/./x",
+                                  "art://a b/x.txt", "art://abc/", "art:///x.txt", "art://abc/x\\..\\y",
+                                  "art://abc/x\x00.txt", "art://abc//x.txt"])
+def test_a_ref_that_could_name_a_path_outside_the_store_is_refused(bad):
+    """`/api/artifacts` puts a caller's ref in front of the store, so the ref parser IS the boundary:
+    an id is an opaque token and a name has no `.`/`..` segment, backslash or control character."""
+    with _pytest.raises(ValueError):
+        artifacts._split(bad)
+
+
+def test_an_ordinary_ref_still_parses_including_a_legacy_id():
+    assert artifacts._split("art://0a1b2c3d4e5f/model.archimate.xml") == ("0a1b2c3d4e5f", "model.archimate.xml")
+    assert artifacts._split("art://legacy-ID_7/views/capability map.svg") == ("legacy-ID_7", "views/capability map.svg")
+
+
+def test_the_local_store_never_writes_or_reads_outside_its_root(tmp_path):
+    store = artifacts.LocalStore(str(tmp_path / "root"))
+    for name in ("../escape.txt", "a/../../escape.txt", "", ".."):
+        with _pytest.raises(ValueError):
+            store.put(name, b"x")
+    assert not (tmp_path / "escape.txt").exists()

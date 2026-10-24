@@ -16,8 +16,8 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from lab.platform import config, mcp_client
-from lab.platform.contracts import SemanticTools
+from lab.platform import config
+from lab.platform.contracts import SemanticTools, StorageTools
 from lab.substrate import netbind
 from lab.substrate.fabricapp import tab
 
@@ -49,11 +49,21 @@ async def _draw(call) -> bytes:
 
 def web(*, call=None, read=None, now=None, key=None) -> FastAPI:
     """The app. `call` reaches the gateway, `read` reads an `art://` ref, `key` is the app's own
-    credential — all injected so the pages can be exercised without a gateway, a store or a secret."""
-    from lab.substrate import artifacts, fabric_gateway
+    credential — all injected so the pages can be exercised without a gateway, a store or a secret.
+
+    With no `read`, the bytes come through the gateway as well (`storage_read_artifact`, as the
+    fabric's own identity): the tab is PRESENTATION and holds no store credential (TO-BE seam). That
+    tool returns TEXT, which is right for the HTML view it serves; a binary artifact would need a
+    byte-returning read."""
+    from lab.substrate import fabric_gateway
 
     go = call or fabric_gateway.call
-    fetch = read or (lambda ref: artifacts.store().get(ref))
+
+    async def fetch(ref: str) -> bytes:
+        if read is not None:
+            return read(ref)
+        (text,) = await go([(StorageTools.read_artifact, {"ref": ref})])
+        return str(text).encode("utf-8")
     clock = now or (lambda: asyncio.get_event_loop().time())
     gate = config.FABRIC_APP_KEY if key is None else key
     app = FastAPI()
@@ -95,7 +105,7 @@ def web(*, call=None, read=None, now=None, key=None) -> FastAPI:
         drawn = cached.get("bytes")
         if drawn is None or clock() - cached.get("at", 0) > CACHE_S:
             ref = await _draw(go)
-            drawn = fetch(ref)
+            drawn = await fetch(ref)
             cached.update(bytes=drawn, at=clock())
         # NO X-Frame-Options: a tab IS an iframe, and the header that protects every other surface in
         # this lab would make this one render as an empty box in the only place it is meant to be seen.

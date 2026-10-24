@@ -18,7 +18,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from fixtures.fakes import FakeRedis
 from lab.platform import container as container_mod
 from lab.platform import otel, runlog
-from lab.workloads import identity
+from lab.platform import identity
 from lab.workloads.visio_to_archimate import host
 from lab.workloads.visio_to_archimate import workflow
 

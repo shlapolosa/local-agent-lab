@@ -17,7 +17,7 @@ from lab.platform import config, container
 from lab.platform.contracts import ARTIFACT_INTAKE
 from lab.workloads.artifact_intake import agents as A
 from lab.workloads.artifact_intake.workflow import make_cfg, run_workflow
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.run import governed_run
 
 SERVICE = "process-artifact-intake"

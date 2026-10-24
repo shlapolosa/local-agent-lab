@@ -9,7 +9,7 @@ import sys
 
 from lab.workloads.visio_to_archimate import architect_tools as T
 from lab.core.archimate.engine import _TYPES, Model  # (on sys.path via architect_tools)
-from lab.workloads import ids  # (the ONE home of the relation-id formula)
+from lab.core.archimate import ids  # (the ONE home of the relation-id formula)
 
 
 def _tools(acc):

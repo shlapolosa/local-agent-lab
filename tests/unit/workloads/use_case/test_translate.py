@@ -7,7 +7,8 @@ was an improvement, and these say whether it is correct.
 import pytest
 
 from lab.workloads.usecase import coverage
-from lab.workloads.usecase.steps import CAPABILITY_QUERY, schema
+from lab.core.usecase import coverage as core_coverage
+from lab.core.usecase.steps import CAPABILITY_QUERY, schema
 
 CORPUS = [
     {"id": "cap-med", "label": "Medication Management", "level": 1, "parent": None,
@@ -31,7 +32,7 @@ def gated(out, context=None):
 
 
 def test_the_register_sample_teaches_the_language_without_offering_the_map():
-    sample = coverage.register_of(CORPUS, n=3)
+    sample = core_coverage.register_of(CORPUS, n=3)
     assert 0 < len(sample) <= 3
     assert set(sample[0]) == {"label", "definition"}, "no ids — there is nothing here to choose from"
     assert len(sample) < len(CORPUS), "a sample, not the map"
@@ -77,11 +78,11 @@ def test_an_answer_is_reachable_at_the_level_it_lives_at():
     level 2 and level 3, so a matcher offering only leaves cannot return a third of the right
     answers however well it searches."""
     hits = [{"id": "cap-hist", "label": "Medication History Management", "parent": "cap-med"}]
-    widened = coverage.with_parents(hits, CORPUS)
+    widened = core_coverage.with_parents(hits, CORPUS)
     assert {c["id"] for c in widened} == {"cap-hist", "cap-med"}
-    assert coverage.with_parents([], CORPUS) == []
+    assert core_coverage.with_parents([], CORPUS) == []
     # idempotent: a parent already among the candidates is not added twice
-    assert len(coverage.with_parents(widened, CORPUS)) == 2
+    assert len(core_coverage.with_parents(widened, CORPUS)) == 2
 
 
 def test_translate_is_a_registered_strategy_like_any_other():
@@ -109,8 +110,8 @@ def test_leaves_takes_the_matching_grain_from_the_caller_not_a_constant():
     """
     two_deep = [{"id": "d1", "label": "Business", "level": 1, "parent": None},
                 {"id": "c1", "label": "Capability map", "level": 2, "parent": "d1"}]
-    assert coverage.leaves_for(two_deep) == []                       # the constant finds nothing
-    assert [c["id"] for c in coverage.leaves_for(two_deep, deepest=2)] == ["c1"]
+    assert core_coverage.leaves_for(two_deep) == []                       # the constant finds nothing
+    assert [c["id"] for c in core_coverage.leaves_for(two_deep, deepest=2)] == ["c1"]
 
 
 def test_resolve_and_match_carry_the_grain_through_to_the_matcher():

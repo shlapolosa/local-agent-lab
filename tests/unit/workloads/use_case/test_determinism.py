@@ -12,7 +12,7 @@ non-reasoning model exactly reproducible — but it is not on its own a fix, and
 """
 from lab.platform import config
 from lab.workloads.usecase import agents as A
-from lab.workloads.usecase.steps import STEPS
+from lab.core.usecase.steps import STEPS
 
 STEP = next(s for s in STEPS if s.key == "coverage_map")
 

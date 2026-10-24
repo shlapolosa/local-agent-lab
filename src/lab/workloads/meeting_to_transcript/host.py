@@ -17,7 +17,7 @@ import sys
 
 from lab.platform import config, container
 from lab.platform.contracts import MEETING_TO_TRANSCRIPT
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.meeting_to_transcript.workflow import make_cfg, run_workflow
 from lab.workloads.run import governed_run
 

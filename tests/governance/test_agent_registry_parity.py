@@ -20,7 +20,7 @@ import pytest
 
 from lab.platform.contracts import AGENTS, PROCESSES
 from lab.workloads.usecase.identity import PREFIX_FOR
-from lab.workloads.usecase.steps import STEPS
+from lab.core.usecase.steps import STEPS
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "scripts"))
@@ -45,7 +45,7 @@ def test_each_cafe_card_claims_the_processes_its_steps_are_actually_owned_in():
     with what the card claims. A context that gains a design step and keeps a screening-only card
     would otherwise be advertised wrongly for as long as nobody looked."""
     process_of = {"use_case_screening": "use_case_screening", "use_case_design": "use_case_design"}
-    from lab.workloads.usecase.steps import DESIGN_STEPS, SCREENING_STEPS
+    from lab.core.usecase.steps import DESIGN_STEPS, SCREENING_STEPS
     owns: dict[str, set[str]] = {}
     for step in SCREENING_STEPS:
         owns.setdefault(step.service, set()).add(process_of["use_case_screening"])

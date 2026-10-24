@@ -8,6 +8,7 @@ on a corpus that is not what it expected.
 import pytest
 
 from lab.workloads.usecase import coverage
+from lab.core.usecase import coverage as core_coverage
 
 
 def concept(ident, label, level, parent=None):
@@ -40,7 +41,7 @@ def test_an_unknown_matcher_refuses_rather_than_defaulting():
 def test_a_leaf_carries_the_path_that_disambiguates_it():
     """A leaf label is frequently meaningless alone — a match made on the label is a match made on
     a coincidence of words."""
-    leaves = coverage.leaves_for(TREE)
+    leaves = core_coverage.leaves_for(TREE)
     assert [l["label"] for l in leaves] == ["Work Queue Prioritization"]
     assert leaves[0]["path"] == "Work Management > Work Queue Management > Work Queue Prioritization"
 
@@ -48,8 +49,8 @@ def test_a_leaf_carries_the_path_that_disambiguates_it():
 def test_a_corpus_that_is_not_a_concept_list_yields_no_leaves():
     """A deployment missing the scheme, or a different corpus wired by mistake, must degrade to
     "no candidates" and let the step defer — which is what every other absent corpus does."""
-    assert coverage.leaves_for(["not-a-concept", 42, None]) == []
-    assert coverage.leaves_for([]) == []
+    assert core_coverage.leaves_for(["not-a-concept", 42, None]) == []
+    assert core_coverage.leaves_for([]) == []
 
 
 # ---------------------------------------------------------------- the choice
@@ -82,7 +83,7 @@ def test_a_drill_composes_to_one_row_per_function():
              {"level": 3, "candidates": 4, "matched": [
                   {"function": "triage", "capability_id": "c",
                    "capability_label": "Work Queue Prioritization", "confidence": "lookup"}]}]
-    matched = coverage.composed(trail)["matched"]
+    matched = core_coverage.composed(trail)["matched"]
     assert len(matched) == 1
     assert matched[0]["capability_label"] == "Work Queue Prioritization"
     assert matched[0]["path"] == ["Work Management", "Work Queue Prioritization"]
@@ -95,7 +96,7 @@ def test_a_corpus_row_s_own_path_is_used_when_it_has_one():
     in the working set) still carries what disambiguates it."""
     rows = [{"id": "c", "label": "Work Queue Prioritization", "level": 3, "parent": "b",
              "path": "Work Management > Work Queue Management > Work Queue Prioritization"}]
-    assert coverage.leaves_for(rows)[0]["path"].startswith("Work Management >")
+    assert core_coverage.leaves_for(rows)[0]["path"].startswith("Work Management >")
 
 
 # ---------------------------------------------------------------- the vector strategy
@@ -105,8 +106,8 @@ def test_a_query_is_made_per_behavioural_element_and_never_per_actor_or_datum():
                 "behavioural": [{"name": "Triage referral", "verb": "prioritise", "object": "referral"},
                                 {"name": "Book slot"}, {"name": "Triage referral"}],
                 "passive": [{"name": "Referral record"}]}
-    assert coverage.queries_for(elements) == ["Triage referral — prioritise referral", "Book slot"]
-    assert coverage.queries_for(None) == []
+    assert core_coverage.queries_for(elements) == ["Triage referral — prioritise referral", "Book slot"]
+    assert core_coverage.queries_for(None) == []
 
 
 def test_hits_become_candidates_by_record_id_de_duplicated_with_label_and_path():
@@ -114,7 +115,7 @@ def test_hits_become_candidates_by_record_id_de_duplicated_with_label_and_path()
     hit = lambda ident, path: {"content": [{"type": "text", "text": f"{path}. A definition. With dots"}],
                                "attributes": {"key": f'{{"id": "{ident}", "parent": "p", "level": "3"}}',
                                               "path": path, "label": path.rsplit(" > ", 1)[-1]}}
-    out = coverage.candidates_from_hits([hit("x", "A > B > C"), hit("y", "A > D"), hit("x", "A > B > C"),
+    out = core_coverage.candidates_from_hits([hit("x", "A > B > C"), hit("y", "A > D"), hit("x", "A > B > C"),
                                          {"content": [], "attributes": {}}])
     assert out == [{"id": "x", "label": "C", "path": "A > B > C"},
                    {"id": "y", "label": "D", "path": "A > D"}]
@@ -166,7 +167,7 @@ def test_the_vector_matcher_unions_the_hits_and_runs_one_pass_over_them():
     assert [q for q, _ in search.calls] == ["Triage referral", "Book slot"]
     assert all(k == coverage.VECTOR_HITS for _, k in search.calls)
     assert [c["id"] for c in d.contexts[0]["capabilities"]] == ["a", "b", "c"], "the union, once each"
-    assert out["capability_depth"] == coverage.DEEPEST_LEVEL
+    assert out["capability_depth"] == core_coverage.DEEPEST_LEVEL
     assert out["coverage_trail"][0]["candidates"] == 3
 
 
@@ -258,8 +259,8 @@ def test_the_candidate_list_is_a_pure_function_of_the_corpus_it_was_built_from()
                                     "Work Queue Prioritization"}}]
 
     def build():
-        return coverage.with_parents(
-            coverage.with_siblings(coverage.candidates_from_hits(hits), corpus, deepest=3), corpus)
+        return core_coverage.with_parents(
+            core_coverage.with_siblings(core_coverage.candidates_from_hits(hits), corpus, deepest=3), corpus)
 
     first = build()
     assert [c["id"] for c in first] == ["c", "e", "b"]    # the hit, its sibling, then its branch
@@ -269,10 +270,10 @@ def test_the_candidate_list_is_a_pure_function_of_the_corpus_it_was_built_from()
 
 def test_the_leaves_a_matcher_offers_repeat_for_the_same_corpus():
     corpus = TREE + [concept("e", "Work Queue Routing", 3, "b")]
-    first = coverage.leaves_for(corpus, deepest=3)
+    first = core_coverage.leaves_for(corpus, deepest=3)
     assert [c["id"] for c in first] == ["c", "e"]
     for _ in range(5):
-        assert coverage.leaves_for(corpus, deepest=3) == first
+        assert core_coverage.leaves_for(corpus, deepest=3) == first
 
 
 def test_the_branch_widening_works_on_what_the_pipeline_actually_hands_it():
@@ -287,9 +288,9 @@ def test_the_branch_widening_works_on_what_the_pipeline_actually_hands_it():
     therefore resolved from the CORPUS, which is the only place the parent is actually known.
     """
     corpus = TREE + [concept("e", "Work Queue Routing", 3, "b")]
-    from_pipeline = coverage.candidates_from_hits(
+    from_pipeline = core_coverage.candidates_from_hits(
         [{"attributes": {"key": '{"id": "c"}', "label": "Work Queue Prioritization",
                          "path": "Work Management > Work Queue Management > "
                                  "Work Queue Prioritization"}}])
     assert "parent" not in from_pipeline[0], "the fixture must be what the pipeline really emits"
-    assert [c["id"] for c in coverage.with_parents(from_pipeline, corpus)] == ["c", "b"]
+    assert [c["id"] for c in core_coverage.with_parents(from_pipeline, corpus)] == ["c", "b"]

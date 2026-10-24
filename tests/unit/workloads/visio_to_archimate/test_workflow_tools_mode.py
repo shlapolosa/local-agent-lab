@@ -7,7 +7,7 @@ Run: .venv/bin/python tests/unit/workloads/visio_to_archimate/test_workflow_tool
 
 
 from lab.workloads.visio_to_archimate import workflow as W
-from lab.workloads import ids
+from lab.core.archimate import ids
 from fixtures.workflow import (  # noqa: E402
     BA_OK, SPEC_OK, Agents, FakeResult, harness, image_block, raises, run, text_block, text_of)
 

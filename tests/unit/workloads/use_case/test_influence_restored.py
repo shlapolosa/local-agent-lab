@@ -25,7 +25,7 @@ from lab.core.usecase.model import Step, Workflow
 from lab.workloads.use_case_design import workflow as design
 
 ROOT = Path(__file__).resolve().parents[4]
-SCHEMA = json.loads((ROOT / "src/lab/workloads/usecase/schemas/facet_vectors.schema.json").read_text())
+SCHEMA = json.loads((ROOT / "src/lab/core/usecase/schemas/facet_vectors.schema.json").read_text())
 ITEM = SCHEMA["properties"]["steps"]["items"]
 
 

@@ -38,7 +38,7 @@ from lab.substrate import agentregistry                            # noqa: E402
 def _identity(prefix: str) -> tuple[str, str]:
     """This agent's virtual key and Entra client id, or empty strings.
 
-    The same `<PREFIX>_KEY` / `<PREFIX>_CLIENT_ID` stems `lab.workloads.identity.agent_headers`
+    The same `<PREFIX>_KEY` / `<PREFIX>_CLIENT_ID` stems `lab.platform.identity.agent_headers`
     reads, so a card can never claim an identity the run does not authenticate with. The SECRET is
     deliberately not read: nothing here needs it, and a value never loaded cannot be logged.
     """

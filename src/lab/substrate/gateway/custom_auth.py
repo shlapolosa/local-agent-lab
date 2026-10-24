@@ -28,11 +28,14 @@ The rule, applied only to paths `lab.substrate.apipolicy` governs:
   * a static virtual key -> DENIED, because a key carries no roles and every /api caller is an app
     registration by design. The MASTER key is excepted: it is the admin plane, the APIM equivalent of
     a full-rights subscription key, and operations need a way in.
-  * a delegated USER token (`access_as_user`) -> DENIED on /api: it carries `scp`, not `roles`. A
-    signed-in human decides at the review app, which calls the gate in-process. A browser client
-    deciding through /api would need a delegated-scope branch here; there is no such caller today.
+  * a delegated PERSON token (any `scp`, or `idtyp=user`) -> the person (or a group they are in) must
+    hold the operation's role, and the body is held to the token: `actor` (decide) / `requester`
+    (submit) must be that person, and a decide may label its channel only `connector`. A custom
+    connector can carry nothing else (user decision 24 Oct 2026, docs/decisions/2026-10-24-to-be-seam.md).
 This is the APIM `<required-claims>` analogue and migrates as configuration: the table moves, the
-enforcement moves to the edge policy, and nothing in the front door changes either way.
+enforcement moves to the edge policy, and nothing in the front door changes either way. MIGRATION
+ITEM: the actor/requester/channel check has no `validate-jwt` equivalent — on APIM it is a policy
+expression on the decide and submit operations comparing the body to the `preferred_username` claim.
 """
 import json
 import logging
@@ -105,13 +108,18 @@ async def user_api_key_auth(request: Request, api_key: str):
                              f"tenant ({type(e).__name__}: {e})") from e
         return None
     # --- interactive DEVELOPER tokens (delegated scope) -> JIT personal virtual key ---
-    if "access_as_user" in (claims.get("scp") or ""):
+    # A PERSON's token is recognised by its TYPE — Entra puts `scp` only on delegated tokens, and v2
+    # tokens say `idtyp=user` — never by one scope's name, or a token for a future scope would fall
+    # into the app path below and skip the actor check.
+    if "scp" in claims or claims.get("idtyp") == "user":
+        if not _person(claims):
+            raise ValueError("a delegated token names no person (no preferred_username, upn or oid)")
         if api:
-            raise ValueError(
-                f"{method} {path} is authorised by APP ROLES, which a delegated user token does not "
-                "carry. A signed-in person decides at the review app, which reaches the gate "
-                "in-process; a relay calls this door with its own app registration and records the "
-                "person as `actor`.")
+            # A PERSON on /api — what a custom connector carries, since connectors have no client
+            # credentials grant (user decision 24 Oct 2026). The person must hold the operation's app
+            # role (assigned to them or a group on lab-gateway), and must act as THEMSELVES.
+            _authorise(method, path, claims, _person(claims))
+            await _hold_to_the_token(method, path, claims, request)
         return await _developer_key(claims)
     # --- agent (client-credentials) tokens -> static app->key mapping ---
     app_id = claims.get("azp") or claims.get("appid")
@@ -123,6 +131,38 @@ async def user_api_key_auth(request: Request, api_key: str):
     return vkey
 
 
+def _person(claims: dict) -> str:
+    return str(claims.get("preferred_username") or claims.get("upn") or claims.get("oid") or "")
+
+
+#: Where a delegated caller names a person in the body, and the operation that carries it. The caller's
+#: identity does not survive the hop to the front door, so the gateway holds the body to the token here:
+#: nobody records a decision, or starts a run, in somebody else's name.
+_SELF_FIELDS = {"approvals.decide": "actor", "processes.submit": "requester"}
+#: The audit channel a person's own call may name. A relay (the review app) names itself; a person must
+#: not borrow that label, or the log would credit a decision to a surface that never saw it.
+_PERSON_CHANNELS = {"", "connector"}
+
+
+async def _hold_to_the_token(method: str, path: str, claims: dict, request) -> None:
+    op = apipolicy.operation(method, path)
+    field = _SELF_FIELDS.get(op.name) if op else None
+    if not field:
+        return
+    # LiteLLM's own auth-time pre-read: it caches the parsed body, so the pass-through reads the same one.
+    from litellm.proxy.common_utils.http_parsing_utils import _read_request_body
+    body = await _read_request_body(request)
+    named = str((body or {}).get(field) or "").strip()
+    me = _person(claims)
+    if named.lower() != me.lower():
+        raise ValueError(f"{method} {path}: a signed-in person acts as themselves — `{field}` must be "
+                         f"{me!r}, not {named or 'missing'!r}")
+    channel = str((body or {}).get("channel") or "").strip()
+    if channel not in _PERSON_CHANNELS:
+        raise ValueError(f"{method} {path}: a person's own call records channel 'connector' (or none), "
+                         f"not {channel!r} — that label belongs to a relay identity")
+
+
 def _is_master(token: str) -> bool:
     """The admin plane — the APIM full-rights subscription key. Compared explicitly rather than
     allowing every non-JWT credential, and false when no master key is configured, so an unset
@@ -131,7 +171,7 @@ def _is_master(token: str) -> bool:
     return bool(master) and token == master
 
 
-def _authorise(method: str, path: str, claims: dict, app_id: str) -> None:
+def _authorise(method: str, path: str, claims: dict, app_id: str) -> None:   # app_id: who holds the roles
     """The `<required-claims>` check. Raises with the role it wanted and the roles the caller holds —
     an app registration missing a role assignment is the likeliest cause and the error should say so
     rather than leave someone guessing at a bare 401."""
@@ -142,7 +182,7 @@ def _authorise(method: str, path: str, claims: dict, app_id: str) -> None:
     roles = tuple(claims.get("roles") or ())
     if op.role not in roles:
         raise ValueError(f"{method} {path} ({op.name}: {op.description}) requires the {op.role!r} app "
-                         f"role; app registration {app_id} holds {list(roles) or 'no roles'}")
+                         f"role; caller {app_id} holds {list(roles) or 'no roles'}")
 
 
 _MAPPING = {"raw": None, "parsed": {}}

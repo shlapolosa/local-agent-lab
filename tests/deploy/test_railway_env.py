@@ -227,11 +227,24 @@ def test_adoit_mcp_receives_exactly_what_it_consumes():
 
 def test_the_front_door_holds_redis_and_two_links_and_no_store():
     """The role that carries the process tools AND the approval gate: Redis is its ONLY backend, and
-    the two URLs are addresses a reviewer follows — never a store or bucket credential."""
+    the URLs are addresses — two a reviewer follows, and storage-mcp's, where `/api/artifacts` and
+    `/api/uploads` are forwarded — never a store or bucket credential."""
     env = railway.env_for_role("workflow-frontdoor", FAKE)
-    assert set(env) == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
-                        "REVIEW_APP_URL", "JAEGER_UI_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"}
+    assert set(env) - {"STORAGE_MCP_URL", "PUBLIC_GATEWAY_URL"} == {"MCP_SHARED_SECRET", "BIND_HOST", "REDIS_URL",
+                                              "REVIEW_APP_URL", "JAEGER_UI_URL",
+                                              "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not _has(env, "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_", "ADOIT_", "LITELLM_")
+
+
+def test_the_review_app_is_a_client_of_the_seam_and_holds_no_store():
+    """TO-BE (24 Oct 2026): the review app reaches the gate, runs, uploads, artifacts and the corpus
+    through the gateway as its own Entra identity. So it holds ADDRESSES and its own registration —
+    never Redis, a store, a bucket key, a database DSN or the substrate's shared secret."""
+    rv = railway.env_for_role("review", FAKE, s3=bool(railway.SUBSTRATE["review"].get("s3")))
+    assert {"GATEWAY_URL", "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",
+            "ENTRA_TENANT_ID"} <= set(rv)
+    assert not _has(rv, "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "UPLOADS_URL", "S3_",
+                    "MCP_SHARED_SECRET", "REFERENCE_", "LITELLM_", "ADOIT_")
 
 
 def test_graph_mcp_holds_its_provider_credential_the_bucket_and_nothing_else():
@@ -278,15 +291,10 @@ def test_storage_mcp_and_review_s3_gating():
     assert set(st) == s3 | {"MCP_SHARED_SECRET", "BIND_HOST", "ARTIFACTS_URL", "DATABASE_URL",
                             "BA_MAX_DOC_CHARS", "OTEL_EXPORTER_OTLP_ENDPOINT"}
     assert not (set(railway.env_for_role("storage-mcp", FAKE, s3=False)) & s3)   # flag off -> none
-    rv = railway.env_for_role("review", FAKE, s3=True)
-    assert set(rv) == s3 | {"REVIEW_APP_PASSWORD", "REDIS_URL", "ARTIFACTS_URL", "DATABASE_URL", "JAEGER_UI_URL",
-                            "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET",
-                            # the app signs a PERSON in, so the approval ledger names somebody the
-                            # tenant vouches for. Still NO gateway credential: SSO is identity only,
-                            # and a delegated token is refused on /api anyway.
-                            "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",
-                            "ENTRA_TENANT_ID", "REVIEW_APP_URL"}
-    assert not ({"GATEWAY_URL", "LITELLM_MASTER_KEY"} & set(rv)), "identity only, not a caller"
+    # the review app is a CLIENT of the seam: the flag is off, and its role grants no bucket key
+    assert not railway.SUBSTRATE["review"].get("s3")
+    assert not (set(railway.env_for_role("review", FAKE, s3=False)) & s3)
+    rv = railway.env_for_role("review", FAKE)
     assert "RAILWAY_BUCKET_ID" not in rv
     # the SUBSTRATE table itself: only services flagged s3 can ever see the bucket credentials
     for name, spec in railway.SUBSTRATE.items():
@@ -652,13 +660,14 @@ def test_the_gateway_reaches_the_substrate_s_own_embedder_over_the_private_netwo
 def test_the_derivation_servers_read_the_corpus_through_reference_mcp_and_hold_no_dsn():
     """A pure derivation holds no reader credential; its provider is `mcp`, its address the corpus
     server's, its bearer the substrate's shared secret."""
-    for role in ("decision-mcp", "valuation-mcp", "review"):
+    for role in ("decision-mcp", "valuation-mcp"):
         env = railway.substrate_env(role, railway.SUBSTRATE[role], FAKE)
         assert env["REFERENCE_PROVIDER"] == "mcp", role
         assert env["REFERENCE_MCP_URL"].startswith("http://reference-mcp.railway.internal")
-        assert "REFERENCE_DB_URL" not in env, role
-        if role != "review":                       # review holds the LiteLLM DSN for artifacts, not the corpus
-            assert "DATABASE_URL" not in env, role
+        assert "REFERENCE_DB_URL" not in env and "DATABASE_URL" not in env, role
+    # the review app reads the corpus through GATEWAY MCP as its own identity, not substrate-to-substrate
+    review = railway.substrate_env("review", railway.SUBSTRATE["review"], FAKE)
+    assert not {"REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_DB_URL", "DATABASE_URL"} & set(review)
 
 
 def test_the_embedder_serves_a_query_beside_a_publish_batch_not_behind_it():

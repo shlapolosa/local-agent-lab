@@ -1426,7 +1426,7 @@ VISIO_TO_ARCHIMATE = ProcessSpec(
 class AgentSpec:
     """One agent, declared ONCE: who it is, which identity it authenticates as, and what it does.
 
-    `prefix` is the environment prefix `lab.workloads.identity.agent_headers` already uses — the same
+    `prefix` is the environment prefix `lab.platform.identity.agent_headers` already uses — the same
     stem behind `<PREFIX>_CLIENT_ID` / `_CLIENT_SECRET` / `_KEY`. Naming it here rather than inventing
     a second identifier is what lets a test assert that every agent this lab RUNS is an agent it also
     PUBLISHES, and vice versa.

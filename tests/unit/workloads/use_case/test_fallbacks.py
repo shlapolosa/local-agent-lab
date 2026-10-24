@@ -5,10 +5,10 @@ import functools
 
 import pytest
 
-from lab.workloads.usecase import fallbacks
+from lab.core.usecase import fallbacks
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.gates import gate
-from lab.workloads.usecase.steps import STEPS
+from lab.core.validation import gate
+from lab.core.usecase.steps import STEPS
 
 ELEMENTS = {"active": [{"name": "nurse", "kind": "role", "provenance": "for_whom"}],
             "behavioural": [{"name": "triage referral", "verb": "triage", "object": "referral",

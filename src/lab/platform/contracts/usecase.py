@@ -258,7 +258,7 @@ AGENTS: tuple[AgentSpec, ...] = (
     # attributes per identity, so "the risk officer costs four times what the cost engineer does" is
     # a fact somebody can read rather than infer, and a wrong answer is attributable to the context
     # that gave it rather than to "the use-case workload". `processes` here mirrors which steps each
-    # context OWNS in `lab.workloads.usecase.steps`; the parity test is what keeps the two agreeing,
+    # context OWNS in `lab.core.usecase.steps`; the parity test is what keeps the two agreeing,
     # since this tier may not import a workload to derive it.
     AgentSpec(name="usecase-business-analyst", prefix="USECASE_BA",
               description="Frames a submitted use case and maps the workflow it implies.",

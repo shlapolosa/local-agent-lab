@@ -35,7 +35,7 @@ __all__ = ["RoadmapStep", "build", "index_from"]
 _ROW = re.compile(r"^(?P<id>\S+)\s+(?P<title>.*?)\s+(?P<kind>Pre-work|Decision|Gate)\s*$")
 
 #: `published id -> ((number, record key, agent, process, reads), …)`. INJECTED, never imported: the facts come
-#: from `lab.workloads.usecase.steps`, and `substrate` may not import `workloads` — that seam is what
+#: from `lab.core.usecase.steps`, and `substrate` may not import `workloads` — that seam is what
 #: keeps a workload reachable only over the network. So they are derived into a published artifact
 #: (`process-step-keys`, by `scripts/derive_process_step_keys.py`) and read from the corpus like
 #: every other reference. `index_from` turns those rows into this shape.

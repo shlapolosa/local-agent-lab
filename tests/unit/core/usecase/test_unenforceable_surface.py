@@ -12,7 +12,7 @@ the approver is shown a design with a known-unenforceable obligation and no line
 This is a LOGIC gap, not a corpus one: `surface-enforceability` is published and is already in
 step 20's context.
 """
-from lab.workloads.usecase import owed
+from lab.core.usecase import owed
 
 
 def test_an_obligation_the_surface_cannot_enforce_is_owed():

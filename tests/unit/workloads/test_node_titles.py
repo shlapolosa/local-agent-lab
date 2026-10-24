@@ -7,7 +7,7 @@ it is for, so the label is stamped with the node and the page renders whatever a
 from lab.platform import runlog
 from lab.workloads import gateway
 from lab.workloads.usecase import derivation
-from lab.workloads.usecase.steps import step_for
+from lab.core.usecase.steps import step_for
 
 
 def test_a_node_span_carries_whatever_the_declaration_said(monkeypatch):

@@ -92,7 +92,7 @@ def test_a_step_reports_VALUES_not_the_names_of_their_types():
     """`problem: str` tells a reader nothing — and the page already shows that very string, in
     full, as its heading. A type name where a value would fit is not a safeguard, it is a worse
     page. The gate is the control; this is what it is guarding."""
-    from lab.workloads.usecase.derivation import outline
+    from lab.core.usecase.outline import outline
 
     out = {"problem": "referrals take too long", "existing": False, "depth": 3}
     assert outline(out) == {"problem": "referrals take too long", "existing": False, "depth": 3}
@@ -100,7 +100,7 @@ def test_a_step_reports_VALUES_not_the_names_of_their_types():
 
 def test_a_list_shows_ITS_ITEMS_and_says_how_many_there_are():
     """A count alone is the same complaint one level down: "matched: 13" does not say which 13."""
-    from lab.workloads.usecase.derivation import outline
+    from lab.core.usecase.outline import outline
 
     got = outline({"matched": [{"capability_id": "Business · X"}, {"capability_id": "Cognitive · Y"}]})
     assert got["matched"]["count"] == 2
@@ -110,7 +110,7 @@ def test_a_list_shows_ITS_ITEMS_and_says_how_many_there_are():
 def test_a_long_list_is_truncated_and_SAYS_it_was():
     """The run log is a Redis hash read on every frame. A truncation nobody is told about is the
     failure this codebase keeps naming: a partial answer indistinguishable from a complete one."""
-    from lab.workloads.usecase.derivation import outline, MAX_ITEMS
+    from lab.core.usecase.outline import outline, MAX_ITEMS
 
     got = outline({"rows": [f"row {i}" for i in range(MAX_ITEMS + 9)]})
     assert got["rows"]["count"] == MAX_ITEMS + 9
@@ -119,7 +119,7 @@ def test_a_long_list_is_truncated_and_SAYS_it_was():
 
 
 def test_a_long_string_is_capped():
-    from lab.workloads.usecase.derivation import outline, MAX_CHARS
+    from lab.core.usecase.outline import outline, MAX_CHARS
     got = outline({"problem": "x" * (MAX_CHARS + 200)})["problem"]
     assert len(got) <= MAX_CHARS + 1 and got.endswith("…")
 
@@ -127,7 +127,7 @@ def test_a_long_string_is_capped():
 def test_the_whole_outline_is_bounded_so_one_step_cannot_bloat_the_board():
     """Every frame carries this to every watcher. A step that produced a hundred long rows must
     not make the run hash something nobody wants to read per second."""
-    from lab.workloads.usecase.derivation import outline, MAX_BYTES
+    from lab.core.usecase.outline import outline, MAX_BYTES
     import json
     big = {f"field_{i}": ["y" * 200] * 50 for i in range(40)}
     assert len(json.dumps(outline(big))) <= MAX_BYTES
@@ -137,7 +137,7 @@ def test_an_item_is_named_by_whatever_it_calls_itself():
     """Records in this corpus identify themselves differently by step — a capability by
     `capability_id`, an element by `name`. Guessing one field would show `[object Object]` for the
     rest."""
-    from lab.workloads.usecase.derivation import outline
+    from lab.core.usecase.outline import outline
     got = outline({"a": [{"name": "nurse"}], "b": [{"label": "triage"}], "c": ["plain"]})
     assert got["a"]["items"] == ["nurse"]
     assert got["b"]["items"] == ["triage"]
@@ -145,5 +145,5 @@ def test_an_item_is_named_by_whatever_it_calls_itself():
 
 
 def test_an_empty_or_odd_output_does_not_raise():
-    from lab.workloads.usecase.derivation import outline
+    from lab.core.usecase.outline import outline
     assert outline({}) == {} and outline(None) == {} and outline([1, 2]) == {}

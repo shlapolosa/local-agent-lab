@@ -1,10 +1,10 @@
-"""src/lab/workloads/ids.py — the relation-id formula is a CONTRACT (ADOIT matches on it at re-import), so it
+"""src/lab/core/archimate/ids.py — the relation-id formula is a CONTRACT (ADOIT matches on it at re-import), so it
 is pinned to fixed outputs, not re-derived from the implementation.
 Run: .venv/bin/python tests/unit/workloads/test_ids.py   (also pytest-compatible)"""
 import hashlib
 
 
-from lab.workloads.ids import rid, slug
+from lab.core.archimate.ids import rid, slug
 
 
 def test_rid_is_the_documented_formula():
@@ -29,9 +29,9 @@ def test_slug_rule():
 
 
 def test_workflow_uses_the_shared_rid():
-    """One relation-id formula in the repo: workflow.py binds lab.workloads.ids.rid, no private copy."""
+    """One relation-id formula in the repo: workflow.py binds lab.core.archimate.ids.rid, no private copy."""
     from lab.workloads.visio_to_archimate import workflow
-    from lab.workloads import ids
+    from lab.core.archimate import ids
     assert workflow._rid is ids.rid
     assert "def _rid" not in open(workflow.__file__, encoding="utf-8").read()
 

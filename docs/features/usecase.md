@@ -4,8 +4,8 @@
 
 **The use-case workflow grows ONE ArchiMate model, step by step, and its views are projections of
 it (14 Sep 2026).** After every step is recorded — the agent steps and the governed derivations
-alike — a deterministic MAPPER (`lab.workloads.usecase.mappers.MAPPERS`, keyed by step KEY, one
-entry per step) writes that step's output onto `lab.workloads.usecase.model.Model`: the frame as
+alike — a deterministic MAPPER (`lab.core.usecase.mappers.MAPPERS`, keyed by step KEY, one
+entry per step) writes that step's output onto `lab.core.usecase.run_model.Model`: the frame as
 motivation, step 4's elements as actors/functions/objects, the coverage match as capabilities
 realised by functions, the workflow graph as processes (`bp-<node id>` — the ONE element steps 10,
 15, 17, 18 and 19 all land on, because they share the node id), obligations as constraints, the
@@ -63,7 +63,7 @@ default (one store + one render per step); `model_trace` never enters a prompt.
 **A screening step whose tenant corpus is unpublished records a DECLARED default (13 Sep 2026).**
 Steps 6, 8 and 11 read corpora this tenant does not have (the as-is landscape, the business service
 levels, the source classification). Rather than stay pending and fail readiness gate C on every case,
-each records the conservative reading of not knowing — `lab.workloads.usecase.fallbacks`: nothing is
+each records the conservative reading of not knowing — `lab.core.usecase.fallbacks`: nothing is
 realised, no service level is committed, every source contracted at the tightest classification —
 validated and gated exactly like an answer, and listed under `defaulted_steps` on the screening
 record and as `screening_defaulted_steps` on both design summaries. Defaulted is neither derived nor
@@ -81,7 +81,7 @@ split wherever the ACTION changes (retrieving is not interpreting, interpreting 
 `steps._decomposes` refuses a graph whose every node is a function renamed, one-for-one. A function
 that genuinely is one step stays one node — what is refused is EVERY function being one.
 And step 21's family rule no longer waits on an authored column the reference architecture does not
-have: `lab.workloads.usecase.families` follows the published chain **family → guardrail (the
+have: `lab.core.usecase.families` follows the published chain **family → guardrail (the
 composition's own enforcement map) → capability (`guardrails.cap`) → components
 (`ai-capability-map.components`)**, recorded before step 21 so the architect sees what each component
 would satisfy and the gate holds the selection to it. It is PARTIAL by nature — ten of twenty-six

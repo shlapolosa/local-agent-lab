@@ -22,7 +22,7 @@ from pathlib import Path
 
 from lab.platform import config, container, otel
 from lab.platform.contracts import VISIO_TO_ARCHIMATE, ArtifactRef
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.run import governed_run
 from lab.workloads.visio_to_archimate.workflow import make_cfg, run_workflow
 

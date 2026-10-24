@@ -22,7 +22,7 @@ from lab.core.semantic.fabric.ontology import (CONTEXT_IRI, DELIVERED_UNDER, DOC
                                                SUBJECT, short)
 from lab.core.semantic.fabric.rungs import CONSTRUCTED, IMPACT_READS
 from lab.platform import config, fabric_events, streams, workflows
-from lab.platform.filetypes import file_slug as slug
+from lab.core.canon import file_slug as slug
 from lab.platform.contracts import ARTIFACT_PUBLISH, CollabTools, SemanticTools, WorkflowStatus
 from lab.substrate import fabric_gateway
 

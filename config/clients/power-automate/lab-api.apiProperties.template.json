@@ -1,0 +1,31 @@
+{
+  "properties": {
+    "connectionParameters": {
+      "token": {
+        "type": "oauthSetting",
+        "oAuthSettings": {
+          "identityProvider": "aad",
+          "clientId": "${CONNECTOR_CLIENT_ID}",
+          "scopes": ["${ENTRA_GATEWAY_AUDIENCE}/access_as_user"],
+          "redirectMode": "Global",
+          "redirectUrl": "https://global.consent.azure-apim.net/redirect",
+          "properties": {
+            "IsFirstParty": "False",
+            "AzureActiveDirectoryResourceId": "${ENTRA_GATEWAY_AUDIENCE}",
+            "IsOnbehalfofLoginSupported": false
+          },
+          "customParameters": {
+            "loginUri": {"value": "https://login.microsoftonline.com"},
+            "tenantId": {"value": "${ENTRA_TENANT_ID}"},
+            "resourceUri": {"value": "${ENTRA_GATEWAY_AUDIENCE}"},
+            "enableOnbehalfOfLogin": {"value": "false"}
+          }
+        }
+      }
+    },
+    "iconBrandColor": "#2B5797",
+    "capabilities": [],
+    "publisher": "Local Agent Lab",
+    "stackOwner": "Local Agent Lab"
+  }
+}

@@ -380,7 +380,7 @@ def test_substrate_up_fresh_project_creates_configures_and_deploys_in_order():
     st = upserts["svc-storage-mcp"]["variables"]
     assert st["S3_ENDPOINT"] == "https://s3.example" and st["UPLOADS_URL"] == "s3://lab-uploads/uploads"
     assert st["BIND_HOST"] == "::" and st["ARTIFACTS_URL"] == "postgresql://fake/db"   # $VAR expanded
-    assert "S3_ENDPOINT" in upserts["svc-review"]["variables"]
+    assert "S3_ENDPOINT" not in upserts["svc-review"]["variables"]   # a client of the seam: uploads via /api
     # graph-mcp is the THIRD holder of bucket credentials: collab_fetch streams what it fetches in
     gm = upserts["svc-graph-mcp"]["variables"]
     assert gm["S3_ENDPOINT"] == "https://s3.example" and gm["UPLOADS_URL"] == "s3://lab-uploads/uploads"
@@ -679,7 +679,7 @@ def test_bucket_up_creates_once_and_writes_cloud_lines_to_env():
     assert fake.ops("bucketCreate")[0][1]["in"] == {"projectId": "proj-fake", "environmentId": "env-fake",
                                                     "name": rw.BUCKET_NAME}
     assert fake.ops("bucketS3Credentials")[0][1] == {"b": "bkt-new-0001"}
-    assert "bucket lab-uploads created bkt-new-" in text and "applies to review + storage-mcp" in text
+    assert "bucket lab-uploads created bkt-new-" in text and "applies to storage-mcp" in text
     s = open(env_path).read()
     for line in ("# CLOUD: RAILWAY_BUCKET_ID=bkt-new-0001", "# CLOUD: S3_ENDPOINT=https://s3.example",
                  "# CLOUD: S3_REGION=", "# CLOUD: S3_ACCESS_KEY_ID=AK1", "# CLOUD: S3_SECRET_ACCESS_KEY=SK1",
@@ -700,7 +700,8 @@ def test_bucket_up_creates_once_and_writes_cloud_lines_to_env():
     # the deploy profile now carries the bucket to the services flagged s3 only
     pool = rw.load_env_for_cloud()
     assert pool["S3_ENDPOINT"] == "https://s3-2.example"
-    assert "S3_ENDPOINT" in rw.substrate_env("review", rw.SUBSTRATE["review"], pool)
+    assert "S3_ENDPOINT" in rw.substrate_env("storage-mcp", rw.SUBSTRATE["storage-mcp"], pool)
+    assert "S3_ENDPOINT" not in rw.substrate_env("review", rw.SUBSTRATE["review"], pool)
     assert "S3_ENDPOINT" not in rw.substrate_env("gateway", rw.SUBSTRATE["gateway"], pool)
 
 

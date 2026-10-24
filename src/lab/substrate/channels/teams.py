@@ -41,16 +41,11 @@ Run: .venv/bin/python -m lab.substrate.channels.teams   (loop; exits immediately
 """
 import json
 
-from lab.platform import config, contracts, streams
+from lab.platform import config, streams
 from lab.platform.contracts import ApprovalAudience
 from lab.platform.webhook import post_json
-from lab.substrate import approvals
+from lab.substrate import approval_card, approvals
 
-MAX_SAMPLE = 160        # a sample is evidence for recognition, not a transcript excerpt
-CARD_SCHEMA = "http://adaptivecards.io/schemas/adaptive-card.json"
-CARD_VERSION = "1.4"                    # Teams renders up to 1.5; 1.4 is the safe floor everywhere
-SUMMARY_FACTS = (("Elements", "elements"), ("Relationships", "relations"), ("Views", "views"),
-                 ("Violations", "violations"), ("Warnings", "warnings"))
 
 
 class TeamsChannel:
@@ -74,131 +69,20 @@ class TeamsChannel:
 
     # --- outbound: request -> human ---
     def card(self, f):
-        """The Teams message envelope wrapping one Adaptive Card. Pure — no I/O, so it is the thing
-        the tests assert on.
-
-        Payload-driven, never kind-driven. An approval that carries a `question` is rendered as one;
-        an approval that carries a `summary` is rendered as one. Nothing here dispatches on the
-        approval KIND, which is what lets a new kind of question reach every channel without any of
-        them being edited — the same property the review app and the approval tools keep.
-        """
-        payload = json.loads(f.get("payload") or "{}") or {}
-        question = payload.get("question") or {}
-        body = [{"type": "TextBlock", "text": f'Approval needed: {f["kind"]}',
-                 "weight": "Bolder", "size": "Large", "wrap": True},
-                {"type": "TextBlock", "text": f.get("subject", ""), "spacing": "None",
-                 "isSubtle": True, "wrap": True}]
-        body += self._question_blocks(question) if question else self._summary_blocks(f, payload)
-
-        # The deep link carries the request id: a reviewer with three approvals open should not have
-        # to go and find theirs.
-        # The label says what the reviewer is actually being asked to do — answering a question and
-        # releasing a staged write are different acts and should not read the same.
-        inputs, submit = (self._answer_inputs(question, str(f.get("request_id") or ""))
-                          if self.answers_on_card and question else ([], []))
-        actions = [{"type": "Action.OpenUrl",
-                    "title": "Answer in the review app" if question else "Review & decide",
-                    "url": f'{self.review_url.rstrip("/")}?approval={f["request_id"]}'}]
-        trace = approvals.trace_url(f.get("trace_id"), self.jaeger_url)   # one link construction
-        if trace:
-            actions.append({"type": "Action.OpenUrl", "title": "Open trace", "url": trace})
+        """The Teams message envelope wrapping one Adaptive Card. The card itself is
+        `lab.substrate.approval_card` — shared with `GET /api/approvals/{id}/card`, so a low-code
+        flow and this channel show a person the same thing."""
+        content = approval_card.card(f, review_url=self.review_url, jaeger_url=self.jaeger_url,
+                                     answers=self.answers_on_card)
         return {"type": "message", "attachments": [{
             "contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
-            "content": {"$schema": CARD_SCHEMA, "type": "AdaptiveCard", "version": CARD_VERSION,
-                        "body": body + inputs, "actions": submit + actions}}]}
+            "content": content}]}
 
     #: Whether THIS channel's webhook is a flow that WAITS for a response. A card only carries inputs when
     #: something can receive them: Teams renders `Action.Submit` on any card, and a button that silently
     #: does nothing is worse than none — which is why the honest default is False and why it is a setting
     #: rather than a guess. Turn it on with the waiting flow, not before.
     answers_on_card: bool = False
-
-    def _answer_inputs(self, question, request_id: str = "") -> tuple[list, list]:
-        """Controls that let a person answer ON the card, and the Submit that sends them.
-
-        One control per label, keyed EXACTLY as `check_answer` keys the answer, so what the flow posts is
-        what the gate already accepts — no mapping, and nothing to drift.
-
-        Three choices, not two. `vocab_candidates`' own docstring says a steward most often settles a term
-        by making it another name for a concept already held; a card offering only admit and decline would
-        make the commonest answer the hardest to give. So `existing` rides beside a text box for the id,
-        exactly as the speaker card offers attendees BESIDE free text and never instead of it."""
-        controls, labels = [], []
-        for item in question.get("items") or []:
-            label = str(item.get("label") or "")
-            if not label:
-                continue
-            labels.append(label)
-            shown = str((item.get("samples") or [label])[0])[:MAX_SAMPLE]
-            controls += [
-                {"type": "TextBlock", "text": shown, "wrap": True, "weight": "Bolder", "spacing": "Medium"},
-                {"type": "Input.ChoiceSet", "id": label, "style": "compact", "value": "decline",
-                 "choices": [{"title": "Admit it", "value": "admit"},
-                             {"title": "It already exists", "value": "existing"},
-                             {"title": "Decline", "value": "decline"}]},
-                {"type": "Input.Text", "id": f"{label}::id", "spacing": "None",
-                 "placeholder": "if it already exists, the concept id it means"},
-            ]
-        if not labels:
-            return [], []
-        # The approval id rides the SUBMIT, so the response carries everything the gate needs and the
-        # flow has nothing to look up: `POST /api/approvals/{request_id}/decide` is addressable from the
-        # answer alone. A flow that had to correlate a response back to a card would be a second place
-        # that could lose one.
-        return controls, [{"type": "Action.Submit", "title": "Record my answers",
-                           "data": {"labels": labels, "request_id": request_id}}]
-
-    def _question_blocks(self, question) -> list:
-        """One row per thing a human must identify.
-
-        What a person actually needs to tell two voices apart is how long each spoke, how often, and
-        a line they said — so all three are on the card. No `Action.Submit`: an incoming webhook is
-        SEND-ONLY, Teams renders a submit button and has nowhere to post it, and a button that
-        silently does nothing is worse than none. The card says where to answer instead.
-        """
-        blocks = [{"type": "TextBlock", "text": question.get("prompt", ""), "wrap": True}]
-        # A question that is not about voices (the asker declared one `value` per label) has no
-        # timings worth a fact; its samples ARE the choices, so they take the fact's place.
-        voices = contracts.answer_fields({"question": question}) != ("value",)
-        for item in question.get("items") or []:
-            samples = [str(s)[:MAX_SAMPLE] for s in (item.get("samples") or [])]
-            said = " · ".join(samples[:2] if voices else samples)
-            fact = (f'{round(float(item.get("seconds") or 0))}s · {item.get("turns", 0)} turns'
-                    if voices else said or "—")
-            blocks.append({"type": "Container", "separator": True, "items": [
-                {"type": "FactSet", "facts": [{"title": item.get("label", "?"), "value": fact}]},
-                *([{"type": "TextBlock", "text": said, "wrap": True, "isSubtle": True,
-                    "spacing": "None"}] if said and voices else []),
-            ]})
-        if not self.answers_on_card:
-            blocks.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
-                           "text": "Answer in the review app, or through a flow that posts this card and "
-                                   "waits for a response — a webhook card cannot send an answer back."})
-        return blocks
-
-    def _summary_blocks(self, f, payload) -> list:
-        """The staged-model summary: counts, the target domain, and violations called out in red."""
-        # ONLY what the payload CARRIES. A fixed shape rendered a vocabulary question as `Elements ?`,
-        # `Relationships ?`, `Views ?` and a line about diagrams — the ArchiMate summary's shape on a card
-        # about two words (seen live, 10 Oct 2026). A `?` reads as MISSING DATA where the truth is NOT
-        # APPLICABLE, which is the same mistake as giving an absent count a plausible default: absence
-        # deserves to stay absent, and a card that invents blanks looks like one built for somebody else.
-        s = payload.get("summary") or {}
-        facts = [{"title": "Request", "value": f["request_id"]}]
-        if f.get("requester"):
-            facts.append({"title": "Requester", "value": str(f["requester"])})
-        if s.get("domain"):
-            facts.append({"title": "Domain", "value": str(s["domain"])})
-        facts += [{"title": t, "value": str(s[k])} for t, k in SUMMARY_FACTS if s.get(k) is not None]
-        out = [{"type": "FactSet", "facts": facts}]
-        if s.get("violations"):
-            out.append({"type": "TextBlock", "color": "Attention", "weight": "Bolder", "wrap": True,
-                        "text": f'{s["violations"]} validation violation(s) — review before approving.'})
-        if s.get("views"):                 # ...and nothing to say about diagrams when there are none
-            out.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
-                        "text": "Diagrams are not shown here — open the review app for the views and "
-                                "to decide."})
-        return out
 
     #: Who an ASK is addressed to. Empty = the room. A proactive message from the agent can reach only a
     #: PERSONAL chat (Microsoft's constraint, verified 11 Oct 2026), which turns out to be the right

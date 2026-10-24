@@ -1,9 +1,9 @@
 """Architecture Review — the human channel for the lab's business processes.
 
 Three modes (sidebar), one function each, dispatched by the PAGES table in main():
-  Review  — the approval gate for EA repository writes: reads approval requests from Redis Streams
-            (consumer group "review-app"), renders the model's views + summary, records approve /
-            request changes / decline; the decision flows back on approvals:decisions.
+  Review  — the approval gate for EA repository writes: reads the open approvals through /api,
+            renders the model's views + summary, records approve / request changes / decline as
+            the signed-in reviewer (audit channel `api:review-app`).
   Submit  — start a run: upload a system diagram (.vsdx or image) plus requirements documents;
             they are stored in the UPLOAD store (a bucket in the cloud) as art:// refs and an
             explicit Run publishes a durable workflow:requests event that the long-lived workload
@@ -19,9 +19,12 @@ Three modes (sidebar), one function each, dispatched by the PAGES table in main(
             run list one expander below. That is the DevUI live view, for runs you did not trigger.
 
 Run: ./lab.sh review   (streamlit, http://127.0.0.1:8501)
-Streamlit executes this file as __main__; importing it (tests) only defines the helpers. Stores come
-from the substrate container built once at import (`container.artifacts()` for renders,
-`container.uploads()` for submitted inputs) — tests override its providers.
+Streamlit executes this file as __main__; importing it (tests) only defines the helpers.
+
+A CLIENT OF THE SEAM (TO-BE, 24 Oct 2026): every read and write goes through `LAB`
+(`review/api.py`) — the gateway's `/api` and gateway MCP, as the app's own Entra identity, relaying
+the signed-in reviewer. The app holds no Redis, store or database credential, so a low-code surface
+holding the same roles can do everything it does. Tests replace `LAB` wholesale.
 """
 import base64
 import json
@@ -33,14 +36,12 @@ from html import escape
 
 import streamlit as st
 
-from lab.platform import config, contracts, runlog, workflows
+from lab.platform import config, contracts
 from lab.platform.filetypes import content_type_for
-from lab.substrate import approvals
-from lab.substrate.container import build
-from lab.substrate.review import identity, intake_csv, roadmap, staging, traces
+from lab.substrate.review import api, identity, intake_csv, roadmap, staging, traces
 
-container = build("review-app")
-JAEGER_UI = container.config.jaeger_ui_url().rstrip("/")   # one source for both the link and the reader
+LAB = api.from_config()                                    # /api + gateway MCP; tests swap it wholesale
+JAEGER_UI = config.JAEGER_UI_URL.rstrip("/")               # one source for both the link and the reader
 JAEGER = JAEGER_UI + "/trace/"
 TRACES = traces.JaegerTraceReader(JAEGER_UI)               # trace-store port; tests swap it wholesale
 NS = {"a": "http://www.opengroup.org/xsd/archimate/3.0/"}
@@ -94,13 +95,8 @@ def _mapping_labels(process: str, field: str) -> list[str]:
     if artifact in cache:
         return list(cache[artifact])
     try:
-        from lab.core.reference.model import RunRef
-        library = container.reference()
-        pin = library.pin([artifact])
-        rows = library.lookup(pin, record_type="field-group", key={},
-                              run=RunRef(run_id="review-app", process="review-app", field=field),
-                              artifact_id=artifact).records
-        labels = [str(r.body.get("Field group") or "").strip() for r in rows]
+        rows = LAB.corpus_records(artifact, "field-group", field=field)
+        labels = [str(r.get("Field group") or "").strip() for r in rows]
         cache[artifact] = [label for label in labels if label]
     except Exception:                      # a missing or unpublished artifact is a suggestion
         cache[artifact] = []               # missing, never a submission refused
@@ -142,15 +138,9 @@ def _read_corpus_table(artifact: str, record_type: str) -> tuple:
     if artifact in cache:
         return cache[artifact]
     try:
-        from lab.core.reference.model import RunRef
-        library = container.reference()
-        pin = library.pin([artifact])
-        records = library.lookup(pin, record_type=record_type, key={},
-                                 run=RunRef(run_id="review-app", process="review-app",
-                                            field="roadmap"),
-                                 artifact_id=artifact).records
-        headers = list(records[0].body) if records else []
-        cache[artifact] = ([[r.body.get(h, "") for h in headers] for r in records], headers)
+        records = LAB.corpus_records(artifact, record_type, field="roadmap")
+        headers = list(records[0]) if records else []
+        cache[artifact] = ([[r.get(h, "") for h in headers] for r in records], headers)
     except Exception:                      # noqa: BLE001 — a view missing, never a page that fails
         cache[artifact] = ([], [])
     return cache[artifact]
@@ -170,7 +160,7 @@ def _roadmap_view(h):
         return
     ref = (h or {}).get("record_ref") or ""
     record = (_cached(f"record:{ref}", 3600,
-                      lambda: _record_cached(h, store=container.artifacts(), cache={}))
+                      lambda: _record_cached(h, read=_artifact, cache={}))
               if ref else {}) or _record_of(h)
     plan = roadmap.build(steps_rows, steps_headers,
                          roadmap.index_from(key_rows, key_headers),
@@ -224,7 +214,7 @@ def _record_of(h) -> dict:
     if not ref or not str(ref).endswith(".json"):
         return {}
     try:
-        raw = container.artifacts().get(ref)
+        raw = _artifact(ref)
         return json.loads(raw if isinstance(raw, str) else raw.decode())
     except Exception:                      # noqa: BLE001
         return {}
@@ -479,16 +469,15 @@ def _submit_page(reviewer):
     have_required = all(widgets.get(n) is not None and widgets.get(n) != [] for n in required_files)
 
     if file_fields and st.button("⬆️ Upload", disabled=not have_required):
-        store = container.uploads()
         for field in file_fields:
             value = widgets.get(field.name)
             # The original filename is KEPT: several workloads decide how to read an input from
             # its suffix, and a store-assigned name would take that decision away from them.
             if field.kind is contracts.InputKind.REF and value is not None:
-                refs[field.name] = store.put(value.name, value.getvalue(),
-                                             content_type_for(value.name))
+                refs[field.name] = LAB.upload(value.name, value.getvalue(),
+                                              content_type_for(value.name))
             elif field.kind is contracts.InputKind.REF_LIST:
-                refs[field.name] = [store.put(f.name, f.getvalue(), content_type_for(f.name))
+                refs[field.name] = [LAB.upload(f.name, f.getvalue(), content_type_for(f.name))
                                     for f in (value or [])]
         st.session_state[f"submit_rid_{spec.name}"] = None
         st.success("Stored. Review the references below, then press Run.")
@@ -523,8 +512,8 @@ def _submit_page(reviewer):
             if field not in file_fields:
                 inputs[field.name] = widgets.get(field.name)
         try:    # the process's OWN contract validates every producer (lab.platform.contracts)
-            rid = workflows.request(spec.name, {k: v for k, v in inputs.items() if v},
-                                    requester=reviewer)
+            rid = LAB.submit(spec.name, {k: v for k, v in inputs.items() if v},
+                             requester=reviewer)
         except ValueError as e:
             st.error(f"rejected: {e}")
         else:
@@ -537,7 +526,7 @@ def _submit_page(reviewer):
 
     st.divider()
     st.subheader("Recent submissions")
-    for sub in workflows.recent(10):
+    for sub in LAB.recent_requests(10):
         inp = sub.get("inputs") or {}
         files = [os.path.basename(str(v)) for v in inp.values() if isinstance(v, str)
                  and str(v).startswith("art://")]
@@ -558,7 +547,7 @@ def _run_status(rid):
     this refreshes with the page and, the moment the run has a trace, hands the reader a link to
     something that actually streams.
     """
-    s = workflows.status(rid)
+    s = LAB.request_status(rid)
     if not s:
         st.warning(f"unknown request {rid}"); return
     status = s.get("status", "pending")
@@ -637,6 +626,15 @@ _CACHE: dict = {}
 _CACHE_MAX = 256
 
 
+#: An `art://` ref names immutable bytes, so a read may be kept for as long as the process lives (bounded
+#: by `_CACHE_MAX`): every Streamlit rerun used to fetch every view and download through the gateway again.
+ARTIFACT_TTL = 3600
+
+
+def _artifact(ref: str) -> bytes:
+    return _cached(f"art:{ref}", ARTIFACT_TTL, lambda: LAB.artifact(ref))
+
+
 def _cached(key: str, ttl: float, produce):
     """`produce()` at most once per `ttl` seconds for this key."""
     now = time.time()
@@ -665,7 +663,7 @@ def _change_token(h) -> tuple:
     return (h.get("status"), h.get("node"), len(h.get("nodes") or ()), h.get("record_ref"))
 
 
-def _record_cached(h, *, store, cache):
+def _record_cached(h, *, read, cache):
     """The run's record, fetched once per REF rather than once per tick.
 
     The record used to be written once at the very end, so re-reading it per tick cost nothing.
@@ -678,7 +676,7 @@ def _record_cached(h, *, store, cache):
         return {}
     if cache.get("ref") != ref:
         try:
-            raw = store.get(ref)
+            raw = read(ref)
             cache.update(ref=ref, body=json.loads(raw if isinstance(raw, str) else raw.decode()))
         except Exception:                     # noqa: BLE001 — a view missing, never a page that fails
             cache.update(ref=ref, body={})
@@ -787,7 +785,7 @@ def _node_events(h):
 
 
 def _runs_board():
-    act, rec = runlog.active(), runlog.recent(20)
+    act, rec = LAB.board(20)
     if not act and not rec:
         st.info("No runs recorded yet. Start one with `python -m lab.workloads.visio_to_archimate.host …`, "
                 "from **Submit** mode, or in DevUI; it appears here the moment its first node starts.")
@@ -805,7 +803,7 @@ def _runs_board():
     if sel != opened:
         st.query_params["run"] = sel
     st.session_state["runs_selected"] = sel
-    h = runlog.get(sel)
+    h = LAB.run(sel)
     if h:
         _run_detail(h)
     else:
@@ -864,7 +862,7 @@ def released_run(approval_id: str, tries: int = 12, wait: float = 0.5) -> tuple:
     """
     import time as _time
     for attempt in range(max(1, tries)):
-        state = approvals.status(approval_id) or {}
+        state = LAB.status(approval_id) or {}
         rid = str(state.get("released_request_id") or "")
         if rid:
             return rid, str(state.get("released_process") or "")
@@ -893,7 +891,7 @@ def _artifact_download(ref: str) -> None:
         st.warning(f"not an artifact reference: {ref!r}")
         return
     try:
-        data = container.artifacts().get(ref)
+        data = _artifact(ref)
     except Exception as e:      # artifacts outlive the run log on a different clock
         st.warning(f"{art.name}: not available ({e})")
         return
@@ -916,7 +914,7 @@ def _xml_bytes(p):
     if not p.get("xml_ref"):
         return None
     try:
-        return container.artifacts().get(p["xml_ref"])
+        return _artifact(p["xml_ref"])
     except Exception as e:      # an old approval whose artifact expired/was purged must not crash the gate
         st.warning(f"model artifact unavailable for this request: {e}")
         return None
@@ -1001,7 +999,7 @@ def _import_files(p):
     readable = 0
     for art in declared:
         try:
-            data = container.artifacts().get(art.ref)
+            data = _artifact(art.ref)
         except Exception as e:      # an old approval whose artifact expired must not break the gate
             st.warning(f"{art.label}: not available ({e})")
             continue
@@ -1039,7 +1037,7 @@ def _views(p):
     for key, kind in (("view_refs", "html"), ("svg_refs", "svg")):
         for label, ref in (p.get(key) or {}).items():
             try:
-                views.append((label, kind, container.artifacts().get(ref), ref))
+                views.append((label, kind, _artifact(ref), ref))
             except Exception as e:               # noqa: BLE001
                 st.warning(f"view {label}: {e}")
     if not views:
@@ -1194,10 +1192,8 @@ def _item_form(q, prompts, request_id):
 
 
 def _review_page(reviewer):
-    # drain this channel's unseen events (mark delivered) — the pending set drives the UI
-    for eid, _ in approvals.channel_events("review-app", block_ms=0):
-        approvals.ack("review-app", eid)
-
+    # The open set drives the page. The app no longer consumes `approvals:requests` — it reads the
+    # queue through /api like any other surface, so there is no channel stream to drain.
     st.title("Architecture Review")
     # The handover from the decision just taken. It is rendered AFTER the rerun — `_decide` cannot
     # show anything itself, because it ends by rerunning the script — and it is a LINK rather than
@@ -1209,13 +1205,13 @@ def _review_page(reviewer):
         st.link_button(f"👁️ Watch {released_process or 'it'} run live →",
                        f"{config.LIVE_APP_URL.rstrip('/')}/run/{released}", type="primary")
 
-    items = approvals.pending()
+    items = LAB.pending()
     st.sidebar.metric("Pending", len(items))
     if not items:
         st.info("Nothing awaiting a person. Staged models and questions a run could not answer "
                 "itself both appear here.")
         st.subheader("Recent decisions")
-        for h in approvals.history(20):
+        for h in LAB.history(20):
             st.write(f'`{h["request_id"]}` **{h["decision"]}** by {h["actor"]} via {h["channel"]} — {h["comment"]} ({h["decided_at"]})')
         return
 
@@ -1234,12 +1230,12 @@ def _review_page(reviewer):
     index = next((n for n, i in enumerate(items) if i["request_id"] == wanted), 0)
     choice = st.sidebar.radio("Requests", labels, index=index)
     req = items[labels.index(choice)]
-    p = req["payload"]
+    p = req.get("payload") or {}
 
     st.subheader(req["subject"])
     c1, c2, c3, c4 = st.columns(4)
-    c1.write(f'**Request** `{req["request_id"]}`'); c2.write(f'**From** {req["requester"]}')
-    c3.write(f'**Status** {req["status"]}'); c4.write(f'**Created** {req["created_at"]}')
+    c1.write(f'**Request** `{req["request_id"]}`'); c2.write(f'**From** {req.get("requester", "")}')
+    c3.write(f'**Status** {req.get("status", "")}'); c4.write(f'**Created** {req.get("created_at", "")}')
     if req.get("trace_id"):
         st.write(f'**Trace** [{req["trace_id"][:16]}…]({JAEGER}{req["trace_id"]}) — the run that produced this model')
     if req.get("comment"):
@@ -1287,10 +1283,10 @@ def _review_page(reviewer):
             st.error("A comment is required for that decision."); return
         try:
             # the ONE human-gate path (identified actor, legal decision, one final answer claimed
-            # atomically) — the same terms Teams, Telegram, the CLI and approvals_decide record on
-            approvals.human_decision(req["request_id"], d, reviewer, "review-app", comment.strip(),
-                                     answer=answer if d == "approve" else None)
-        except ValueError as e:                 # blank reviewer, or already decided
+            # atomically), reached through /api — recorded as `api:review-app`, the reviewer as actor
+            LAB.decide(req["request_id"], d, reviewer, comment.strip(),
+                       answer=answer if d == "approve" else None)
+        except (ValueError, KeyError) as e:     # blank reviewer, already decided, or gone
             st.error(str(e)); return
         # A decision that releases a run says WHICH run, and takes the person to it. Asked three
         # times in one session — "why is it not progressing", "no idea what to do next" — and every

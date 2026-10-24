@@ -9,7 +9,7 @@ import sys
 from lab.platform import container
 from lab.platform.contracts import ARTIFACT_PUBLISH
 from lab.workloads.artifact_publish.workflow import make_cfg, run_workflow
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.run import governed_run
 
 SERVICE = "process-artifact-publish"

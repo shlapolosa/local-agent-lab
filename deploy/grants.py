@@ -18,6 +18,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
 import provision_fabric_agents as fabric  # noqa: E402
 import provision_meeting_agents as meeting  # noqa: E402
+import provision_review_app_identity as review  # noqa: E402
 import provision_usecase_agents as usecase  # noqa: E402
 from lab.platform.contracts import EATools, SemanticTools, StorageTools  # noqa: E402
 
@@ -43,6 +44,7 @@ TEAMS: dict[str, dict[str, list[str] | None]] = {
     "fabric-publish": fabric.PUBLISH_TOOLS,
     "fabric-bot": fabric.BOT_TOOLS,
     "fabric-curator": fabric.CURATOR_TOOLS,
+    "review-app": review.REVIEW_TOOLS,
 }
 
 

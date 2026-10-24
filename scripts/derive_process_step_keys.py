@@ -2,7 +2,7 @@
 
 The roadmap needs three things the published `process-steps` artifact does not carry: which numbered
 step of the implementation each published row corresponds to, which section of the record it
-produces, and WHICH AGENT performs it. All three are declared in `lab.workloads.usecase.steps`
+produces, and WHICH AGENT performs it. All three are declared in `lab.core.usecase.steps`
 (`Step(number, key, service, …)`), and the review app may not import that — `substrate` never
 imports `workloads`, which is the seam that keeps a workload reachable only over the network.
 
@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
 from lab.workloads.usecase.agents import CONTEXT_FOR                     # noqa: E402
-from lab.workloads.usecase.steps import (DERIVED_STEP_NUMBERS, DESIGN_STEPS,   # noqa: E402
+from lab.core.usecase.steps import (DERIVED_STEP_NUMBERS, DESIGN_STEPS,   # noqa: E402
                                          SCREENING_STEPS, STEPS)
 
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
@@ -110,7 +110,7 @@ def main() -> int:
 
     headers = ["Step", "Number", "Record key", "Agent", "Kind", "Order", "Process", "Reads"]
     payload = {"step_keys": {"headers": headers, "rows": rows},
-               "_source": "derived from lab.workloads.usecase.steps by "
+               "_source": "derived from lab.core.usecase.steps by "
                           "scripts/derive_process_step_keys.py — regenerate when a step is added"}
     _write("process_step_keys", payload)
     agents = sorted({r[3] for r in rows if r[3]})

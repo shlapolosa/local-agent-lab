@@ -24,7 +24,7 @@ from agent_framework.openai import OpenAIChatClient
 from openai import AsyncOpenAI
 
 from lab.platform import config
-from lab.workloads.usecase.steps import Step, schema
+from lab.core.usecase.steps import Step, schema
 
 __all__ = ["CONTEXT_FOR", "EXCLUDED_FROM", "OPTIONAL_CONTEXT", "build_all", "context_for", "instructions",
            "make_agent", "message"]

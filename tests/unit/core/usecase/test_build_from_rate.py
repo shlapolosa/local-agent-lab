@@ -52,7 +52,7 @@ def test_a_rate_that_cannot_be_read_as_a_number_is_refused_rather_than_read_as_z
 def test_step_23_refuses_fte_days_with_no_basis():
     """The prompt's rule means nothing unless the gate holds it: an effort figure nobody can check
     becomes, at the published rate, a build cost nobody can check."""
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     problems = step_for("23").complete({"build_provenance": "", "notes": [], "build_fte_days": 40},
                                         {})
     assert any("basis" in p for p in problems), problems

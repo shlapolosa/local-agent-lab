@@ -11,7 +11,7 @@ import json
 
 
 from lab.workloads.visio_to_archimate import architect_tools as T
-from lab.workloads import ids
+from lab.core.archimate import ids
 
 UUID = "6f1c2a3e-1111-4222-8333-444455556666"
 ELS = [{"id": "portal", "type": "ApplicationComponent", "name": "Portal"},

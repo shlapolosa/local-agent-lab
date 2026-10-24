@@ -51,7 +51,7 @@ import re
 import unicodedata
 from typing import Dict, Iterable, List, Optional
 
-__all__ = ["STOP_WORDS", "tokens", "canonical", "same", "group", "pick_display", "squash"]
+__all__ = ["STOP_WORDS", "tokens", "canonical", "same", "group", "pick_display", "squash", "file_slug"]
 
 # Connective words only. Deliberately small: every extra entry is a potential wrong merge.
 STOP_WORDS = frozenset({"the", "a", "an", "of", "for", "and"})
@@ -153,3 +153,14 @@ def pick_display(names: Iterable[str]) -> str:
     """
     cleaned = sorted({n.strip() for n in names if n is not None and n.strip()}, key=_display_rank)
     return cleaned[0] if cleaned else ""
+
+
+def file_slug(text: str, default: str = "record", limit: int = 80) -> str:
+    """A name as a SLUG: lowercase, ASCII (accents folded, the rest dropped), runs of anything else folded to
+    one dash, no leading or trailing dash, capped at `limit`.
+
+    In the domain core because a model's element id is a slug, and the platform's file names reuse it —
+    THE one home for the rule: the projector's page, the topology beside it and a model's element id are the
+    same transformation, and two copies of it disagree the first day one is fixed."""
+    s = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:limit] or default

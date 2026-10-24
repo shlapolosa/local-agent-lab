@@ -13,7 +13,7 @@ The comment above the rule says the escalation "must be said rather than scored 
 gate was the one thing making it impossible to say. An unexplicit graph is a finding the framework
 has a route for (D3 at orchestration level, a Board escalation), not a defect in the answer.
 """
-from lab.workloads.usecase import steps as S
+from lab.core.usecase import steps as S
 
 
 def _complete(out, context=None):

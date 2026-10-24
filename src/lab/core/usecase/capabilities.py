@@ -7,7 +7,7 @@ Every published reference INTO the map uses it: a guardrail's enforcement point 
 view (`ai-capability-map`), which carries exactly one row per L3 by `l3_id`. The previous key,
 "Domain · Capability", resolves against nothing in that corpus: 0 of 81 guardrail references did.
 
-It lived privately in `lab.workloads.usecase.families` while one caller needed it. Several now do —
+It lived privately in `lab.core.usecase.families` while one caller needed it. Several now do —
 the family join, the obligation binding, the ArchiMate mapper and the governance check that refuses
 a reference resolving to nothing — and two spellings of a join key is the defect the check exists
 to catch: a key that normalises differently accepts a reference the other rejects, and the

@@ -10,7 +10,7 @@ Audited 23 Sep 2026, two defects on one record:
   every agent was unwired. The one number telling a reviewer how much of the screening did not
   happen was identical in the best and worst case, and could not change.
 """
-from lab.workloads.usecase import steps as S
+from lab.core.usecase import steps as S
 from lab.workloads.use_case_screening import workflow as screening
 
 

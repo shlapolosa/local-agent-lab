@@ -118,7 +118,7 @@ def test_channel_events_each_channel_sees_every_request_and_acks():
             assert approvals.channel_events(ch) == [], "delivered once per channel"
             approvals.ack(ch, evs[0][0])
             assert r.xpending(approvals.REQ, ch)["pending"] == 0
-        assert approvals.channel_events("review-app", consumer="2", block_ms=5, count=5) == []
+        assert approvals.channel_events(approvals.CHANNELS[0], consumer="2", block_ms=5, count=5) == []
 
 
 def test_await_decision():

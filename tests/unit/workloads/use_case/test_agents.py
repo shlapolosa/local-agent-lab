@@ -12,8 +12,9 @@ import asyncio
 import pytest
 
 from lab.workloads.usecase import agents as A
-from lab.workloads.usecase.gates import GateFailed, gate, json_of, run_gated
-from lab.workloads.usecase.steps import STEPS, schema, step_for
+from lab.core.validation import GateFailed, gate, json_of
+from lab.workloads.gates import run_gated
+from lab.core.usecase.steps import STEPS, schema, step_for
 
 
 class FakeAgent:
@@ -58,7 +59,7 @@ def test_every_step_belongs_to_a_named_bounded_context():
 def test_the_screening_and_design_halves_do_not_overlap():
     """A step belongs to exactly one process. One appearing in both would run twice, against two
     different contexts, and the second answer would silently win."""
-    from lab.workloads.usecase.steps import DESIGN_STEPS, SCREENING_STEPS
+    from lab.core.usecase.steps import DESIGN_STEPS, SCREENING_STEPS
     assert not ({s.number for s in SCREENING_STEPS} & {s.number for s in DESIGN_STEPS})
     assert set(SCREENING_STEPS) | set(DESIGN_STEPS) == set(STEPS)
 
@@ -493,7 +494,7 @@ def test_but_an_unnamed_owner_must_actually_REACH_a_human():
     problems = gated("3", dict(FRAME, accountable_owner="unspecified", open_questions=[]))
     assert problems and "open question" in problems[0]
 
-    from lab.workloads.usecase.steps import schema
+    from lab.core.usecase.steps import schema
     assert schema("frame")["properties"]["accountable_owner"].get("minLength"), \
         "an EMPTY owner is the schema's job, and this rule relies on that"
 
@@ -553,7 +554,7 @@ def test_the_model_is_told_where_a_capability_id_comes_from():
     """The first live run on the id gate wrote a well-formed id that exists nowhere (13 Sep 2026):
     nothing had told the model the id is COPIED from the candidate list. The rule lives in the
     prompt it reads and on the schema field it fills, so the gate refuses what was asked for."""
-    from lab.workloads.usecase.steps import prompt
+    from lab.core.usecase.steps import prompt
     desc = schema("coverage_map")["properties"]["matched"]["items"]["properties"]["capability_id"]["description"]
     assert "id" in desc and "shown" in desc and "refused" in desc
     assert "`capability_id` is COPIED" in prompt("coverage_map")
@@ -598,7 +599,7 @@ def test_the_facet_schema_carries_every_published_vocabulary_as_an_enum():
     the exposure derivation twenty minutes into the design run. The values are the domain's, declared
     once; the schema the model reads carries them, so the refusal happens where the answer is written."""
     from lab.core.usecase.model import ACTIVITIES, EFFECTS, VOCABULARY
-    from lab.workloads.usecase.steps import schema
+    from lab.core.usecase.steps import schema
     facets = schema("facet_vectors")["properties"]["steps"]["items"]["properties"]
     assert facets["activity"]["enum"] == list(ACTIVITIES)
     assert facets["effect"]["enum"] == list(EFFECTS)
@@ -609,8 +610,8 @@ def test_the_facet_schema_carries_every_published_vocabulary_as_an_enum():
 
 def test_a_free_text_activity_is_refused_by_name_and_a_near_miss_spelling_is_canonicalised():
     from fixtures.usecase_answers import ANSWERED
-    from lab.workloads.usecase.steps import step_for
-    from lab.workloads.gates import gate
+    from lab.core.usecase.steps import step_for
+    from lab.core.validation import gate
     step = step_for("17")
     out = {"steps": [{"id": "n1", "activity": "assess AI use case", "determinism": "D2",
                       "effect": "none", "conditions": ANSWERED}]}

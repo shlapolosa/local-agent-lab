@@ -1,7 +1,7 @@
 # Process step keys
 
 **Artifact:** process_step_keys
-**Source:** derived from lab.workloads.usecase.steps by scripts/derive_process_step_keys.py — regenerate when a step is added
+**Source:** derived from lab.core.usecase.steps by scripts/derive_process_step_keys.py — regenerate when a step is added
 **Rendered:** generated from the source above by scripts/extract_cafe_seed.py
 
 | Step | Number | Record key | Agent | Kind | Order | Process | Reads |

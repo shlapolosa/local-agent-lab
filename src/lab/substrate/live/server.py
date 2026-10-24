@@ -8,8 +8,8 @@ URL) which page you were on at all. A three-second reload made the Runs board un
 measured version of that argument.
 
 Why it is not part of the front door: the browser holds no Entra token, and `/api` is authorised by
-app roles with a delegated user token deliberately refused. A page served THERE could not open its
-own stream. Serving both from one place is what makes them same-origin, and same-origin is what
+app roles (a person's delegated token only when they hold the role). A page served THERE could not
+open its own stream without one. Serving both from one place is what makes them same-origin, and same-origin is what
 makes this work at all.
 
 So: a substrate service on the review app's trust model — its own gate, Redis directly, and no

@@ -7,7 +7,7 @@ recorded which families were present and stopped, which is a shape rather than a
 Soft, like its two siblings: one corrective attempt, then recorded under `unresolved` and the run
 proceeds. A design that owes a control is a design a reviewer must see, not a run that vanishes.
 """
-from lab.workloads.usecase import steps
+from lab.core.usecase import steps
 
 CANDIDATES = {"G02": ["cmp-reg"], "G09": ["cmp-appr", "cmp-pa"], "G24": ["cmp-apim"], "G99": []}
 
@@ -80,7 +80,7 @@ def test_the_summary_distinguishes_a_design_gap_from_a_framework_gap():
     """These have different owners and different fixes, and the reviewer is the person who has to
     act on the difference. One is "select the component"; the other is "the corpus cannot bind this
     at the version you pinned" and no selection repairs it."""
-    from lab.workloads.usecase import owed
+    from lab.core.usecase import owed
     lines = owed.owed(package())
     assert any("G09" in l and "SELECTED COMPONENT" in l for l in lines)
     assert any("G22" in l and ("corpus" in l or "framework" in l) for l in lines)
@@ -90,13 +90,13 @@ def test_the_family_level_finding_no_longer_claims_to_be_an_enforcement_point():
     """`composition.unbound` names an obligation no present FAMILY carries — a shape, not something
     anyone can point at in a deployment. Reporting it as "resolved to NO enforcement point" told the
     reviewer a stronger thing than the data supports, while the real answer sat unread."""
-    from lab.workloads.usecase import owed
+    from lab.core.usecase import owed
     line = next(l for l in owed.owed(package()) if "G17" in l)
     assert "family" in line.lower()
 
 
 def test_the_headline_says_whether_every_obligation_is_bound():
-    from lab.workloads.usecase import owed
+    from lab.core.usecase import owed
     assert owed.counts(package())["obligations_bound"] is False
     assert owed.counts(package(enforcement={"bound": {}, "unbound": [], "unenforceable": [],
                                             "complete": True}))["obligations_bound"] is True
@@ -104,7 +104,7 @@ def test_the_headline_says_whether_every_obligation_is_bound():
 
 def test_a_package_from_before_the_binding_existed_still_reads():
     """Approvals staged earlier stay open, so the summary must not require the new section."""
-    from lab.workloads.usecase import owed
+    from lab.core.usecase import owed
     out = owed.counts({"composition": {"unbound": ["G17"]}})
     assert out["obligations_bound"] is None and any("G17" in l for l in out["owed"])
 

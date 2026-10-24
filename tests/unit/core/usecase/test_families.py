@@ -1,5 +1,5 @@
 """Component to family, derived from what the corpus publishes — and silent where it does not."""
-from lab.workloads.usecase import families
+from lab.core.usecase import families
 
 # The corpus's shapes since the CAFÉ workbook (28 Sep 2026): `cap` names technology L3s as "id name",
 # and the realisation view carries one row per L3 by `l3_id`.

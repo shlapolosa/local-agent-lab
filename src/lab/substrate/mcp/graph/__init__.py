@@ -16,7 +16,7 @@ testable alone and offline:
                       and a second provider replaces this package without touching it.
 
 Nothing here imports `lab.workloads`: the substrate cannot depend on a workload, and the app-only
-credential is deliberately a sibling of `lab.workloads.identity` rather than a widening of it — an
+credential is deliberately a sibling of `lab.platform.identity` rather than a widening of it — an
 agent's gateway credential and a substrate server's Graph credential are different things, and
 sharing one helper is how a workload would start minting its own tenant tokens.
 """

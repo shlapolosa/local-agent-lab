@@ -17,6 +17,7 @@ import pytest
 from fixtures.usecase_corpus import tools as corpus_tools
 from fixtures.workflow import Router, run_spine, spine
 from lab.workloads.usecase import coverage
+from lab.core.usecase import coverage as core_coverage
 
 _proj = lambda rows: rows
 
@@ -1159,15 +1160,15 @@ def test_the_map_is_fetched_whole_because_it_is_small_enough_to_be():
     rows = seed.master_rows
     l3 = rows("technology_capability_l3")
     made = capabilities.concepts(l3, rows("technology_capability_l1") + rows("technology_capability_l2"))
-    assert capabilities.LEVEL == coverage.DEEPEST_LEVEL == 3
-    assert len(coverage.leaves_for(made, deepest=capabilities.LEVEL)) == len(l3)
+    assert capabilities.LEVEL == core_coverage.DEEPEST_LEVEL == 3
+    assert len(core_coverage.leaves_for(made, deepest=capabilities.LEVEL)) == len(l3)
     assert coverage.resolve("leaves", made, budget=200_000,
                             deepest=capabilities.LEVEL) is coverage.leaves
 
 # ------------------------------------------------- L3 capability matching, without embeddings
 
 def test_only_the_branches_that_matched_are_refetched():
-    from lab.workloads.usecase.coverage import MAX_BRANCHES, matched_labels
+    from lab.core.usecase.coverage import MAX_BRANCHES, matched_labels
     coverage = {"matched": [{"function": "triage", "capability_label": "Patient Management"},
                             {"function": "notify", "capability_label": "Patient Management"},
                             {"function": "record", "capability_label": "Clinical Documentation"}]}
@@ -1178,7 +1179,7 @@ def test_only_the_branches_that_matched_are_refetched():
 
 
 def test_a_coverage_map_that_matched_nothing_is_not_refined():
-    from lab.workloads.usecase.coverage import matched_labels
+    from lab.core.usecase.coverage import matched_labels
     assert matched_labels({"matched": []}) == []
     assert matched_labels({}) == []
 
@@ -1297,7 +1298,7 @@ def test_a_match_that_named_only_an_id_still_resolves_its_branch():
     """`capability_label` is optional and `capability_id` is required, because an id is what a
     lookup can check and a label is what a model can approximate. So the label comes from the
     corpus — asking the agent to repeat one it read is asking it to typo a subtree fetch."""
-    from lab.workloads.usecase.coverage import matched_labels
+    from lab.core.usecase.coverage import matched_labels
     corpus = [{"id": "c1", "label": "Patient Management"}, {"id": "c2", "label": "Scheduling"}]
     coverage = {"matched": [{"function": "triage", "capability_id": "c2", "confidence": "lookup"}]}
     assert matched_labels(coverage, corpus) == ["Scheduling"]
@@ -1312,7 +1313,7 @@ def test_a_use_case_that_matched_at_l1_but_not_at_l3_is_still_a_match():
     seven L1 capabilities and eleven L2s, but no L3 leaf, arrived at the design half as "matched
     nothing" — so the drill could reject a use case the single-pass version passed."""
     from lab.workloads.use_case_design.workflow import feasibility_evidence
-    from lab.workloads.usecase.coverage import composed
+    from lab.core.usecase.coverage import composed
 
     trail = [{"level": 1, "candidates": 42, **_covers(_match("triage", "c1", "Patient Management"))},
              {"level": 2, "candidates": 12, **_covers(_match("triage", "c1a", "Referral Triage"))},
@@ -1328,7 +1329,7 @@ def test_a_use_case_that_matched_at_l1_but_not_at_l3_is_still_a_match():
 def test_the_coverage_gaps_come_from_the_level_where_the_map_means_the_map():
     """At L3 `functions_without_capability` means "found no relevant leaf under the branches we
     opened" — a different statement wearing the same name."""
-    from lab.workloads.usecase.coverage import composed
+    from lab.core.usecase.coverage import composed
     l1 = _covers(_match("triage", "c1", "Patient Management"))
     l1["functions_without_capability"] = ["billing"]
     l3 = _covers(_match("triage", "c1a1", "Urgency Assessment"))
@@ -1377,7 +1378,7 @@ def test_the_coverage_map_is_one_row_per_function_not_one_per_level():
     Management, then Initiative Definition, then Initiative Identification is ONE answer at three
     resolutions. Concatenating them turned 14 functions into 40 rows with one capability repeated
     eleven times, which is a list of everything the drill looked at rather than a coverage map."""
-    from lab.workloads.usecase.coverage import composed
+    from lab.core.usecase.coverage import composed
     trail = [
         {"level": 1, "candidates": 42, **_covers(_match("submit", "c1", "Initiative Management"),
                                                  _match("cost", "c9", "Investment Management"))},
@@ -1396,7 +1397,7 @@ def test_a_function_that_stops_early_keeps_the_level_it_reached():
     """It found nothing relevant below, which is not the same as matching nothing — and
     `capability_matched` reads this field."""
     from lab.workloads.use_case_design.workflow import feasibility_evidence
-    from lab.workloads.usecase.coverage import composed
+    from lab.core.usecase.coverage import composed
     trail = [
         {"level": 1, "candidates": 42, **_covers(_match("check", "c2", "Information Management"))},
         {"level": 2, "candidates": 8, **_covers()},          # nothing relevant one level down

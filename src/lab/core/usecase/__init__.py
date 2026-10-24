@@ -13,6 +13,10 @@ The seven deterministic algorithms, by the step they serve:
     composition.compose          22   topology, families, enforcement points
     cost.cost_model              23   the itemised model and the Year-1 total
     benefit.financial_summary    24   the three drivers, the ROI and the recommendation
+
+`prompts/*.md` ship here as DATA, beside `schemas/`: `Step.prompt()` reads them. They are the
+application ring's instructions to a model, not domain logic — kept next to the schema each one is
+gated by, so a step (contract, completeness rule, prompt) stays one unit.
 """
 from lab.core.usecase import (
     benefit,

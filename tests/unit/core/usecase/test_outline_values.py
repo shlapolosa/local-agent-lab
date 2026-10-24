@@ -8,7 +8,7 @@ page as information and is not:
             values (True, True, False, "map") and none of them was shown
   matched:  truncated at 12 of 13, so the one that mattered might be the one missing
 """
-from lab.workloads.usecase import derivation as D
+from lab.core.usecase import outline as D
 
 
 def test_a_dict_of_scalars_shows_its_values_and_not_its_keys():
@@ -124,7 +124,7 @@ def test_an_entry_of_only_containers_says_what_it_has_rather_than_nothing():
 def test_every_schema_declared_list_renders_a_value_for_a_realistic_row():
     """The systematic check: for every array-of-object field any step declares, a row built from
     its own schema must render something that is not a heading."""
-    from lab.workloads.usecase import steps as S
+    from lab.core.usecase import steps as S
     for st in list(S.STEPS) + [S.CAPABILITY_QUERY]:
         for prop, spec in (S.schema(st.key).get("properties") or {}).items():
             if spec.get("type") != "array" or (spec.get("items") or {}).get("type") != "object":

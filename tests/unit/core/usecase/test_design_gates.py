@@ -10,7 +10,7 @@ import pytest
 
 from lab.core.usecase import seed
 from lab.core.usecase import predicates
-from lab.workloads.usecase.steps import BUSINESS_CASE_SECTIONS, step_for
+from lab.core.usecase.steps import BUSINESS_CASE_SECTIONS, step_for
 
 from fixtures.usecase_answers import (ASSERTIONS, BENEFIT_INPUTS, BUILD_SURFACE, CATALOGUE,
                                       COMPONENTS, COST_INPUTS, DELIVERY, DETERMINISM, FACETS,

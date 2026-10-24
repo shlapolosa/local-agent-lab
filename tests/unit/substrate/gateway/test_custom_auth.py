@@ -415,10 +415,17 @@ DECIDE_PATH = "/api/approvals/apr-1/decide"
 
 
 class Req:
-    """The slice of starlette's Request the hook reads: a method and a URL path."""
-    def __init__(self, path, method="POST"):
+    """The slice of starlette's Request the hook reads: a method, a URL path and — for a delegated
+    caller's decide or submit — the JSON body, read the way LiteLLM's own auth-time pre-read does."""
+    def __init__(self, path, method="POST", body=None):
         self.url = type("U", (), {"path": path})()
         self.method = method
+        self.headers = {"content-type": "application/json"}
+        self.scope = {}
+        self._raw = json.dumps(body).encode() if body is not None else b""
+
+    async def body(self):
+        return self._raw
 
 
 def auth_req(token, request):
@@ -527,18 +534,117 @@ def test_a_token_this_tenant_did_not_issue_is_refused_on_api_instead_of_falling_
         p.undo()
 
 
-def test_a_delegated_user_token_is_refused_on_api_and_still_works_elsewhere():
-    """A user token carries `scp`, not `roles`, so there is nothing to authorise the operation with.
-    A signed-in human decides at the review app, which reaches the gate in-process."""
-    p, fake = _fresh()
+USER_UPN = "maria@contoso.com"
+
+
+def _person(roles=(), **extra):
+    """A connector's DELEGATED token: `scp` names the user scope, `roles` are the app roles the PERSON
+    (or a group they are in) was assigned on lab-gateway."""
+    return mint({"scp": "access_as_user", "oid": "user-oid-1", "preferred_username": USER_UPN,
+                 "roles": list(roles), **extra})
+
+
+def _with_dev_key(p):
+    fake = FakeRedis()
+    fake.set("devkey:user-oid-1", "sk-dev-maria")       # the JIT personal key, already minted
+    p.set(ca, "_REDIS", fake)
+
+
+def test_a_delegated_token_without_the_role_is_refused_on_api_and_says_which_role():
+    """A custom connector can only carry a signed-in person's token (connectors have no client
+    credentials grant). The PERSON must hold the operation's app role — the same table, the same rule."""
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        msg = _denied(_person(), Req("/api/approvals", "GET"))
+        assert ApiRoles.READ in msg and USER_UPN in msg
+    finally:
+        p.undo()
+
+
+def test_a_delegated_token_with_the_role_is_authorised_and_metered_on_the_person_s_own_key():
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        assert auth_req(_person([ApiRoles.READ]), Req("/api/approvals", "GET")) == "sk-dev-maria"
+    finally:
+        p.undo()
+
+
+def test_a_person_may_record_only_their_OWN_decision():
+    """The identity does not survive the hop to the front door, so the actor travels in the body — and
+    for a delegated caller the gateway holds the body to the token: nobody answers in someone else's
+    name. Stronger than a relay, whose actor the app asserts."""
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        decider = _person([ApiRoles.DECIDE])
+        ok = Req(DECIDE_PATH, body={"decision": "approve", "actor": "Maria@Contoso.com"})
+        assert auth_req(decider, ok) == "sk-dev-maria"
+        forged = Req(DECIDE_PATH, body={"decision": "approve", "actor": "boss@contoso.com"})
+        assert "boss@contoso.com" in _denied(decider, forged)
+        assert "actor" in _denied(decider, Req(DECIDE_PATH, body={"decision": "approve"}))
+    finally:
+        p.undo()
+
+
+def test_a_person_cannot_label_their_decision_as_another_channel_s():
+    """The audit log says which channel a decision came through; a person's own call may say only
+    `connector` (or nothing) — never `review-app`, which is a relay identity's channel."""
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        decider = _person([ApiRoles.DECIDE])
+        ok = Req(DECIDE_PATH, body={"decision": "approve", "actor": USER_UPN, "channel": "connector"})
+        assert auth_req(decider, ok) == "sk-dev-maria"
+        posing = Req(DECIDE_PATH, body={"decision": "approve", "actor": USER_UPN, "channel": "review-app"})
+        assert "channel" in _denied(decider, posing)
+    finally:
+        p.undo()
+
+
+def test_a_person_submits_as_themselves():
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        submitter = _person([ApiRoles.SUBMIT])
+        assert auth_req(submitter, Req(SUBMIT_PATH, body={"requester": USER_UPN})) == "sk-dev-maria"
+        assert "requester" in _denied(submitter, Req(SUBMIT_PATH, body={"requester": "someone-else"}))
+    finally:
+        p.undo()
+
+
+def test_ANY_delegated_token_is_a_person_whatever_its_scope_name():
+    """The branch keys on the token TYPE (`scp` present, or `idtyp=user`), never on one scope's name: a
+    delegated token with another scope and a person's roles must not reach the app path, which would
+    skip the actor check and decide as anyone."""
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        other = _person([ApiRoles.DECIDE], scp="some_future_scope", azp=AGENT_APP)
+        forged = Req(DECIDE_PATH, body={"decision": "approve", "actor": "boss@contoso.com"})
+        assert "boss@contoso.com" in _denied(other, forged)
+    finally:
+        p.undo()
+
+
+def test_a_delegated_token_naming_no_person_is_refused():
+    p, _ = _fresh()
+    try:
+        _with_dev_key(p)
+        nobody = mint({"scp": "access_as_user", "roles": [ApiRoles.DECIDE]})
+        assert "no person" in _denied(nobody, Req(DECIDE_PATH, body={"decision": "approve", "actor": ""}))
+    finally:
+        p.undo()
+
+
+def test_a_delegated_token_off_api_still_takes_the_developer_key_path():
+    p, _ = _fresh()
     try:
         p.env("DEVELOPERS_TEAM_ID", None)
-        p.set(ca, "_REDIS", FakeRedis())          # the off-/api branch consults its key cache first
-        user = mint({"scp": "access_as_user", "oid": "user-oid-1"})
-        assert "APP ROLES" in _denied(user, Req(DECIDE_PATH))
-        # off /api it takes the JIT developer-key path (which needs the team id — absent, so it
-        # raises for a DIFFERENT, named reason, proving the branch was reached)
-        assert "DEVELOPERS_TEAM_ID" in _denied(user, Req("/v1/models", "GET"))
+        p.set(ca, "_REDIS", FakeRedis())
+        # no cached key and no team id: it raises for that NAMED reason, proving the branch was reached
+        assert "DEVELOPERS_TEAM_ID" in _denied(_person(), Req("/v1/models", "GET"))
     finally:
         p.undo()
 

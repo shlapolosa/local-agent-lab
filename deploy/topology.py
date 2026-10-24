@@ -188,9 +188,9 @@ SUBSTRATE = {
     "review":       {"cmd": "sh -c 'python -c \"from lab.platform import config; "
                             "print(f\\\"review: serving {config.build_id()}\\\", flush=True)\" && "
                             "streamlit run src/lab/substrate/review/app.py --server.port 8501 "
-                            "--server.address :: --server.headless true'", "port": 8501,
-                     "s3": True,    # the Submit page writes uploads DIRECT to the bucket (trusted substrate component)
-                     "env": {"REFERENCE_PROVIDER": "mcp"}},   # the corpus THROUGH reference-mcp: no reader DSN
+                            "--server.address :: --server.headless true'", "port": 8501},
+                     # No "s3" and no fixed env: a CLIENT of the seam (TO-BE) — uploads, artifacts and the
+                     # corpus all go through the gateway, so it holds no bucket key and no reader DSN.
     # The fabric's OWN Teams app (lab.substrate.fabricapp): four pages and the corpus drawing, and NO
     # bot — the Copilot Studio agent is this app's bot, so there is no bot code and no bot credential
     # here. A public port because Teams loads a tab over HTTPS from the host the manifest names in
@@ -403,7 +403,7 @@ def substrate_env(name, spec, base_env, net: Network) -> dict:
 # role starts reading a new variable, add it here in the same change, or the container won't see
 # it. This table is also the Azure Container Apps secret-scope map (which Key Vault refs each app
 # gets). The bucket credentials (S3_KEYS) are NOT listed anywhere here on purpose: they are granted
-# solely by a service's `"s3": True` flag (review + storage-mcp + graph-mcp), which env_for_role() adds.
+# solely by a service's `"s3": True` flag (storage-mcp + graph-mcp + speech-mcp), which env_for_role() adds.
 _OTLP = "OTEL_EXPORTER_OTLP_*"                     # every Python role: lab.platform.otel.tracer reads OTEL_EXPORTER_OTLP_ENDPOINT
 ROLE_ENV = {
     "gateway": [                                   # litellm + gateway/{custom_auth,auto_router,pii_guardrail}.py
@@ -467,7 +467,7 @@ ROLE_ENV = {
         "FABRIC_VOCAB_REFS", "FABRIC_VOCAB_VERSION", "FABRIC_VOCAB_DIR",
         _OTLP, "REFERENCE_MODELS_DIR",
     ],
-    "storage-mcp": [                               # src/lab/substrate/mcp/storage/server.py + lab.substrate.artifacts + lab.platform.docparse — READ-ONLY upload store
+    "storage-mcp": [                               # src/lab/substrate/mcp/storage/server.py + lab.substrate.artifacts + lab.platform.docparse — read-only MCP tools; the /uploads route (reached only via /api) writes the upload store
         "MCP_SHARED_SECRET", "BIND_HOST", "STORAGE_MCP_PORT",
         "ARTIFACTS_URL", "DATABASE_URL",           # config.UPLOADS_URL falls back to ARTIFACTS_URL when no bucket is configured
         "BA_MAX_*",                                # docparse.py size limits (BA_MAX_DOC_CHARS, BA_MAX_EMBEDDED_IMAGES)
@@ -477,12 +477,15 @@ ROLE_ENV = {
         "MCP_SHARED_SECRET", "BIND_HOST", "WORKFLOW_MCP_PORT",
         "REDIS_URL",                               # workflows.request/status + approvals streams — the ONLY backend it holds
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # approval_tools.py: the two LINKS a reviewer follows
+        "PUBLIC_GATEWAY_URL",                      # the host /api/openapi.json names — an address
+        "STORAGE_MCP_URL",                         # rest.py forwards /api/artifacts + /api/uploads there — an
+                                                   # ADDRESS: storage-mcp holds the store credentials, not this door
         "SPEECH_LANES",                            # which lanes a submission fans out into. The fan-out
                                                    # happens HERE (rest.py + server.py, via
                                                    # workflows.lanes_for); unset means one run, which
                                                    # looks exactly like a working single-provider lab
         _OTLP,                                     # (addresses, not credentials). Deliberately NO
-    ],                                             # ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*: refs are never dereferenced here
+    ],                                             # ARTIFACTS_URL/DATABASE_URL/UPLOADS_URL/S3_*: bytes are forwarded to storage-mcp
     "graph-mcp": [                                 # src/lab/substrate/mcp/graph/*.py + lab.substrate.{artifacts,container,mcpauth} + lab.core.collab — the COLLABORATION adapter
         "MCP_SHARED_SECRET", "BIND_HOST",          # mcpauth bearer; uvicorn bind
         "REDIS_URL", "FABRIC_EVENTS", "FABRIC_NOTIFY_CLIENT_STATE",   # notifications.py: a change notification -> fabric:events
@@ -606,24 +609,25 @@ ROLE_ENV = {
              # — the one button the handover exists for, pointing at the reader's own machine.
              # A URL a person clicks, not a credential: the channel roles hold it for this reason.
              "REVIEW_APP_URL"],
-    "review": [                                    # src/lab/substrate/review/app.py + lab.substrate.{approvals,artifacts} + lab.platform.{workflows,runlog,config}
-        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the FALLBACK
+    "review": [                                    # src/lab/substrate/review/{app,api}.py — a CLIENT of the seam (TO-BE)
+        "REVIEW_APP_PASSWORD",                     # config.REVIEW_APP_PASSWORD gate — the PERSON's fallback sign-in
         "LIVE_APP_URL",                            # where to send a reader who wants to WATCH a run
                                                    # rather than review one; absent = no link offered
         "REVIEW_ENTRA_CLIENT_ID", "REVIEW_ENTRA_CLIENT_SECRET",   # the app's own Entra registration:
-                                                   # signs a PERSON in, so the approval ledger names
-                                                   # a human the tenant vouches for rather than a
-                                                   # typed string. Unset -> the password gate stands
-                                                   # (`review.identity.configured()`), which is why
-                                                   # a half-configured SSO cannot lock the app out
+                                                   # signs a PERSON in (the approval ledger names a human
+                                                   # the tenant vouches for) AND, by client credentials,
+                                                   # authenticates the APP at the gateway — it holds
+                                                   # Workflow.Submit + Approvals.Read + Approvals.Decide
+                                                   # (scripts/provision_review_app_identity.py). REQUIRED:
+                                                   # /api refuses a virtual key. (A PERSON may still sign in
+                                                   # via the password gate when SSO is unconfigured.)
         "ENTRA_TENANT_ID", "REVIEW_APP_URL",       # the authority, and the registered redirect
-        "REDIS_URL",                               # approvals / workflows / runlog streams
-        "ARTIFACTS_URL", "DATABASE_URL",           # reads xml/svg refs of a request
-        "JAEGER_UI_URL",                           # trace links
-        "REFERENCE_PROVIDER", "REFERENCE_MCP_URL", "REFERENCE_RING", "MCP_SHARED_SECRET",   # the Submit form's
-                                                   # intake groups, read from the corpus THROUGH reference-mcp under
-                                                   # a pin — never the LiteLLM DSN it holds for artifacts
-    ],                                             # + S3_KEYS via the "s3" flag (Submit page uploads straight to the bucket)
+        "ENTRA_GATEWAY_AUDIENCE",                  # the scope its client-credentials token is for
+        "GATEWAY_URL", "GATEWAY_MCP_SERVERS",      # /api (the gate, runs, uploads, artifacts) and gateway
+                                                   # MCP (the corpus) — ADDRESSES; NO Redis, store, bucket,
+                                                   # database or shared secret: everything goes through the gateway
+        "JAEGER_UI_URL",                           # trace links + the trace reader (observability plane)
+    ],
     "telegram": [                                  # src/lab/substrate/channels/telegram.py + lab.substrate.approvals + lab.platform.config
         "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",  # the Bot API credential + target chat (unset = not deployed)
         "REDIS_URL",                               # approvals:requests consumer group "telegram" + decisions
@@ -690,7 +694,7 @@ ROLE_ENV = {
     # (its agents' credentials, its own settings) belongs in WORKLOAD_ENV below, not here: one shared
     # list meant the meeting workload was handed the visio agents' client secrets, which is exactly
     # the blast radius this table exists to prevent.
-    "workload": [                                  # src/lab/workloads/* + lab.workloads.identity + lab.platform.{workflows,runlog,docparse}
+    "workload": [                                  # src/lab/workloads/* + lab.platform.identity + lab.platform.{workflows,runlog,docparse}
         "GATEWAY_URL",                             # the ONLY substrate coordinate (LLM + MCP via the gateway)
         "GATEWAY_MCP_SERVERS",                     # ... served one server at a time by APIM (prod), aggregated by the client
         "REVIEW_APP_URL", "JAEGER_UI_URL",         # reported to the human (host.py prints; consumer writes back)

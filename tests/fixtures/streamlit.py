@@ -145,13 +145,6 @@ class FakeApprovals:
         self.acked, self.decisions = [], []
         self.answers = {}          # what a human answered, when the approval asked a question
 
-    def channel_events(self, channel, block_ms=0, **_):
-        assert channel == "review-app" and block_ms == 0
-        return list(self.events)
-
-    def ack(self, channel, eid):
-        self.acked.append((channel, eid))
-
     #: approval id -> (released request id, process), as `continuations` records after a release.
     released: dict = {}
 
@@ -210,15 +203,71 @@ class FakeRunlog:
         return dict(self.runs.get(run_id, {}))
 
 
-def install(st, approvals=None, workflows=None, runlog=None, store=None, uploads=None):
+class FakeLab:
+    """Stands in for `review.api.LabApi` — the app's ONE collaborator — by delegating to the fakes
+    above, so each test keeps speaking in approvals/workflows/runlog/store terms while the app speaks
+    only to the seam. Same method names, arguments and refusals as LabApi: a double that drifts from
+    the client it replaces would let a test pass against calls the app no longer makes."""
+
+    def __init__(self, approvals=None, workflows=None, runlog=None, store=None, uploads=None,
+                 reference=None):
+        self.approvals = approvals or FakeApprovals()
+        self.workflows = workflows or FakeWorkflows()
+        self.runlog = runlog or FakeRunlog()
+        self.store, self.uploads = store or FakeStore(), uploads or FakeStore()
+        self.reference = reference
+
+    def artifact(self, ref):
+        return self.store.get(ref)
+
+    def upload(self, name, data, content_type):
+        return self.uploads.put(name, data, content_type)
+
+    def pending(self):
+        return self.approvals.pending()
+
+    def status(self, approval_id):
+        return self.approvals.status(approval_id)
+
+    def history(self, limit=20):
+        return self.approvals.history(limit)
+
+    def decide(self, approval_id, decision, actor, comment="", *, answer=None):
+        # the channel the CLIENT names; the door stamps `api:` in front of it
+        return self.approvals.human_decision(approval_id, decision, actor, "review-app", comment,
+                                             answer=answer)
+
+    def submit(self, process, inputs, requester):
+        return self.workflows.request(process, inputs, requester)
+
+    def request_status(self, request_id):
+        return self.workflows.status(request_id)
+
+    def recent_requests(self, limit=10):
+        return self.workflows.recent(limit)
+
+    def board(self, limit=20):
+        return self.runlog.active(), self.runlog.recent(limit)
+
+    def run(self, run_id):
+        return self.runlog.get(run_id)
+
+    def corpus_records(self, artifact, record_type, *, field):
+        """The corpus read, against a reference-port double (pin/lookup) when a test supplies one."""
+        if self.reference is None:
+            raise RuntimeError("no corpus in this test")
+        from lab.core.reference.model import RunRef
+        pin = self.reference.pin([artifact])
+        rows = self.reference.lookup(pin, record_type=record_type, key={},
+                                     run=RunRef(run_id="review-app", process="review-app", field=field),
+                                     artifact_id=artifact).records
+        return [dict(r.body) for r in rows]
+
+
+def install(st, approvals=None, workflows=None, runlog=None, store=None, uploads=None, reference=None):
     """Swap the app's collaborators for fakes; returns the fake st for assertions."""
     APP.st = st
-    APP.approvals = approvals or FakeApprovals()
-    APP.workflows = workflows or FakeWorkflows()
-    APP.runlog = runlog or FakeRunlog()
-    for provider, fake in ((APP.container.artifacts, store), (APP.container.uploads, uploads)):
-        provider.reset_override()                 # the app resolves stores through its container's providers
-        provider.override(fake or FakeStore())
+    APP.LAB = FakeLab(approvals, workflows, runlog, store, uploads, reference)
     return st
 
 

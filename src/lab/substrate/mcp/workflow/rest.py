@@ -50,12 +50,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from lab.platform import config, workflows
-from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_FINISHED,
-                                    WORKFLOW_OPEN, Decision,
-                                    ProcessSpec, speaker_candidates, speaker_prompts)
-from lab.platform.contracts import card_answer
-from lab.substrate import approvals
+import httpx
+
+from lab.platform import config, runlog, workflows
+from lab.platform.openapi import openapi as _openapi
+from lab.platform.contracts import (APPROVAL_FINAL, PROCESSES, WORKFLOW_FINISHED, WORKFLOW_OPEN,
+                                    Decision, ProcessSpec, card_answer)
+from lab.substrate import approval_card, approval_view, approvals
 from lab.substrate.mcp.workflow import listing
 from lab.substrate.mcpserver import error_response as _error, json_body as _body
 
@@ -218,8 +219,23 @@ def _approvals_route(server):
     async def listing(request: Request) -> JSONResponse:
         """Everything still waiting on a person. What a flow polls when it did not raise the
         question itself."""
-        items = approvals.pending(client=server.container.redis())
-        return JSONResponse({"approvals": [_brief(a) for a in items], "count": len(items)})
+        redis = server.container.redis()
+        if "history" in request.query_params:
+            # DECIDED approvals, newest first — the ledger a reviewer reads under the open queue.
+            # A parameter on the listing rather than a path: `/approvals/{id}` already owns every
+            # single segment, and the policy table's patterns must stay disjoint.
+            try:
+                limit = max(1, min(int(request.query_params["history"] or 20), 200))
+            except ValueError:
+                return _error(400, "history must be a whole number")
+            return JSONResponse({"history": approvals.history(limit, client=redis)})
+        items = approvals.pending(client=redis)
+        jaeger = server.container.config.jaeger_ui_url()
+        # `full` returns each one as `GET /approvals/{id}` would — one call for a reviewer's queue
+        # instead of one per approval through the gateway.
+        view = approval_view.detail if request.query_params.get("full") in ("1", "true") else approval_view.brief
+        return JSONResponse({"approvals": [view(a, jaeger_url=jaeger) for a in items],
+                             "count": len(items)})
     return listing
 
 
@@ -230,19 +246,35 @@ def _approval_route(server):
         state = approvals.status(request.path_params["approval_id"], client=server.container.redis())
         if not state:
             return _error(404, f'no such approval {request.path_params["approval_id"]!r}')
-        payload = state.get("payload") or {}
-        out = _brief(state) | {
-            "question": payload.get("question") or {},
-            "speakers": [p.to_dict() for p in speaker_prompts(payload)],
-            # who may be PICKED instead of typed — a suggestion, so a client must still offer free
-            # text beside it. Empty is normal and means the meeting could not be resolved.
-            "candidates": [c.to_dict() for c in speaker_candidates(payload)],
-            "answer_labels": list(payload.get("answer_labels") or []),
-            "answer_required": bool(payload.get("answer_labels")),
-            "artifacts": {k: v for k, v in payload.items() if isinstance(v, str) and v.startswith("art://")},
-        }
+        out = approval_view.detail(state, jaeger_url=server.container.config.jaeger_ui_url())
         return JSONResponse(out)
     return one
+
+
+def _card_route(server):
+    async def card(request: Request) -> JSONResponse:
+        """One approval as the Adaptive Card every surface shows — the card a low-code flow posts and
+        waits on. `answers=true` adds the inputs and Submit, for a caller that can RECEIVE the reply."""
+        state = approvals.status(request.path_params["approval_id"], client=server.container.redis())
+        if not state:
+            return _error(404, f'no such approval {request.path_params["approval_id"]!r}')
+        cfg = server.container.config
+        return JSONResponse(approval_card.card(
+            state, review_url=cfg.review_app_url(), jaeger_url=cfg.jaeger_ui_url(),
+            answers=str(request.query_params.get("answers", "")).lower() in ("1", "true", "yes")))
+    return card
+
+
+def _openapi_route(server):
+    async def openapi_doc(request: Request) -> JSONResponse:
+        """This door as a Swagger 2.0 document — what a custom connector is imported from. Generated from
+        the process registry and the policy table, so it cannot describe a route the door does not
+        serve. It names the PUBLIC gateway: a connector runs in the provider's cloud and calls the
+        governed plane, never this service's private address."""
+        from lab.substrate import apipolicy
+        base = server.container.config.public_gateway_url() or str(request.base_url)
+        return JSONResponse(_openapi(base, apipolicy.OPERATIONS, prefix=API_PREFIX))
+    return openapi_doc
 
 
 def _decide_route(server):
@@ -287,26 +319,122 @@ def _decide_route(server):
     return decide
 
 
-def _brief(state) -> dict:
-    return {k: state.get(k) for k in ("request_id", "kind", "subject", "requester", "status",
-                                      "created_at", "trace_id",
-                                      # what an approval RELEASED, or why it could not
-                                      "released_request_id", "released_process",
-                                      "continuation_error") if state.get(k)}
+# ============================================================== bytes: forwarded to storage-mcp
+def storage_forwarder(server):
+    """A call to storage-mcp's byte routes, substrate to substrate on the private network, with the
+    shared secret — the same trust every substrate server already extends to the gateway. The front
+    door holds no store credential; storage-mcp does. The container's configuration is read per CALL, so
+    an override is honoured. Unreachable is a 503 with a sentence, never a bare 500."""
+    async def forward(method, path, *, params=None, body=b"", content_type=""):
+        cfg = server.container.config
+        url = str(cfg.storage_mcp_url() or "").rstrip("/")
+        if not url:
+            return 503, {"content-type": "application/json"}, b'{"error": "storage-mcp is not configured (STORAGE_MCP_URL)"}'
+        origin = url[: -len("/mcp")] if url.endswith("/mcp") else url
+        secret = cfg.mcp_shared_secret()
+        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
+        if content_type:
+            headers["Content-Type"] = content_type
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                got = await client.request(method, origin + path, params=params, content=body,
+                                           headers=headers)
+        except httpx.HTTPError as e:
+            msg = json.dumps({"error": f"storage-mcp unreachable: {type(e).__name__}: {e}"})
+            return 503, {"content-type": "application/json"}, msg.encode()
+        return got.status_code, dict(got.headers), got.content
+    return forward
 
 
-def routes(server) -> list[Route]:
+_PASSED = ("content-type", "content-disposition")
+
+
+def _relay(status, headers, body) -> Response:
+    return Response(body, status_code=status,
+                    headers={k: v for k, v in headers.items() if k.lower() in _PASSED})
+
+
+def _artifact_route(storage):
+    async def artifact(request: Request) -> Response:
+        """The bytes behind an `art://` ref. Possession of the ref is the capability (48 random bits),
+        behind the gateway's READ role; storage-mcp decides whether it exists."""
+        return _relay(*await storage("GET", "/artifacts", params=dict(request.query_params)))
+    return artifact
+
+
+def _upload_route(storage):
+    async def upload(request: Request) -> Response:
+        """Store submitted files, answering their `art://` refs — forwarded as they came, so the
+        multipart boundary and the original filenames survive untouched."""
+        return _relay(*await storage("POST", "/uploads", body=await request.body(),
+                                     content_type=request.headers.get("content-type", "")))
+    return upload
+
+
+# ============================================================== the run board and submissions
+def _board_route(server):
+    async def board(request: Request) -> JSONResponse:
+        """Every run a host reported, in flight and finished — what the review app's Runs page shows."""
+        redis = server.container.redis()
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 20)), 200))
+        except ValueError:
+            return _error(400, "limit must be a whole number")
+        return JSONResponse({"active": runlog.active(client=redis),
+                             "recent": runlog.recent(limit, client=redis)})
+    return board
+
+
+def _board_run_route(server):
+    async def one(request: Request) -> JSONResponse:
+        h = runlog.get(request.path_params["request_id"], client=server.container.redis())
+        return JSONResponse(h) if h else _error(404, f'no such run {request.path_params["request_id"]!r}')
+    return one
+
+
+def _requests_route(server):
+    async def recent(request: Request) -> JSONResponse:
+        """The latest submissions across processes, newest first."""
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 10)), 200))
+        except ValueError:
+            return _error(400, "limit must be a whole number")
+        return JSONResponse({"requests": workflows.recent(limit, client=server.container.redis())})
+    return recent
+
+
+def _request_route(server):
+    async def one(request: Request) -> JSONResponse:
+        """One submission by id, whatever its process — a surface that submitted knows only the id."""
+        state = workflows.status(request.path_params["request_id"], client=server.container.redis())
+        return JSONResponse(state) if state else _error(
+            404, f'no such request {request.path_params["request_id"]!r}')
+    return one
+
+
+def routes(server, *, storage=None) -> list[Route]:
     """One submit and one run-status route per registered process, plus a listing.
 
     Generated from `PROCESSES`, so adding a process adds both surfaces at once — the same reason the
-    MCP tools are generated rather than written out.
+    MCP tools are generated rather than written out. `storage` reaches storage-mcp's byte routes
+    (injected by a test; storage-mcp over the private network otherwise).
     """
+    storage = storage or storage_forwarder(server)
     out: list[Route] = [
+        # What a PRESENTATION surface needs so it holds no store or Redis credential (TO-BE seam).
+        Route(f"{API_PREFIX}/artifacts", _artifact_route(storage), methods=["GET"]),
+        Route(f"{API_PREFIX}/uploads", _upload_route(storage), methods=["POST"]),
+        Route(f"{API_PREFIX}/board", _board_route(server), methods=["GET"]),
+        Route(f"{API_PREFIX}/board/{{request_id}}", _board_run_route(server), methods=["GET"]),
+        Route(f"{API_PREFIX}/requests", _requests_route(server), methods=["GET"]),
+        Route(f"{API_PREFIX}/requests/{{request_id}}", _request_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/processes", _index, methods=["GET"]),
+        Route(f"{API_PREFIX}/openapi.json", _openapi_route(server), methods=["GET"]),
         # The human-in-the-loop gate, for a client that authenticated its own person.
         Route(f"{API_PREFIX}/runs/open", _open_runs_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/approvals", _approvals_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/approvals/{{approval_id}}", _approval_route(server), methods=["GET"]),
+        Route(f"{API_PREFIX}/approvals/{{approval_id}}/card", _card_route(server), methods=["GET"]),
         Route(f"{API_PREFIX}/approvals/{{approval_id}}/decide", _decide_route(server),
               methods=["POST"]),
     ]

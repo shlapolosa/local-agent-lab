@@ -44,11 +44,13 @@ from lab.platform.contracts import (
 )
 from lab.workloads import gateway
 from lab.workloads.usecase import reference
-from lab.workloads.usecase import families, mappers, modelling, owed
+from lab.workloads.usecase import modelling
+from lab.core.usecase import families
+from lab.core.usecase import owed
 from lab.workloads.usecase import views as cafe_views
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.steps import derived_for
-from lab.workloads.usecase.steps import NUMBER_OF, step_for
+from lab.core.usecase.steps import derived_for
+from lab.core.usecase.steps import NUMBER_OF, step_for
 
 #: Declared on every approval this workload raises — see the screening workflow.
 PROCESS = USE_CASE_DESIGN.name

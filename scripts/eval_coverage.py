@@ -51,11 +51,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from lab.platform import config
 from lab.core.usecase import capabilities, seed                 # noqa: E402
 from lab.workloads import gateway                              # noqa: E402
-from lab.workloads.usecase import agents as A                  # noqa: E402
-from lab.workloads.usecase import coverage, reference          # noqa: E402
+from lab.workloads.usecase import agents as A                # noqa: E402
+from lab.workloads.usecase import coverage                    # noqa: E402
+from lab.core.usecase import coverage as core_coverage  # noqa: E402
 from lab.workloads.usecase.derivation import Derivation        # noqa: E402
-from lab.workloads.usecase.gates import GateFailed             # noqa: E402
-from lab.workloads.usecase.steps import step_for               # noqa: E402
+from lab.core.validation import GateFailed                     # noqa: E402
+from lab.core.usecase.steps import step_for               # noqa: E402
 
 
 #: The recorded bar. NAMED rather than spelled at the flag, because it was spelled there and the
@@ -186,7 +187,7 @@ def present(corpus: list[dict], definitions: str, budget: int, deepest: int) -> 
         return corpus
     if definitions == "none":
         return [{k: v for k, v in c.items() if k != "definition"} for c in corpus]
-    trimmed = coverage.leaves_for(corpus, deepest=deepest, budget=budget)   # budget-aware trim
+    trimmed = core_coverage.leaves_for(corpus, deepest=deepest, budget=budget)   # budget-aware trim
     keep = {t["id"]: t.get("definition") for t in trimmed}
     # Built explicitly, because the dict-merge this used to be did not do what it read as:
     # `{**c, **{k: v for k, v in c.items() if k != "definition"}}` spreads `c` INCLUDING its
@@ -208,7 +209,7 @@ def present(corpus: list[dict], definitions: str, budget: int, deepest: int) -> 
 
 def payload_size(corpus: list[dict], matcher: str, budget: int, deepest: int) -> int:
     """Roughly what one prompt will carry — printed so a recall number is read beside its cost."""
-    rows = coverage.leaves_for(corpus, deepest=deepest, budget=budget) if matcher == "leaves" \
+    rows = core_coverage.leaves_for(corpus, deepest=deepest, budget=budget) if matcher == "leaves" \
         else [c for c in corpus if c.get("level") == 1]
     return len(json.dumps(rows, ensure_ascii=False, default=str))
 
@@ -225,7 +226,7 @@ async def one_run(cfg, corpus, elements, matcher: str, deepest: int, samples: in
     offered: set = set()
     if matcher == "leaves":
         offered = {str(c.get("id") or "").strip()
-                   for c in coverage.leaves_for(corpus, deepest=deepest)}
+                   for c in core_coverage.leaves_for(corpus, deepest=deepest)}
     started = time.time()
     note = ""
     try:
@@ -549,7 +550,7 @@ async def main() -> int:
         # Zero calls: what the matcher would be handed, and what it costs. Tuning the presentation
         # is the tightest loop there is, and paying a model to see a prompt is absurd.
         for matcher in (args.matcher or sorted(coverage.MATCHERS)):
-            rows = (coverage.leaves_for(corpus, deepest=args.deepest, budget=args.budget)
+            rows = (core_coverage.leaves_for(corpus, deepest=args.deepest, budget=args.budget)
                     if matcher == "leaves" else [c for c in corpus if c.get("level") == 1])
             size = len(json.dumps(rows, ensure_ascii=False, default=str))
             carry = sum(1 for r in rows if str(r.get("definition") or "").strip())

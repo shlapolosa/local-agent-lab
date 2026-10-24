@@ -20,7 +20,7 @@ agent-framework-openai==1.14.1  # `agent_framework.openai`: OpenAIChatClient
 mcp>=1.29                        # MCP SDK — agent_framework exports MCPStreamableHTTPTool from it (not pulled by fastmcp-slim)
 vsdx>=0.6                        # read Visio .vsdx diagrams (visio-to-archimate BA ingest)
 jsonschema>=4                   # validate the BA-output contract
-msal>=1.31                      # Entra client-credentials: lab.workloads.identity (agents) +
+msal>=1.31                      # Entra client-credentials: lab.platform.identity (agents) +
                                 #  lab.substrate.mcp.graph.graph_auth (the collaboration adapter, app-only)
 microsoft-teams-apps==2.1.0         # the meeting app's bot (lab.substrate.meetingapp). PINNED: 2.1.0 rejects Teams'
                                 #  automatic card refresh (service.AutomaticRefresh works around it) —

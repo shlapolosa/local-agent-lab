@@ -423,7 +423,7 @@ def ensure_bucket():
                       ("S3_URL_STYLE", (c.get("urlStyle") or "path").lower()),
                       ("UPLOADS_URL", f"s3://{c['bucketName']}/uploads")])
     print(f"  .env: # CLOUD: S3_* + UPLOADS_URL=s3://{c['bucketName']}/uploads written "
-          f"(endpoint {c['endpoint']}); applies to review + storage-mcp on the next `substrate up`")
+          f"(endpoint {c['endpoint']}); applies to storage-mcp, graph-mcp and speech-mcp on the next `substrate up`")
     return bid
 
 

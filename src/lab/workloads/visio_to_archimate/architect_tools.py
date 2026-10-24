@@ -19,7 +19,7 @@ Reuse, not reimplementation:
                       decision `Model.validate_relations()` makes (SemanticService over Archi's
                       complete Appendix B matrix, coarse engine rules when the semantic layer is
                       not importable);
-  * relation ids    = `lab.workloads.ids.rid` (`"r-" + md5("src|type|tgt")[:10]`) — the ONE home of the
+  * relation ids    = `lab.core.archimate.ids.rid` (`"r-" + md5("src|type|tgt")[:10]`) — the ONE home of the
                       formula, so ids match what the workflow assigns and stay stable across
                       re-runs/updates;
   * batch/finish    = `lab.workloads.accumulator.Accumulator` (Template Method): this module supplies
@@ -38,15 +38,14 @@ Usage (the coordinator wires it; this module does not touch workflow.py/agents.p
 from __future__ import annotations
 
 import copy
-import difflib
 import re
 from typing import Any
 
 from lab.core.archimate import relrepair  # (skill script: legality via the semantic matrix)
 from lab.core.archimate.engine import _REL_TYPES, _TYPES, Model
-from lab.workloads import ids
+from lab.core.archimate import ids
+from lab.core.archimate.suggest import suggest
 from lab.workloads.accumulator import MAX_BATCH, Accumulator, coerce_items, fmt, nonempty_str
-from lab.core.canon import squash
 
 # ---- vocabularies, taken from the engine (never hardcoded) --------------------------------------
 ELEMENT_TYPES: tuple[str, ...] = tuple(_TYPES.keys())
@@ -58,22 +57,6 @@ RELATION_FIELDS: tuple[str, ...] = ("id", "type", "src", "tgt", "accessType")
 
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _ADOIT_ID = re.compile(rf"^\{{?{_UUID}\}}?$")
-
-
-def suggest(value: str, vocab: tuple[str, ...], n: int = 3) -> list[str]:
-    """Closest valid names for a wrong one: exact match ignoring case/spaces/underscores first
-    ("application component" -> ApplicationComponent), then difflib similarity, then any valid
-    name containing the given word ("Component" -> ApplicationComponent, …)."""
-    if not isinstance(value, str) or not value.strip():
-        return []
-    nv = squash(value)
-    exact = [t for t in vocab if squash(t) == nv]
-    if exact:
-        return exact
-    close = difflib.get_close_matches(value, vocab, n=n, cutoff=0.6)
-    if close:
-        return close
-    return [t for t in vocab if nv and (nv in squash(t) or squash(t) in nv)][:n]
 
 
 def _type_error(kind: str, value: Any, vocab: tuple[str, ...]) -> str:

@@ -9,7 +9,7 @@ and must never fail a run because a registration it would have preferred does no
 import pytest
 
 from lab.workloads.usecase import identity
-from lab.workloads.usecase.steps import STEPS
+from lab.core.usecase.steps import STEPS
 
 
 def test_every_service_that_owns_a_step_has_a_prefix():

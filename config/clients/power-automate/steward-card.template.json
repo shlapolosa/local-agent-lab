@@ -56,7 +56,7 @@
           "type": "Http",
           "inputs": {
             "method": "POST",
-            "uri": "@{concat('https://gateway-production-120b.up.railway.app/api/approvals/', body('Ask_the_steward')?['data']?['request_id'], '/decide')}",
+            "uri": "@{concat('${PUBLIC_GATEWAY_URL}/api/approvals/', body('Ask_the_steward')?['data']?['request_id'], '/decide')}",
             "headers": {
               "Content-Type": "application/json"
             },
@@ -68,10 +68,10 @@
             },
             "authentication": {
               "type": "ActiveDirectoryOAuth",
-              "audience": "api://27000051-a145-4c16-885c-d5c98b4f4705",
-              "tenant": "b911f4d4-de30-405f-96e9-bb1c773fe2ff",
-              "clientId": "<CONNECTOR_CLIENT_ID>",
-              "secret": "<CONNECTOR_CLIENT_SECRET>"
+              "audience": "${ENTRA_GATEWAY_AUDIENCE}",
+              "tenant": "${ENTRA_TENANT_ID}",
+              "clientId": "${CONNECTOR_CLIENT_ID}",
+              "secret": "<<FLOW_APP_CLIENT_SECRET — type it in the designer; never store it in this file>>"
             }
           },
           "runAfter": {

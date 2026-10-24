@@ -43,7 +43,9 @@ from lab.platform.contracts import (APPROVAL_FINAL, ApprovalStatus, Decision, ap
 
 
 REQ, DEC = "approvals:requests", "approvals:decisions"
-CHANNELS = ("review-app", "telegram", "teams", "teams-app", "steward", "ontology")
+CHANNELS = ("telegram", "teams", "teams-app", "steward", "ontology")
+# NOT "review-app": the review app reads the open set through /api (TO-BE seam) and consumes no
+# stream, so a group for it would only accumulate lag nobody reads.
 # "steward" is the vocabulary queue: the same contract as any other channel, reading only
 # `TAXONOMY_KINDS` (see `channel_events`'s `audience`). A separate GROUP rather than a filter in front
 # of the Teams one, so the two feeds are independently acked and independently behind —

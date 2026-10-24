@@ -366,7 +366,7 @@ in-place updates. The approval tool (`ea_import_status`) already reports which w
 | INV-G8 | Per-host distinct OTel service name (observability) | e.g. `process-visio-to-archimate`; one service name per business process | App Insights cloud roles |
 | INV-G9 | Everything registered in the gateway registry (governance) | MCP servers in `litellm-config.yaml`; skills in both LiteLLM registries via `register_skill.sh` | Agent 365 registry |
 | INV-G10 | One trace per run = audit trail (observability/audit) | W3C `traceparent` joins process → gateway → MCP; ~200–400 spans/run | App Insights / Foundry observability |
-| ID-01 | Per-agent identity from a real IdP (security) | Entra tenant `socratesbusiness`; app registration per agent; MSAL client-credentials (`src/lab/workloads/identity.py`) | Entra ID |
+| ID-01 | Per-agent identity from a real IdP (security) | Entra tenant `socratesbusiness`; app registration per agent; MSAL client-credentials (`src/lab/platform/identity.py`) | Entra ID |
 | ID-02 | Gateway validates JWTs; portable credential shapes (security) | `src/lab/substrate/gateway/custom_auth.py` (Entra JWKS/audience/issuer); JWT **or** durable virtual key | APIM `validate-jwt` |
 | ID-03 | Developer self-serve keys without raw provider keys (usability) | Entra SSO on the LiteLLM UI; JIT keys on first JWT use; `az`-acquired tokens | APIM Developer Portal |
 | FR-01 | Convert a diagram (+requirements) to an ArchiMate model (functional) | `visio_to_archimate` workflow: BA (vision/parse) → Architect (ArchiMate) → render | Same on Container Apps |

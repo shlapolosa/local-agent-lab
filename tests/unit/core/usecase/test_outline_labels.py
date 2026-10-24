@@ -6,7 +6,7 @@ appeared four times with nothing to tell the rows apart, and read as duplicated 
 shortlist showed bare L3 ids — "COG.02" three times — hiding the route and the product that made
 each row different. A row that pairs two things names both.
 """
-from lab.workloads.usecase.derivation import outline
+from lab.core.usecase.outline import outline
 
 
 def _rows(out, key):

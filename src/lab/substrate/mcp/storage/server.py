@@ -5,7 +5,7 @@ tool credentials — the gateway injects them). Submitted inputs live in a bucke
 now, Azure Blob later) or in the Postgres artifact store; the credentials live HERE, in the
 substrate, and every read an agent or workload makes goes gateway -> this server, so it is
 granted per team, allow-listed per tool, metered, PII-scanned and traced like any other call.
-Nothing here writes: uploads are made by the review app (a trusted substrate component), and a
+No TOOL here writes: uploads arrive through `POST /api/uploads`, forwarded to this server's /uploads route (rest.py), and a
 workload's own outputs go through semantic-mcp / adoit-mcp. Azure parity: Blob reached only
 through a governed API, never a SAS handed to an agent.
 
@@ -29,6 +29,7 @@ import sys
 from fastmcp.utilities.types import Image
 
 from lab.platform import config, docparse, filetypes, render_vsdx
+from lab.substrate.mcp.storage import rest
 from lab.substrate.mcpserver import LabServer, span
 
 SERVICE = "storage-mcp"
@@ -125,7 +126,8 @@ def storage_read_artifact(ref: str, max_chars: int = 0) -> str:
     if filetypes.kind_for(name) != "artifact":
         raise ValueError(f"{name} is not an artifact (.json/.xml/.svg/.xlsx/.html); use "
                          "storage_read_document for an uploaded document or storage_get for an image")
-    raw = server.uploads().get(ref)
+    # renders live in the ARTIFACT store, inputs in the upload store; a ref does not say which
+    raw = rest.read(server, ref)
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
     if max_chars and len(text) > max_chars:
         raise ValueError(f"{name} is {len(text)} characters, larger than the {max_chars} asked for "
@@ -214,4 +216,4 @@ if __name__ == "__main__":
             if not os.environ.get(k):
                 sys.exit(f"missing env var {k} — UPLOADS_URL is a bucket; source .env before starting")
     print(f"storage-mcp: upload store = {config.UPLOADS_URL.split('@')[-1] if '@' in config.UPLOADS_URL else config.UPLOADS_URL}")
-    server.serve()
+    server.serve(routes=rest.routes(server))   # /artifacts + /uploads: the front door forwards /api's here

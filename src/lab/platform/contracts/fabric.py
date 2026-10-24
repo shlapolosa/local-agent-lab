@@ -70,6 +70,9 @@ class SemanticTools(ToolCatalogue):
     impact = "semantic_impact"                     # reads C·X·H·D — never S (NFR-7)
     vocab_link = "semantic_vocab_link"
     vocab_propose = "semantic_vocab_propose"
+    #: The classifier's subject match as ONE decision — link, ask what each miss means, park the rest.
+    #: A workload calls this instead of choosing among the three itself (TO-BE, 24 Oct 2026).
+    vocab_resolve = "semantic_vocab_resolve"
     vocab_retire = "semantic_vocab_retire"         # a steward supersedes a concept; it still RESOLVES
     vocab_amend = "semantic_vocab_amend"           # a term is another way of saying one already held
     vocab_conflicts = "semantic_vocab_conflicts"   # words with two meanings, awaiting a steward
@@ -144,7 +147,7 @@ class SemanticTools(ToolCatalogue):
             topology, view_corpus, vocab_conflicts, vocab_candidates, vocab_master,
             related, relation_candidates, relation_open, concept_pairs) + VIEWS
     PIPELINE = (catalog_upsert, catalog_state, catalog_assert, edge_assert, edge_retract, vocab_link,
-                vocab_propose, vocab_asked, embed, derive, concept_match, relation_propose)
+                vocab_propose, vocab_resolve, vocab_asked, embed, derive, concept_match, relation_propose)
     # A steward's decisions about the VOCABULARY itself, not about one artifact: admitting a concept
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.

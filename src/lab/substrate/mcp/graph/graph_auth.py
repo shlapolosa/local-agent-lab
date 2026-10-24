@@ -18,7 +18,7 @@ Three modes, chosen by `GRAPH_AUTH_MODE`, all behind one tiny interface (`token(
     none     no credential: every call refuses STRUCTURALLY, naming the exact settings that are
              missing, so an unconfigured lab reports a sentence instead of failing at import
 
-`msal` is imported LAZILY inside the call (as `lab.workloads.identity` does) so importing this
+`msal` is imported LAZILY inside the call (as `lab.platform.identity` does) so importing this
 module — which the server does at start — never depends on the package being installed. The token
 cache honours the token's REAL `expires_in` with a skew margin, rather than assuming an hour: MSAL
 caches too, but the cache is what makes `token()` cheap enough to call on every request, and the

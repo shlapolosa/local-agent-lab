@@ -13,7 +13,7 @@ from pathlib import Path
 
 from lab.platform import config, container
 from lab.platform.contracts import TRANSCRIPT_TO_MINUTES
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.run import governed_run
 from lab.workloads.transcript_to_minutes import agents as A
 from lab.workloads.transcript_to_minutes.workflow import make_cfg, run_workflow

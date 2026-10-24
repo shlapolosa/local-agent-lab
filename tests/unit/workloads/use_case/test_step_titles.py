@@ -7,7 +7,7 @@ a file the live view cannot see. So it moves onto `Step`, where both halves, the
 live page read it from the same place.
 """
 from lab.workloads.use_case_screening import workflow as screening
-from lab.workloads.usecase import steps as S
+from lab.core.usecase import steps as S
 
 
 def test_every_step_has_a_short_title():

@@ -9,11 +9,11 @@ artifact the run maintains. The model is read from `derived` first: the design h
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Mapping
 
-from lab.workloads.usecase import mappers
+from lab.core.usecase import mappers
 from lab.workloads.usecase.derivation import Derivation
-from lab.workloads.usecase.model import Model
+from lab.core.usecase.run_model import Model
 
 __all__ = ["MODEL", "SUMMARY", "apply_mapper", "current", "ensure"]
 

@@ -17,6 +17,7 @@ from fixtures.fakes import FakeRedis
 from lab.platform import config, workflows
 from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, ApprovalTools, InputField,
                                     InputKind, ProcessSpec, WorkflowStatus, WorkflowTools)
+from lab.platform.submit_schema import annotation_of
 from lab.substrate.mcp.workflow import server as srv
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *[".."] * 5))
@@ -111,9 +112,9 @@ def test_an_optional_single_reference_also_accepts_null(redis):
     built = srv.build({FAKE.name: FAKE})
     opt = tools(built)["fake_process_submit"].inputSchema["properties"]["optional_one"]
     assert {"type": "string"} in opt["anyOf"] and {"type": "null"} in opt["anyOf"]
-    assert srv.annotation_of(FAKE.field("optional_one")) == (str | None)
-    assert srv.annotation_of(FAKE.field("primary")) is str
-    assert srv.annotation_of(VISIO_TO_ARCHIMATE.field("requirements")) == list[str]
+    assert annotation_of(FAKE.field("optional_one")) == (str | None)
+    assert annotation_of(FAKE.field("primary")) is str
+    assert annotation_of(VISIO_TO_ARCHIMATE.field("requirements")) == list[str]
     with built.container.redis.override(redis):
         out = call(built, "fake_process_submit", primary="art://a/b.png", optional_one=None).data
         assert workflows.status(out["request_id"], client=redis)["inputs"] == {"primary": "art://a/b.png"}

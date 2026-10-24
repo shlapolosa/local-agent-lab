@@ -12,7 +12,7 @@ import sys
 
 from lab.platform import container
 from lab.platform.contracts import USE_CASE_PROVISIONING
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 from lab.workloads.run import governed_run
 from lab.workloads.use_case_provisioning.workflow import make_cfg, run_workflow
 

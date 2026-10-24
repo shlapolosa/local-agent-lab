@@ -2,8 +2,6 @@
 the two lookups every uploader/parser uses. Lives in the platform kernel because BOTH the artifact
 store (substrate) and the input parser (platform, used by workloads) derive from it.
 """
-import re
-import unicodedata
 
 # THE table of file types that cross a service boundary: extension -> (content type, kind).
 # `kind` is how the lab reads the file — vsdx (structured OOXML, parsed deterministically), image
@@ -31,17 +29,6 @@ FILE_TYPES: dict[str, tuple[str, str]] = {
 CONTENT_TYPES = {ext: ct for ext, (ct, _kind) in FILE_TYPES.items()}     # extension -> content type
 
 
-def file_slug(text: str, default: str = "record", limit: int = 80) -> str:
-    """A name as a SLUG: lowercase, ASCII (accents folded, the rest dropped), runs of anything else folded to
-    one dash, no leading or trailing dash, capped at `limit`.
-
-    Beside the type table because it is the same concern — what a thing is called when it leaves the lab — and
-    THE one home for the rule: the projector's page, the topology beside it and a model's element id are the
-    same transformation, and two copies of it disagree the first day one is fixed."""
-    s = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:limit] or default
-
-
 def _ext(name: str) -> str:
     return name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
@@ -56,4 +43,4 @@ def kind_for(name: str, default: str = "unknown") -> str:
     return FILE_TYPES[_ext(name)][1] if _ext(name) in FILE_TYPES else default
 
 
-__all__ = ["FILE_TYPES", "CONTENT_TYPES", "content_type_for", "kind_for", "file_slug"]
+__all__ = ["FILE_TYPES", "CONTENT_TYPES", "content_type_for", "kind_for"]

@@ -6,7 +6,7 @@ Run: PYTHONPATH=src:tests .venv/bin/python -m pytest -q tests/unit/substrate/mcp
 import pytest
 
 from lab.platform import contracts as C
-from lab.substrate.mcp.workflow.server import ANNOTATION
+from lab.platform.submit_schema import ANNOTATION
 from lab.platform import workflows
 from lab.platform.contracts import (PROCESSES, VISIO_TO_ARCHIMATE, ApprovalTools, InputField,
                                     InputKind, ProcessSpec, WorkflowTools)

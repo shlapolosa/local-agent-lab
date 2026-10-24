@@ -23,6 +23,12 @@ question belongs to the process (`ProcessSpec.external`), because "this process 
 approving the question that produced its input" is true of every caller — including the master key,
 which no role check would have stopped.
 
+TWO CALLER SHAPES, one table. An app registration's client-credentials token carries `roles`; a
+PERSON's delegated token (what a custom connector carries) carries the roles assigned to that person,
+and the gateway additionally holds the body's `actor` / `requester` to the token (custom_auth). APIM
+MIGRATION ITEM: `<required-claims>` covers the role; the actor check is a policy expression on
+`approvals.decide` and `processes.submit`, which must be written at cutover.
+
 DEFAULT DENY. A path under the prefix that matches no operation is refused rather than allowed: a
 route added without a policy entry must fail closed, and a test asserts every generated route matches
 exactly one entry.
@@ -65,6 +71,10 @@ def _op(name, method, path, role, description) -> Operation:
 # The order is documentation, not precedence: the patterns are disjoint and a test proves it, so a
 # reader never has to work out which entry wins.
 OPERATIONS: tuple[Operation, ...] = (
+    # The door's own Swagger 2.0 document, for importing a custom connector. Same power as reading
+    # the process catalogue, so the same role.
+    _op("openapi.get", "GET", r"/openapi\.json", ApiRoles.SUBMIT,
+        "this door as an OpenAPI (Swagger 2.0) document, for a custom connector"),
     _op("processes.list", "GET", r"/processes", ApiRoles.SUBMIT,
         "what this door will start, and what each process needs"),
     _op("processes.submit", "POST", rf"/processes/{_SEG}/runs", ApiRoles.SUBMIT,
@@ -86,12 +96,29 @@ OPERATIONS: tuple[Operation, ...] = (
     _op("runs.open", "GET", r"/runs/open", ApiRoles.SUBMIT,
         "every run still pending or running, across processes"),
     _op("approvals.list", "GET", r"/approvals", ApiRoles.READ,
-        "everything still waiting on a person"),
+        "everything still waiting on a person (or, with `history`, what was decided)"),
     _op("approvals.get", "GET", rf"/approvals/{_SEG}", ApiRoles.READ,
         "one approval in full, including its question"),
+    _op("approvals.card", "GET", rf"/approvals/{_SEG}/card", ApiRoles.READ,
+        "one approval as the Adaptive Card a surface posts (answers=true adds the inputs)"),
     # Separate from READ on purpose, mirroring ApprovalTools.READ / .WRITE: showing a human what is
     # waiting and RECORDING what they said are different powers, and a relay that can only display
     # must not be one role away from being able to answer.
+    # What a PRESENTATION surface needs so it holds no store or Redis credential (TO-BE, 24 Oct
+    # 2026). Reading an artifact is part of JUDGING an approval, so it is READ; uploading an input
+    # and watching runs are part of submitting work, so they are SUBMIT.
+    _op("artifacts.get", "GET", r"/artifacts", ApiRoles.READ,
+        "the bytes behind an art:// reference"),
+    _op("uploads.put", "POST", r"/uploads", ApiRoles.SUBMIT,
+        "store submitted files and answer their art:// references"),
+    _op("board.list", "GET", r"/board", ApiRoles.SUBMIT,
+        "every run a host reported, in flight and finished"),
+    _op("board.run", "GET", rf"/board/{_SEG}", ApiRoles.SUBMIT,
+        "one run on the board, with its node history"),
+    _op("requests.list", "GET", r"/requests", ApiRoles.SUBMIT,
+        "the latest submissions across processes"),
+    _op("requests.get", "GET", rf"/requests/{_SEG}", ApiRoles.SUBMIT,
+        "one submission by id, whatever its process"),
     _op("approvals.decide", "POST", rf"/approvals/{_SEG}/decide", ApiRoles.DECIDE,
         "record a human's decision, relayed by a client that authenticated them"),
 )

@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import grants  # noqa: E402
 import topology  # noqa: E402
+from lab.platform.openapi import path_template  # noqa: E402
 from lab.substrate import apipolicy  # noqa: E402
 from lab.substrate.gateway import pii_guardrail  # noqa: E402
 
@@ -268,15 +269,9 @@ def models_list_policy() -> str:
 
 # ------------------------------------------------------------------ the /api front door
 def _template(op: apipolicy.Operation) -> str:
-    """`/processes/[^/]+/runs` -> `/processes/{process}/runs`: a parameter per segment, named after the
-    collection it indexes, matching exactly what the pattern matches."""
-    path = op.pattern.pattern[len(re.escape(apipolicy.API_PREFIX)):]
-    return re.sub(r"/([^/]+)/" + re.escape(apipolicy._SEG),
-                  lambda m: f"/{m.group(1)}/{{{_singular(m.group(1))}}}", path)
-
-
-def _singular(word: str) -> str:
-    return word[:-2] if word.endswith("sses") else word[:-1] if word.endswith("s") else word
+    """`/processes/[^/]+/runs` -> `/processes/{process}/runs` — the SAME derivation the generated
+    OpenAPI document uses, so APIM's operations and a connector's actions name their paths alike."""
+    return path_template(op.pattern.pattern, apipolicy.API_PREFIX)
 
 
 def frontdoor_operations() -> list[dict]:

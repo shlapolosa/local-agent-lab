@@ -71,7 +71,7 @@ def test_a_corpus_that_ENRICHES_a_step_is_optional_and_one_it_cannot_work_withou
 def test_run_step_runs_a_step_whose_only_absent_inputs_are_optional():
     import asyncio
     from lab.workloads.usecase.derivation import Derivation
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     ran = {}
 
     class Agent:                                     # the gated call is stubbed below
@@ -101,14 +101,14 @@ def _six(shortlist):
 
 
 def test_step_6_refuses_a_shortlist_for_a_capability_it_was_not_shown():
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     out = _six([{"capability_id": "ZZZ.99", "route": "microsoft", "realisation": "Something"}])
     problems = step_for("6").complete(out, {"realisations": REALISATIONS})
     assert any("ZZZ.99" in p for p in problems), problems
 
 
 def test_step_6_accepts_a_shortlist_of_rows_it_was_shown_and_needs_none_at_all():
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     ok = _six([{"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42",
                 "preferred": True}])
     assert not step_for("6").complete(ok, {"realisations": REALISATIONS})
@@ -150,7 +150,7 @@ def test_no_optional_input_can_mask_a_declared_default():
     """Review F8: a step defaults exactly when its corpus is its ONLY missing input
     (`needs == [corpus]`). Were that corpus declared optional it would never be missing, and the
     default — the honest "we do not know" — would silently stop being recorded."""
-    from lab.workloads.usecase import fallbacks
+    from lab.core.usecase import fallbacks
     from lab.workloads.usecase.agents import OPTIONAL_CONTEXT
     for step, corpus in fallbacks.CORPUS_FOR.items():
         assert corpus not in OPTIONAL_CONTEXT.get(step, ()), (step, corpus)
@@ -165,7 +165,7 @@ def test_matched_capabilities_with_no_realisation_row_are_named():
 # ------------------------------------------------ recommendation 1: step 5 status, and XCT
 
 def test_a_match_may_say_whether_the_capability_is_missing_new_consumed_or_updated():
-    from lab.workloads.usecase.steps import schema
+    from lab.core.usecase.steps import schema
     status = schema("coverage_map")["properties"]["matched"]["items"]["properties"]["status"]
     assert set(status["enum"]) == {"missing", "new", "consumed", "updated"}
 
@@ -179,7 +179,7 @@ def test_step_5_sees_the_estate_that_says_what_already_exists():
 def test_cross_cutting_is_matched_when_a_named_function_exercises_it():
     """Recommendation 1: excluding XCT outright meant a governance use case — whose function IS
     cross-cutting, e.g. XCT.24 user access lifecycle — could never match its core capability."""
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     prompt = step_for("5").prompt()
     assert "unless a named function exercises it" in prompt
 
@@ -190,7 +190,7 @@ def test_a_shortlisted_capability_has_exactly_ONE_preferred_route():
     """wfr-886957c31872 (29 Sep 2026): the 'shortlist' was every route of every matched capability
     — 20 microsoft, 20 alternative, 2 sovereign — a copy of the realisation view with no choice
     made. A shortlist that prefers nothing has decided nothing."""
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     none = _six([{"capability_id": "KNW.01", "route": "microsoft", "realisation": "Foundry IQ"},
                  {"capability_id": "KNW.01", "route": "sovereign", "realisation": "Core42"}])
     assert any("preferred" in p for p in step_for("6").complete(none, {"realisations": REALISATIONS}))
@@ -206,7 +206,7 @@ def test_a_shortlisted_capability_has_exactly_ONE_preferred_route():
 
 
 def test_a_route_is_listed_once_per_capability():
-    from lab.workloads.usecase.steps import step_for
+    from lab.core.usecase.steps import step_for
     dup = _six([{"capability_id": "KNW.01", "route": "microsoft", "realisation": "A",
                  "preferred": True},
                 {"capability_id": "KNW.01", "route": "microsoft", "realisation": "B"}])
@@ -216,7 +216,7 @@ def test_a_route_is_listed_once_per_capability():
 def test_step_6_no_longer_asks_which_service_realises_a_ROLE():
     """No service realises "Clinical reviewer"; asking produced three 'survey the operating model'
     gap flags of pure noise on every run. The estate realises FUNCTIONS and capabilities."""
-    from lab.workloads.usecase.steps import step_for, schema
+    from lab.core.usecase.steps import step_for, schema
     prompt = step_for("6").prompt()
     assert "ACTIVE element" not in prompt
     assert "preferred" in schema("realisation_match")["properties"]["shortlist"]["items"]["properties"]

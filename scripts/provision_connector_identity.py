@@ -106,7 +106,9 @@ def role_def(value: str) -> dict:
     described = next((o.description for o in apipolicy.OPERATIONS if o.role == value), value)
     return {"id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{GATEWAY}/{value}")), "value": value,
             "displayName": value, "description": f"Front door /api: {described}",
-            "allowedMemberTypes": ["Application"], "isEnabled": True}
+            # "User" too: a custom connector carries a PERSON's token (connectors have no client
+            # credentials grant), so a person — or a group they are in — is assigned these roles.
+            "allowedMemberTypes": ["Application", "User"], "isEnabled": True}
 
 
 def main() -> int:
@@ -114,12 +116,18 @@ def main() -> int:
     have = {r["value"]: r for r in gw.get("appRoles") or []}
     wanted = [role_def(v) for v in ApiRoles.ALL]
     missing = [r for r in wanted if r["value"] not in have]
-    if missing:
+    # An /api role created before a PERSON could hold one is widened in place — same id, so every
+    # existing assignment still points at it.
+    widened = [v["value"] for v in wanted if v["value"] in have
+               and set(have[v["value"]].get("allowedMemberTypes") or ()) != set(v["allowedMemberTypes"])]
+    for value in widened:
+        have[value] = {**have[value], "allowedMemberTypes": role_def(value)["allowedMemberTypes"]}
+    if missing or widened:
         # ADD to the existing collection. A PATCH replaces `appRoles` wholesale, so sending only the
         # new ones would delete EA.Model and Tools.ADOIT and un-grant every agent that holds them.
         call("PATCH", f"/applications/{gw['id']}", {"appRoles": list(have.values()) + missing})
         gw = call("GET", f"/applications/{gw['id']}")
-        print(f"added app roles to {GATEWAY}: {', '.join(r['value'] for r in missing)}")
+        print(f"{GATEWAY}: added {[r['value'] for r in missing]}, opened to people {widened}")
     else:
         print(f"{GATEWAY} already exposes {', '.join(ApiRoles.ALL)}")
     gw_sp = ensure_sp(gw["appId"])

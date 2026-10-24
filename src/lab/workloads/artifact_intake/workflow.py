@@ -30,14 +30,15 @@ from lab.platform.contracts import (ARTIFACT_INTAKE, ARTIFACT_PUBLISH, TRANSCRIP
                                     ApprovalTools, CollabTools, Continuation, SemanticTools, StorageTools)
 from lab.platform import filetypes
 from lab.workloads import gateway
-from lab.workloads.gates import run_gated, validator_for
+from lab.core.validation import validator_for
+from lab.workloads.gates import run_gated
 
 PROCESS = ARTIFACT_INTAKE.name
 
 #: Refused at preflight rather than twenty minutes in. `collab_item` is deliberately absent: a title is
 #: a convenience, and a deployment without the collaboration grant should still catalogue the file.
 REQUIRED_TOOLS = (SemanticTools.catalog_upsert, SemanticTools.catalog_get, SemanticTools.catalog_assert,
-                  SemanticTools.catalog_state, SemanticTools.vocab_link, SemanticTools.vocab_propose,
+                  SemanticTools.catalog_state, SemanticTools.vocab_resolve,
                   SemanticTools.impact, SemanticTools.embed, SemanticTools.similar, SemanticTools.edge_assert,
                   SemanticTools.store_spec, StorageTools.read_artifact, StorageTools.read_document,
                   (ApprovalTools.ask, ("subject", "prompt", "items", "process", "kind", "fields", "answer_required",
@@ -501,7 +502,14 @@ def build_workflow(cfg):
             # extractor supplied them: an extractor-only run grounded its terms and linked none of them,
             # silently. `extracted` is the extract-first half of the same question.
             if (suggestion is not None or extracted) and not blind:
-                out = await gateway.call(cfg, SemanticTools.vocab_link, {"iri": state["iri"], "terms": subjects})
+                # ONE decision, made below the seam: link by label, ask what each miss MEANS, park the
+                # rest for a steward `proposed_for` this artifact. The order and the failure rules are the
+                # fabric's (`FabricService.vocab_resolve`) — the workload used to run the three tiers
+                # itself, which made the application ring choose a strategy (TO-BE, 24 Oct 2026).
+                out = await gateway.call(cfg, SemanticTools.vocab_resolve, {
+                    "iri": state["iri"], "terms": subjects, "actor": "classifier-agent",
+                    "scheme": cfg.get("vocabulary", ""),
+                    "definition": f"proposed while classifying {state['title']}"})
                 linked, missed = out.get("linked") or [], out.get("missed") or []
                 # What a RE-READ took back: subjects an earlier pass extracted that this one no longer
                 # stands behind. Carried on the run because a re-classification whose removals are invisible
@@ -517,38 +525,6 @@ def build_workflow(cfg):
                 # decision. Carried on the run so a person reading it can see that two terms went to a
                 # steward — without this it is invisible everywhere except the curated graph.
                 conflicts = out.get("conflicts") or []
-                for term in missed:
-                    # TIER 2. No LABEL matched this term, but a DEFINITION may: ask what it MEANS before
-                    # proposing to invent a concept for it. Measured 17 Oct 2026, ZERO of 30 terms on real
-                    # prose matched a label — the extractor says "dispense confirmation callback" and the
-                    # vocabulary says `Dispense` — so without this every one of them would become a
-                    # proposal for a concept the fabric already holds.
-                    #
-                    # The two questions cost a steward very different amounts: "is this another word for
-                    # X?" is seconds, and "what does this mean and where does it sit?" is not. Asking the
-                    # expensive one by default is how 45 terms became 58 cards.
-                    alias_of = ""
-                    try:
-                        found = await gateway.call(cfg, SemanticTools.concept_match,
-                                                   {"term": term, "scheme": cfg.get("vocabulary", "")})
-                        found = found if isinstance(found, dict) else {}
-                        alias_of = str(found.get("concept") or "")
-                    except Exception as e:                   # noqa: BLE001 — a suggestion, never a gate
-                        # The term still reaches the register: an unavailable tier means the steward is
-                        # asked the expensive question, not that the word is lost.
-                        print(f"[intake] no concept match for {term[:40]!r}: {type(e).__name__}", flush=True)
-                    # `proposed_for` is THIS artifact, and leaving it out quietly disabled two features that
-                    # are implemented and tested in the service. `vocab_propose` keeps one row per term and
-                    # accumulates the artifacts behind it, so without it every candidate carried no count and
-                    # no provenance (measured 12 Oct 2026: 45 candidates, 0 with either). The frequency
-                    # threshold then reads a count that is always null and asks about every term on first
-                    # sight — 58 open concept-admission cards — and admission propagates to exactly
-                    # `proposed_for`, so admitting a concept re-matched no document at all. The register was
-                    # recording that a word was unknown while forgetting who had used it.
-                    await gateway.call(cfg, SemanticTools.vocab_propose,
-                                       {"label": term, "actor": "classifier-agent", "scheme": cfg.get("vocabulary", ""),
-                                        "proposed_for": state["iri"], "alias_of": alias_of,
-                                        "definition": f"proposed while classifying {state['title']}"})
             # WHAT THIS DIAGRAM SAYS CONNECTS. Its boxes are terms and its arrows are relations, so a
             # diagram is the one artifact that carries how the things a corpus is about are CONNECTED
             # rather than just which they are — and the vocabulary's ontology half has no other sharp

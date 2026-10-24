@@ -21,7 +21,7 @@ from lab.core.usecase import benefit
 
 ROOT = Path(__file__).resolve().parents[4]
 SCHEMA = json.loads(
-    (ROOT / "src/lab/workloads/usecase/schemas/benefit_inputs.schema.json").read_text())
+    (ROOT / "src/lab/core/usecase/schemas/benefit_inputs.schema.json").read_text())
 BASELINE = SCHEMA["properties"]["quality_baseline"]
 
 

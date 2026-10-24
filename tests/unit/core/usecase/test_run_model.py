@@ -2,8 +2,8 @@
 import pytest
 
 from lab.core.archimate.engine import Model as EngineModel
-from lab.workloads import ids
-from lab.workloads.usecase.model import LAYER_OF, Model
+from lab.core.archimate import ids
+from lab.core.usecase.run_model import LAYER_OF, Model
 
 
 def _build(spec):
@@ -71,7 +71,7 @@ def test_the_spec_round_trips_and_builds_through_the_engine():
 
 
 def test_the_model_id_never_collides_with_the_root_element_the_engine_would_mint_alike():
-    from lab.workloads.usecase import mappers
+    from lab.core.usecase import mappers
     m = Model()
     mappers.apply("frame", {"problem": "p", "for_whom": "w", "expected_change": "e", "accountable_owner": "o"}, m, {})
     spec = m.to_spec()

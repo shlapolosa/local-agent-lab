@@ -34,7 +34,7 @@ def test_an_example_is_prose_a_person_can_upload_into_the_submission_slot():
 def test_the_examples_do_not_state_the_problem_as_a_solution():
     """`steps._frame` refuses a problem written as the answer — an example that trips the gate
     teaches the wrong shape."""
-    from lab.workloads.usecase.steps import _SOLUTION_WORDS
+    from lab.core.usecase.steps import _SOLUTION_WORDS
     for name, body in APP.sample_submissions():
         # The PROBLEM section only: a later section may legitimately discuss what changes.
         text = body.decode("utf-8").lower()

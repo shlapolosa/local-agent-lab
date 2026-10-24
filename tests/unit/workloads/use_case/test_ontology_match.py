@@ -8,8 +8,8 @@ carries a name, a module, a kind and a definition.
 """
 import functools
 
-from lab.workloads.usecase.gates import gate
-from lab.workloads.usecase.steps import step_for
+from lab.core.validation import gate
+from lab.core.usecase.steps import step_for
 
 ONTOLOGY = {"ontology": {"ontology-concepts": [{"id": "Payer", "name": "Payer"},
                                                {"id": "Coverage", "name": "Coverage"}]}}

@@ -223,5 +223,5 @@
    ]
   ]
  },
- "_source": "derived from lab.workloads.usecase.steps by scripts/derive_process_step_keys.py — regenerate when a step is added"
+ "_source": "derived from lab.core.usecase.steps by scripts/derive_process_step_keys.py — regenerate when a step is added"
 }

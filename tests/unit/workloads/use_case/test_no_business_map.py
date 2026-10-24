@@ -12,7 +12,7 @@ exists and a catastrophic one when none does: absence of evidence read as eviden
 auto-reject every use case the lab ever sees, citing a map nobody published.
 """
 from lab.core.usecase.gates import Feasibility, feasibility_verdict
-from lab.workloads.usecase import fallbacks
+from lab.core.usecase import fallbacks
 
 POOL = {"elements": {"behavioural": [{"name": "assess urgency"}, {"name": "assign specialty"}],
                      "active": [{"name": "Triage nurse"}], "passive": [{"name": "Referral"}]}}

@@ -18,7 +18,7 @@ new CAFÉ service is caught at build time rather than by a spend ledger nobody r
 """
 from __future__ import annotations
 
-from lab.workloads.identity import agent_headers
+from lab.platform.identity import agent_headers
 
 __all__ = ["NoCredential", "PREFIX_FOR", "credential_for"]
 

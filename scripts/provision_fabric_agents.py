@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lab.platform.contracts import ApprovalTools, CollabTools, SemanticTools, StorageTools, WorkflowTools  # noqa: E402
-from provision_meeting_agents import _grants, _key, _reconcile, _team  # noqa: E402
+from provision_meeting_agents import _key, _reconcile, _team  # noqa: E402
 
 
 INTAKE_TOOLS = {
@@ -67,6 +67,9 @@ CURATOR_TOOLS = {
     # ...and the collaboration verbs the projector (put) and the reconciler (list, item) act with. Measured
     # on the first cloud sweep: `tool *collab_list not exposed by gateway` — a grant table that named
     # only the semantic server.
+    # ...and reading back an artifact it drew, which the fabric's Teams tab serves: the tab is
+    # PRESENTATION and holds no store credential (TO-BE seam, 24 Oct 2026).
+    StorageTools.SERVER: [StorageTools.read_artifact],
     CollabTools.SERVER: [CollabTools.list, CollabTools.item, CollabTools.put, CollabTools.capabilities,
                          # ...and resolving a web URL to custody, which semantic-mcp acts with on behalf of
                          # whoever asked `semantic_catalog_by_url`: retrieval names a document by the address a

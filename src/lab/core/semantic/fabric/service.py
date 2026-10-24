@@ -567,6 +567,40 @@ class FabricService:
             return node
         return None
 
+    def vocab_resolve(self, iri: str, terms: list[str], *, actor: str, scheme: str = "",
+                      definition: str = "") -> dict:
+        """The classifier's subject match as ONE decision: link by label, ask what each miss MEANS, park
+        what is left for a steward — and answer with all of it.
+
+        The three tiers used to be run by the intake WORKLOAD, which made the application ring choose a
+        strategy; the TO-BE architecture (24 Oct 2026) puts that below the seam, so a tool returns the
+        decision rather than the inputs to one. The semantics are the workload's, unchanged:
+
+          * tier 1 is `vocab_link` and its answer survives WHOLE — `retracted`, `excluded` and
+            `conflicts` are what a re-read took back, what a person suppressed and what went to a
+            steward, and a run that cannot see them is indistinguishable from one that did nothing;
+          * tier 2 is `concept_match` per miss, a SUGGESTION and never a gate: if it fails the term is
+            still parked, the steward is just asked the expensive question instead of the cheap one;
+          * tier 3 is `vocab_propose` with `proposed_for` = this artifact, so one row per term
+            accumulates who used it and admission re-matches exactly them.
+
+        `actor` is checked BEFORE anything is linked: a call that would fail at its first proposal must
+        not leave a half-written subject set behind it."""
+        if not actor:
+            raise ValueError("a proposal names who proposed it")
+        out = dict(self.vocab_link(iri, list(terms)))
+        proposed = []
+        for term in out.get("missed") or []:
+            alias_of = ""
+            try:
+                alias_of = str((self.concept_match(term, scheme=scheme) or {}).get("concept") or "")
+            except Exception:                                  # noqa: BLE001 — a suggestion, never a gate
+                alias_of = ""
+            proposed.append(self.vocab_propose(term, actor=actor, scheme=scheme, proposed_for=iri,
+                                               alias_of=alias_of, definition=definition))
+        out["proposed"] = proposed
+        return out
+
     def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
                       scheme: str = "", concept_id: str = "", module: str = "",
                       proposed_for: str = "", alias_of: str = "") -> dict:
