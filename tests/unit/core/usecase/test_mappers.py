@@ -121,6 +121,19 @@ def test_the_steps_join_on_the_workflow_node_id():
     assert m.relations[("bp-n1", "bo-triage-band", "Access")]["accessType"] == "Write"
 
 
+def test_a_business_capability_id_is_an_iri_local_name_and_keeps_the_map_id():
+    """D20: `B1.1.2` is the map's id, not an element id — dots break the local-name rule."""
+    from lab.core.modelling.envelope import ID_PATTERN
+    m = Model()
+    mappers.apply("elements", OUTPUTS["elements"], m, {})
+    out = {"matched": [{"function": "assess referral", "capability_id": "B1.1.2",
+                        "capability_label": "Referral management", "level": 3}]}
+    mappers.apply("coverage_map", out, m, {})
+    (cap,) = m.by_type("Capability")
+    assert cap["id"] == "cap-b1-1-2" and ID_PATTERN.fullmatch(cap["id"])
+    assert m.props_of("cap-b1-1-2")["capability_id"] == "B1.1.2"
+
+
 def test_the_business_layer_joins_on_the_function_name():
     m = run_all()
     assert ("bf-assess-referral", "cap-1", "Realization") in m.relations

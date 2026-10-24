@@ -159,6 +159,15 @@ def _service_id(ident: str) -> str:
     return f"svc-{ids.slug(ident)}"
 
 
+def _capability_id(ident: str) -> str:
+    """The Capability element id for a business-map capability: ONE spelling. The map's own id
+    (`B1.1.2`) carries dots, which an element id may not (it must be an IRI local name, ADR D20), so
+    it rides in props as `capability_id` and the element is `cap-<slug>`. A published map's synthetic
+    id is already `cap-<hash>`, and is kept as it is."""
+    slug = ids.slug(ident)
+    return slug if slug.startswith("cap-") else f"cap-{slug}"
+
+
 def _coverage_map(out, model, pool):
     """A matched capability, at the ArchiMate layer its MAP belongs to.
 
@@ -189,7 +198,8 @@ def _coverage_map(out, model, pool):
             if bf:
                 model.rel("Serving", cap, bf)
             continue
-        cap = model.el(cap_id, "Capability", label, props=shared)
+        cap = model.el(_capability_id(cap_id), "Capability", label,
+                       props={**shared, "capability_id": cap_id})
         if bf:
             model.rel("Realization", bf, cap)
     heat = out.get("heat_map") or {}
