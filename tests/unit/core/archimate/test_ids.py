@@ -2,6 +2,7 @@
 is pinned to fixed outputs, not re-derived from the implementation.
 Run: .venv/bin/python tests/unit/workloads/test_ids.py   (also pytest-compatible)"""
 import hashlib
+import re
 
 
 from lab.core.archimate.ids import rid, slug
@@ -34,6 +35,28 @@ def test_workflow_uses_the_shared_rid():
     from lab.core.archimate import ids
     assert workflow._rid is ids.rid
     assert "def _rid" not in open(workflow.__file__, encoding="utf-8").read()
+
+
+def test_element_id_keeps_the_prefixes_the_use_case_mappers_already_mint():
+    from lab.core.archimate.ids import element_id
+    assert element_id("BusinessActor", "Triage Nurse") == "ba-triage-nurse"
+    assert element_id("BusinessObject", "Referral") == "bo-referral"
+    assert element_id("ApplicationComponent", "Cerner triage module") == "ac-cerner-triage-module"
+    assert element_id("Capability", "B1.1.2") == "cap-b1-1-2"
+
+
+def test_every_other_type_is_prefixed_by_its_full_name_so_no_two_types_collide():
+    from lab.core.archimate.engine import _TYPES
+    from lab.core.archimate.ids import element_id, prefix_for
+    assert element_id("SystemSoftware", "PostgreSQL 16") == "system-software-postgresql-16"
+    prefixes = [prefix_for(t) for t in _TYPES]
+    assert len(set(prefixes)) == len(prefixes)
+    assert all(re.fullmatch(r"[a-z0-9-]+-", p) for p in prefixes)
+
+
+def test_element_id_is_empty_when_the_name_has_nothing_to_slug():
+    from lab.core.archimate.ids import element_id
+    assert element_id("BusinessActor", "  ") == ""
 
 
 if __name__ == "__main__":

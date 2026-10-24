@@ -8,10 +8,35 @@ workflow's own path and the Architect's accumulator tools). Pure, deterministic,
 from __future__ import annotations
 
 import hashlib
+import re
 
 from lab.core.canon import file_slug
 
-__all__ = ["rid", "slug"]
+__all__ = ["PREFIXES", "element_id", "prefix_for", "rid", "slug"]
+
+#: Element-id prefixes the use-case mappers have always minted, kept so a model built by modelling and
+#: one built by screening give the same element the same id. Every other type is prefixed by its
+#: full kebab-case name (`prefix_for`): word initials collide (Driver, Device and Deliverable are all
+#: "d"), full names cannot.
+PREFIXES = {
+    "BusinessActor": "ba-", "BusinessFunction": "bf-", "BusinessProcess": "bp-", "BusinessObject": "bo-",
+    "Stakeholder": "stk-", "Driver": "drv-", "Goal": "goal-", "Outcome": "out-", "Requirement": "req-",
+    "Constraint": "con-", "Capability": "cap-", "ApplicationService": "svc-",
+    "ApplicationComponent": "ac-", "ApplicationFunction": "af-", "Node": "node-",
+    "Deliverable": "dlv-", "WorkPackage": "wp-",
+}
+
+
+def prefix_for(atype: str) -> str:
+    """The id prefix for an ArchiMate type: the table above, else the type's own name in kebab case."""
+    return PREFIXES.get(atype) or "-".join(w.lower() for w in re.findall(r"[A-Z][a-z]*", atype)) + "-"
+
+
+def element_id(atype: str, name: str) -> str:
+    """A stable element id: the type's prefix plus a slug of the name. A pure function of both, so a
+    re-run that keeps the name keeps the id. "" when the name has nothing to slug."""
+    s = slug(name)
+    return f"{prefix_for(atype)}{s}" if s else ""
 
 
 def rid(src: str, rtype: str, tgt: str) -> str:
