@@ -784,3 +784,29 @@ def test_a_SINGLE_TERM_admission_card_propagates_too():
 
     links = [a for n, a in seen if n == SemanticTools.edge_assert]
     assert {l["subject"] for l in links} == {"urn:fabric:artifact:A", "urn:fabric:artifact:B"}
+
+
+def test_a_term_its_author_never_confirmed_reaches_the_steward_marked_UNCONFIRMED():
+    """FR-17: vocabulary never blocks the forum, so an unanswered extraction goes on — and the card must
+    say nobody vouched for it, or a steward would take the word for the author's."""
+    items = V.batch_question([
+        {"iri": "urn:fabric:candidate:1", "label": "dispense audit", "scheme": "cafe", "proposals": 2,
+         "confirmation": "timeout"},
+        {"iri": "urn:fabric:candidate:2", "label": "audit trail", "scheme": "cafe", "proposals": 2,
+         "confirmation": "author"},
+    ])
+    assert "UNCONFIRMED by the author" in " ".join(items[0]["samples"])
+    assert "UNCONFIRMED" not in " ".join(items[1]["samples"])
+
+
+def test_the_author_timeout_pass_calls_the_fabric_with_the_configured_working_hours(monkeypatch):
+    from lab.platform import config
+    monkeypatch.setattr(config, "FABRIC_AUTHOR_CONFIRM_HOURS", 16.0)
+    seen = []
+
+    async def call(calls):
+        seen.extend(calls)
+        return [{"advanced": ["urn:fabric:candidate:1"], "clock_started": [], "hours": 16.0}]
+    out = asyncio.run(V.advance_author_timeouts(call=call))
+    assert seen == [("semantic_vocab_author_timeouts", {"hours": 16.0})]
+    assert out["advanced"] == ["urn:fabric:candidate:1"]

@@ -227,8 +227,11 @@ def batch_question(candidates: list[dict]) -> list[dict]:
         suggested = (f"existing:{alias.rsplit('#', 1)[-1]} — the matcher reads this as another name for "
                      f"{alias.rsplit('#', 1)[-1]!r}" if alias else
                      "existing:<concept> — it is another name for a concept already there (its label or id)")
+        # FR-17: a term nobody vouched for says so — vocabulary never blocks the forum, so an extraction
+        # its author did not answer in a working day comes here anyway, and must not read as confirmed.
+        unconfirmed = " · UNCONFIRMED by the author" if c.get("confirmation") == "timeout" else ""
         out.append({"label": str(c.get("iri") or ""), "samples": [
-            f"{label!r} — {evidence}, for {c.get('scheme') or 'the vocabulary'}",
+            f"{label!r} — {evidence}, for {c.get('scheme') or 'the vocabulary'}{unconfirmed}",
             f"admit — add it as a concept (id {concept_id_for(label)}) \u00b7 "
             f"{suggested} \u00b7 "
             "decline — it is not a concept, and nobody will be asked again"]})
@@ -253,6 +256,16 @@ def _wanted_enough(candidate: dict, threshold: int) -> bool:
     count as zero would silence the whole back catalogue the moment the threshold landed."""
     proposals = candidate.get("proposals")
     return proposals is None or int(proposals) >= threshold
+
+
+async def advance_author_timeouts(*, call=None, hours: float | None = None) -> dict:
+    """FR-17: move on every extracted term whose author did not answer within the configured WORKING hours,
+    flagged `timeout` so the card says UNCONFIRMED. Run by the reconciler BEFORE `ask_open`, so a term that
+    timed out is asked about on the same tick rather than one later."""
+    go = call or fabric_gateway.call
+    got = (await go([(SemanticTools.author_timeouts,
+                      {"hours": config.FABRIC_AUTHOR_CONFIRM_HOURS if hours is None else hours})]))[0]
+    return (json.loads(got) if isinstance(got, str) else got) or {}
 
 
 async def ask_open(*, call=None, seen: set[str] | None = None, limit: int = 10,

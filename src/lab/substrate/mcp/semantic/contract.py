@@ -13,8 +13,8 @@ from lab.substrate.mcp import contract as _contract
 
 __all__ = ["VERSION", "render", "dumps"]
 
-VERSION = "1.1.0"
-_GRANTS = ("READ", "PIPELINE", "PROMOTE", "REINDEX", "WALK", "RECLASSIFY", "VIEWS", "WRITE")
+VERSION = "1.2.0"
+_GRANTS = ("READ", "PIPELINE", "PROMOTE", "REINDEX", "WALK", "RECLASSIFY", "TIMERS", "VIEWS", "WRITE")
 dumps = _contract.dumps
 
 

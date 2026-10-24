@@ -514,6 +514,9 @@ FABRIC_CORPUS_RENDERER = _e("FABRIC_CORPUS_RENDERER", "d3")
 #: lab's own test output, so the counts are not yet representative of real demand. It bounds what is PUSHED
 #: only — the register returns every candidate however often it was asked for.
 FABRIC_CANDIDATE_THRESHOLD = int(_e("FABRIC_CANDIDATE_THRESHOLD", "2"))
+#: FR-17: WORKING hours (Mon-Fri, UTC — lab.core.semantic.fabric.workdays) an extracted term waits for its
+#: author before it goes on to a steward marked UNCONFIRMED. Default: one working day.
+FABRIC_AUTHOR_CONFIRM_HOURS = float(_e("FABRIC_AUTHOR_CONFIRM_HOURS", "24"))
 #: How many records must be about BOTH concepts before the corpus is taken to be saying they relate.
 #: The same job the candidate threshold does for terms: it governs INTERRUPTION, not visibility — a
 #: steward can read `semantic_concept_pairs` at any threshold they like.

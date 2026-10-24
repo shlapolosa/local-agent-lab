@@ -431,3 +431,20 @@ def test_a_diagrams_arrows_come_back_as_relation_candidates_and_gaps():
     assert ("AIAgent", "assures", "AssuranceNote") in {
         (c["subject"], c["predicate"], c["object"]) for c in out["candidates"]}
     assert all(c["subject"] and c["object"] for c in out["candidates"])
+
+
+def test_FR16_to_FR18_are_served_as_tools_and_answer_through_the_port():
+    """The three-edit rule: domain method, MCP tool, caller. These pin the TOOL edge — a domain method no
+    tool exposes is a capability no channel can reach."""
+    c = call("semantic_vocab_propose", label="Reopenable term", actor="s@x", scheme="cafe")
+    call("semantic_vocab_decline", candidate=c["iri"], actor="ea@x", reason="not a concept")
+    r = call("semantic_vocab_reopen", target="Reopenable term", actor="ea@x", reason="appeal", scheme="cafe")
+    assert r["reopened"] is True and r["history"]["declined_by"] == "ea@x"
+    assert "reason" in call_error("semantic_vocab_reopen", target=c["iri"], actor="ea@x", reason="")
+    t = call("semantic_vocab_author_timeouts", hours=24)
+    assert set(t) >= {"advanced", "clock_started", "hours"} and t["hours"] == 24
+    d = call("semantic_catalog_upsert", pointer={"source": "collab", "handle": "collab://site/drive/adr-freeze"},
+             title="ADR freeze")
+    f = call("semantic_catalog_freeze", iri=d["iri"], actor="ea@x", reason="ratified")
+    assert f["frozen"] is True
+    assert call("semantic_catalog_get", iri=d["iri"])["subjects_frozen"] is True

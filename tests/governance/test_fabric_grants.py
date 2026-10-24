@@ -69,7 +69,16 @@ def test_promote_reaches_no_workload_and_the_curator_holds_it():
     assert SemanticTools.promote in _all(GRANTS["fabric-curator"])
     assert set(GRANTS["fabric-curator"][SemanticTools.SERVER]) == (set(SemanticTools.WRITE) | set(SemanticTools.READ)
                                                                   | set(SemanticTools.WALK)
-                                                                  | set(SemanticTools.RECLASSIFY))
+                                                                  | set(SemanticTools.RECLASSIFY)
+                                                                  | set(SemanticTools.TIMERS))
+
+
+def test_the_author_timeout_pass_is_the_curators_and_no_workloads():
+    """FR-17: it moves rows on nobody's answer, so it runs where the clock lives — the reconciler, as the
+    curator — and never in a workload agent's reach."""
+    for name in ("fabric-intake", "fabric-publish", "fabric-bot"):
+        assert not set(SemanticTools.TIMERS) & _all(GRANTS[name]), name
+    assert set(SemanticTools.TIMERS) <= _all(GRANTS["fabric-curator"])
 
 
 def test_walking_the_whole_estate_reaches_no_workload_and_no_bot():

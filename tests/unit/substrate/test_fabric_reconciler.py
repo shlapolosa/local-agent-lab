@@ -225,3 +225,30 @@ def test_an_unreadable_file_already_in_the_catalogue_still_reports_a_change():
     known = {"pointer": {"source": "collab", "handle": H1, "version": "2026-01-01T00:00:00Z"}}
     item = {"name": "Meeting Recording.mp4", "folder": False, "handle": H1, "modified": "2026-10-06T00:00:00Z"}
     assert R.decide(item, known).change == "updated"
+
+
+def test_the_sweep_advances_author_timeouts_BEFORE_asking_so_a_timed_out_term_is_asked_this_tick(monkeypatch):
+    """FR-17: the timeout pass rides the same cadence as the questions, and runs first — otherwise a term
+    that timed out waits a whole extra tick for its card. Failing, it must not stop the rest."""
+    from lab.substrate import fabric_reconciler as R, fabric_vocabulary as V
+    order = []
+
+    async def timeouts(**kw):
+        order.append("timeouts"); return {"advanced": ["urn:fabric:candidate:1"]}
+
+    async def ask(**kw):
+        order.append("ask"); return []
+    monkeypatch.setattr(V, "advance_author_timeouts", timeouts)
+    monkeypatch.setattr(V, "ask_open", ask)
+    R.run_once(call=Gateway(), client=FakeRedis())
+    assert order[:2] == ["timeouts", "ask"]
+
+
+def test_a_failing_timeout_pass_does_not_stop_the_sweep(monkeypatch, capsys):
+    from lab.substrate import fabric_reconciler as R, fabric_vocabulary as V
+
+    async def boom(**kw):
+        raise ConnectionError("gateway down")
+    monkeypatch.setattr(V, "advance_author_timeouts", boom)
+    R.run_once(call=Gateway(), client=FakeRedis())
+    assert "author timeouts failed" in capsys.readouterr().out

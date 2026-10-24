@@ -156,3 +156,33 @@ channel (contract `contracts/semantic-tools.json` 1.1.0):
   Withdrawn terms and relations) from another master, idempotently, so a decline made in SAF is never asked
   again; `Admitted` rows are checked against the vocabulary (admissions travel in the master). PROMOTE grant.
 - A declined relation stays closed on re-proposal (pinned by `test_a_DECLINED_relation_is_never_asked_about_again`).
+
+## Reopen, author timeout, frozen subjects (FR-16 · FR-17 · FR-18, 24 Oct 2026)
+
+Three product rules from SAF becoming a channel, all in `lab.core.semantic.fabric.service`:
+
+- **A decline has a repair path (FR-16).** `semantic_vocab_reopen(target, actor, reason, scheme="")` —
+  `target` is a candidate IRI, a relation-question IRI, or a term's LABEL. Only a declined row reopens
+  (steward decline, author removal, or an imported/seeded decline); it returns to PENDING with its evidence
+  (`proposed_for`, proposers) kept, and the "already asked" marker goes with the decline, so the normal
+  queue asks a steward afresh. The decline's facts move onto a `fab:Reopening` record with who reopened it,
+  why and when — nothing is erased. PROMOTE grant. `semantic_vocab_candidates_import` takes
+  `status: "Reopened"` rows (`declined_by`, `decline_reason`, plus the reopening `actor`/`reason`),
+  idempotently. A decline now REPLACES the row's state (a declined row used to keep `InReview` beside
+  `Withdrawn`).
+- **Vocabulary never blocks the forum (FR-17).** A term extracted from an artifact waits for its author
+  from `fab:awaitingSince`; after `FABRIC_AUTHOR_CONFIRM_HOURS` (default 24) of WORKING time — Monday to
+  Friday, UTC (`lab.core.semantic.fabric.workdays`) — it goes on with `confirmation: timeout`, and the
+  steward's card says **UNCONFIRMED by the author**. `confirmation` on a candidate row is `author`
+  (confirmed), `person` (a person proposed it), `timeout`, or "" (never waited). The reconciler runs
+  `semantic_vocab_author_timeouts(hours?)` on its sweep, BEFORE raising questions; a legacy awaiting row
+  with no start time starts its clock rather than timing out. TIMERS grant (curator only).
+- **A ratified record's subjects freeze (FR-18).** `semantic_catalog_freeze(iri, actor, reason="")` records
+  a `fab:SubjectFreeze` in the curated graph (its own node — the artifact's shape is closed). From then on
+  no automated path changes what the record is about: `graph_assert` of `dct:subject` below rung H
+  answers `frozen: true` and writes nothing (admission propagation included), and `vocab_link` (so a
+  re-read or `semantic_catalog_reclassify`) returns `frozen: true` with `frozen_skipped`, retracting
+  nothing. A steward still changes it at rung H (`semantic_edge_assert` rung H, `semantic_edge_retract`,
+  `semantic_promote`). `semantic_catalog_get` reports `subjects_frozen`. PROMOTE grant.
+
+Contract: `contracts/semantic-tools.json` 1.2.0 — the three tools are in-flux.

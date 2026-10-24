@@ -177,6 +177,13 @@ def run_once(*, call=None, client=None) -> list[ArtifactChanged]:
         print(f"[reconciler] swept: {len(out)} change(s) published", flush=True)
     except Exception as e:                          # noqa: BLE001 — a sweep that fails runs again next tick
         print(f"[reconciler] sweep failed: {type(e).__name__}: {e}", flush=True)
+    try:    # FR-17: terms whose author did not answer in a working day go on, flagged — BEFORE the questions
+            # are raised, so a term that timed out is asked about on this tick and not the next
+        moved = asyncio.run(fabric_vocabulary.advance_author_timeouts(call=call))
+        if moved.get("advanced"):
+            print(f"[reconciler] {len(moved['advanced'])} term(s) went on UNCONFIRMED by their author", flush=True)
+    except Exception as e:                          # noqa: BLE001 — a timeout pass that fails runs next tick
+        print(f"[reconciler] author timeouts failed: {type(e).__name__}: {e}", flush=True)
     try:    # the steward's questions ride the same cadence: nothing else raises them, and an ambiguity that
             # nobody is asked about is one no document can be linked through, indefinitely and silently
         raised = asyncio.run(fabric_vocabulary.ask_open(call=call))

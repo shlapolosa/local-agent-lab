@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "grants": {
     "PIPELINE": [
       "semantic_catalog_assert",
@@ -18,6 +18,7 @@
     ],
     "PROMOTE": [
       "semantic_about_after_all",
+      "semantic_catalog_freeze",
       "semantic_not_about",
       "semantic_promote",
       "semantic_vocab_amend",
@@ -27,6 +28,7 @@
       "semantic_vocab_place",
       "semantic_vocab_relate",
       "semantic_vocab_relation_decline",
+      "semantic_vocab_reopen",
       "semantic_vocab_retire"
     ],
     "READ": [
@@ -74,6 +76,9 @@
     "REINDEX": [
       "semantic_reindex"
     ],
+    "TIMERS": [
+      "semantic_vocab_author_timeouts"
+    ],
     "VIEWS": [
       "semantic_view_architecture",
       "semantic_view_capabilities",
@@ -87,6 +92,7 @@
     "WRITE": [
       "semantic_about_after_all",
       "semantic_catalog_assert",
+      "semantic_catalog_freeze",
       "semantic_catalog_state",
       "semantic_catalog_upsert",
       "semantic_concept_match",
@@ -108,6 +114,7 @@
       "semantic_vocab_relate",
       "semantic_vocab_relation_decline",
       "semantic_vocab_relation_propose",
+      "semantic_vocab_reopen",
       "semantic_vocab_resolve",
       "semantic_vocab_retire"
     ]
@@ -118,6 +125,7 @@
     "semantic_ask": "internal",
     "semantic_catalog_assert": "internal",
     "semantic_catalog_by_url": "stable",
+    "semantic_catalog_freeze": "in-flux",
     "semantic_catalog_get": "stable",
     "semantic_catalog_list": "stable",
     "semantic_catalog_reclassify": "internal",
@@ -163,6 +171,7 @@
     "semantic_vocab_amend": "stable",
     "semantic_vocab_asked": "internal",
     "semantic_vocab_author_confirm": "in-flux",
+    "semantic_vocab_author_timeouts": "in-flux",
     "semantic_vocab_candidates": "in-flux",
     "semantic_vocab_candidates_import": "in-flux",
     "semantic_vocab_conflicts": "internal",
@@ -176,6 +185,7 @@
     "semantic_vocab_relation_decline": "in-flux",
     "semantic_vocab_relation_open": "in-flux",
     "semantic_vocab_relation_propose": "in-flux",
+    "semantic_vocab_reopen": "in-flux",
     "semantic_vocab_resolve": "in-flux",
     "semantic_vocab_retire": "in-flux"
   },
@@ -325,6 +335,34 @@
         ],
         "type": "object",
         "x-fastmcp-wrap-result": true
+      }
+    },
+    {
+      "description": "Freeze what a RATIFIED record is about: from now on no automated path (a classifier re-read,\nadmission propagation) adds or removes one of its subjects — the change is reported as `frozen`, never\nmade. A steward still can, at rung H (semantic_edge_assert / semantic_edge_retract / semantic_promote).\n`actor` is the signed-in person; freezing twice answers `already`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "iri": {
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "iri",
+          "actor"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_catalog_freeze",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
       }
     },
     {
@@ -1930,6 +1968,31 @@
       }
     },
     {
+      "description": "Send on to a steward every extracted term whose AUTHOR has not answered within `hours` of WORKING\ntime (Mon–Fri, UTC; default FABRIC_AUTHOR_CONFIRM_HOURS, one working day). Each is flagged\n`confirmation: timeout` and the steward's card says UNCONFIRMED — never treated as confirmed.\nIdempotent; the reconciler runs it on its sweep. Returns {advanced, clock_started, hours}.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "name": "semantic_vocab_author_timeouts",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
       "description": "Terms a run met that the vocabulary has no concept for and nobody has accepted or declined yet — what\na steward is asked to admit, place under another name, or decline.",
       "inputSchema": {
         "additionalProperties": false,
@@ -2347,6 +2410,38 @@
         "type": "object"
       },
       "name": "semantic_vocab_relation_propose",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "description": "REOPEN a declined term or relation — the repair path for \"a decline is final\". `target` is a\ncandidate IRI, a relation-question IRI, or a term's LABEL (give `scheme` when one word is a candidate in\nseveral vocabularies). The row returns to PENDING with its evidence kept, so a steward is asked again\nthrough the normal queue. Audited apart from the decline (`history`: who declined and why, who reopened\nand why). `actor` is the signed-in steward or admin and `reason` is required; only a declined row\nreopens.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "scheme": {
+            "default": "",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "actor",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_vocab_reopen",
       "outputSchema": {
         "additionalProperties": true,
         "type": "object"

@@ -14,11 +14,12 @@ Pure: rdflib + pyshacl + the catalog port; no HTTP, no Redis, no store — the s
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from itertools import combinations
 from typing import Any, Callable, Iterable, Mapping
 
 from rdflib import RDF, Dataset, Literal, URIRef
-from rdflib.namespace import Namespace
+from rdflib.namespace import XSD, Namespace
 
 from lab.core import ids
 from lab.core.delivery import DeliveryContext
@@ -27,7 +28,7 @@ from lab.core.semantic.fabric import concepts, relations, renderings
 from lab.core.semantic.fabric import derive as DR
 from lab.core.semantic.fabric import graph as G
 from lab.core.semantic.fabric import shapes
-from lab.core.semantic.fabric import corpus, topology
+from lab.core.semantic.fabric import corpus, topology, workdays
 from lab.core.semantic.fabric.vocabulary import _LOCAL_NAME
 from lab.core.semantic.fabric.catalog import (FIELDS, STATE_IRI, STATES, Catalog, CatalogEntry, MAX_TITLE, describe,
                                               iri_safe, pointer_key, subject_labels)
@@ -115,6 +116,24 @@ def _iri_or_raise(what: str, value: str) -> str:
     if not isinstance(value, str) or iri_safe(value) != value:
         raise ValueError(f"{what} is not a serialisable IRI: {value!r}")
     return value
+
+
+def _stamp(at: datetime | None = None) -> Literal:
+    """A moment as the typed literal every PROV record carries; `at` injected by a test or a sweep."""
+    t = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return Literal(t.isoformat(timespec="seconds"), datatype=XSD.dateTime)
+
+
+def _when(value) -> datetime | None:
+    """A stamped moment back as an aware datetime, or None when absent or unreadable."""
+    if value is None:
+        return None
+    try:
+        t = value.toPython() if hasattr(value, "toPython") else datetime.fromisoformat(str(value))
+        t = t if isinstance(t, datetime) else datetime.fromisoformat(str(value))
+        return t.replace(tzinfo=timezone.utc) if t.tzinfo is None else t
+    except (TypeError, ValueError):
+        return None
 
 
 def concept_id_for(label: str) -> str:
@@ -235,7 +254,7 @@ class FabricService:
             if label:                                 # a concept reads by its label, not its hashed id
                 link["label"] = label
             links.append(link)
-        return {**e.to_dict(), "links": links}
+        return {**e.to_dict(), "links": links, "subjects_frozen": self._frozen(iri)}
 
     def catalog_upsert(self, pointer: dict, *, iri: str = "", title: str = "", produced_by: str = "",
                        context: str = "", source_kind: str = "") -> dict:
@@ -368,6 +387,12 @@ class FabricService:
         if p == DCT.subject and str(o) in self._not_about(subject):
             raise ValueError(f"{subject} is recorded as not about {o} — a person's answer. "
                              f"Clear it with about_after_all before asserting it again.")
+        # A RATIFIED record's subjects are FROZEN (FR-18): no automated path — admission propagation, a
+        # classifier re-read — changes what it is about. Reported, never silently dropped, so the caller
+        # (and the trace) can see the change that did not happen. A steward still can, at rung H.
+        if p == DCT.subject and rung != CONFIRMED and self._frozen(subject):
+            return {"assertion": "", "rung": rung, "subject": subject, "predicate": predicate,
+                    "object": str(o), "unchanged": True, "frozen": True}
         prior = G.find(self.ds, s, p) if supersede else []
         for r, (_, _, old) in prior:
             if old == o and r == rung:
@@ -494,6 +519,11 @@ class FabricService:
         refused = self._not_about(iri)
         excluded = sorted({str(c) for c, _ in resolved} & refused)
         resolved = [(c, row) for c, row in resolved if str(c) not in refused]
+        if self._frozen(iri):
+            # FR-18: a ratified record is not re-linked or un-linked by a re-read. What this read WOULD
+            # have linked is reported, so "the classifier found nothing" and "the record is frozen" differ.
+            return {"linked": [], "missed": missed, "conflicts": conflicts, "retracted": [],
+                    "excluded": excluded, "frozen": True, "frozen_skipped": [row["term"] for _, row in resolved]}
         kept = {str(concept) for concept, _ in resolved}
         # `G.retract` is rung-agnostic — it removes the triple from EVERY rung graph that holds it. So a
         # subject a person promoted to H would be retracted by a sweep: the one act the ladder exists to
@@ -604,7 +634,8 @@ class FabricService:
 
     def vocab_propose(self, label: str, *, definition: str = "", actor: str, broader: str = "",
                       scheme: str = "", concept_id: str = "", module: str = "",
-                      proposed_for: str = "", alias_of: str = "", awaiting_author: bool = False) -> dict:
+                      proposed_for: str = "", alias_of: str = "", awaiting_author: bool = False,
+                      now: datetime | None = None) -> dict:
         """Park a candidate concept for a steward (the candidates graph is not a scheme: a steward accepts
         it with `promote`, which records the acceptance at rung H).
 
@@ -641,6 +672,7 @@ class FabricService:
                 added.append((existing, FAB.proposedFor, URIRef(proposed_for)))
             if not awaiting_author and g.value(existing, FAB.lifecycleState) == FAB.AwaitingAuthor:
                 removed.append((existing, FAB.lifecycleState, FAB.AwaitingAuthor))   # a person proposed it
+                added.append((existing, FAB.confirmation, Literal("person")))
             for t in added:
                 g.add(t)
             for t in removed:
@@ -674,6 +706,7 @@ class FabricService:
             g.add((c, FAB.candidateModule, Literal(module)))
         if awaiting_author:
             g.add((c, FAB.lifecycleState, FAB.AwaitingAuthor))
+            g.add((c, FAB.awaitingSince, _stamp(now)))          # FR-17: the author's clock starts here
         self._persist(("candidates",), lambda: g.remove((c, None, None)))
         return {"iri": str(c), "label": label.strip(), "scheme": scheme, "concept_id": concept_id,
                 "module": module, "held_by": "", "state": self._candidate_state(c)}
@@ -718,6 +751,8 @@ class FabricService:
             g.add((c, FAB.lifecycleState, FAB.Withdrawn))
             g.add((c, FAB.withdrawnBy, Literal("author")))
             out["withdrawn_by"] = "author"
+        if verdict != "remove":
+            g.add((c, FAB.confirmation, Literal("author")))
 
         def undo():
             g.remove((c, None, None))
@@ -786,13 +821,154 @@ class FabricService:
         g = self.ds.graph(CANDIDATES_GRAPH)
         if (c, RDF.type, SKOS.Concept) not in g:
             raise LookupError(f"no candidate {candidate}")
-        added = [(c, FAB.lifecycleState, FAB.Withdrawn), (c, G.PROV.wasAttributedTo, Literal(actor))]
+        # The decline REPLACES whatever state the row was in (InReview, usually): a row carrying two states
+        # answers `value()` with either, so a declined term could read as still in review.
+        removed = list(g.triples((c, FAB.lifecycleState, None)))
+        added = [(c, FAB.lifecycleState, FAB.Withdrawn), (c, G.PROV.wasAttributedTo, Literal(actor)),
+                 (c, FAB.declinedBy, Literal(actor))]
         if reason:
             added.append((c, FAB.declineReason, Literal(reason)))
+        for t in removed:
+            g.remove(t)
         for t in added:
             g.add(t)
-        self._persist(("candidates",), lambda: [g.remove(t) for t in added])
+        self._persist(("candidates",), lambda: ([g.remove(t) for t in added], [g.add(t) for t in removed]))
         return {"iri": candidate, "declined": True, "actor": actor, "reason": reason}
+
+    # ------------------------------------------------------------------ FR-16 · FR-17 · FR-18
+
+    def _reopen_target(self, target: str, scheme: str) -> tuple[URIRef, URIRef, str]:
+        """(node, graph, kind) for a reopen target: a candidate IRI, a relation-question IRI, or a term's
+        LABEL — words, as everywhere a person answers (FR-8). A label naming two declined rows is refused
+        naming them, because reopening the wrong one is a question asked about the wrong thing."""
+        text = str(target or "").strip()
+        if text.startswith(RELATION_Q):
+            g, node = self.ds.graph(CURATED_GRAPH), URIRef(text)
+            if (node, RDF.type, FAB.RelationQuestion) not in g:
+                raise LookupError(f"no relation question {text}")
+            return node, CURATED_GRAPH, "relation"
+        g = self.ds.graph(CANDIDATES_GRAPH)
+        if text.startswith(CANDIDATE):
+            node = URIRef(text)
+            if (node, RDF.type, SKOS.Concept) not in g:
+                raise LookupError(f"no candidate {text}")
+            return node, CANDIDATES_GRAPH, "term"
+        want = _norm(text)
+        rows = [n for n in g.subjects(RDF.type, SKOS.Concept)
+                if _norm(str(g.value(n, SKOS.prefLabel) or "")) == want
+                and (not scheme or str(g.value(n, FAB.candidateScheme) or "") == scheme)]
+        declined = [n for n in rows if g.value(n, FAB.lifecycleState) == FAB.Withdrawn]
+        pick = declined or rows
+        if not pick:
+            raise LookupError(f"no candidate term {text!r}{' in ' + scheme if scheme else ''}")
+        if len(pick) > 1:
+            raise ValueError(f"{text!r} names several candidates: {sorted(str(n) for n in pick)} — name one")
+        return pick[0], CANDIDATES_GRAPH, "term"
+
+    def vocab_reopen(self, target: str, *, actor: str, reason: str, scheme: str = "",
+                     now: datetime | None = None) -> dict:
+        """A steward or admin REOPENS a declined term or relation (FR-16): "decline is final" gets a repair
+        path. The row returns to PENDING with its evidence kept (`proposed_for`, proposers), so the normal
+        ask path puts it to a steward afresh — the "already asked" marker goes with the decline.
+
+        Audited APART from the decline it reopens: a `fab:Reopening` record names who reopened it, why and
+        when, and carries the decline's own facts (who declined, their reason, whether it was the AUTHOR
+        who removed it), which leave the row. So a later decline starts clean, and the history of every
+        decline and every reopening survives — the original decline record is moved, never erased."""
+        if not str(actor or "").strip():
+            raise ValueError("a reopen is a person's decision: actor is required")
+        if not str(reason or "").strip():
+            raise ValueError("a reopen says why: reason is required")
+        node, graph, kind = self._reopen_target(target, scheme)
+        g = self.ds.graph(graph)
+        if g.value(node, FAB.lifecycleState) != FAB.Withdrawn:
+            raise ValueError(f"{node} is not declined — only a declined {kind} can be reopened")
+        declined_by = str(g.value(node, FAB.declinedBy) or "")
+        withdrawn_by = str(g.value(node, FAB.withdrawnBy) or "")
+        decline_reason = str(g.value(node, FAB.declineReason) or "")
+        if not declined_by and not withdrawn_by:
+            # a decline from before `declinedBy` existed: the attribution it carried is the best we hold
+            attributed = [str(o) for o in g.objects(node, G.PROV.wasAttributedTo)]
+            declined_by = attributed[-1] if attributed else ""
+        moved = [t for t in g.triples((node, None, None))
+                 if t[1] in (FAB.lifecycleState, FAB.askedIn, FAB.declinedBy, FAB.declineReason, FAB.withdrawnBy)]
+        event = URIRef(CURATION + ids.ulid())
+        audit = [(event, RDF.type, FAB.Reopening), (event, FAB.reopens, node),
+                 (event, G.PROV.wasAttributedTo, Literal(actor)), (event, FAB.reopenReason, Literal(reason)),
+                 (event, G.PROV.generatedAtTime, _stamp(now))]
+        audit += [(event, FAB[k], Literal(v)) for k, v in (("previouslyDeclinedBy", declined_by),
+                                                          ("previousDeclineReason", decline_reason),
+                                                          ("previouslyWithdrawnBy", withdrawn_by)) if v]
+        for t in moved:
+            g.remove(t)
+        for t in audit:
+            g.add(t)
+        name = "curated" if graph == CURATED_GRAPH else "candidates"
+        self._persist((name,), lambda: ([g.remove(t) for t in audit], [g.add(t) for t in moved]))
+        return {"iri": str(node), "kind": kind, "reopened": True, "state": "pending",
+                "history": {"declined_by": declined_by, "decline_reason": decline_reason,
+                            "withdrawn_by": withdrawn_by, "reopened_by": actor, "reopen_reason": reason,
+                            "reopening": str(event)}}
+
+    def vocab_author_timeouts(self, *, hours: float, now: datetime | None = None) -> dict:
+        """Terms whose AUTHOR has not answered within `hours` of WORKING time go on to a steward, flagged
+        `confirmation: timeout` (FR-17) — vocabulary never blocks the forum, and an unconfirmed term is
+        never passed off as confirmed. Idempotent: what has advanced no longer awaits anybody.
+
+        A row from before the clock existed has no start time; its clock STARTS on this pass rather than
+        timing out at once, because "waited an unknown time" is not "waited a day"."""
+        at = (now or datetime.now(timezone.utc))
+        g = self.ds.graph(CANDIDATES_GRAPH)
+        advanced, started, removed, added = [], [], [], []
+        for node in list(g.subjects(FAB.lifecycleState, FAB.AwaitingAuthor)):
+            since = _when(g.value(node, FAB.awaitingSince))
+            if since is None:
+                added.append((node, FAB.awaitingSince, _stamp(at)))
+                started.append(str(node))
+                continue
+            if workdays.working_hours_between(since, at) < hours:
+                continue
+            removed.append((node, FAB.lifecycleState, FAB.AwaitingAuthor))
+            added.append((node, FAB.confirmation, Literal("timeout")))
+            advanced.append(str(node))
+        for t in removed:
+            g.remove(t)
+        for t in added:
+            g.add(t)
+        if removed or added:
+            self._persist(("candidates",), lambda: ([g.remove(t) for t in added], [g.add(t) for t in removed]))
+        return {"advanced": sorted(advanced), "clock_started": sorted(started), "hours": hours}
+
+    def _freeze_of(self, iri: str):
+        """The freeze record for this artifact, or None. Its OWN node (as a person's "not about" is), never
+        triples on the artifact: the artifact's shape is closed, and a freeze is a fact ABOUT the record."""
+        g = self.ds.graph(CURATED_GRAPH)
+        return next(iter(g.subjects(FAB.freezes, URIRef(iri))), None)
+
+    def _frozen(self, iri: str) -> bool:
+        return self._freeze_of(iri) is not None
+
+    def catalog_freeze(self, iri: str, *, actor: str, reason: str = "", now: datetime | None = None) -> dict:
+        """Freeze what a record is ABOUT (FR-18) — at ratification, so no automated path (a classifier
+        re-read, admission propagation) adds or removes a subject from then on. A steward still can, at
+        rung H. Recorded in the persisted curated graph, in the person's name; freezing twice answers
+        `already` rather than restamping who froze it."""
+        if not str(actor or "").strip():
+            raise ValueError("freezing a record's subjects is a person's act: actor is required")
+        self._require(iri)
+        g, held = self.ds.graph(CURATED_GRAPH), self._freeze_of(iri)
+        if held is not None:
+            return {"iri": iri, "frozen": True, "already": True,
+                    "actor": str(g.value(held, G.PROV.wasAttributedTo) or "")}
+        node = URIRef(CURATION + ids.ulid())
+        triples = [(node, RDF.type, FAB.SubjectFreeze), (node, FAB.freezes, URIRef(iri)),
+                   (node, G.PROV.wasAttributedTo, Literal(actor)), (node, G.PROV.generatedAtTime, _stamp(now))]
+        if reason:
+            triples.append((node, FAB.freezeReason, Literal(reason)))
+        for t in triples:
+            g.add(t)
+        self._persist(("curated",), lambda: [g.remove(t) for t in triples])
+        return {"iri": iri, "frozen": True, "actor": actor, "reason": reason}
 
     # ------------------------------------------------------------------ gate
 
@@ -1189,7 +1365,8 @@ class FabricService:
         node = URIRef(question)
         if (node, RDF.type, FAB.RelationQuestion) not in g:
             raise LookupError(f"no relation question {question}")
-        triples = [(node, FAB.lifecycleState, FAB.Withdrawn), (node, G.PROV.wasAttributedTo, Literal(actor))]
+        triples = [(node, FAB.lifecycleState, FAB.Withdrawn), (node, G.PROV.wasAttributedTo, Literal(actor)),
+                   (node, FAB.declinedBy, Literal(actor))]
         if reason:
             triples.append((node, FAB.declineReason, Literal(reason)))
         for t in triples:
@@ -1198,7 +1375,7 @@ class FabricService:
         return {"iri": question, "declined": True, "actor": actor}
 
     #: The states a candidate-register row may carry on import — the register's own lifecycle words.
-    IMPORT_STATES = ("Pending", "Withdrawn", "Admitted")
+    IMPORT_STATES = ("Pending", "Withdrawn", "Admitted", "Reopened")
 
     def vocab_candidates_import(self, rows: Iterable[Mapping[str, Any]], *, actor: str) -> dict:
         """Seed the candidate register from another master's decisions — the HANDOVER from a channel that
@@ -1232,7 +1409,7 @@ class FabricService:
                     results.append(self._import_term(row, scheme, status, who, reason))
             except (ValueError, LookupError) as e:
                 problems.append(f"row {n} ({row.get('label') or row.get('subject') or '?'}): {e}")
-        return {"imported": sum(1 for r in results if r["outcome"] in ("pending", "declined")),
+        return {"imported": sum(1 for r in results if r["outcome"] in ("pending", "declined", "reopened")),
                 "results": results, "problems": problems}
 
     def _import_term(self, row, scheme, status, who, reason) -> dict:
@@ -1252,7 +1429,22 @@ class FabricService:
             if g.value(URIRef(parked["iri"]), FAB.lifecycleState) != FAB.Withdrawn:
                 self.vocab_decline(parked["iri"], actor=who, reason=reason)
             return {"label": label, "iri": parked["iri"], "outcome": "declined"}
+        if status == "Reopened":
+            self._import_reopen(parked["iri"], CANDIDATES_GRAPH, row, who, reason, self.vocab_decline)
+            return {"label": label, "iri": parked["iri"], "outcome": "reopened"}
         return {"label": label, "iri": parked["iri"], "outcome": "pending"}
+
+    def _import_reopen(self, iri, graph, row, who, reason, decline) -> None:
+        """A REOPENED row carries two decisions: the original decline (`declined_by`, `decline_reason`) and
+        the reopening (`actor`, `reason`). Written as both, in order, so the audit reads as it happened —
+        and idempotent: a row already reopened (a Reopening on record, not declined now) is left alone."""
+        g, node = self.ds.graph(graph), URIRef(iri)
+        if g.value(node, FAB.lifecycleState) != FAB.Withdrawn:
+            if any(g.subjects(FAB.reopens, node)):
+                return                                   # already imported: changes nothing
+            decline(iri, actor=str(row.get("declined_by") or who),
+                    reason=str(row.get("decline_reason") or ""))
+        self.vocab_reopen(iri, actor=who, reason=reason or "reopened before handover")
 
     def _import_relation(self, row, scheme, status, who, reason) -> dict:
         spec = {"scheme": scheme, "subject": str(row.get("subject") or ""),
@@ -1260,6 +1452,9 @@ class FabricService:
         if status == "Admitted":
             raise ValueError("a stated relation travels in the relationships master, not the register")
         parked = self.vocab_relation_propose(**spec, actor=who, evidence=reason)
+        if status == "Reopened":
+            self._import_reopen(parked["iri"], CURATED_GRAPH, row, who, reason, self.vocab_relation_decline)
+            return {**parked, "outcome": "reopened"}
         if status == "Withdrawn":
             g = self.ds.graph(CURATED_GRAPH)
             if g.value(URIRef(parked["iri"]), FAB.lifecycleState) != FAB.Withdrawn:
@@ -1398,6 +1593,10 @@ class FabricService:
                         # while the derivation was busy inventing one.
                         "proposed_for": for_them, "proposals": len(for_them) if for_them else None,
                         "asked": asked,
+                        # FR-17: how it got past its author — `author` (confirmed), `person` (proposed by
+                        # one), `timeout` (nobody confirmed it: the card says UNCONFIRMED), or "" when it
+                        # never waited for an author at all.
+                        "confirmation": str(g.value(node, FAB.confirmation) or ""),
                         "proposed_by": str(g.value(node, G.PROV.wasAttributedTo) or "")})
         return sorted(out, key=lambda c: c["label"])
 

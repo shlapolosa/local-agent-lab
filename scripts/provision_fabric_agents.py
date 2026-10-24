@@ -63,7 +63,7 @@ BOT_TOOLS = {
 }
 CURATOR_TOOLS = {
     SemanticTools.SERVER: (list(SemanticTools.WRITE) + list(SemanticTools.READ) + list(SemanticTools.WALK)
-                           + list(SemanticTools.RECLASSIFY)),   # PIPELINE + PROMOTE + WALK + RECLASSIFY: a channel
+                           + list(SemanticTools.RECLASSIFY) + list(SemanticTools.TIMERS)),   # PIPELINE + PROMOTE + WALK + RECLASSIFY: a channel
     # ...and the collaboration verbs the projector (put) and the reconciler (list, item) act with. Measured
     # on the first cloud sweep: `tool *collab_list not exposed by gateway` — a grant table that named
     # only the semantic server.

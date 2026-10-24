@@ -126,6 +126,15 @@ class SemanticTools(ToolCatalogue):
     #: The AUTHOR's answer about a term extracted from their document (FR-10): confirm | rename | remove.
     #: A person's decision, applied by the continuation runner with the channel's human — PROMOTE.
     author_confirm = "semantic_vocab_author_confirm"
+    #: FR-16 — a steward or admin REOPENS a declined term or relation, with a reason, audited apart from the
+    #: decline it reopens. A person's decision about the vocabulary — PROMOTE.
+    vocab_reopen = "semantic_vocab_reopen"
+    #: FR-17 — terms whose author did not answer within a working day go on to a steward flagged
+    #: `confirmation: timeout`. An OPERATOR's timed pass (the reconciler runs it) — TIMERS.
+    author_timeouts = "semantic_vocab_author_timeouts"
+    #: FR-18 — freeze what a RATIFIED record is about: no automated path changes its subjects afterwards.
+    #: A person's act at ratification — PROMOTE.
+    catalog_freeze = "semantic_catalog_freeze"
     #: What the CORPUS says two concepts have to do with each other, where the vocabulary says nothing —
     #: the producer that works without diagrams. A READ: it proposes a question and settles none.
     concept_pairs = "semantic_concept_pairs"
@@ -158,8 +167,12 @@ class SemanticTools(ToolCatalogue):
     # (`promote` with no predicate) and superseding one. Same grant, same reason — an agent that could
     # narrow the vocabulary it is classified against would be marking its own homework.
     PROMOTE = (promote, vocab_retire, vocab_amend, vocab_decline, vocab_place, vocab_relate,
-               not_about, about_after_all, relation_decline, candidates_import, author_confirm)
+               not_about, about_after_all, relation_decline, candidates_import, author_confirm,
+               vocab_reopen, catalog_freeze)
     REINDEX = (reindex,)
+    # A TIMED pass over the register, like REINDEX an operator's and never a workload's: it moves rows on
+    # nobody's answer, so it must run where the clock lives (the reconciler's sweep).
+    TIMERS = (author_timeouts,)
     # Enumerating the estate is an OPERATOR's verb, kept out of READ deliberately: a workload agent has an
     # iri or a pointer whenever it has business with a record, and a bot relaying one person's question has
     # no need for the list of everything. Granted to the curator alone, like REINDEX and for the same reason.
@@ -167,7 +180,7 @@ class SemanticTools(ToolCatalogue):
     # An OPERATOR's sweep over the estate, like REINDEX: it starts runs, so it is never a workload's.
     RECLASSIFY = (catalog_reclassify,)
     WRITE = PIPELINE + PROMOTE + REINDEX
-    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX, WALK, RECLASSIFY)
+    GRANTS = (READ, PIPELINE, PROMOTE, REINDEX, WALK, RECLASSIFY, TIMERS)
 
     # STABILITY — what an EXTERNAL consumer (the SAF pack, user decision 24 Oct 2026) may bind to. Published
     # in contracts/semantic-tools.json. STABLE: live, used by workloads, changed only with a contract version
@@ -177,7 +190,7 @@ class SemanticTools(ToolCatalogue):
               catalog_get, catalog_by_url, catalog_list, edge_assert, edge_retract)
     IN_FLUX = (vocab_resolve, vocab_place, vocab_relate, vocab_retire, vocab_candidates,
                relation_candidates, relation_propose, relation_open, relation_decline, candidates_import,
-               author_confirm)
+               author_confirm, vocab_reopen, author_timeouts, catalog_freeze)
 
 
 ARTIFACT_INTAKE = ProcessSpec(

@@ -587,6 +587,35 @@ def semantic_vocab_author_confirm(candidate: str, decision: str, actor: str, lab
 
 
 @server.tool()
+def semantic_vocab_reopen(target: str, actor: str, reason: str, scheme: str = "") -> dict:
+    """REOPEN a declined term or relation — the repair path for "a decline is final". `target` is a
+    candidate IRI, a relation-question IRI, or a term's LABEL (give `scheme` when one word is a candidate in
+    several vocabularies). The row returns to PENDING with its evidence kept, so a steward is asked again
+    through the normal queue. Audited apart from the decline (`history`: who declined and why, who reopened
+    and why). `actor` is the signed-in steward or admin and `reason` is required; only a declined row
+    reopens."""
+    return fabric().vocab_reopen(target, actor=actor, reason=reason, scheme=scheme)
+
+
+@server.tool()
+def semantic_vocab_author_timeouts(hours: float | None = None) -> dict:
+    """Send on to a steward every extracted term whose AUTHOR has not answered within `hours` of WORKING
+    time (Mon–Fri, UTC; default FABRIC_AUTHOR_CONFIRM_HOURS, one working day). Each is flagged
+    `confirmation: timeout` and the steward's card says UNCONFIRMED — never treated as confirmed.
+    Idempotent; the reconciler runs it on its sweep. Returns {advanced, clock_started, hours}."""
+    return fabric().vocab_author_timeouts(hours=config.FABRIC_AUTHOR_CONFIRM_HOURS if hours is None else hours)
+
+
+@server.tool()
+def semantic_catalog_freeze(iri: str, actor: str, reason: str = "") -> dict:
+    """Freeze what a RATIFIED record is about: from now on no automated path (a classifier re-read,
+    admission propagation) adds or removes one of its subjects — the change is reported as `frozen`, never
+    made. A steward still can, at rung H (semantic_edge_assert / semantic_edge_retract / semantic_promote).
+    `actor` is the signed-in person; freezing twice answers `already`."""
+    return fabric().catalog_freeze(iri, actor=actor, reason=reason)
+
+
+@server.tool()
 def semantic_vocab_candidates_import(rows: list[dict], actor: str) -> dict:
     """Seed the candidate register from another master's decisions — the HANDOVER, so a steward is never
     asked twice about a term or a relation they already answered elsewhere.
